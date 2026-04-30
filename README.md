@@ -2,6 +2,15 @@
 
 A personal Windows-only Electron app for running Copilot CLI inside the app and organizing repo-scoped threads.
 
+## Current features
+
+- Add git repositories from a folder picker
+- Create persisted threads in active-branch mode or owned-worktree mode
+- Launch Copilot CLI inside the embedded terminal per selected thread
+- Resume prior Copilot sessions by persisted thread session name
+- Configure global Copilot flags for all thread launches
+- Remove owned worktrees and branches when closing a worktree-backed thread
+
 ## Stack
 
 - Bun
@@ -43,3 +52,8 @@ bun run build:win
 ```
 
 Renderer dev server runs on port `5175`.
+
+## Notes
+
+- Worktree-backed threads prompt before deletion if the worktree is dirty.
+- Native Electron rebuild stays opt-in through the packaging scripts. On this machine, `node-pty` packaging rebuilds require Python to be installed.

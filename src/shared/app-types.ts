@@ -1,0 +1,126 @@
+export type ThreadMode = 'active-branch' | 'worktree'
+
+export interface TerminalCreateRequest {
+  cols: number
+  rows: number
+  cwd?: string
+  args?: string[]
+  threadId?: string
+}
+
+export interface TerminalStatus {
+  available: boolean
+  commandPath?: string
+  defaultCwd: string
+  message: string
+}
+
+export interface TerminalLaunchSuccess {
+  ok: true
+  terminalId: string
+  cwd: string
+  launchedCommand: string
+}
+
+export interface TerminalLaunchFailure {
+  ok: false
+  error: string
+}
+
+export type TerminalLaunchResult = TerminalLaunchSuccess | TerminalLaunchFailure
+
+export interface TerminalDataEvent {
+  terminalId: string
+  data: string
+}
+
+export interface TerminalExitEvent {
+  terminalId: string
+  exitCode: number
+}
+
+export interface TerminalApi {
+  getStatus: () => Promise<TerminalStatus>
+  create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
+  kill: (terminalId: string) => Promise<boolean>
+  input: (terminalId: string, data: string) => void
+  resize: (terminalId: string, cols: number, rows: number) => void
+  onData: (callback: (payload: TerminalDataEvent) => void) => () => void
+  onExit: (callback: (payload: TerminalExitEvent) => void) => () => void
+}
+
+export interface PersistedSettings {
+  globalFlagsInput: string
+}
+
+export interface PersistedRepository {
+  id: string
+  name: string
+  path: string
+  addedAt: string
+}
+
+export interface PersistedThread {
+  id: string
+  repositoryId: string
+  title: string
+  mode: ThreadMode
+  branchName: string
+  worktreePath: string | null
+  sessionName: string
+  createdAt: string
+  lastActivityAt: string
+  hasLaunched: boolean
+}
+
+export interface PersistedAppState {
+  version: 1
+  settings: PersistedSettings
+  repositories: PersistedRepository[]
+  threads: PersistedThread[]
+  ui: {
+    selectedRepositoryId: string | null
+    selectedThreadId: string | null
+  }
+}
+
+export interface AppSettingsSnapshot extends PersistedSettings {
+  parsedGlobalFlags: string[]
+}
+
+export interface ThreadSnapshot extends PersistedThread {
+  cwd: string
+  displayBranchName: string
+  isRunning: boolean
+}
+
+export interface RepositorySnapshot extends PersistedRepository {
+  currentBranch: string
+  lastActivityAt: string
+  threads: ThreadSnapshot[]
+}
+
+export interface AppSnapshot {
+  repositories: RepositorySnapshot[]
+  settings: AppSettingsSnapshot
+  selectedRepositoryId: string | null
+  selectedThreadId: string | null
+}
+
+export interface MutationResult {
+  ok: boolean
+  snapshot?: AppSnapshot
+  error?: string
+  cancelled?: boolean
+}
+
+export interface CreateThreadInput {
+  repositoryId: string
+  mode: ThreadMode
+  title?: string
+  branchName?: string
+}
+
+export interface UpdateSettingsInput {
+  globalFlagsInput: string
+}

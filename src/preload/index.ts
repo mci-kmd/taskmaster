@@ -1,24 +1,28 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-
-type TerminalCreateRequest = {
-  cols: number
-  rows: number
-  cwd?: string
-  args?: string[]
-}
-
-type TerminalDataEvent = {
-  terminalId: string
-  data: string
-}
-
-type TerminalExitEvent = {
-  terminalId: string
-  exitCode: number
-}
+import type {
+  CreateThreadInput,
+  TerminalCreateRequest,
+  TerminalDataEvent,
+  TerminalExitEvent,
+  UpdateSettingsInput
+} from '../shared/app-types'
 
 const api = {
+  appState: {
+    getSnapshot: () => ipcRenderer.invoke('app-state:get-snapshot'),
+    refresh: () => ipcRenderer.invoke('app-state:refresh'),
+    addRepository: () => ipcRenderer.invoke('app-state:add-repository'),
+    createThread: (input: CreateThreadInput) =>
+      ipcRenderer.invoke('app-state:create-thread', input),
+    closeThread: (threadId: string) => ipcRenderer.invoke('app-state:close-thread', threadId),
+    updateSettings: (input: UpdateSettingsInput) =>
+      ipcRenderer.invoke('app-state:update-settings', input),
+    selectRepository: (repositoryId: string | null) =>
+      ipcRenderer.invoke('app-state:select-repository', repositoryId),
+    selectThread: (threadId: string | null) =>
+      ipcRenderer.invoke('app-state:select-thread', threadId)
+  },
   terminal: {
     getStatus: () => ipcRenderer.invoke('terminal:status'),
     create: (request: TerminalCreateRequest) => ipcRenderer.invoke('terminal:create', request),

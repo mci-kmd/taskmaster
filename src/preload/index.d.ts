@@ -1,58 +1,29 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type {
+  AppSnapshot,
+  CreateThreadInput,
+  MutationResult,
+  TerminalApi,
+  UpdateSettingsInput
+} from '../shared/app-types'
 
 declare global {
-  interface TerminalCreateRequest {
-    cols: number
-    rows: number
-    cwd?: string
-    args?: string[]
-  }
-
-  interface TerminalStatus {
-    available: boolean
-    commandPath?: string
-    defaultCwd: string
-    message: string
-  }
-
-  interface TerminalLaunchSuccess {
-    ok: true
-    terminalId: string
-    cwd: string
-    launchedCommand: string
-  }
-
-  interface TerminalLaunchFailure {
-    ok: false
-    error: string
-  }
-
-  type TerminalLaunchResult = TerminalLaunchSuccess | TerminalLaunchFailure
-
-  interface TerminalDataEvent {
-    terminalId: string
-    data: string
-  }
-
-  interface TerminalExitEvent {
-    terminalId: string
-    exitCode: number
-  }
-
-  interface TerminalApi {
-    getStatus: () => Promise<TerminalStatus>
-    create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
-    kill: (terminalId: string) => Promise<boolean>
-    input: (terminalId: string, data: string) => void
-    resize: (terminalId: string, cols: number, rows: number) => void
-    onData: (callback: (payload: TerminalDataEvent) => void) => () => void
-    onExit: (callback: (payload: TerminalExitEvent) => void) => () => void
+  interface AppStateApi {
+    getSnapshot: () => Promise<AppSnapshot>
+    refresh: () => Promise<AppSnapshot>
+    addRepository: () => Promise<MutationResult>
+    createThread: (input: CreateThreadInput) => Promise<MutationResult>
+    closeThread: (threadId: string) => Promise<MutationResult>
+    updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>
+    selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
+    selectThread: (threadId: string | null) => Promise<AppSnapshot>
   }
 
   interface Window {
     electron: ElectronAPI
     api: {
       terminal: TerminalApi
+      appState: AppStateApi
     }
   }
 }

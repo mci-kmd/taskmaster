@@ -1,17 +1,37 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from 'xterm'
+import type { AppSettingsSnapshot, TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
 
-export default function TerminalPane(): React.JSX.Element {
+type TerminalPaneProps = {
+  selectedThread: ThreadSnapshot | null
+  settings: AppSettingsSnapshot | null
+  onRefresh: () => Promise<void>
+  onFeedback: (tone: 'error' | 'success' | 'info', message: string) => void
+}
+
+export default function TerminalPane({
+  selectedThread,
+  settings,
+  onRefresh,
+  onFeedback
+}: TerminalPaneProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
-  const resizeObserverRef = useRef<ResizeObserver | null>(null)
   const terminalIdRef = useRef<string | null>(null)
   const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
   const [isLaunching, setIsLaunching] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
   const [launchSummary, setLaunchSummary] = useState('Waiting for Copilot CLI check...')
+
+  const selectedThreadSummary = useMemo(() => {
+    if (!selectedThread) {
+      return 'Select a thread to launch Copilot in-app.'
+    }
+
+    return `Selected thread "${selectedThread.title}" on ${selectedThread.cwd}`
+  }, [selectedThread])
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -55,8 +75,6 @@ export default function TerminalPane(): React.JSX.Element {
     terminal.open(containerRef.current)
     fitAddon.fit()
     terminal.focus()
-    terminal.writeln('Taskmaster terminal ready.')
-    terminal.writeln('')
 
     const syncSize = (): void => {
       fitAddon.fit()
@@ -92,6 +110,7 @@ export default function TerminalPane(): React.JSX.Element {
       setLaunchSummary(`Copilot session exited with code ${payload.exitCode}.`)
       terminal.writeln('')
       terminal.writeln(`[Taskmaster] Copilot session exited with code ${payload.exitCode}.`)
+      void onRefresh()
     })
 
     const disposable = terminal.onData((data) => {
@@ -106,13 +125,15 @@ export default function TerminalPane(): React.JSX.Element {
       setCopilotStatus(status)
       setIsLaunching(false)
       setLaunchSummary(status.message)
+      terminal.writeln('Taskmaster terminal ready.')
+      terminal.writeln('')
       terminal.writeln(status.message)
       terminal.writeln(`[Taskmaster] Launch cwd: ${status.defaultCwd}`)
+      terminal.writeln('[Taskmaster] Select a thread, then launch Copilot.')
     })
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
-    resizeObserverRef.current = resizeObserver
 
     return () => {
       resizeObserver.disconnect()
@@ -127,25 +148,69 @@ export default function TerminalPane(): React.JSX.Element {
 
       terminal.dispose()
     }
-  }, [])
+  }, [onRefresh])
+
+  useEffect(() => {
+    const terminal = terminalRef.current
+    if (!terminal) {
+      return
+    }
+
+    const resetTerminal = async (): Promise<void> => {
+      if (terminalIdRef.current) {
+        await window.api.terminal.kill(terminalIdRef.current)
+        terminalIdRef.current = null
+      }
+
+      terminal.reset()
+      terminal.writeln('[Taskmaster] Terminal ready.')
+      terminal.writeln('')
+      terminal.writeln(copilotStatus?.message ?? 'Resolving Copilot CLI availability...')
+      terminal.writeln(selectedThreadSummary)
+
+      if (selectedThread) {
+        terminal.writeln(`[Taskmaster] Session name: ${selectedThread.sessionName}`)
+        terminal.writeln(`[Taskmaster] Branch: ${selectedThread.displayBranchName}`)
+      }
+
+      setLaunchSummary(selectedThreadSummary)
+      setIsRunning(false)
+      terminal.focus()
+    }
+
+    void resetTerminal()
+  }, [copilotStatus?.message, selectedThread, selectedThreadSummary])
 
   const startCopilot = async (): Promise<void> => {
     const terminal = terminalRef.current
     const fitAddon = fitAddonRef.current
 
-    if (!terminal || !fitAddon || !copilotStatus?.available || isRunning) {
+    if (
+      !terminal ||
+      !fitAddon ||
+      !copilotStatus?.available ||
+      !selectedThread ||
+      !settings ||
+      isRunning
+    ) {
       return
     }
 
     setIsLaunching(true)
-    terminal.clear()
+    terminal.reset()
     terminal.writeln('[Taskmaster] Launching Copilot CLI...')
     fitAddon.fit()
 
+    const args = selectedThread.hasLaunched
+      ? [`--resume=${selectedThread.sessionName}`, ...settings.parsedGlobalFlags]
+      : ['--name', selectedThread.sessionName, ...settings.parsedGlobalFlags]
+
     const result = await window.api.terminal.create({
+      threadId: selectedThread.id,
       cols: terminal.cols,
       rows: terminal.rows,
-      cwd: copilotStatus.defaultCwd
+      cwd: selectedThread.cwd,
+      args
     })
 
     setIsLaunching(false)
@@ -153,6 +218,7 @@ export default function TerminalPane(): React.JSX.Element {
     if (!result.ok) {
       setLaunchSummary(result.error)
       terminal.writeln(result.error)
+      onFeedback('error', result.error)
       return
     }
 
@@ -160,6 +226,7 @@ export default function TerminalPane(): React.JSX.Element {
     setIsRunning(true)
     setLaunchSummary(`Running ${result.launchedCommand} in ${result.cwd}`)
     terminal.focus()
+    await onRefresh()
   }
 
   const stopCopilot = async (): Promise<void> => {
@@ -168,6 +235,9 @@ export default function TerminalPane(): React.JSX.Element {
     }
 
     await window.api.terminal.kill(terminalIdRef.current)
+    terminalIdRef.current = null
+    setIsRunning(false)
+    await onRefresh()
   }
 
   return (
@@ -181,7 +251,7 @@ export default function TerminalPane(): React.JSX.Element {
         <div className="flex items-center gap-2">
           <button
             className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-sm font-medium text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!copilotStatus?.available || isLaunching || isRunning}
+            disabled={!copilotStatus?.available || isLaunching || isRunning || !selectedThread}
             onClick={() => void startCopilot()}
             type="button"
           >
@@ -206,9 +276,11 @@ export default function TerminalPane(): React.JSX.Element {
           </div>
         </div>
         <div className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2">
-          <div className="font-semibold uppercase tracking-[0.18em] text-slate-500">Launch cwd</div>
-          <div className="mt-2 truncate font-mono text-sm text-slate-200">
-            {copilotStatus?.defaultCwd ?? 'Resolving...'}
+          <div className="font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Selected thread
+          </div>
+          <div className="mt-2 truncate text-sm text-slate-200">
+            {selectedThread ? selectedThread.title : 'None'}
           </div>
         </div>
       </div>

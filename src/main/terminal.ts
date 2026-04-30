@@ -10,19 +10,14 @@ import {
   type WebContents
 } from 'electron'
 import * as pty from 'node-pty'
-
-type TerminalCreateRequest = {
-  cols: number
-  rows: number
-  cwd?: string
-  args?: string[]
-}
+import type { TerminalCreateRequest, TerminalStatus } from '../shared/app-types'
 
 type TerminalSession = {
   id: string
   cwd: string
   ownerId: number
   ptyProcess: pty.IPty
+  threadId?: string
 }
 
 type CopilotCommand = {
@@ -31,15 +26,16 @@ type CopilotCommand = {
   displayCommand: string
 }
 
-type CopilotStatus = {
-  available: boolean
-  commandPath?: string
-  defaultCwd: string
-  message: string
+type TerminalHooks = {
+  onThreadStart?: (threadId: string) => void
+  onThreadActivity?: (threadId: string) => void
+  onThreadStop?: (threadId: string) => void
 }
 
 const sessions = new Map<string, TerminalSession>()
 const ownerCleanupHooks = new Set<number>()
+const threadActivityTimestamps = new Map<string, number>()
+let terminalHooks: TerminalHooks = {}
 
 function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
@@ -75,7 +71,7 @@ function resolveCopilotPath(): string | null {
   )
 }
 
-function getCopilotStatus(): CopilotStatus {
+function getCopilotStatus(): TerminalStatus {
   const commandPath = resolveCopilotPath()
   const defaultCwd = getDefaultCwd()
 
@@ -119,17 +115,17 @@ function buildCopilotCommand(commandPath: string, args: string[] = []): CopilotC
   }
 }
 
-function attachOwnerCleanup(webContents: WebContents): void {
-  if (ownerCleanupHooks.has(webContents.id)) {
+function attachOwnerCleanup(ownerContents: WebContents): void {
+  if (ownerCleanupHooks.has(ownerContents.id)) {
     return
   }
 
-  ownerCleanupHooks.add(webContents.id)
-  webContents.once('destroyed', () => {
-    ownerCleanupHooks.delete(webContents.id)
+  ownerCleanupHooks.add(ownerContents.id)
+  ownerContents.once('destroyed', () => {
+    ownerCleanupHooks.delete(ownerContents.id)
 
     for (const session of sessions.values()) {
-      if (session.ownerId !== webContents.id) {
+      if (session.ownerId !== ownerContents.id) {
         continue
       }
 
@@ -142,6 +138,11 @@ function attachOwnerCleanup(webContents: WebContents): void {
 function finalizeSession(session: TerminalSession, exitCode: number): void {
   if (!sessions.delete(session.id)) {
     return
+  }
+
+  if (session.threadId) {
+    threadActivityTimestamps.delete(session.threadId)
+    terminalHooks.onThreadStop?.(session.threadId)
   }
 
   const ownerContents = webContents.fromId(session.ownerId)
@@ -165,6 +166,21 @@ function getOwnedSession(
   }
 
   return session
+}
+
+function notifyThreadActivity(threadId?: string): void {
+  if (!threadId) {
+    return
+  }
+
+  const now = Date.now()
+  const lastNotifiedAt = threadActivityTimestamps.get(threadId) ?? 0
+  if (now - lastNotifiedAt < 15_000) {
+    return
+  }
+
+  threadActivityTimestamps.set(threadId, now)
+  terminalHooks.onThreadActivity?.(threadId)
 }
 
 function createSession(
@@ -200,16 +216,21 @@ function createSession(
     id: terminalId,
     cwd,
     ownerId: event.sender.id,
-    ptyProcess
+    ptyProcess,
+    threadId: request.threadId
   }
 
   sessions.set(terminalId, session)
+  if (request.threadId) {
+    terminalHooks.onThreadStart?.(request.threadId)
+  }
 
   ptyProcess.onData((data) => {
     if (event.sender.isDestroyed()) {
       return
     }
 
+    notifyThreadActivity(session.threadId)
     event.sender.send('terminal:data', {
       terminalId,
       data
@@ -228,7 +249,28 @@ function createSession(
   }
 }
 
-export function registerTerminalIpc(): void {
+export function getRunningThreadIds(): Set<string> {
+  return new Set(
+    [...sessions.values()]
+      .map((session) => session.threadId)
+      .filter((threadId): threadId is string => Boolean(threadId))
+  )
+}
+
+export function killSessionsForThread(threadId: string): void {
+  for (const session of sessions.values()) {
+    if (session.threadId !== threadId) {
+      continue
+    }
+
+    sessions.delete(session.id)
+    session.ptyProcess.kill()
+  }
+}
+
+export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
+  terminalHooks = hooks
+
   ipcMain.handle('terminal:status', () => getCopilotStatus())
 
   ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => {
@@ -251,6 +293,7 @@ export function registerTerminalIpc(): void {
       return
     }
 
+    notifyThreadActivity(session.threadId)
     session.ptyProcess.write(payload.data)
   })
 
