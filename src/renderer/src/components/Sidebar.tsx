@@ -230,9 +230,9 @@ export default function Sidebar({
                                 <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
                               </span>
                             </span>
-                            {thread.mode === 'worktree' ? (
+                            {thread.mode === 'worktree' || thread.mode === 'new-branch' ? (
                               <span className="shrink-0 rounded border border-[var(--color-border)] px-1 py-px font-mono text-[9.5px] uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">
-                                wt
+                                {thread.mode === 'worktree' ? 'wt' : 'nb'}
                               </span>
                             ) : null}
                           </button>

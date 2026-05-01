@@ -169,7 +169,11 @@ export default function LaunchPanel({
             Mode
           </span>
           <span className="text-[var(--color-fg)]">
-            {thread.mode === 'worktree' ? 'Owned worktree' : 'Active branch'}
+            {thread.mode === 'worktree'
+              ? 'Worktree'
+              : thread.mode === 'new-branch'
+                ? 'New branch'
+                : 'Active branch'}
           </span>
           <span className="font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
             Session

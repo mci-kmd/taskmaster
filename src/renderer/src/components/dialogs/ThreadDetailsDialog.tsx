@@ -42,7 +42,13 @@ export default function ThreadDetailsDialog({
 
   return (
     <Modal
-      description={thread.mode === 'worktree' ? 'Owned worktree thread' : 'Active-branch thread'}
+      description={
+        thread.mode === 'worktree'
+          ? 'Worktree thread'
+          : thread.mode === 'new-branch'
+            ? 'New-branch thread'
+            : 'Active-branch thread'
+      }
       footer={
         <>
           <Button onClick={onClose} title="Close dialog (Esc)" variant="ghost">
@@ -54,7 +60,9 @@ export default function ThreadDetailsDialog({
             title={
               thread.mode === 'worktree'
                 ? 'Close thread, remove worktree, delete branch'
-                : 'Close thread (branch and working tree are preserved)'
+                : thread.mode === 'new-branch'
+                  ? 'Close thread (the branch and working tree are preserved)'
+                  : 'Close thread (branch and working tree are preserved)'
             }
             variant="danger"
           >
@@ -118,6 +126,12 @@ export default function ThreadDetailsDialog({
           <span className="font-mono text-[var(--color-fg)]">{thread.cwd}</span> and deletes the{' '}
           <span className="font-mono text-[var(--color-fg)]">{thread.branchName}</span> branch. You
           will be asked to confirm if the worktree is dirty.
+        </p>
+      ) : thread.mode === 'new-branch' ? (
+        <p className="mt-4 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
+          Closing this thread only forgets the persisted Copilot session. The{' '}
+          <span className="font-mono text-[var(--color-fg)]">{thread.branchName}</span> branch and
+          working tree are left untouched.
         </p>
       ) : (
         <p className="mt-4 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">

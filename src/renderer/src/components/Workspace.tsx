@@ -134,7 +134,13 @@ export default function Workspace({
               {selectedThread ? (
                 <span
                   className="grid size-4 place-items-center rounded text-[var(--color-fg-subtle)]"
-                  title={selectedThread.mode === 'worktree' ? 'Owned worktree' : 'Active branch'}
+                  title={
+                    selectedThread.mode === 'worktree'
+                      ? 'Worktree'
+                      : selectedThread.mode === 'new-branch'
+                        ? 'New branch'
+                        : 'Active branch'
+                  }
                 >
                   {selectedThread.mode === 'worktree' ? (
                     <WorktreeIcon width={11} height={11} />
@@ -154,7 +160,11 @@ export default function Workspace({
                 <>
                   <span className="text-[var(--color-fg-faint)]">·</span>
                   <span className="truncate">
-                    {selectedThread.mode === 'worktree' ? 'worktree' : 'active branch'}
+                    {selectedThread.mode === 'worktree'
+                      ? 'worktree'
+                      : selectedThread.mode === 'new-branch'
+                        ? 'new branch'
+                        : 'active branch'}
                   </span>
                   <span className="text-[var(--color-fg-faint)]">·</span>
                   <span className="inline-flex items-center gap-1.5">

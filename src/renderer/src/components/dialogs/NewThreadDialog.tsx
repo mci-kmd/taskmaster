@@ -81,11 +81,24 @@ function NewThreadForm({
     await onSubmit({
       mode,
       title: title.trim() || undefined,
-      branchName: mode === 'worktree' ? branchName.trim() : undefined
+      branchName: mode === 'active-branch' ? undefined : branchName.trim()
     })
   }
 
-  const submitDisabled = busy || (mode === 'worktree' && !branchName.trim())
+  const requiresBranchInput = mode === 'new-branch' || mode === 'worktree'
+  const submitDisabled = busy || (requiresBranchInput && !branchName.trim())
+
+  const labelHint =
+    mode === 'new-branch'
+      ? 'Defaults to the branch name when blank.'
+      : mode === 'worktree'
+        ? 'Defaults to the worktree branch name when blank.'
+        : `Defaults to ${repository.currentBranch} when blank.`
+
+  const branchHint =
+    mode === 'new-branch'
+      ? 'Created in this repo via git checkout -b. Must not already exist.'
+      : 'Worktree folder name is derived from this branch.'
 
   return (
     <form
@@ -105,11 +118,16 @@ function NewThreadForm({
             {
               value: 'active-branch',
               label: 'Active branch',
-              description: 'Run Copilot in the repository working tree'
+              description: 'Run Copilot on the repo as it is currently checked out'
+            },
+            {
+              value: 'new-branch',
+              label: 'New branch',
+              description: 'Create a branch in this repo and check it out'
             },
             {
               value: 'worktree',
-              label: 'Owned worktree',
+              label: 'Worktree',
               description: 'Create a dedicated worktree + branch'
             }
           ]}
@@ -117,24 +135,17 @@ function NewThreadForm({
         />
       </Field>
 
-      <Field
-        hint={
-          mode === 'worktree'
-            ? 'Defaults to the worktree branch name when blank.'
-            : `Defaults to ${repository.currentBranch} when blank.`
-        }
-        label="Label"
-      >
+      <Field hint={labelHint} label="Label">
         <TextInput
           autoFocus
           onChange={(event) => setTitle(event.target.value)}
-          placeholder={mode === 'worktree' ? 'Optional thread label' : repository.currentBranch}
+          placeholder={requiresBranchInput ? 'Optional thread label' : repository.currentBranch}
           value={title}
         />
       </Field>
 
-      {mode === 'worktree' ? (
-        <Field hint="Worktree folder name is derived from this branch." label="Branch name">
+      {requiresBranchInput ? (
+        <Field hint={branchHint} label="Branch name">
           <TextInput
             onChange={(event) => setBranchName(event.target.value)}
             placeholder="feature/my-branch"
@@ -156,8 +167,10 @@ function NewThreadForm({
           disabled={submitDisabled}
           title={
             mode === 'worktree'
-              ? 'Create a new owned worktree thread'
-              : 'Create a new active-branch thread'
+              ? 'Create a new worktree thread'
+              : mode === 'new-branch'
+                ? 'Create a new branch and start a thread on it'
+                : 'Create a new active-branch thread'
           }
           type="submit"
           variant="primary"

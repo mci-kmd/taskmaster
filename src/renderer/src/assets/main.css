@@ -295,7 +295,8 @@ select {
 
 /* Segmented control */
 .tm-segmented {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   padding: 3px;
   gap: 2px;
   border-radius: 8px;

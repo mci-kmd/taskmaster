@@ -1,4 +1,4 @@
-export type ThreadMode = 'active-branch' | 'worktree'
+export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
 
 export interface TerminalCreateRequest {
   cols: number

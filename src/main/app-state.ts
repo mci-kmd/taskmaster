@@ -404,6 +404,41 @@ function createThread(input: CreateThreadInput): MutationResult {
     return successResult()
   }
 
+  if (input.mode === 'new-branch') {
+    const branchName = input.branchName?.trim()
+    if (!branchName) {
+      return failureResult('Branch name is required for new-branch threads.')
+    }
+
+    if (branchExists(repository.path, branchName)) {
+      return failureResult(`Branch "${branchName}" already exists.`)
+    }
+
+    try {
+      runGit(repository.path, ['checkout', '-b', branchName])
+    } catch (error) {
+      return failureResult(error instanceof Error ? error.message : String(error))
+    }
+
+    const thread: PersistedThread = {
+      id: randomUUID(),
+      repositoryId: repository.id,
+      customTitle,
+      mode: 'new-branch',
+      branchName,
+      worktreePath: null,
+      sessionName: `taskmaster-${randomUUID()}`,
+      createdAt,
+      lastActivityAt: createdAt,
+      hasLaunched: false
+    }
+
+    state.threads.push(thread)
+    updateSelection(repository.id, thread.id)
+    saveState()
+    return successResult()
+  }
+
   const currentBranch = getCurrentBranchLabel(repository.path)
   const thread: PersistedThread = {
     id: randomUUID(),
