@@ -42,12 +42,23 @@ export default function EmptyState({
 
         <div className="mt-6 flex items-center gap-2">
           {hasRepositories ? (
-            <Button disabled={!hasRepository} onClick={onNewThread} size="md" variant="primary">
+            <Button
+              disabled={!hasRepository}
+              onClick={onNewThread}
+              size="md"
+              title={hasRepository ? 'Create a new thread (Ctrl+N)' : 'Select a repository first'}
+              variant="primary"
+            >
               <PlusIcon width={12} height={12} strokeWidth={1.8} />
               New thread
             </Button>
           ) : (
-            <Button onClick={onAddRepository} size="md" variant="primary">
+            <Button
+              onClick={onAddRepository}
+              size="md"
+              title="Add a git repository to begin"
+              variant="primary"
+            >
               <PlusIcon width={12} height={12} strokeWidth={1.8} />
               Add repository
             </Button>

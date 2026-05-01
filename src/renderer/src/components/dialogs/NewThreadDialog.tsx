@@ -49,7 +49,7 @@ export default function NewThreadDialog({
             Add or select a repository first, then create a thread.
           </p>
           <div className="flex justify-end">
-            <Button onClick={onClose} variant="secondary">
+            <Button onClick={onClose} title="Close dialog" variant="secondary">
               Close
             </Button>
           </div>
@@ -135,10 +135,19 @@ function NewThreadForm({
       )}
 
       <div className="mt-2 flex items-center justify-end gap-2 pt-1">
-        <Button onClick={onCancel} type="button" variant="ghost">
+        <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
           Cancel
         </Button>
-        <Button disabled={submitDisabled} type="submit" variant="primary">
+        <Button
+          disabled={submitDisabled}
+          title={
+            mode === 'worktree'
+              ? 'Create a new owned worktree thread'
+              : 'Create a new active-branch thread'
+          }
+          type="submit"
+          variant="primary"
+        >
           {busy ? 'Creating…' : 'Create thread'}
         </Button>
       </div>

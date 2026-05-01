@@ -34,6 +34,7 @@ export default function Toast({ tone, message, onDismiss }: ToastProps): React.J
           aria-label="Dismiss"
           className="-m-1 grid size-6 shrink-0 place-items-center rounded text-[var(--color-fg-subtle)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]"
           onClick={onDismiss}
+          title="Dismiss"
           type="button"
         >
           <CloseIcon width={11} height={11} />

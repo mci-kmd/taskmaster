@@ -54,9 +54,10 @@ export default function Sidebar({
           aria-label="Open settings"
           className="grid size-7 place-items-center rounded-md text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]"
           onClick={onOpenSettings}
+          title="Settings"
           type="button"
         >
-          <GearIcon />
+          <GearIcon width={14} height={14} />
         </button>
       </div>
 
@@ -65,13 +66,20 @@ export default function Sidebar({
           className="group flex w-full items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2 text-[12.5px] font-medium text-[var(--color-fg)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-hover)] disabled:opacity-50"
           disabled={!selectedRepository}
           onClick={onNewThread}
+          title={
+            selectedRepository
+              ? `New thread in ${selectedRepository.name} (Ctrl+N)`
+              : 'Select a repository first'
+          }
           type="button"
         >
           <span className="grid size-5 place-items-center rounded-[5px] bg-[var(--color-active)] text-[var(--color-fg)] transition group-hover:bg-[var(--color-fg)] group-hover:text-[#0c0c0c]">
             <PlusIcon width={11} height={11} strokeWidth={1.8} />
           </span>
           New thread
-          <span className="ml-auto font-mono text-[11px] text-[var(--color-fg-subtle)]">⌘N</span>
+          <span className="ml-auto font-mono text-[10.5px] tracking-wide text-[var(--color-fg-subtle)]">
+            Ctrl N
+          </span>
         </button>
       </div>
 
@@ -89,6 +97,7 @@ export default function Sidebar({
             className="grid size-6 place-items-center rounded-md text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] disabled:opacity-50"
             disabled={busyAddRepository}
             onClick={onAddRepository}
+            title="Add repository"
             type="button"
           >
             <PlusIcon width={13} height={13} strokeWidth={1.6} />
@@ -102,6 +111,7 @@ export default function Sidebar({
             <button
               className="mt-2 text-[var(--color-fg)] underline-offset-2 hover:underline"
               onClick={onAddRepository}
+              title="Add a git repository"
               type="button"
             >
               Add one
@@ -128,6 +138,7 @@ export default function Sidebar({
                     aria-label={isCollapsed ? 'Expand repository' : 'Collapse repository'}
                     className="grid size-5 place-items-center rounded text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]"
                     onClick={() => onToggleRepository(repository.id)}
+                    title={isCollapsed ? 'Expand' : 'Collapse'}
                     type="button"
                   >
                     {isCollapsed ? (
@@ -139,6 +150,7 @@ export default function Sidebar({
                   <button
                     className="flex min-w-0 flex-1 items-center gap-1.5"
                     onClick={() => onSelectRepository(repository.id)}
+                    title={`${repository.name} — ${repository.path}`}
                     type="button"
                   >
                     <FolderIcon
@@ -176,6 +188,9 @@ export default function Sidebar({
                                 : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
                             }`}
                             onClick={() => onSelectThread(thread.id)}
+                            title={`${thread.title} · ${thread.displayBranchName}${
+                              thread.isRunning ? ' · running' : ''
+                            }\n${thread.cwd}`}
                             type="button"
                           >
                             <span

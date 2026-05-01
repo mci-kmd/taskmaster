@@ -111,10 +111,15 @@ function SettingsForm({
       </div>
 
       <div className="mt-2 flex items-center justify-end gap-2 pt-1">
-        <Button onClick={onCancel} type="button" variant="ghost">
+        <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
           Cancel
         </Button>
-        <Button disabled={busy || !dirty} type="submit" variant="primary">
+        <Button
+          disabled={busy || !dirty}
+          title="Save global Copilot flags"
+          type="submit"
+          variant="primary"
+        >
           {busy ? 'Saving…' : 'Save flags'}
         </Button>
       </div>

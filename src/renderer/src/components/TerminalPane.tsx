@@ -168,6 +168,18 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
 
     resizeObserver.observe(container)
 
+    // Re-fit once the variable mono font finishes loading. Without this, the
+    // initial fit uses fallback metrics and Copilot's TUI ends up clipped on
+    // the right edge once Geist Mono swaps in.
+    if (typeof document !== 'undefined' && document.fonts?.ready) {
+      void document.fonts.ready.then(() => {
+        if (!terminalRef.current || !fitAddonRef.current) {
+          return
+        }
+        syncSize()
+      })
+    }
+
     const launchCopilot = async (
       thread: ThreadSnapshot,
       appSettings: AppSettingsSnapshot,

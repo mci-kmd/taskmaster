@@ -42,10 +42,19 @@ export default function ThreadDetailsDialog({
       description={thread.mode === 'worktree' ? 'Owned worktree thread' : 'Active-branch thread'}
       footer={
         <>
-          <Button onClick={onClose} variant="ghost">
+          <Button onClick={onClose} title="Close dialog (Esc)" variant="ghost">
             Close
           </Button>
-          <Button disabled={closing} onClick={onCloseThread} variant="danger">
+          <Button
+            disabled={closing}
+            onClick={onCloseThread}
+            title={
+              thread.mode === 'worktree'
+                ? 'Close thread, remove worktree, delete branch'
+                : 'Close thread (branch and working tree are preserved)'
+            }
+            variant="danger"
+          >
             {closing ? 'Closing…' : 'Close thread'}
           </Button>
         </>

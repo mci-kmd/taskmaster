@@ -55,17 +55,11 @@ export default function Workspace({
     ? selectedThread.displayBranchName
     : selectedRepository?.currentBranch
 
-  const cliStatusLabel = !terminalState.copilotStatus
-    ? 'Resolving CLI…'
+  const cliTitle = !terminalState.copilotStatus
+    ? 'Resolving Copilot CLI availability'
     : cliAvailable
-      ? 'Copilot ready'
-      : 'Copilot unavailable'
-
-  const cliDotColor = !terminalState.copilotStatus
-    ? 'bg-[var(--color-fg-faint)]'
-    : cliAvailable
-      ? 'bg-[var(--color-positive)]'
-      : 'bg-[var(--color-warning)]'
+      ? 'Copilot CLI is available on PATH'
+      : 'Copilot CLI is unavailable'
 
   return (
     <main className="flex min-h-0 min-w-0 flex-col bg-[var(--color-bg)]">
@@ -119,18 +113,25 @@ export default function Workspace({
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="hidden items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11.5px] text-[var(--color-fg-muted)] md:inline-flex">
-            <span className={`size-1.5 rounded-full ${cliDotColor}`} />
-            {cliStatusLabel}
-          </span>
-
-          <Button aria-label="Refresh" onClick={() => void onRefresh()} size="sm" variant="ghost">
+          <Button
+            aria-label="Refresh"
+            onClick={() => void onRefresh()}
+            size="sm"
+            title="Refresh state"
+            variant="ghost"
+          >
             <RefreshIcon width={13} height={13} />
           </Button>
 
           {selectedThread ? (
             <>
-              <Button aria-label="Thread details" onClick={onOpenDetails} size="sm" variant="ghost">
+              <Button
+                aria-label="Thread details"
+                onClick={onOpenDetails}
+                size="sm"
+                title="Thread details"
+                variant="ghost"
+              >
                 <InfoIcon width={13} height={13} />
               </Button>
 
@@ -138,6 +139,7 @@ export default function Workspace({
                 <Button
                   onClick={() => void terminalRef.current?.stop()}
                   size="sm"
+                  title="Stop the running Copilot session"
                   variant="secondary"
                 >
                   <StopIcon width={11} height={11} />
@@ -148,7 +150,14 @@ export default function Workspace({
                   disabled={!cliAvailable || terminalState.isLaunching}
                   onClick={() => void terminalRef.current?.start()}
                   size="sm"
-                  variant="primary"
+                  title={
+                    !cliAvailable
+                      ? cliTitle
+                      : selectedThread.hasLaunched
+                        ? 'Resume the persisted Copilot session'
+                        : 'Launch a new Copilot session for this thread'
+                  }
+                  variant="secondary"
                 >
                   <PlayIcon width={11} height={11} />
                   {terminalState.isLaunching

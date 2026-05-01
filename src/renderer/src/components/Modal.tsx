@@ -75,6 +75,7 @@ export default function Modal({
             aria-label="Close dialog"
             className="-m-1 grid size-7 place-items-center rounded-md text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]"
             onClick={onClose}
+            title="Close (Esc)"
             type="button"
           >
             <CloseIcon />
