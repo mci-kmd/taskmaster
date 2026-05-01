@@ -56,4 +56,5 @@ Renderer dev server runs on port `5175`.
 ## Notes
 
 - Worktree-backed threads prompt before deletion if the worktree is dirty.
-- Native Electron rebuild stays opt-in through the packaging scripts. On this machine, `node-pty` packaging rebuilds require Python to be installed.
+- Normal install/dev/build flows do not require Python.
+- `node-pty` is still a native dependency, but the current Windows setup uses its shipped prebuilt binaries instead of forcing a local rebuild.

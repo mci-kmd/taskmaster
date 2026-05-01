@@ -17,10 +17,10 @@
     "build": "bun run typecheck && electron-vite build",
     "rebuild:native": "electron-builder install-app-deps",
     "ci": "bun ci && bun run lint && bun run typecheck",
-    "build:unpack": "bun run rebuild:native && bun run build && electron-builder --dir",
-    "build:win": "bun run rebuild:native && bun run build && electron-builder --win",
-    "build:mac": "bun run rebuild:native && bun run build && electron-builder --mac",
-    "build:linux": "bun run rebuild:native && bun run build && electron-builder --linux"
+    "build:unpack": "bun run build && electron-builder --dir",
+    "build:win": "bun run build && electron-builder --win",
+    "build:mac": "bun run build && electron-builder --mac",
+    "build:linux": "bun run build && electron-builder --linux"
   },
   "trustedDependencies": [
     "electron",
