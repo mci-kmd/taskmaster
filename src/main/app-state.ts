@@ -30,7 +30,7 @@ import { getRunningThreadIds, killSessionsForThread } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
 const STATE_VERSION = 2 as const
-const WORKTREE_SUFFIX_SEPARATOR = '--'
+const WORKTREES_DIR_SUFFIX = '.worktrees'
 
 let persistedState: PersistedAppState | null = null
 
@@ -251,13 +251,14 @@ function sanitizeWorktreeName(branchName: string): string {
 function deriveWorktreePath(repoPath: string, branchName: string): string {
   const repoParent = dirname(repoPath)
   const repoName = basename(repoPath)
-  const baseName = `${repoName}${WORKTREE_SUFFIX_SEPARATOR}${sanitizeWorktreeName(branchName)}`
+  const worktreesDir = join(repoParent, `${repoName}${WORKTREES_DIR_SUFFIX}`)
+  const baseName = sanitizeWorktreeName(branchName)
 
-  let candidate = join(repoParent, baseName)
+  let candidate = join(worktreesDir, baseName)
   let suffix = 2
 
   while (existsSync(candidate)) {
-    candidate = join(repoParent, `${baseName}-${suffix}`)
+    candidate = join(worktreesDir, `${baseName}-${suffix}`)
     suffix += 1
   }
 
@@ -274,6 +275,9 @@ function createWorktree(repoPath: string, branchName: string, baseRef: string): 
   }
 
   const worktreePath = deriveWorktreePath(repoPath, branchName)
+  // Ensure the <repo>.worktrees container exists; git won't create
+  // intermediate parents.
+  mkdirSync(dirname(worktreePath), { recursive: true })
   runGit(repoPath, ['worktree', 'add', '-b', branchName, worktreePath, baseRef])
   return worktreePath
 }
