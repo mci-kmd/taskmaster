@@ -209,6 +209,29 @@ function getCurrentBranchLabel(repoPath: string): string {
   return branchResult.stdout
 }
 
+function getPrimaryBranch(repoPath: string): string | null {
+  const symref = tryGit(repoPath, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+  if (symref.ok && symref.stdout) {
+    const candidate = symref.stdout.replace(/^origin\//, '')
+    if (candidate && branchExists(repoPath, candidate)) {
+      return candidate
+    }
+  }
+
+  for (const candidate of ['main', 'master']) {
+    if (branchExists(repoPath, candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+function hasUncommittedChanges(repoPath: string): boolean {
+  const result = tryGit(repoPath, ['status', '--porcelain', '--untracked-files=no'])
+  return result.ok && result.stdout.length > 0
+}
+
 function sanitizeWorktreeName(branchName: string): string {
   const sanitized = branchName
     .trim()
@@ -245,13 +268,13 @@ function branchExists(repoPath: string, branchName: string): boolean {
   return tryGit(repoPath, ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]).ok
 }
 
-function createWorktree(repoPath: string, branchName: string): string {
+function createWorktree(repoPath: string, branchName: string, baseRef: string): string {
   if (branchExists(repoPath, branchName)) {
     throw new Error(`Branch "${branchName}" already exists.`)
   }
 
   const worktreePath = deriveWorktreePath(repoPath, branchName)
-  runGit(repoPath, ['worktree', 'add', '-b', branchName, worktreePath, 'HEAD'])
+  runGit(repoPath, ['worktree', 'add', '-b', branchName, worktreePath, baseRef])
   return worktreePath
 }
 
@@ -308,6 +331,7 @@ function buildRepositorySnapshot(
   return {
     ...repository,
     currentBranch: getCurrentBranchLabel(repository.path),
+    primaryBranch: getPrimaryBranch(repository.path),
     lastActivityAt: snapshotThreads[0]?.lastActivityAt ?? repository.addedAt,
     threads: snapshotThreads
   }
@@ -366,6 +390,28 @@ function findThread(threadId: string): PersistedThread | undefined {
   return ensureState().threads.find((thread) => thread.id === threadId)
 }
 
+type BaseRefResolution = { ok: true; ref: string } | { ok: false; error: string }
+
+function resolveBaseRef(
+  repoPath: string,
+  useCurrentBranch: boolean | undefined
+): BaseRefResolution {
+  if (useCurrentBranch) {
+    return { ok: true, ref: 'HEAD' }
+  }
+
+  const primary = getPrimaryBranch(repoPath)
+  if (!primary) {
+    return {
+      ok: false,
+      error:
+        'Could not determine the primary branch (no origin/HEAD, main, or master found). Tick "Use current branch" to base off HEAD instead.'
+    }
+  }
+
+  return { ok: true, ref: primary }
+}
+
 function createThread(input: CreateThreadInput): MutationResult {
   const state = ensureState()
   const repository = state.repositories.find((item) => item.id === input.repositoryId)
@@ -385,13 +431,25 @@ function createThread(input: CreateThreadInput): MutationResult {
       return failureResult('Branch name is required for worktree threads.')
     }
 
+    const baseResolution = resolveBaseRef(repository.path, input.useCurrentBranch)
+    if (!baseResolution.ok) {
+      return failureResult(baseResolution.error)
+    }
+
+    let worktreePath: string
+    try {
+      worktreePath = createWorktree(repository.path, branchName, baseResolution.ref)
+    } catch (error) {
+      return failureResult(error instanceof Error ? error.message : String(error))
+    }
+
     const thread: PersistedThread = {
       id: randomUUID(),
       repositoryId: repository.id,
       customTitle,
       mode: 'worktree',
       branchName,
-      worktreePath: createWorktree(repository.path, branchName),
+      worktreePath,
       sessionName: `taskmaster-${randomUUID()}`,
       createdAt,
       lastActivityAt: createdAt,
@@ -414,8 +472,19 @@ function createThread(input: CreateThreadInput): MutationResult {
       return failureResult(`Branch "${branchName}" already exists.`)
     }
 
+    if (hasUncommittedChanges(repository.path)) {
+      return failureResult(
+        'Working tree has uncommitted changes. Commit or stash them before creating a new-branch thread.'
+      )
+    }
+
+    const baseResolution = resolveBaseRef(repository.path, input.useCurrentBranch)
+    if (!baseResolution.ok) {
+      return failureResult(baseResolution.error)
+    }
+
     try {
-      runGit(repository.path, ['checkout', '-b', branchName])
+      runGit(repository.path, ['checkout', '-b', branchName, baseResolution.ref])
     } catch (error) {
       return failureResult(error instanceof Error ? error.message : String(error))
     }

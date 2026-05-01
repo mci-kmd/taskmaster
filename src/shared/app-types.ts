@@ -99,6 +99,8 @@ export interface ThreadSnapshot extends PersistedThread {
 
 export interface RepositorySnapshot extends PersistedRepository {
   currentBranch: string
+  /** Resolved primary branch (origin/HEAD → main → master) or null if none found. */
+  primaryBranch: string | null
   lastActivityAt: string
   threads: ThreadSnapshot[]
 }
@@ -123,6 +125,8 @@ export interface CreateThreadInput {
   mode: ThreadMode
   title?: string
   branchName?: string
+  /** When true, base the new branch / worktree on the repo's current HEAD instead of its primary branch. */
+  useCurrentBranch?: boolean
 }
 
 export interface UpdateSettingsInput {

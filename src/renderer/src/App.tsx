@@ -158,7 +158,12 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const handleCreateThread = useCallback(
-    async (input: { mode: ThreadMode; title?: string; branchName?: string }): Promise<boolean> => {
+    async (input: {
+      mode: ThreadMode
+      title?: string
+      branchName?: string
+      useCurrentBranch?: boolean
+    }): Promise<boolean> => {
       if (!selectedRepository) {
         return false
       }
@@ -169,7 +174,8 @@ export default function App(): React.JSX.Element {
           repositoryId: selectedRepository.id,
           mode: input.mode,
           title: input.title,
-          branchName: input.branchName
+          branchName: input.branchName,
+          useCurrentBranch: input.useCurrentBranch
         }),
         'Thread created.'
       )
@@ -216,6 +222,15 @@ export default function App(): React.JSX.Element {
       setDialog(null)
     }
   }, [applyMutation, selectedThread])
+
+  // Refresh repo state (current branch, primary branch, etc.) every time the
+  // New Thread dialog opens — git state can change externally between opens.
+  useEffect(() => {
+    if (dialog === 'new-thread') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      void refreshSnapshot()
+    }
+  }, [dialog, refreshSnapshot])
 
   // Ctrl+N to open new-thread dialog (also accepts ⌘ for cross-platform devs)
   useEffect(() => {
