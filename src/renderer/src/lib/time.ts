@@ -1,5 +1,5 @@
-export function formatRelativeTime(iso: string): string {
-  const elapsed = Date.now() - new Date(iso).getTime()
+export function formatRelativeTime(iso: string, now: number = Date.now()): string {
+  const elapsed = now - new Date(iso).getTime()
   const minutes = Math.floor(elapsed / 60_000)
   const hours = Math.floor(elapsed / 3_600_000)
   const days = Math.floor(elapsed / 86_400_000)

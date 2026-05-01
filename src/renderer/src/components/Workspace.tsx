@@ -1,16 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AppSettingsSnapshot,
   RepositorySnapshot,
+  TerminalStatus,
   ThreadSnapshot
 } from '../../../shared/app-types'
-import TerminalPane, { type TerminalPaneHandle, type TerminalPaneState } from './TerminalPane'
+import TerminalSessions, {
+  type SessionMap,
+  type TerminalSessionsHandle,
+  type ThreadSessionState
+} from './TerminalSessions'
 import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
 import Button from './ui/Button'
 import { BranchIcon, InfoIcon, RefreshIcon, StopIcon, WorktreeIcon } from './Icons'
+import { composeThreadTitle } from '../lib/title'
 
 type WorkspaceProps = {
+  threads: ThreadSnapshot[]
   selectedThread: ThreadSnapshot | null
   selectedRepository: RepositorySnapshot | null
   settings: AppSettingsSnapshot
@@ -21,16 +28,18 @@ type WorkspaceProps = {
   onAddRepository: () => void
   onNewThread: () => void
   onOpenDetails: () => void
+  onSessionsChange: (sessions: SessionMap) => void
 }
 
-const INITIAL_STATE: TerminalPaneState = {
-  copilotStatus: null,
-  phase: 'initializing',
+const IDLE_STATE: ThreadSessionState = {
+  phase: 'idle',
   exitCode: null,
-  errorMessage: null
+  errorMessage: null,
+  runtimeTitle: null
 }
 
 export default function Workspace({
+  threads,
   selectedThread,
   selectedRepository,
   settings,
@@ -40,19 +49,45 @@ export default function Workspace({
   onRefresh,
   onAddRepository,
   onNewThread,
-  onOpenDetails
+  onOpenDetails,
+  onSessionsChange
 }: WorkspaceProps): React.JSX.Element {
-  const terminalRef = useRef<TerminalPaneHandle | null>(null)
-  const [terminalState, setTerminalState] = useState<TerminalPaneState>(INITIAL_STATE)
+  const sessionsRef = useRef<TerminalSessionsHandle | null>(null)
+  const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
+  const [sessions, setSessions] = useState<SessionMap>(new Map())
   const autoLaunchedRef = useRef<Set<string>>(new Set())
 
+  useEffect(() => {
+    let cancelled = false
+    void window.api.terminal.getStatus().then((status) => {
+      if (cancelled) return
+      setCopilotStatus(status)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const handleSessionsChange = useCallback(
+    (next: SessionMap): void => {
+      setSessions(next)
+      onSessionsChange(next)
+    },
+    [onSessionsChange]
+  )
+
+  const selectedSession: ThreadSessionState = useMemo(() => {
+    if (!selectedThread) return IDLE_STATE
+    return sessions.get(selectedThread.id) ?? IDLE_STATE
+  }, [sessions, selectedThread])
+
+  const isRunning = selectedSession.phase === 'running'
+  const isLaunching = selectedSession.phase === 'launching'
+  const cliAvailable = copilotStatus?.available ?? false
   const hasThread = Boolean(selectedThread)
-  const isRunning = terminalState.phase === 'running'
-  const isLaunching = terminalState.phase === 'launching'
-  const cliAvailable = terminalState.copilotStatus?.available ?? false
 
   const headerTitle = selectedThread
-    ? selectedThread.title
+    ? composeThreadTitle(selectedThread, selectedSession.runtimeTitle)
     : selectedRepository
       ? selectedRepository.name
       : 'Taskmaster'
@@ -63,27 +98,32 @@ export default function Workspace({
 
   // Auto-launch on freshly-created threads.
   useEffect(() => {
-    if (!autoLaunchThreadId) {
-      return
-    }
-    if (!selectedThread || selectedThread.id !== autoLaunchThreadId) {
-      return
-    }
+    if (!autoLaunchThreadId) return
+    if (!selectedThread || selectedThread.id !== autoLaunchThreadId) return
     if (autoLaunchedRef.current.has(autoLaunchThreadId)) {
       onAutoLaunchHandled()
       return
     }
-    if (terminalState.phase !== 'idle' || !cliAvailable) {
-      return
-    }
+    if (!cliAvailable) return
+    if (selectedSession.phase !== 'idle') return
 
     autoLaunchedRef.current.add(autoLaunchThreadId)
     onAutoLaunchHandled()
-    void terminalRef.current?.start()
-  }, [autoLaunchThreadId, selectedThread, terminalState.phase, cliAvailable, onAutoLaunchHandled])
+    sessionsRef.current?.start(autoLaunchThreadId)
+  }, [autoLaunchThreadId, selectedThread, selectedSession.phase, cliAvailable, onAutoLaunchHandled])
+
+  const handleLaunch = (): void => {
+    if (!selectedThread) return
+    sessionsRef.current?.start(selectedThread.id)
+  }
+
+  const handleStop = (): void => {
+    if (!selectedThread) return
+    void sessionsRef.current?.stop(selectedThread.id)
+  }
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-col bg-[var(--color-bg)]">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-bg)]">
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="min-w-0">
@@ -162,7 +202,7 @@ export default function Workspace({
 
               {isRunning ? (
                 <Button
-                  onClick={() => void terminalRef.current?.stop()}
+                  onClick={handleStop}
                   size="sm"
                   title="Stop the running Copilot session"
                   variant="secondary"
@@ -184,19 +224,22 @@ export default function Workspace({
           }`}
         >
           <div className="relative min-h-0 flex-1">
-            <TerminalPane
+            <TerminalSessions
+              copilotStatus={copilotStatus}
               onRefresh={onRefresh}
-              onStateChange={setTerminalState}
-              ref={terminalRef}
-              selectedThread={selectedThread}
+              onSessionsChange={handleSessionsChange}
+              ref={sessionsRef}
+              selectedThreadId={selectedThread?.id ?? null}
               settings={settings}
+              threads={threads}
             />
 
             {selectedThread && !isRunning ? (
               <div className="absolute inset-0">
                 <LaunchPanel
-                  onLaunch={() => void terminalRef.current?.start()}
-                  state={terminalState}
+                  copilotStatus={copilotStatus}
+                  onLaunch={handleLaunch}
+                  session={selectedSession}
                   thread={selectedThread}
                 />
               </div>

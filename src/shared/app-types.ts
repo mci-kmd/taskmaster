@@ -63,7 +63,7 @@ export interface PersistedRepository {
 export interface PersistedThread {
   id: string
   repositoryId: string
-  title: string
+  customTitle: string | null
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
@@ -74,13 +74,14 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 1
+  version: 2
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
   ui: {
     selectedRepositoryId: string | null
     selectedThreadId: string | null
+    sidebarWidth?: number
   }
 }
 
@@ -91,6 +92,8 @@ export interface AppSettingsSnapshot extends PersistedSettings {
 export interface ThreadSnapshot extends PersistedThread {
   cwd: string
   displayBranchName: string
+  /** Custom label fallback for display; combine with runtime title in the UI. */
+  displayTitle: string
   isRunning: boolean
 }
 
@@ -105,6 +108,7 @@ export interface AppSnapshot {
   settings: AppSettingsSnapshot
   selectedRepositoryId: string | null
   selectedThreadId: string | null
+  sidebarWidth: number
 }
 
 export interface MutationResult {
@@ -124,3 +128,11 @@ export interface CreateThreadInput {
 export interface UpdateSettingsInput {
   globalFlagsInput: string
 }
+
+export interface UpdateUiInput {
+  sidebarWidth?: number
+}
+
+export const SIDEBAR_WIDTH_DEFAULT = 268
+export const SIDEBAR_WIDTH_MIN = 220
+export const SIDEBAR_WIDTH_MAX = 560

@@ -1,11 +1,13 @@
-import type { ThreadSnapshot } from '../../../shared/app-types'
-import type { SessionPhase, TerminalPaneState } from './TerminalPane'
+import type { TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
+import type { SessionPhase, ThreadSessionState } from './ThreadTerminal'
 import Button from './ui/Button'
 import { PlayIcon, RefreshIcon, SparkIcon } from './Icons'
+import { composeThreadTitle } from '../lib/title'
 
 type LaunchPanelProps = {
   thread: ThreadSnapshot
-  state: TerminalPaneState
+  session: ThreadSessionState
+  copilotStatus: TerminalStatus | null
   onLaunch: () => void
 }
 
@@ -18,13 +20,14 @@ type Visual = {
 
 function pickVisual(
   thread: ThreadSnapshot,
-  state: TerminalPaneState,
+  session: ThreadSessionState,
+  copilotStatus: TerminalStatus | null,
   onLaunch: () => void
 ): Visual {
-  const phase: SessionPhase = state.phase
-  const cliAvailable = state.copilotStatus?.available ?? false
+  const phase: SessionPhase = session.phase
+  const cliAvailable = copilotStatus?.available ?? false
 
-  if (phase === 'initializing') {
+  if (!copilotStatus) {
     return {
       tone: 'progress',
       title: 'Resolving Copilot CLI…',
@@ -52,7 +55,9 @@ function pickVisual(
       tone: 'error',
       title: 'Failed to launch',
       detail: (
-        <span className="text-[var(--color-danger)]">{state.errorMessage ?? 'Unknown error.'}</span>
+        <span className="text-[var(--color-danger)]">
+          {session.errorMessage ?? 'Unknown error.'}
+        </span>
       ),
       action: (
         <Button onClick={onLaunch} size="md" title="Try launching again" variant="primary">
@@ -66,7 +71,7 @@ function pickVisual(
   if (phase === 'stopped') {
     return {
       tone: 'stopped',
-      title: `Session ended${state.exitCode !== null ? ` (code ${state.exitCode})` : ''}`,
+      title: `Session ended${session.exitCode !== null ? ` (code ${session.exitCode})` : ''}`,
       detail: <span>Restart the Copilot session for this thread to continue.</span>,
       action: (
         <Button onClick={onLaunch} size="md" title="Restart Copilot session" variant="primary">
@@ -77,14 +82,13 @@ function pickVisual(
     }
   }
 
-  // 'idle'
   if (!cliAvailable) {
     return {
       tone: 'error',
       title: 'Copilot CLI unavailable',
       detail: (
         <span>
-          {state.copilotStatus?.message ?? 'Install GitHub Copilot CLI and ensure it is signed in.'}
+          {copilotStatus.message ?? 'Install GitHub Copilot CLI and ensure it is signed in.'}
         </span>
       ),
       action: null
@@ -117,11 +121,13 @@ const toneIndicator: Record<Visual['tone'], string> = {
 
 export default function LaunchPanel({
   thread,
-  state,
+  session,
+  copilotStatus,
   onLaunch
 }: LaunchPanelProps): React.JSX.Element {
-  const visual = pickVisual(thread, state, onLaunch)
+  const visual = pickVisual(thread, session, copilotStatus, onLaunch)
   const isProgress = visual.tone === 'progress'
+  const composedTitle = composeThreadTitle(thread, session.runtimeTitle)
 
   return (
     <div className="tm-fade-in flex h-full w-full items-center justify-center rounded-lg border border-[var(--color-border)] bg-[#141414] px-6">
@@ -136,9 +142,11 @@ export default function LaunchPanel({
           <SparkIcon width={18} height={18} className="text-[var(--color-fg)]" />
         </div>
 
-        <div className="mb-1.5 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-input)] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-          <span className={`size-1.5 rounded-full ${toneIndicator[visual.tone]}`} />
-          {thread.title}
+        <div className="mb-1.5 inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-input)] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+          <span className={`size-1.5 shrink-0 rounded-full ${toneIndicator[visual.tone]}`} />
+          <span className="truncate normal-case tracking-normal text-[var(--color-fg-muted)]">
+            {composedTitle}
+          </span>
         </div>
 
         <h2 className="text-[18px] font-medium tracking-tight text-[var(--color-fg)]">

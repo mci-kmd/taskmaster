@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import type { AppSnapshot, RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
+import type { SessionMap } from './TerminalSessions'
 import {
   ChevronDownIcon,
   ChevronRightIcon,
@@ -11,11 +12,14 @@ import {
 } from './Icons'
 import Button from './ui/Button'
 import { formatRelativeTime } from '../lib/time'
+import { composeThreadTitle } from '../lib/title'
+import { useNow } from '../lib/useNow'
 
 type SidebarProps = {
   snapshot: AppSnapshot
   selectedRepository: RepositorySnapshot | null
   selectedThread: ThreadSnapshot | null
+  sessions: SessionMap
   collapsedRepositoryIds: Set<string>
   busyAddRepository: boolean
   onToggleRepository: (id: string) => void
@@ -30,6 +34,7 @@ export default function Sidebar({
   snapshot,
   selectedRepository,
   selectedThread,
+  sessions,
   collapsedRepositoryIds,
   busyAddRepository,
   onToggleRepository,
@@ -39,13 +44,14 @@ export default function Sidebar({
   onNewThread,
   onOpenSettings
 }: SidebarProps): React.JSX.Element {
+  const now = useNow(30_000)
   const totalThreads = useMemo(
     () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
     [snapshot.repositories]
   )
 
   return (
-    <aside className="flex min-h-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-panel)]">
+    <aside className="flex min-h-0 w-full min-w-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-panel)]">
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] px-4">
         <div className="flex items-center gap-2 text-[var(--color-fg)]">
           <LogoMark className="text-[var(--color-fg)]" />
@@ -180,6 +186,11 @@ export default function Sidebar({
                     ) : null}
                     {repository.threads.map((thread) => {
                       const isSelected = thread.id === selectedThread?.id
+                      const session = sessions.get(thread.id)
+                      const composedTitle = composeThreadTitle(thread, session?.runtimeTitle)
+                      const phase = session?.phase
+                      const isLaunching = phase === 'launching'
+                      const isRunning = thread.isRunning || phase === 'running'
 
                       return (
                         <li key={thread.id}>
@@ -190,31 +201,33 @@ export default function Sidebar({
                                 : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
                             }`}
                             onClick={() => onSelectThread(thread.id)}
-                            title={`${thread.title} · ${thread.displayBranchName}${
-                              thread.isRunning ? ' · running' : ''
+                            title={`${composedTitle} · ${thread.displayBranchName}${
+                              isRunning ? ' · running' : isLaunching ? ' · launching' : ''
                             }\n${thread.cwd}`}
                             type="button"
                           >
                             <span
                               aria-hidden
                               className={`size-1.5 shrink-0 rounded-full ${
-                                thread.isRunning
+                                isRunning
                                   ? 'bg-[var(--color-positive)] tm-pulse-dot'
-                                  : isSelected
-                                    ? 'bg-[var(--color-fg)]'
-                                    : 'bg-[var(--color-fg-faint)]'
+                                  : isLaunching
+                                    ? 'bg-[var(--color-info)] tm-pulse-dot'
+                                    : isSelected
+                                      ? 'bg-[var(--color-fg)]'
+                                      : 'bg-[var(--color-fg-faint)]'
                               }`}
                             />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-[12.5px] font-medium">
-                                {thread.title}
+                                {composedTitle}
                               </span>
                               <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--color-fg-subtle)]">
                                 <span className="truncate font-mono">
                                   {thread.displayBranchName}
                                 </span>
                                 <span className="text-[var(--color-fg-faint)]">·</span>
-                                <span>{formatRelativeTime(thread.lastActivityAt)}</span>
+                                <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
                               </span>
                             </span>
                             {thread.mode === 'worktree' ? (

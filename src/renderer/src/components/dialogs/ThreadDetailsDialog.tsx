@@ -2,10 +2,12 @@ import Modal from '../Modal'
 import Button from '../ui/Button'
 import type { ThreadSnapshot } from '../../../../shared/app-types'
 import { formatRelativeTime } from '../../lib/time'
+import { composeThreadTitle } from '../../lib/title'
 
 type ThreadDetailsDialogProps = {
   open: boolean
   thread: ThreadSnapshot | null
+  runtimeTitle: string | null
   closing: boolean
   onClose: () => void
   onCloseThread: () => void
@@ -25,6 +27,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }): React
 export default function ThreadDetailsDialog({
   open,
   thread,
+  runtimeTitle,
   closing,
   onClose,
   onCloseThread
@@ -61,10 +64,19 @@ export default function ThreadDetailsDialog({
       }
       onClose={onClose}
       open={open}
-      title={thread.title}
+      title={composeThreadTitle(thread, runtimeTitle)}
       width="lg"
     >
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-4 py-2.5">
+        {thread.customTitle ? (
+          <Row label="Custom label" value={<span>{thread.customTitle}</span>} />
+        ) : null}
+        {runtimeTitle ? (
+          <Row
+            label="Copilot title"
+            value={<span className="text-[var(--color-fg)]">{runtimeTitle}</span>}
+          />
+        ) : null}
         <Row label="Branch" value={<span className="font-mono">{thread.displayBranchName}</span>} />
         <Row
           label="Working dir"

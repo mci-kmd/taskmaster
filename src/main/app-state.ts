@@ -11,24 +11,61 @@ import {
 import { basename, dirname, join } from 'path'
 import { spawnSync } from 'child_process'
 import { app, dialog, ipcMain } from 'electron'
-import type {
-  AppSnapshot,
-  CreateThreadInput,
-  MutationResult,
-  PersistedAppState,
-  PersistedRepository,
-  PersistedThread,
-  RepositorySnapshot,
-  ThreadSnapshot,
-  UpdateSettingsInput
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  type AppSnapshot,
+  type CreateThreadInput,
+  type MutationResult,
+  type PersistedAppState,
+  type PersistedRepository,
+  type PersistedThread,
+  type RepositorySnapshot,
+  type ThreadSnapshot,
+  type UpdateSettingsInput,
+  type UpdateUiInput
 } from '../shared/app-types'
 import { getRunningThreadIds, killSessionsForThread } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 1 as const
+const STATE_VERSION = 2 as const
 const WORKTREE_SUFFIX_SEPARATOR = '--'
 
 let persistedState: PersistedAppState | null = null
+
+type LegacyThreadV1 = Omit<PersistedThread, 'customTitle'> & { title: string }
+type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
+  version: 1
+  threads: LegacyThreadV1[]
+}
+
+function migrateState(parsed: PersistedAppState | LegacyAppStateV1): PersistedAppState {
+  if (parsed.version === STATE_VERSION) {
+    return parsed
+  }
+
+  if (parsed.version === 1) {
+    const migratedThreads: PersistedThread[] = parsed.threads.map((thread) => {
+      const trimmed = thread.title.trim()
+      const looksAutoDerived = trimmed === '' || trimmed === thread.branchName
+      const { title: _legacyTitle, ...rest } = thread
+      void _legacyTitle
+      return {
+        ...rest,
+        customTitle: looksAutoDerived ? null : trimmed
+      }
+    })
+
+    return {
+      ...parsed,
+      version: STATE_VERSION,
+      threads: migratedThreads
+    }
+  }
+
+  throw new Error(`Unsupported state version: ${(parsed as { version: number }).version}`)
+}
 
 function getStorePath(): string {
   return join(app.getPath('userData'), STORE_FILENAME)
@@ -60,14 +97,11 @@ function ensureState(): PersistedAppState {
     return persistedState
   }
 
-  const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as PersistedAppState
-  if (parsed.version !== STATE_VERSION) {
-    throw new Error(`Unsupported state version: ${parsed.version}`)
-  }
-
-  persistedState = parsed
-  normalizeSelection(parsed)
-  return parsed
+  const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as PersistedAppState | LegacyAppStateV1
+  const migrated = migrateState(parsed)
+  persistedState = migrated
+  normalizeSelection(migrated)
+  return migrated
 }
 
 function saveState(): void {
@@ -250,11 +284,13 @@ function buildThreadSnapshot(
   thread: PersistedThread,
   runningThreadIds: Set<string>
 ): ThreadSnapshot {
+  const displayBranchName =
+    thread.mode === 'active-branch' ? getCurrentBranchLabel(repository.path) : thread.branchName
   return {
     ...thread,
     cwd: thread.mode === 'worktree' ? (thread.worktreePath ?? repository.path) : repository.path,
-    displayBranchName:
-      thread.mode === 'active-branch' ? getCurrentBranchLabel(repository.path) : thread.branchName,
+    displayBranchName,
+    displayTitle: thread.customTitle ?? displayBranchName,
     isRunning: runningThreadIds.has(thread.id)
   }
 }
@@ -277,6 +313,13 @@ function buildRepositorySnapshot(
   }
 }
 
+function clampSidebarWidth(value: number): number {
+  if (!Number.isFinite(value)) {
+    return SIDEBAR_WIDTH_DEFAULT
+  }
+  return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)))
+}
+
 function buildSnapshot(): AppSnapshot {
   const state = ensureState()
   const runningThreadIds = getRunningThreadIds()
@@ -292,7 +335,8 @@ function buildSnapshot(): AppSnapshot {
       parsedGlobalFlags: parseGlobalFlags(state.settings.globalFlagsInput)
     },
     selectedRepositoryId: state.ui.selectedRepositoryId,
-    selectedThreadId: state.ui.selectedThreadId
+    selectedThreadId: state.ui.selectedThreadId,
+    sidebarWidth: clampSidebarWidth(state.ui.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT)
   }
 }
 
@@ -333,6 +377,8 @@ function createThread(input: CreateThreadInput): MutationResult {
   const createdAt = nowIso()
   const trimmedTitle = input.title?.trim()
 
+  const customTitle = trimmedTitle ? trimmedTitle : null
+
   if (input.mode === 'worktree') {
     const branchName = input.branchName?.trim()
     if (!branchName) {
@@ -342,7 +388,7 @@ function createThread(input: CreateThreadInput): MutationResult {
     const thread: PersistedThread = {
       id: randomUUID(),
       repositoryId: repository.id,
-      title: trimmedTitle || branchName,
+      customTitle,
       mode: 'worktree',
       branchName,
       worktreePath: createWorktree(repository.path, branchName),
@@ -362,7 +408,7 @@ function createThread(input: CreateThreadInput): MutationResult {
   const thread: PersistedThread = {
     id: randomUUID(),
     repositoryId: repository.id,
-    title: trimmedTitle || currentBranch,
+    customTitle,
     mode: 'active-branch',
     branchName: currentBranch,
     worktreePath: null,
@@ -443,7 +489,7 @@ async function closeThread(threadId: string): Promise<MutationResult> {
         defaultId: 0,
         cancelId: 0,
         title: 'Uncommitted changes',
-        message: `The worktree for "${thread.title}" has uncommitted changes.`,
+        message: `The worktree for "${thread.customTitle ?? thread.branchName}" has uncommitted changes.`,
         detail: 'Delete anyway will remove the worktree and delete its branch.'
       })
 
@@ -469,6 +515,15 @@ async function closeThread(threadId: string): Promise<MutationResult> {
 function updateSettings(input: UpdateSettingsInput): MutationResult {
   const state = ensureState()
   state.settings.globalFlagsInput = input.globalFlagsInput.trim()
+  saveState()
+  return successResult()
+}
+
+function updateUi(input: UpdateUiInput): MutationResult {
+  const state = ensureState()
+  if (typeof input.sidebarWidth === 'number') {
+    state.ui.sidebarWidth = clampSidebarWidth(input.sidebarWidth)
+  }
   saveState()
   return successResult()
 }
@@ -513,6 +568,7 @@ export function registerAppStateIpc(): void {
   ipcMain.handle('app-state:update-settings', (_event, input: UpdateSettingsInput) =>
     updateSettings(input)
   )
+  ipcMain.handle('app-state:update-ui', (_event, input: UpdateUiInput) => updateUi(input))
   ipcMain.handle('app-state:select-repository', (_event, repositoryId: string | null) =>
     selectRepository(repositoryId)
   )

@@ -5,12 +5,17 @@ import Toast, { type ToastTone } from './components/Toast'
 import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
 import ThreadDetailsDialog from './components/dialogs/ThreadDetailsDialog'
-import type {
-  AppSnapshot,
-  MutationResult,
-  RepositorySnapshot,
-  ThreadMode,
-  ThreadSnapshot
+import ResizeHandle from './components/ResizeHandle'
+import type { SessionMap } from './components/TerminalSessions'
+import {
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
+  type AppSnapshot,
+  type MutationResult,
+  type RepositorySnapshot,
+  type ThreadMode,
+  type ThreadSnapshot
 } from '../../shared/app-types'
 
 type Feedback = {
@@ -58,6 +63,8 @@ export default function App(): React.JSX.Element {
   const [dialog, setDialog] = useState<DialogKey>(null)
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
   const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
+  const [sessions, setSessions] = useState<SessionMap>(new Map())
+  const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
 
   useEffect(() => {
     let isMounted = true
@@ -68,6 +75,7 @@ export default function App(): React.JSX.Element {
       }
 
       setSnapshot(nextSnapshot)
+      setSidebarWidth(nextSnapshot.sidebarWidth)
     })
 
     return () => {
@@ -87,6 +95,18 @@ export default function App(): React.JSX.Element {
   const selectedThread = useMemo(() => {
     return snapshot ? findSelectedThread(snapshot) : null
   }, [snapshot])
+
+  const allThreads = useMemo<ThreadSnapshot[]>(() => {
+    return snapshot ? snapshot.repositories.flatMap((repository) => repository.threads) : []
+  }, [snapshot])
+
+  const handleSessionsChange = useCallback((next: SessionMap): void => {
+    setSessions(next)
+  }, [])
+
+  const handleSidebarResizeEnd = useCallback((finalWidth: number): void => {
+    void window.api.appState.updateUi({ sidebarWidth: finalWidth })
+  }, [])
 
   const applyMutation = useCallback(
     async (action: Promise<MutationResult>, successMessage?: string): Promise<MutationResult> => {
@@ -223,20 +243,30 @@ export default function App(): React.JSX.Element {
   }
 
   return (
-    <div className="grid h-screen grid-cols-[268px_minmax(0,1fr)] bg-[var(--color-bg)] text-[var(--color-fg)]">
-      <Sidebar
-        busyAddRepository={busyAction === 'add-repository'}
-        collapsedRepositoryIds={collapsedRepositoryIds}
-        onAddRepository={() => void handleAddRepository()}
-        onNewThread={() => setDialog('new-thread')}
-        onOpenSettings={() => setDialog('settings')}
-        onSelectRepository={(id) => void handleSelectRepository(id)}
-        onSelectThread={(id) => void handleSelectThread(id)}
-        onToggleRepository={handleToggleRepository}
-        selectedRepository={selectedRepository}
-        selectedThread={selectedThread}
-        snapshot={snapshot}
-      />
+    <div className="flex h-screen bg-[var(--color-bg)] text-[var(--color-fg)]">
+      <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
+        <Sidebar
+          busyAddRepository={busyAction === 'add-repository'}
+          collapsedRepositoryIds={collapsedRepositoryIds}
+          onAddRepository={() => void handleAddRepository()}
+          onNewThread={() => setDialog('new-thread')}
+          onOpenSettings={() => setDialog('settings')}
+          onSelectRepository={(id) => void handleSelectRepository(id)}
+          onSelectThread={(id) => void handleSelectThread(id)}
+          onToggleRepository={handleToggleRepository}
+          selectedRepository={selectedRepository}
+          selectedThread={selectedThread}
+          sessions={sessions}
+          snapshot={snapshot}
+        />
+        <ResizeHandle
+          max={SIDEBAR_WIDTH_MAX}
+          min={SIDEBAR_WIDTH_MIN}
+          onResize={setSidebarWidth}
+          onResizeEnd={handleSidebarResizeEnd}
+          width={sidebarWidth}
+        />
+      </div>
 
       <Workspace
         autoLaunchThreadId={autoLaunchThreadId}
@@ -246,9 +276,11 @@ export default function App(): React.JSX.Element {
         onNewThread={() => setDialog('new-thread')}
         onOpenDetails={() => setDialog('details')}
         onRefresh={refreshSnapshot}
+        onSessionsChange={handleSessionsChange}
         selectedRepository={selectedRepository}
         selectedThread={selectedThread}
         settings={snapshot.settings}
+        threads={allThreads}
       />
 
       <NewThreadDialog
@@ -272,6 +304,9 @@ export default function App(): React.JSX.Element {
         onClose={() => setDialog(null)}
         onCloseThread={() => void handleCloseThread()}
         open={dialog === 'details'}
+        runtimeTitle={
+          selectedThread ? (sessions.get(selectedThread.id)?.runtimeTitle ?? null) : null
+        }
         thread={selectedThread}
       />
 

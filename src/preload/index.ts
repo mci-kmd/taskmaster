@@ -5,7 +5,8 @@ import type {
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
-  UpdateSettingsInput
+  UpdateSettingsInput,
+  UpdateUiInput
 } from '../shared/app-types'
 
 const api = {
@@ -18,6 +19,7 @@ const api = {
     closeThread: (threadId: string) => ipcRenderer.invoke('app-state:close-thread', threadId),
     updateSettings: (input: UpdateSettingsInput) =>
       ipcRenderer.invoke('app-state:update-settings', input),
+    updateUi: (input: UpdateUiInput) => ipcRenderer.invoke('app-state:update-ui', input),
     selectRepository: (repositoryId: string | null) =>
       ipcRenderer.invoke('app-state:select-repository', repositoryId),
     selectThread: (threadId: string | null) =>
