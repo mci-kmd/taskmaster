@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
-import { Terminal } from 'xterm'
+import { Terminal } from '@xterm/xterm'
 import type { AppSettingsSnapshot, TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
 
 export type SessionPhase = 'initializing' | 'idle' | 'launching' | 'running' | 'stopped' | 'error'
@@ -327,6 +327,53 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const inputDisposable = term.onData((data) => {
         if (!terminalIdRef.current) return
         window.api.terminal.input(terminalIdRef.current, data)
+      })
+
+      // Translate keys Copilot CLI doesn't recognise on raw xterm.js into
+      // sequences it does, and let Ctrl-C copy when a selection exists.
+      term.attachCustomKeyEventHandler((e: KeyboardEvent): boolean => {
+        if (e.type !== 'keydown') return true
+        const id = terminalIdRef.current
+        if (!id) return true
+
+        const onlyCtrl = e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey
+        const onlyShift = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
+
+        if (onlyCtrl && (e.key === 'c' || e.key === 'C')) {
+          const sel = term.getSelection()
+          if (sel) {
+            void navigator.clipboard.writeText(sel)
+            return false
+          }
+          return true
+        }
+
+        // Shift-Enter: backslash+CR is Copilot's documented multiline trick
+        if (onlyShift && e.key === 'Enter') {
+          window.api.terminal.input(id, '\\\r')
+          return false
+        }
+        // Ctrl-Backspace -> Ctrl-W (delete word back)
+        if (onlyCtrl && e.key === 'Backspace') {
+          window.api.terminal.input(id, '\x17')
+          return false
+        }
+        // Ctrl-Delete -> Alt-D (delete word forward)
+        if (onlyCtrl && e.key === 'Delete') {
+          window.api.terminal.input(id, '\x1bd')
+          return false
+        }
+        // Ctrl-Left/Right -> ESC+CSI D/C (Copilot accepts Alt-arrow for word motion)
+        if (onlyCtrl && e.key === 'ArrowLeft') {
+          window.api.terminal.input(id, '\x1b\x1b[D')
+          return false
+        }
+        if (onlyCtrl && e.key === 'ArrowRight') {
+          window.api.terminal.input(id, '\x1b\x1b[C')
+          return false
+        }
+
+        return true
       })
 
       terminalRef.current = term
