@@ -9,6 +9,7 @@ import {
   PlusIcon,
   ThreadIcon
 } from './Icons'
+import Button from './ui/Button'
 import { formatRelativeTime } from '../lib/time'
 
 type SidebarProps = {
@@ -50,37 +51,37 @@ export default function Sidebar({
           <LogoMark className="text-[var(--color-fg)]" />
           <span className="text-[13.5px] font-medium tracking-tight">Taskmaster</span>
         </div>
-        <button
+        <Button
           aria-label="Open settings"
-          className="grid size-7 place-items-center rounded-md text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]"
+          iconOnly
           onClick={onOpenSettings}
+          size="sm"
           title="Settings"
-          type="button"
+          variant="ghost"
         >
           <GearIcon width={14} height={14} />
-        </button>
+        </Button>
       </div>
 
       <div className="px-3 pt-3">
-        <button
-          className="group flex w-full items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2 text-[12.5px] font-medium text-[var(--color-fg)] transition hover:border-[var(--color-border-strong)] hover:bg-[var(--color-hover)] disabled:opacity-50"
+        <Button
+          className="w-full justify-start"
           disabled={!selectedRepository}
           onClick={onNewThread}
+          size="md"
           title={
             selectedRepository
               ? `New thread in ${selectedRepository.name} (Ctrl+N)`
               : 'Select a repository first'
           }
-          type="button"
+          variant="secondary"
         >
-          <span className="grid size-5 place-items-center rounded-[5px] bg-[var(--color-active)] text-[var(--color-fg)] transition group-hover:bg-[var(--color-fg)] group-hover:text-[#0c0c0c]">
-            <PlusIcon width={11} height={11} strokeWidth={1.8} />
-          </span>
+          <PlusIcon width={12} height={12} strokeWidth={1.8} />
           New thread
           <span className="ml-auto font-mono text-[10.5px] tracking-wide text-[var(--color-fg-subtle)]">
             Ctrl N
           </span>
-        </button>
+        </Button>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
@@ -92,16 +93,17 @@ export default function Sidebar({
               {snapshot.repositories.length}
             </span>
           </div>
-          <button
+          <Button
             aria-label="Add repository"
-            className="grid size-6 place-items-center rounded-md text-[var(--color-fg-subtle)] transition hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)] disabled:opacity-50"
+            className="!h-6 !w-6 !p-0"
             disabled={busyAddRepository}
             onClick={onAddRepository}
+            size="sm"
             title="Add repository"
-            type="button"
+            variant="ghost"
           >
             <PlusIcon width={13} height={13} strokeWidth={1.6} />
-          </button>
+          </Button>
         </div>
 
         {snapshot.repositories.length === 0 ? (
@@ -232,12 +234,11 @@ export default function Sidebar({
         </ul>
       </nav>
 
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--color-border)] px-4 py-2.5 text-[11px] text-[var(--color-fg-subtle)]">
-        <div className="flex items-center gap-1.5">
-          <ThreadIcon width={11} height={11} className="text-[var(--color-fg-faint)]" />
-          <span>{totalThreads} threads</span>
-        </div>
-        <span className="font-mono text-[10.5px] text-[var(--color-fg-faint)]">v1</span>
+      <div className="flex shrink-0 items-center gap-2 border-t border-[var(--color-border)] px-4 py-2.5 text-[11px] text-[var(--color-fg-subtle)]">
+        <ThreadIcon width={11} height={11} className="text-[var(--color-fg-faint)]" />
+        <span>
+          {totalThreads} {totalThreads === 1 ? 'thread' : 'threads'}
+        </span>
       </div>
     </aside>
   )

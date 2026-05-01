@@ -20,6 +20,14 @@ type Feedback = {
 
 type DialogKey = 'new-thread' | 'settings' | 'details' | null
 
+function findThreadById(snapshot: AppSnapshot, threadId: string): ThreadSnapshot | null {
+  return (
+    snapshot.repositories
+      .flatMap((repository) => repository.threads)
+      .find((thread) => thread.id === threadId) ?? null
+  )
+}
+
 function findSelectedRepository(snapshot: AppSnapshot): RepositorySnapshot | null {
   if (snapshot.selectedRepositoryId) {
     return (
@@ -49,6 +57,7 @@ export default function App(): React.JSX.Element {
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [dialog, setDialog] = useState<DialogKey>(null)
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
+  const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -145,6 +154,15 @@ export default function App(): React.JSX.Element {
         'Thread created.'
       )
       setBusyAction(null)
+
+      if (result.ok && result.snapshot?.selectedThreadId) {
+        const newThreadId = result.snapshot.selectedThreadId
+        const newThread = findThreadById(result.snapshot, newThreadId)
+        if (newThread && !newThread.hasLaunched) {
+          setAutoLaunchThreadId(newThreadId)
+        }
+      }
+
       return result.ok
     },
     [applyMutation, selectedRepository]
@@ -179,11 +197,7 @@ export default function App(): React.JSX.Element {
     }
   }, [applyMutation, selectedThread])
 
-  const handleFeedback = useCallback((tone: ToastTone, message: string): void => {
-    setFeedback({ tone, message })
-  }, [])
-
-  // Cmd/Ctrl+N to open new-thread dialog
+  // Ctrl+N to open new-thread dialog (also accepts ⌘ for cross-platform devs)
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
@@ -225,9 +239,10 @@ export default function App(): React.JSX.Element {
       />
 
       <Workspace
+        autoLaunchThreadId={autoLaunchThreadId}
         hasRepositories={snapshot.repositories.length > 0}
         onAddRepository={() => void handleAddRepository()}
-        onFeedback={handleFeedback}
+        onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
         onNewThread={() => setDialog('new-thread')}
         onOpenDetails={() => setDialog('details')}
         onRefresh={refreshSnapshot}

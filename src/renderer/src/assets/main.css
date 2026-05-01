@@ -162,6 +162,15 @@ select {
   }
 }
 
+@keyframes tm-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .tm-fade-in {
   animation: tm-fade-in 160ms ease-out both;
 }
@@ -172,4 +181,156 @@ select {
 
 .tm-pulse-dot {
   animation: tm-pulse 1.6s ease-in-out infinite;
+}
+
+.tm-spin {
+  animation: tm-spin 1s linear infinite;
+}
+
+/* Button system. CSS over Tailwind utility soup so the primary
+   variant doesn't lose its text color when arbitrary-value classes
+   collide. */
+.tm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    opacity 150ms ease;
+}
+
+.tm-btn:disabled {
+  cursor: not-allowed;
+}
+
+.tm-btn:focus-visible {
+  outline: 1px solid var(--color-fg);
+  outline-offset: 2px;
+}
+
+.tm-btn--sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  gap: 6px;
+}
+
+.tm-btn--md {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.tm-btn--lg {
+  height: 36px;
+  padding: 0 16px;
+  font-size: 13.5px;
+  gap: 8px;
+}
+
+.tm-btn--primary {
+  background: var(--color-fg);
+  color: #0a0a0a;
+}
+.tm-btn--primary:hover:not(:disabled) {
+  background: #ffffff;
+}
+.tm-btn--primary:disabled {
+  background: var(--color-active);
+  color: var(--color-fg-subtle);
+}
+
+.tm-btn--secondary {
+  background: var(--color-surface);
+  color: var(--color-fg);
+  border-color: var(--color-border);
+}
+.tm-btn--secondary:hover:not(:disabled) {
+  background: var(--color-hover);
+  border-color: var(--color-border-strong);
+}
+.tm-btn--secondary:disabled {
+  opacity: 0.55;
+}
+
+.tm-btn--ghost {
+  background: transparent;
+  color: var(--color-fg-muted);
+}
+.tm-btn--ghost:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-fg);
+}
+.tm-btn--ghost:disabled {
+  opacity: 0.5;
+}
+
+.tm-btn--danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: var(--color-border);
+}
+.tm-btn--danger:hover:not(:disabled) {
+  background: rgba(240, 140, 140, 0.08);
+  border-color: rgba(240, 140, 140, 0.4);
+}
+.tm-btn--danger:disabled {
+  opacity: 0.5;
+}
+
+.tm-btn--icon {
+  height: 28px;
+  width: 28px;
+  padding: 0;
+}
+
+/* Segmented control */
+.tm-segmented {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--color-input);
+  border: 1px solid var(--color-border);
+}
+
+.tm-segmented__option {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-fg-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.tm-segmented__option:hover:not([data-active='true']) {
+  color: var(--color-fg);
+}
+
+.tm-segmented__option[data-active='true'] {
+  background: var(--color-surface-2);
+  color: var(--color-fg);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 1px 2px rgba(0, 0, 0, 0.4);
 }

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import Modal from '../Modal'
 import Button from '../ui/Button'
-import { Field, Select, TextInput } from '../ui/Field'
+import { Field, TextInput } from '../ui/Field'
+import SegmentedControl from '../ui/SegmentedControl'
 import type { RepositorySnapshot, ThreadMode } from '../../../../shared/app-types'
 
 type NewThreadDialogProps = {
@@ -97,10 +98,23 @@ function NewThreadForm({
       }}
     >
       <Field label="Mode">
-        <Select onChange={(event) => setMode(event.target.value as ThreadMode)} value={mode}>
-          <option value="active-branch">Active branch</option>
-          <option value="worktree">Owned worktree</option>
-        </Select>
+        <SegmentedControl<ThreadMode>
+          ariaLabel="Thread mode"
+          onChange={setMode}
+          options={[
+            {
+              value: 'active-branch',
+              label: 'Active branch',
+              description: 'Run Copilot in the repository working tree'
+            },
+            {
+              value: 'worktree',
+              label: 'Owned worktree',
+              description: 'Create a dedicated worktree + branch'
+            }
+          ]}
+          value={mode}
+        />
       </Field>
 
       <Field

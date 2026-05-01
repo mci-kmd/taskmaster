@@ -1,13 +1,15 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from 'xterm'
 import type { AppSettingsSnapshot, TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
 
+export type SessionPhase = 'initializing' | 'idle' | 'launching' | 'running' | 'stopped' | 'error'
+
 export type TerminalPaneState = {
   copilotStatus: TerminalStatus | null
-  isRunning: boolean
-  isLaunching: boolean
-  launchSummary: string
+  phase: SessionPhase
+  exitCode: number | null
+  errorMessage: string | null
 }
 
 export type TerminalPaneHandle = {
@@ -19,7 +21,6 @@ type TerminalPaneProps = {
   selectedThread: ThreadSnapshot | null
   settings: AppSettingsSnapshot | null
   onRefresh: () => Promise<void>
-  onFeedback: (tone: 'error' | 'success' | 'info', message: string) => void
   onStateChange?: (state: TerminalPaneState) => void
 }
 
@@ -68,7 +69,7 @@ const TERMINAL_THEME = {
 }
 
 const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function TerminalPane(
-  { selectedThread, settings, onRefresh, onFeedback, onStateChange },
+  { selectedThread, settings, onRefresh, onStateChange },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -79,25 +80,12 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
   const latestSelectedThreadRef = useRef<ThreadSnapshot | null>(selectedThread)
   const latestSettingsRef = useRef<AppSettingsSnapshot | null>(settings)
   const latestCopilotStatusRef = useRef<TerminalStatus | null>(null)
-  const latestOnFeedbackRef = useRef(onFeedback)
   const latestOnStateChangeRef = useRef(onStateChange)
   const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
-  const [isLaunching, setIsLaunching] = useState(true)
-  const [isRunning, setIsRunning] = useState(false)
-  const [launchSummary, setLaunchSummary] = useState('Waiting for Copilot CLI check...')
+  const [phase, setPhase] = useState<SessionPhase>('initializing')
+  const [exitCode, setExitCode] = useState<number | null>(null)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const selectedThreadId = selectedThread?.id ?? null
-  const selectedThreadTitle = selectedThread?.title ?? null
-  const selectedThreadCwd = selectedThread?.cwd ?? null
-  const selectedThreadSessionName = selectedThread?.sessionName ?? null
-  const selectedThreadBranch = selectedThread?.displayBranchName ?? null
-
-  const selectedThreadSummary = useMemo(() => {
-    if (!selectedThreadTitle || !selectedThreadCwd) {
-      return 'Select a thread to launch Copilot in-app.'
-    }
-
-    return `${selectedThreadTitle} · ${selectedThreadCwd}`
-  }, [selectedThreadCwd, selectedThreadTitle])
 
   useEffect(() => {
     latestSelectedThreadRef.current = selectedThread
@@ -112,16 +100,12 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
   }, [copilotStatus])
 
   useEffect(() => {
-    latestOnFeedbackRef.current = onFeedback
-  }, [onFeedback])
-
-  useEffect(() => {
     latestOnStateChangeRef.current = onStateChange
   }, [onStateChange])
 
   useEffect(() => {
-    latestOnStateChangeRef.current?.({ copilotStatus, isLaunching, isRunning, launchSummary })
-  }, [copilotStatus, isLaunching, isRunning, launchSummary])
+    latestOnStateChangeRef.current?.({ copilotStatus, phase, exitCode, errorMessage })
+  }, [copilotStatus, phase, exitCode, errorMessage])
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -144,7 +128,6 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
     terminal.loadAddon(fitAddon)
     terminal.open(container)
     fitAddon.fit()
-    terminal.focus()
 
     const handlePointerDown = (): void => {
       terminal.focus()
@@ -168,9 +151,6 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
 
     resizeObserver.observe(container)
 
-    // Re-fit once the variable mono font finishes loading. Without this, the
-    // initial fit uses fallback metrics and Copilot's TUI ends up clipped on
-    // the right edge once Geist Mono swaps in.
     if (typeof document !== 'undefined' && document.fonts?.ready) {
       void document.fonts.ready.then(() => {
         if (!terminalRef.current || !fitAddonRef.current) {
@@ -198,11 +178,11 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
         return false
       }
 
-      setIsLaunching(true)
+      setPhase('launching')
+      setErrorMessage(null)
 
       if (!options?.retriedFromMissingSession) {
         activeTerminal.reset()
-        activeTerminal.writeln('[38;5;245m[taskmaster][0m launching copilot…')
         activeFitAddon.fit()
       }
 
@@ -215,13 +195,10 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
         args
       })
 
-      setIsLaunching(false)
-
       if (!result.ok) {
         launchAttemptRef.current = null
-        setLaunchSummary(result.error)
-        activeTerminal.writeln(result.error)
-        latestOnFeedbackRef.current('error', result.error)
+        setPhase('error')
+        setErrorMessage(result.error)
         return false
       }
 
@@ -234,37 +211,29 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
         buffer: '',
         retriedFromMissingSession: options?.retriedFromMissingSession ?? false
       }
-      setIsRunning(true)
-      setLaunchSummary(`Running ${result.launchedCommand}`)
+      setExitCode(null)
+      setErrorMessage(null)
+      setPhase('running')
       activeTerminal.focus()
       await onRefresh()
       return true
     }
 
-    const handleTerminalExit = async (exitCode: number): Promise<void> => {
+    const handleTerminalExit = async (code: number): Promise<void> => {
       const attempt = launchAttemptRef.current
-      const activeTerminal = terminalRef.current
 
       terminalIdRef.current = null
       launchAttemptRef.current = null
-      setIsRunning(false)
 
       if (
         attempt &&
         attempt.mode === 'resume' &&
         !attempt.retriedFromMissingSession &&
-        exitCode === 1 &&
+        code === 1 &&
         isMissingNamedSessionError(attempt.buffer)
       ) {
         const thread = latestSelectedThreadRef.current
         const appSettings = latestSettingsRef.current
-
-        if (activeTerminal) {
-          activeTerminal.writeln('')
-          activeTerminal.writeln(
-            '[38;5;245m[taskmaster][0m saved session not found — starting fresh…'
-          )
-        }
 
         if (thread && appSettings && thread.id === attempt.threadId) {
           const relaunched = await launchCopilot(thread, appSettings, 'new', {
@@ -277,13 +246,8 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
         }
       }
 
-      setLaunchSummary(`Session exited (code ${exitCode}).`)
-
-      if (activeTerminal) {
-        activeTerminal.writeln('')
-        activeTerminal.writeln(`[38;5;245m[taskmaster][0m session exited with code ${exitCode}.`)
-      }
-
+      setExitCode(code)
+      setPhase('stopped')
       await onRefresh()
     }
 
@@ -317,13 +281,7 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
 
     void window.api.terminal.getStatus().then((status) => {
       setCopilotStatus(status)
-      setIsLaunching(false)
-      setLaunchSummary(status.message)
-      terminal.writeln('[38;5;245m[taskmaster][0m terminal ready.')
-      terminal.writeln('')
-      terminal.writeln(status.message)
-      terminal.writeln(`[38;5;245m[taskmaster][0m launch cwd: ${status.defaultCwd}`)
-      terminal.writeln('[38;5;245m[taskmaster][0m select a thread, then launch.')
+      setPhase('idle')
     })
 
     terminalRef.current = terminal
@@ -346,46 +304,39 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
     }
   }, [onRefresh])
 
+  // Reset on thread change: kill any running session and clear xterm.
   useEffect(() => {
     const terminal = terminalRef.current
     if (!terminal) {
       return
     }
 
-    const resetTerminal = async (): Promise<void> => {
+    const reset = async (): Promise<void> => {
       if (terminalIdRef.current) {
         await window.api.terminal.kill(terminalIdRef.current)
         terminalIdRef.current = null
         launchAttemptRef.current = null
       }
-
       terminal.reset()
-      terminal.writeln('[38;5;245m[taskmaster][0m terminal ready.')
-      terminal.writeln('')
-      terminal.writeln(copilotStatus?.message ?? 'Resolving Copilot CLI availability…')
-      terminal.writeln(selectedThreadSummary)
-
-      if (selectedThreadSessionName && selectedThreadBranch) {
-        terminal.writeln(`[38;5;245m[taskmaster][0m session: ${selectedThreadSessionName}`)
-        terminal.writeln(`[38;5;245m[taskmaster][0m branch:  ${selectedThreadBranch}`)
-      }
-
-      setLaunchSummary(selectedThreadSummary)
-      setIsRunning(false)
-      terminal.focus()
+      setExitCode(null)
+      setErrorMessage(null)
+      // Only flip back to 'idle' if we already finished initializing.
+      setPhase((current) => (current === 'initializing' ? current : 'idle'))
     }
 
-    void resetTerminal()
-  }, [
-    copilotStatus?.message,
-    selectedThreadBranch,
-    selectedThreadId,
-    selectedThreadSessionName,
-    selectedThreadSummary
-  ])
+    void reset()
+  }, [selectedThreadId])
 
   const startCopilot = async (): Promise<void> => {
-    if (!copilotStatus?.available || !selectedThread || !settings || isRunning) {
+    const thread = latestSelectedThreadRef.current
+    const appSettings = latestSettingsRef.current
+    const status = latestCopilotStatusRef.current
+
+    if (!thread || !appSettings || !status?.available) {
+      return
+    }
+
+    if (terminalIdRef.current) {
       return
     }
 
@@ -396,42 +347,40 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
       return
     }
 
-    setIsLaunching(true)
+    setPhase('launching')
+    setErrorMessage(null)
     terminal.reset()
-    terminal.writeln('[38;5;245m[taskmaster][0m launching copilot…')
     fitAddon.fit()
 
-    const mode: LaunchMode = selectedThread.hasLaunched ? 'resume' : 'new'
-    const args = buildLaunchArgs(selectedThread.sessionName, settings.parsedGlobalFlags, mode)
+    const mode: LaunchMode = thread.hasLaunched ? 'resume' : 'new'
+    const args = buildLaunchArgs(thread.sessionName, appSettings.parsedGlobalFlags, mode)
     const result = await window.api.terminal.create({
-      threadId: selectedThread.id,
+      threadId: thread.id,
       cols: terminal.cols,
       rows: terminal.rows,
-      cwd: selectedThread.cwd,
+      cwd: thread.cwd,
       args
     })
 
-    setIsLaunching(false)
-
     if (!result.ok) {
       launchAttemptRef.current = null
-      setLaunchSummary(result.error)
-      terminal.writeln(result.error)
-      onFeedback('error', result.error)
+      setPhase('error')
+      setErrorMessage(result.error)
       return
     }
 
     terminalIdRef.current = result.terminalId
     launchAttemptRef.current = {
       terminalId: result.terminalId,
-      threadId: selectedThread.id,
+      threadId: thread.id,
       mode,
-      sessionName: selectedThread.sessionName,
+      sessionName: thread.sessionName,
       buffer: '',
       retriedFromMissingSession: false
     }
-    setIsRunning(true)
-    setLaunchSummary(`Running ${result.launchedCommand}`)
+    setExitCode(null)
+    setErrorMessage(null)
+    setPhase('running')
     terminal.focus()
     await onRefresh()
   }
@@ -444,7 +393,9 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
     await window.api.terminal.kill(terminalIdRef.current)
     terminalIdRef.current = null
     launchAttemptRef.current = null
-    setIsRunning(false)
+    setPhase('idle')
+    setExitCode(null)
+    setErrorMessage(null)
     await onRefresh()
   }
 
@@ -454,18 +405,12 @@ const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function 
       start: startCopilot,
       stop: stopCopilot
     }),
-    // startCopilot/stopCopilot close over latest state via refs/setters from React
-    // and are recreated on every render; pin to selectedThread to refresh capture.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [copilotStatus?.available, isRunning, selectedThread, settings]
+    [copilotStatus?.available, phase, selectedThreadId]
   )
 
   return (
     <div className="relative h-full w-full overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#141414]">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-gradient-to-r from-transparent via-[var(--color-border-strong)] to-transparent"
-      />
       <div className="h-full w-full px-3 py-3" ref={containerRef} />
     </div>
   )

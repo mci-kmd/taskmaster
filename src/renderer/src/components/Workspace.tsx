@@ -1,21 +1,23 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   AppSettingsSnapshot,
   RepositorySnapshot,
   ThreadSnapshot
 } from '../../../shared/app-types'
 import TerminalPane, { type TerminalPaneHandle, type TerminalPaneState } from './TerminalPane'
+import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
 import Button from './ui/Button'
-import { BranchIcon, InfoIcon, PlayIcon, RefreshIcon, StopIcon, WorktreeIcon } from './Icons'
+import { BranchIcon, InfoIcon, RefreshIcon, StopIcon, WorktreeIcon } from './Icons'
 
 type WorkspaceProps = {
   selectedThread: ThreadSnapshot | null
   selectedRepository: RepositorySnapshot | null
   settings: AppSettingsSnapshot
   hasRepositories: boolean
+  autoLaunchThreadId: string | null
+  onAutoLaunchHandled: () => void
   onRefresh: () => Promise<void>
-  onFeedback: (tone: 'error' | 'success' | 'info', message: string) => void
   onAddRepository: () => void
   onNewThread: () => void
   onOpenDetails: () => void
@@ -23,9 +25,9 @@ type WorkspaceProps = {
 
 const INITIAL_STATE: TerminalPaneState = {
   copilotStatus: null,
-  isRunning: false,
-  isLaunching: true,
-  launchSummary: 'Waiting for Copilot CLI check…'
+  phase: 'initializing',
+  exitCode: null,
+  errorMessage: null
 }
 
 export default function Workspace({
@@ -33,17 +35,21 @@ export default function Workspace({
   selectedRepository,
   settings,
   hasRepositories,
+  autoLaunchThreadId,
+  onAutoLaunchHandled,
   onRefresh,
-  onFeedback,
   onAddRepository,
   onNewThread,
   onOpenDetails
 }: WorkspaceProps): React.JSX.Element {
   const terminalRef = useRef<TerminalPaneHandle | null>(null)
   const [terminalState, setTerminalState] = useState<TerminalPaneState>(INITIAL_STATE)
+  const autoLaunchedRef = useRef<Set<string>>(new Set())
 
-  const cliAvailable = terminalState.copilotStatus?.available ?? false
   const hasThread = Boolean(selectedThread)
+  const isRunning = terminalState.phase === 'running'
+  const isLaunching = terminalState.phase === 'launching'
+  const cliAvailable = terminalState.copilotStatus?.available ?? false
 
   const headerTitle = selectedThread
     ? selectedThread.title
@@ -55,11 +61,26 @@ export default function Workspace({
     ? selectedThread.displayBranchName
     : selectedRepository?.currentBranch
 
-  const cliTitle = !terminalState.copilotStatus
-    ? 'Resolving Copilot CLI availability'
-    : cliAvailable
-      ? 'Copilot CLI is available on PATH'
-      : 'Copilot CLI is unavailable'
+  // Auto-launch on freshly-created threads.
+  useEffect(() => {
+    if (!autoLaunchThreadId) {
+      return
+    }
+    if (!selectedThread || selectedThread.id !== autoLaunchThreadId) {
+      return
+    }
+    if (autoLaunchedRef.current.has(autoLaunchThreadId)) {
+      onAutoLaunchHandled()
+      return
+    }
+    if (terminalState.phase !== 'idle' || !cliAvailable) {
+      return
+    }
+
+    autoLaunchedRef.current.add(autoLaunchThreadId)
+    onAutoLaunchHandled()
+    void terminalRef.current?.start()
+  }, [autoLaunchThreadId, selectedThread, terminalState.phase, cliAvailable, onAutoLaunchHandled])
 
   return (
     <main className="flex min-h-0 min-w-0 flex-col bg-[var(--color-bg)]">
@@ -99,12 +120,14 @@ export default function Workspace({
                   <span className="inline-flex items-center gap-1.5">
                     <span
                       className={`size-1.5 rounded-full ${
-                        terminalState.isRunning
+                        isRunning
                           ? 'bg-[var(--color-positive)] tm-pulse-dot'
-                          : 'bg-[var(--color-fg-faint)]'
+                          : isLaunching
+                            ? 'bg-[var(--color-info)] tm-pulse-dot'
+                            : 'bg-[var(--color-fg-faint)]'
                       }`}
                     />
-                    {terminalState.isRunning ? 'running' : 'idle'}
+                    {isRunning ? 'running' : isLaunching ? 'launching' : 'idle'}
                   </span>
                 </>
               ) : null}
@@ -115,6 +138,7 @@ export default function Workspace({
         <div className="ml-auto flex items-center gap-1.5">
           <Button
             aria-label="Refresh"
+            iconOnly
             onClick={() => void onRefresh()}
             size="sm"
             title="Refresh state"
@@ -127,6 +151,7 @@ export default function Workspace({
             <>
               <Button
                 aria-label="Thread details"
+                iconOnly
                 onClick={onOpenDetails}
                 size="sm"
                 title="Thread details"
@@ -135,7 +160,7 @@ export default function Workspace({
                 <InfoIcon width={13} height={13} />
               </Button>
 
-              {terminalState.isRunning ? (
+              {isRunning ? (
                 <Button
                   onClick={() => void terminalRef.current?.stop()}
                   size="sm"
@@ -145,28 +170,7 @@ export default function Workspace({
                   <StopIcon width={11} height={11} />
                   Stop
                 </Button>
-              ) : (
-                <Button
-                  disabled={!cliAvailable || terminalState.isLaunching}
-                  onClick={() => void terminalRef.current?.start()}
-                  size="sm"
-                  title={
-                    !cliAvailable
-                      ? cliTitle
-                      : selectedThread.hasLaunched
-                        ? 'Resume the persisted Copilot session'
-                        : 'Launch a new Copilot session for this thread'
-                  }
-                  variant="secondary"
-                >
-                  <PlayIcon width={11} height={11} />
-                  {terminalState.isLaunching
-                    ? 'Checking…'
-                    : selectedThread.hasLaunched
-                      ? 'Resume'
-                      : 'Launch'}
-                </Button>
-              )}
+              ) : null}
             </>
           ) : null}
         </div>
@@ -175,22 +179,28 @@ export default function Workspace({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
           aria-hidden={!hasThread}
-          className={`flex h-full flex-col px-5 pb-5 pt-4 transition-opacity duration-200 ${
+          className={`flex h-full flex-col p-5 transition-opacity duration-200 ${
             hasThread ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >
-          <p className="mb-3 truncate font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
-            {terminalState.launchSummary}
-          </p>
-          <div className="min-h-0 flex-1">
+          <div className="relative min-h-0 flex-1">
             <TerminalPane
-              onFeedback={onFeedback}
               onRefresh={onRefresh}
               onStateChange={setTerminalState}
               ref={terminalRef}
               selectedThread={selectedThread}
               settings={settings}
             />
+
+            {selectedThread && !isRunning ? (
+              <div className="absolute inset-0">
+                <LaunchPanel
+                  onLaunch={() => void terminalRef.current?.start()}
+                  state={terminalState}
+                  thread={selectedThread}
+                />
+              </div>
+            ) : null}
           </div>
         </div>
 
