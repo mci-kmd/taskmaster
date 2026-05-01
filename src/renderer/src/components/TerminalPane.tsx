@@ -1,13 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from 'xterm'
 import type { AppSettingsSnapshot, TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
+
+export type TerminalPaneState = {
+  copilotStatus: TerminalStatus | null
+  isRunning: boolean
+  isLaunching: boolean
+  launchSummary: string
+}
+
+export type TerminalPaneHandle = {
+  start: () => Promise<void>
+  stop: () => Promise<void>
+}
 
 type TerminalPaneProps = {
   selectedThread: ThreadSnapshot | null
   settings: AppSettingsSnapshot | null
   onRefresh: () => Promise<void>
   onFeedback: (tone: 'error' | 'success' | 'info', message: string) => void
+  onStateChange?: (state: TerminalPaneState) => void
 }
 
 type LaunchMode = 'new' | 'resume'
@@ -30,12 +43,34 @@ function isMissingNamedSessionError(output: string): boolean {
   return /No session, task, or name matched/i.test(output)
 }
 
-export default function TerminalPane({
-  selectedThread,
-  settings,
-  onRefresh,
-  onFeedback
-}: TerminalPaneProps): React.JSX.Element {
+const TERMINAL_THEME = {
+  background: '#141414',
+  foreground: '#dcdcdc',
+  cursor: '#ededed',
+  cursorAccent: '#141414',
+  selectionBackground: '#2e2e2e',
+  black: '#1c1c1c',
+  red: '#f08c8c',
+  green: '#94c594',
+  yellow: '#e6c884',
+  blue: '#9bb6e0',
+  magenta: '#c1a4d8',
+  cyan: '#8fc4cc',
+  white: '#dcdcdc',
+  brightBlack: '#5a5a5a',
+  brightRed: '#f5a8a8',
+  brightGreen: '#b3d6b3',
+  brightYellow: '#ecd6a4',
+  brightBlue: '#b6c8e6',
+  brightMagenta: '#d3bce4',
+  brightCyan: '#a9d2d8',
+  brightWhite: '#ededed'
+}
+
+const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function TerminalPane(
+  { selectedThread, settings, onRefresh, onFeedback, onStateChange },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -45,6 +80,7 @@ export default function TerminalPane({
   const latestSettingsRef = useRef<AppSettingsSnapshot | null>(settings)
   const latestCopilotStatusRef = useRef<TerminalStatus | null>(null)
   const latestOnFeedbackRef = useRef(onFeedback)
+  const latestOnStateChangeRef = useRef(onStateChange)
   const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
   const [isLaunching, setIsLaunching] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
@@ -60,7 +96,7 @@ export default function TerminalPane({
       return 'Select a thread to launch Copilot in-app.'
     }
 
-    return `Selected thread "${selectedThreadTitle}" on ${selectedThreadCwd}`
+    return `${selectedThreadTitle} · ${selectedThreadCwd}`
   }, [selectedThreadCwd, selectedThreadTitle])
 
   useEffect(() => {
@@ -80,6 +116,14 @@ export default function TerminalPane({
   }, [onFeedback])
 
   useEffect(() => {
+    latestOnStateChangeRef.current = onStateChange
+  }, [onStateChange])
+
+  useEffect(() => {
+    latestOnStateChangeRef.current?.({ copilotStatus, isLaunching, isRunning, launchSummary })
+  }, [copilotStatus, isLaunching, isRunning, launchSummary])
+
+  useEffect(() => {
     if (!containerRef.current) {
       return
     }
@@ -88,33 +132,12 @@ export default function TerminalPane({
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
-      fontFamily: 'Cascadia Mono, Consolas, monospace',
-      fontSize: 13,
-      lineHeight: 1.25,
+      fontFamily: "'Geist Mono Variable', 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",
+      fontSize: 12.5,
+      lineHeight: 1.35,
+      letterSpacing: 0,
       scrollback: 5000,
-      theme: {
-        background: '#020617',
-        foreground: '#cbd5e1',
-        cursor: '#22d3ee',
-        cursorAccent: '#020617',
-        selectionBackground: '#164e63',
-        black: '#0f172a',
-        red: '#f87171',
-        green: '#4ade80',
-        yellow: '#facc15',
-        blue: '#60a5fa',
-        magenta: '#c084fc',
-        cyan: '#22d3ee',
-        white: '#e2e8f0',
-        brightBlack: '#334155',
-        brightRed: '#fca5a5',
-        brightGreen: '#86efac',
-        brightYellow: '#fde047',
-        brightBlue: '#93c5fd',
-        brightMagenta: '#d8b4fe',
-        brightCyan: '#67e8f9',
-        brightWhite: '#f8fafc'
-      }
+      theme: TERMINAL_THEME
     })
     const fitAddon = new FitAddon()
 
@@ -167,7 +190,7 @@ export default function TerminalPane({
 
       if (!options?.retriedFromMissingSession) {
         activeTerminal.reset()
-        activeTerminal.writeln('[Taskmaster] Launching Copilot CLI...')
+        activeTerminal.writeln('[38;5;245m[taskmaster][0m launching copilot…')
         activeFitAddon.fit()
       }
 
@@ -200,7 +223,7 @@ export default function TerminalPane({
         retriedFromMissingSession: options?.retriedFromMissingSession ?? false
       }
       setIsRunning(true)
-      setLaunchSummary(`Running ${result.launchedCommand} in ${result.cwd}`)
+      setLaunchSummary(`Running ${result.launchedCommand}`)
       activeTerminal.focus()
       await onRefresh()
       return true
@@ -227,7 +250,7 @@ export default function TerminalPane({
         if (activeTerminal) {
           activeTerminal.writeln('')
           activeTerminal.writeln(
-            '[Taskmaster] Saved Copilot session not found. Retrying with a new session...'
+            '[38;5;245m[taskmaster][0m saved session not found — starting fresh…'
           )
         }
 
@@ -242,11 +265,11 @@ export default function TerminalPane({
         }
       }
 
-      setLaunchSummary(`Copilot session exited with code ${exitCode}.`)
+      setLaunchSummary(`Session exited (code ${exitCode}).`)
 
       if (activeTerminal) {
         activeTerminal.writeln('')
-        activeTerminal.writeln(`[Taskmaster] Copilot session exited with code ${exitCode}.`)
+        activeTerminal.writeln(`[38;5;245m[taskmaster][0m session exited with code ${exitCode}.`)
       }
 
       await onRefresh()
@@ -284,11 +307,11 @@ export default function TerminalPane({
       setCopilotStatus(status)
       setIsLaunching(false)
       setLaunchSummary(status.message)
-      terminal.writeln('Taskmaster terminal ready.')
+      terminal.writeln('[38;5;245m[taskmaster][0m terminal ready.')
       terminal.writeln('')
       terminal.writeln(status.message)
-      terminal.writeln(`[Taskmaster] Launch cwd: ${status.defaultCwd}`)
-      terminal.writeln('[Taskmaster] Select a thread, then launch Copilot.')
+      terminal.writeln(`[38;5;245m[taskmaster][0m launch cwd: ${status.defaultCwd}`)
+      terminal.writeln('[38;5;245m[taskmaster][0m select a thread, then launch.')
     })
 
     terminalRef.current = terminal
@@ -325,14 +348,14 @@ export default function TerminalPane({
       }
 
       terminal.reset()
-      terminal.writeln('[Taskmaster] Terminal ready.')
+      terminal.writeln('[38;5;245m[taskmaster][0m terminal ready.')
       terminal.writeln('')
-      terminal.writeln(copilotStatus?.message ?? 'Resolving Copilot CLI availability...')
+      terminal.writeln(copilotStatus?.message ?? 'Resolving Copilot CLI availability…')
       terminal.writeln(selectedThreadSummary)
 
       if (selectedThreadSessionName && selectedThreadBranch) {
-        terminal.writeln(`[Taskmaster] Session name: ${selectedThreadSessionName}`)
-        terminal.writeln(`[Taskmaster] Branch: ${selectedThreadBranch}`)
+        terminal.writeln(`[38;5;245m[taskmaster][0m session: ${selectedThreadSessionName}`)
+        terminal.writeln(`[38;5;245m[taskmaster][0m branch:  ${selectedThreadBranch}`)
       }
 
       setLaunchSummary(selectedThreadSummary)
@@ -363,7 +386,7 @@ export default function TerminalPane({
 
     setIsLaunching(true)
     terminal.reset()
-    terminal.writeln('[Taskmaster] Launching Copilot CLI...')
+    terminal.writeln('[38;5;245m[taskmaster][0m launching copilot…')
     fitAddon.fit()
 
     const mode: LaunchMode = selectedThread.hasLaunched ? 'resume' : 'new'
@@ -396,7 +419,7 @@ export default function TerminalPane({
       retriedFromMissingSession: false
     }
     setIsRunning(true)
-    setLaunchSummary(`Running ${result.launchedCommand} in ${result.cwd}`)
+    setLaunchSummary(`Running ${result.launchedCommand}`)
     terminal.focus()
     await onRefresh()
   }
@@ -413,54 +436,27 @@ export default function TerminalPane({
     await onRefresh()
   }
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      start: startCopilot,
+      stop: stopCopilot
+    }),
+    // startCopilot/stopCopilot close over latest state via refs/setters from React
+    // and are recreated on every render; pin to selectedThread to refresh capture.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [copilotStatus?.available, isRunning, selectedThread, settings]
+  )
+
   return (
-    <div className="h-fit self-start overflow-hidden rounded-2xl border border-white/10 bg-slate-900/60 p-5 shadow-2xl shadow-slate-950/30">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-white">Embedded Copilot terminal</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">{launchSummary}</p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-sm font-medium text-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!copilotStatus?.available || isLaunching || isRunning || !selectedThread}
-            onClick={() => void startCopilot()}
-            type="button"
-          >
-            {isLaunching ? 'Checking...' : 'Launch Copilot'}
-          </button>
-          <button
-            className="rounded-full border border-white/10 bg-slate-950 px-3 py-1.5 text-sm text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!isRunning}
-            onClick={() => void stopCopilot()}
-            type="button"
-          >
-            Stop
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 text-xs text-slate-400 sm:grid-cols-2">
-        <div className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2">
-          <div className="font-semibold uppercase tracking-[0.18em] text-slate-500">CLI status</div>
-          <div className="mt-2 text-sm text-slate-200">
-            {copilotStatus?.available ? 'Found on PATH' : 'Install/login required'}
-          </div>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2">
-          <div className="font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Selected thread
-          </div>
-          <div className="mt-2 truncate text-sm text-slate-200">
-            {selectedThread ? selectedThread.title : 'None'}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 h-[min(480px,50vh)] overflow-hidden rounded-xl border border-white/10 bg-slate-950">
-        <div className="h-full min-h-0 w-full overflow-hidden px-3 py-3" ref={containerRef} />
-      </div>
+    <div className="relative h-full w-full overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#141414]">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-gradient-to-r from-transparent via-[var(--color-border-strong)] to-transparent"
+      />
+      <div className="h-full w-full px-3 py-3" ref={containerRef} />
     </div>
   )
-}
+})
+
+export default TerminalPane
