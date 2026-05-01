@@ -10,6 +10,26 @@ type TerminalPaneProps = {
   onFeedback: (tone: 'error' | 'success' | 'info', message: string) => void
 }
 
+type LaunchMode = 'new' | 'resume'
+
+type LaunchAttempt = {
+  terminalId: string
+  threadId: string
+  mode: LaunchMode
+  sessionName: string
+  buffer: string
+  retriedFromMissingSession: boolean
+}
+
+function buildLaunchArgs(sessionName: string, globalFlags: string[], mode: LaunchMode): string[] {
+  const launchFlag = mode === 'resume' ? `--resume=${sessionName}` : `--name=${sessionName}`
+  return [launchFlag, ...globalFlags]
+}
+
+function isMissingNamedSessionError(output: string): boolean {
+  return /No session, task, or name matched/i.test(output)
+}
+
 export default function TerminalPane({
   selectedThread,
   settings,
@@ -20,24 +40,51 @@ export default function TerminalPane({
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const terminalIdRef = useRef<string | null>(null)
+  const launchAttemptRef = useRef<LaunchAttempt | null>(null)
+  const latestSelectedThreadRef = useRef<ThreadSnapshot | null>(selectedThread)
+  const latestSettingsRef = useRef<AppSettingsSnapshot | null>(settings)
+  const latestCopilotStatusRef = useRef<TerminalStatus | null>(null)
+  const latestOnFeedbackRef = useRef(onFeedback)
   const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
   const [isLaunching, setIsLaunching] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
   const [launchSummary, setLaunchSummary] = useState('Waiting for Copilot CLI check...')
+  const selectedThreadId = selectedThread?.id ?? null
+  const selectedThreadTitle = selectedThread?.title ?? null
+  const selectedThreadCwd = selectedThread?.cwd ?? null
+  const selectedThreadSessionName = selectedThread?.sessionName ?? null
+  const selectedThreadBranch = selectedThread?.displayBranchName ?? null
 
   const selectedThreadSummary = useMemo(() => {
-    if (!selectedThread) {
+    if (!selectedThreadTitle || !selectedThreadCwd) {
       return 'Select a thread to launch Copilot in-app.'
     }
 
-    return `Selected thread "${selectedThread.title}" on ${selectedThread.cwd}`
+    return `Selected thread "${selectedThreadTitle}" on ${selectedThreadCwd}`
+  }, [selectedThreadCwd, selectedThreadTitle])
+
+  useEffect(() => {
+    latestSelectedThreadRef.current = selectedThread
   }, [selectedThread])
+
+  useEffect(() => {
+    latestSettingsRef.current = settings
+  }, [settings])
+
+  useEffect(() => {
+    latestCopilotStatusRef.current = copilotStatus
+  }, [copilotStatus])
+
+  useEffect(() => {
+    latestOnFeedbackRef.current = onFeedback
+  }, [onFeedback])
 
   useEffect(() => {
     if (!containerRef.current) {
       return
     }
 
+    const container = containerRef.current
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
@@ -72,9 +119,15 @@ export default function TerminalPane({
     const fitAddon = new FitAddon()
 
     terminal.loadAddon(fitAddon)
-    terminal.open(containerRef.current)
+    terminal.open(container)
     fitAddon.fit()
     terminal.focus()
+
+    const handlePointerDown = (): void => {
+      terminal.focus()
+    }
+
+    container.addEventListener('pointerdown', handlePointerDown)
 
     const syncSize = (): void => {
       fitAddon.fit()
@@ -90,11 +143,122 @@ export default function TerminalPane({
       syncSize()
     })
 
-    resizeObserver.observe(containerRef.current)
+    resizeObserver.observe(container)
+
+    const launchCopilot = async (
+      thread: ThreadSnapshot,
+      appSettings: AppSettingsSnapshot,
+      mode: LaunchMode,
+      options?: { retriedFromMissingSession?: boolean }
+    ): Promise<boolean> => {
+      const activeTerminal = terminalRef.current
+      const activeFitAddon = fitAddonRef.current
+
+      if (
+        !activeTerminal ||
+        !activeFitAddon ||
+        !latestCopilotStatusRef.current?.available ||
+        terminalIdRef.current
+      ) {
+        return false
+      }
+
+      setIsLaunching(true)
+
+      if (!options?.retriedFromMissingSession) {
+        activeTerminal.reset()
+        activeTerminal.writeln('[Taskmaster] Launching Copilot CLI...')
+        activeFitAddon.fit()
+      }
+
+      const args = buildLaunchArgs(thread.sessionName, appSettings.parsedGlobalFlags, mode)
+      const result = await window.api.terminal.create({
+        threadId: thread.id,
+        cols: activeTerminal.cols,
+        rows: activeTerminal.rows,
+        cwd: thread.cwd,
+        args
+      })
+
+      setIsLaunching(false)
+
+      if (!result.ok) {
+        launchAttemptRef.current = null
+        setLaunchSummary(result.error)
+        activeTerminal.writeln(result.error)
+        latestOnFeedbackRef.current('error', result.error)
+        return false
+      }
+
+      terminalIdRef.current = result.terminalId
+      launchAttemptRef.current = {
+        terminalId: result.terminalId,
+        threadId: thread.id,
+        mode,
+        sessionName: thread.sessionName,
+        buffer: '',
+        retriedFromMissingSession: options?.retriedFromMissingSession ?? false
+      }
+      setIsRunning(true)
+      setLaunchSummary(`Running ${result.launchedCommand} in ${result.cwd}`)
+      activeTerminal.focus()
+      await onRefresh()
+      return true
+    }
+
+    const handleTerminalExit = async (exitCode: number): Promise<void> => {
+      const attempt = launchAttemptRef.current
+      const activeTerminal = terminalRef.current
+
+      terminalIdRef.current = null
+      launchAttemptRef.current = null
+      setIsRunning(false)
+
+      if (
+        attempt &&
+        attempt.mode === 'resume' &&
+        !attempt.retriedFromMissingSession &&
+        exitCode === 1 &&
+        isMissingNamedSessionError(attempt.buffer)
+      ) {
+        const thread = latestSelectedThreadRef.current
+        const appSettings = latestSettingsRef.current
+
+        if (activeTerminal) {
+          activeTerminal.writeln('')
+          activeTerminal.writeln(
+            '[Taskmaster] Saved Copilot session not found. Retrying with a new session...'
+          )
+        }
+
+        if (thread && appSettings && thread.id === attempt.threadId) {
+          const relaunched = await launchCopilot(thread, appSettings, 'new', {
+            retriedFromMissingSession: true
+          })
+
+          if (relaunched) {
+            return
+          }
+        }
+      }
+
+      setLaunchSummary(`Copilot session exited with code ${exitCode}.`)
+
+      if (activeTerminal) {
+        activeTerminal.writeln('')
+        activeTerminal.writeln(`[Taskmaster] Copilot session exited with code ${exitCode}.`)
+      }
+
+      await onRefresh()
+    }
 
     const dataCleanup = window.api.terminal.onData((payload) => {
       if (payload.terminalId !== terminalIdRef.current) {
         return
+      }
+
+      if (launchAttemptRef.current?.terminalId === payload.terminalId) {
+        launchAttemptRef.current.buffer += payload.data
       }
 
       terminal.write(payload.data)
@@ -105,12 +269,7 @@ export default function TerminalPane({
         return
       }
 
-      terminalIdRef.current = null
-      setIsRunning(false)
-      setLaunchSummary(`Copilot session exited with code ${payload.exitCode}.`)
-      terminal.writeln('')
-      terminal.writeln(`[Taskmaster] Copilot session exited with code ${payload.exitCode}.`)
-      void onRefresh()
+      void handleTerminalExit(payload.exitCode)
     })
 
     const disposable = terminal.onData((data) => {
@@ -136,6 +295,7 @@ export default function TerminalPane({
     fitAddonRef.current = fitAddon
 
     return () => {
+      container.removeEventListener('pointerdown', handlePointerDown)
       resizeObserver.disconnect()
       exitCleanup()
       dataCleanup()
@@ -144,6 +304,7 @@ export default function TerminalPane({
       if (terminalIdRef.current) {
         void window.api.terminal.kill(terminalIdRef.current)
         terminalIdRef.current = null
+        launchAttemptRef.current = null
       }
 
       terminal.dispose()
@@ -160,6 +321,7 @@ export default function TerminalPane({
       if (terminalIdRef.current) {
         await window.api.terminal.kill(terminalIdRef.current)
         terminalIdRef.current = null
+        launchAttemptRef.current = null
       }
 
       terminal.reset()
@@ -168,9 +330,9 @@ export default function TerminalPane({
       terminal.writeln(copilotStatus?.message ?? 'Resolving Copilot CLI availability...')
       terminal.writeln(selectedThreadSummary)
 
-      if (selectedThread) {
-        terminal.writeln(`[Taskmaster] Session name: ${selectedThread.sessionName}`)
-        terminal.writeln(`[Taskmaster] Branch: ${selectedThread.displayBranchName}`)
+      if (selectedThreadSessionName && selectedThreadBranch) {
+        terminal.writeln(`[Taskmaster] Session name: ${selectedThreadSessionName}`)
+        terminal.writeln(`[Taskmaster] Branch: ${selectedThreadBranch}`)
       }
 
       setLaunchSummary(selectedThreadSummary)
@@ -179,20 +341,23 @@ export default function TerminalPane({
     }
 
     void resetTerminal()
-  }, [copilotStatus?.message, selectedThread, selectedThreadSummary])
+  }, [
+    copilotStatus?.message,
+    selectedThreadBranch,
+    selectedThreadId,
+    selectedThreadSessionName,
+    selectedThreadSummary
+  ])
 
   const startCopilot = async (): Promise<void> => {
+    if (!copilotStatus?.available || !selectedThread || !settings || isRunning) {
+      return
+    }
+
     const terminal = terminalRef.current
     const fitAddon = fitAddonRef.current
 
-    if (
-      !terminal ||
-      !fitAddon ||
-      !copilotStatus?.available ||
-      !selectedThread ||
-      !settings ||
-      isRunning
-    ) {
+    if (!terminal || !fitAddon) {
       return
     }
 
@@ -201,10 +366,8 @@ export default function TerminalPane({
     terminal.writeln('[Taskmaster] Launching Copilot CLI...')
     fitAddon.fit()
 
-    const args = selectedThread.hasLaunched
-      ? [`--resume=${selectedThread.sessionName}`, ...settings.parsedGlobalFlags]
-      : ['--name', selectedThread.sessionName, ...settings.parsedGlobalFlags]
-
+    const mode: LaunchMode = selectedThread.hasLaunched ? 'resume' : 'new'
+    const args = buildLaunchArgs(selectedThread.sessionName, settings.parsedGlobalFlags, mode)
     const result = await window.api.terminal.create({
       threadId: selectedThread.id,
       cols: terminal.cols,
@@ -216,6 +379,7 @@ export default function TerminalPane({
     setIsLaunching(false)
 
     if (!result.ok) {
+      launchAttemptRef.current = null
       setLaunchSummary(result.error)
       terminal.writeln(result.error)
       onFeedback('error', result.error)
@@ -223,6 +387,14 @@ export default function TerminalPane({
     }
 
     terminalIdRef.current = result.terminalId
+    launchAttemptRef.current = {
+      terminalId: result.terminalId,
+      threadId: selectedThread.id,
+      mode,
+      sessionName: selectedThread.sessionName,
+      buffer: '',
+      retriedFromMissingSession: false
+    }
     setIsRunning(true)
     setLaunchSummary(`Running ${result.launchedCommand} in ${result.cwd}`)
     terminal.focus()
@@ -236,6 +408,7 @@ export default function TerminalPane({
 
     await window.api.terminal.kill(terminalIdRef.current)
     terminalIdRef.current = null
+    launchAttemptRef.current = null
     setIsRunning(false)
     await onRefresh()
   }

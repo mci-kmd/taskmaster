@@ -18,6 +18,7 @@ type TerminalSession = {
   ownerId: number
   ptyProcess: pty.IPty
   threadId?: string
+  launchConfirmationTimer: NodeJS.Timeout | null
 }
 
 type CopilotCommand = {
@@ -36,6 +37,7 @@ const sessions = new Map<string, TerminalSession>()
 const ownerCleanupHooks = new Set<number>()
 const threadActivityTimestamps = new Map<string, number>()
 let terminalHooks: TerminalHooks = {}
+const LAUNCH_CONFIRMATION_MS = 1_500
 
 function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
@@ -115,6 +117,15 @@ function buildCopilotCommand(commandPath: string, args: string[] = []): CopilotC
   }
 }
 
+function clearLaunchConfirmation(session: TerminalSession): void {
+  if (!session.launchConfirmationTimer) {
+    return
+  }
+
+  clearTimeout(session.launchConfirmationTimer)
+  session.launchConfirmationTimer = null
+}
+
 function attachOwnerCleanup(ownerContents: WebContents): void {
   if (ownerCleanupHooks.has(ownerContents.id)) {
     return
@@ -129,6 +140,7 @@ function attachOwnerCleanup(ownerContents: WebContents): void {
         continue
       }
 
+      clearLaunchConfirmation(session)
       sessions.delete(session.id)
       session.ptyProcess.kill()
     }
@@ -136,6 +148,8 @@ function attachOwnerCleanup(ownerContents: WebContents): void {
 }
 
 function finalizeSession(session: TerminalSession, exitCode: number): void {
+  clearLaunchConfirmation(session)
+
   if (!sessions.delete(session.id)) {
     return
   }
@@ -217,12 +231,20 @@ function createSession(
     cwd,
     ownerId: event.sender.id,
     ptyProcess,
-    threadId: request.threadId
+    threadId: request.threadId,
+    launchConfirmationTimer: null
   }
 
   sessions.set(terminalId, session)
   if (request.threadId) {
-    terminalHooks.onThreadStart?.(request.threadId)
+    session.launchConfirmationTimer = setTimeout(() => {
+      if (!sessions.has(session.id) || !session.threadId) {
+        return
+      }
+
+      session.launchConfirmationTimer = null
+      terminalHooks.onThreadStart?.(session.threadId)
+    }, LAUNCH_CONFIRMATION_MS)
   }
 
   ptyProcess.onData((data) => {
@@ -263,6 +285,7 @@ export function killSessionsForThread(threadId: string): void {
       continue
     }
 
+    clearLaunchConfirmation(session)
     sessions.delete(session.id)
     session.ptyProcess.kill()
   }
@@ -311,6 +334,7 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
 
   app.on('before-quit', () => {
     for (const session of sessions.values()) {
+      clearLaunchConfirmation(session)
       session.ptyProcess.kill()
     }
 
