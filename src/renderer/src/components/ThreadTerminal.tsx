@@ -434,7 +434,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         className="absolute inset-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#141414]"
         style={{ display: visible ? 'block' : 'none' }}
       >
-        <div className="h-full w-full px-3 py-3" ref={containerRef} />
+        <div className="h-full w-full px-3" ref={containerRef} />
       </div>
     )
   }

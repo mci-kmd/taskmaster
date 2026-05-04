@@ -2,13 +2,15 @@ import { useMemo } from 'react'
 import type { AppSnapshot, RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
 import {
+  BranchIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   FolderIcon,
   GearIcon,
   LogoMark,
   PlusIcon,
-  ThreadIcon
+  ThreadIcon,
+  WorktreeIcon
 } from './Icons'
 import Button from './ui/Button'
 import { formatRelativeTime } from '../lib/time'
@@ -49,6 +51,15 @@ export default function Sidebar({
     () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
     [snapshot.repositories]
   )
+  const getThreadModeTooltip = (thread: ThreadSnapshot): string | null => {
+    if (thread.mode === 'worktree') {
+      return 'Worktree thread'
+    }
+    if (thread.mode === 'new-branch') {
+      return 'New branch thread'
+    }
+    return null
+  }
 
   return (
     <aside className="flex min-h-0 w-full min-w-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-panel)]">
@@ -191,6 +202,7 @@ export default function Sidebar({
                       const phase = session?.phase
                       const isLaunching = phase === 'launching'
                       const isRunning = thread.isRunning || phase === 'running'
+                      const threadModeTooltip = getThreadModeTooltip(thread)
 
                       return (
                         <li key={thread.id}>
@@ -230,9 +242,17 @@ export default function Sidebar({
                                 <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
                               </span>
                             </span>
-                            {thread.mode === 'worktree' || thread.mode === 'new-branch' ? (
-                              <span className="shrink-0 rounded border border-[var(--color-border)] px-1 py-px font-mono text-[9.5px] uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">
-                                {thread.mode === 'worktree' ? 'wt' : 'nb'}
+                            {threadModeTooltip ? (
+                              <span
+                                aria-label={threadModeTooltip}
+                                className="shrink-0 text-[var(--color-fg-subtle)]"
+                                title={threadModeTooltip}
+                              >
+                                {thread.mode === 'worktree' ? (
+                                  <WorktreeIcon width={11} height={11} />
+                                ) : (
+                                  <BranchIcon width={11} height={11} />
+                                )}
                               </span>
                             ) : null}
                           </button>

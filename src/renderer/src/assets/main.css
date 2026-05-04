@@ -112,10 +112,6 @@ select {
   background: rgba(237, 237, 237, 0.18);
 }
 
-.xterm {
-  padding: 4px 0;
-}
-
 .xterm-viewport::-webkit-scrollbar-thumb {
   background: #303030;
   background-clip: padding-box;

@@ -341,6 +341,16 @@ function buildRepositorySnapshot(
   }
 }
 
+function compareRepositoriesAlphabetically(
+  left: Pick<RepositorySnapshot, 'name' | 'path'>,
+  right: Pick<RepositorySnapshot, 'name' | 'path'>
+): number {
+  const byName = left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
+  return byName !== 0
+    ? byName
+    : left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
+}
+
 function clampSidebarWidth(value: number): number {
   if (!Number.isFinite(value)) {
     return SIDEBAR_WIDTH_DEFAULT
@@ -354,7 +364,7 @@ function buildSnapshot(): AppSnapshot {
 
   const repositories = state.repositories
     .map((repository) => buildRepositorySnapshot(repository, state.threads, runningThreadIds))
-    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
+    .sort(compareRepositoriesAlphabetically)
 
   return {
     repositories,
