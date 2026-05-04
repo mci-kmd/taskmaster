@@ -1,7 +1,8 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
+import iconIco from '../../build/icon.ico?asset'
+import iconPng from '../../resources/icon.png?asset'
 import { registerTerminalIpc } from './terminal'
 import {
   initializeAppState,
@@ -12,6 +13,8 @@ import {
 } from './app-state'
 
 function createWindow(): void {
+  const windowIcon = process.platform === 'win32' ? iconIco : iconPng
+
   const mainWindow = new BrowserWindow({
     title: 'Taskmaster',
     width: 1440,
@@ -21,7 +24,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#181818',
-    ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
