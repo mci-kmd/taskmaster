@@ -117,6 +117,84 @@ function buildCopilotCommand(commandPath: string, args: string[] = []): CopilotC
   }
 }
 
+function runGit(cwd: string, args: string[]): string {
+  const result = spawnSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    windowsHide: true
+  })
+
+  if (result.status !== 0) {
+    const message = result.stderr.trim() || result.stdout.trim() || `git ${args.join(' ')} failed`
+    throw new Error(message)
+  }
+
+  return result.stdout.trim()
+}
+
+function tryGit(cwd: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
+  const result = spawnSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    windowsHide: true
+  })
+
+  return {
+    ok: result.status === 0,
+    stdout: result.stdout.trim(),
+    stderr: result.stderr.trim()
+  }
+}
+
+function getCurrentBranchLabel(repoPath: string): string {
+  const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (!branchResult.ok) {
+    return 'Unavailable'
+  }
+
+  if (branchResult.stdout === 'HEAD') {
+    const headResult = tryGit(repoPath, ['rev-parse', '--short', 'HEAD'])
+    return headResult.ok ? `HEAD (${headResult.stdout})` : 'HEAD'
+  }
+
+  return branchResult.stdout
+}
+
+function hasUncommittedChanges(repoPath: string): boolean {
+  const result = tryGit(repoPath, ['status', '--porcelain', '--untracked-files=no'])
+  return result.ok && result.stdout.length > 0
+}
+
+function ensureThreadBranch(cwd: string, request: TerminalCreateRequest): { ok: true } | { ok: false; error: string } {
+  if (!request.threadId || !request.branchName || request.threadMode === 'worktree') {
+    return { ok: true }
+  }
+
+  const currentBranch = getCurrentBranchLabel(cwd)
+  if (currentBranch === request.branchName) {
+    return { ok: true }
+  }
+
+  if (hasUncommittedChanges(cwd)) {
+    return {
+      ok: false,
+      error: `Thread targets "${request.branchName}" but the repo is still on "${currentBranch}" with uncommitted changes. Make sure the working branch is clean before starting this thread.`
+    }
+  }
+
+  try {
+    runGit(cwd, ['checkout', request.branchName])
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : `Failed to switch from "${currentBranch}" to "${request.branchName}".`
+    }
+  }
+
+  return { ok: true }
+}
+
 function clearLaunchConfirmation(session: TerminalSession): void {
   if (!session.launchConfirmationTimer) {
     return
@@ -211,6 +289,10 @@ function createSession(
   attachOwnerCleanup(event.sender)
 
   const cwd = normalizeCwd(request.cwd)
+  const branchCheck = ensureThreadBranch(cwd, request)
+  if (!branchCheck.ok) {
+    return branchCheck
+  }
   const command = buildCopilotCommand(status.commandPath, request.args)
   const terminalId = randomUUID()
 

@@ -707,16 +707,13 @@ async function getBranchStatus(input: BranchStatusRequest): Promise<BranchStatus
 function buildThreadSnapshot(
   repository: PersistedRepository,
   thread: PersistedThread,
-  runningThreadIds: Set<string>,
-  repositoryGitState: RepositoryGitState
+  runningThreadIds: Set<string>
 ): ThreadSnapshot {
-  const displayBranchName =
-    thread.mode === 'active-branch' ? repositoryGitState.currentBranch : thread.branchName
   return {
     ...thread,
     cwd: getThreadCwd(thread, repository.path),
-    displayBranchName,
-    displayTitle: thread.customTitle ?? displayBranchName,
+    displayBranchName: thread.branchName,
+    displayTitle: thread.customTitle ?? thread.branchName,
     isRunning: runningThreadIds.has(thread.id)
   }
 }
@@ -730,7 +727,7 @@ function buildRepositorySnapshot(
   const repositoryGitState = getRepositoryGitState(repository, refreshGit)
   const snapshotThreads = threads
     .filter((thread) => thread.repositoryId === repository.id)
-    .map((thread) => buildThreadSnapshot(repository, thread, runningThreadIds, repositoryGitState))
+    .map((thread) => buildThreadSnapshot(repository, thread, runningThreadIds))
     .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
 
   return {

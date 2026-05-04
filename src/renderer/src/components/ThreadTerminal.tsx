@@ -178,6 +178,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         const result = await window.api.terminal.create({
           threadId: currentThread.id,
+          threadMode: currentThread.mode,
+          branchName: currentThread.branchName,
           cols: term.cols,
           rows: term.rows,
           cwd: currentThread.cwd,
@@ -186,6 +188,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         if (!result.ok) {
           launchAttemptRef.current = null
+          await onRefreshRef.current()
           setPhase('error')
           setErrorMessage(result.error)
           return false

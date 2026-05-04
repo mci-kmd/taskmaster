@@ -6,6 +6,8 @@ export interface TerminalCreateRequest {
   cwd?: string
   args?: string[]
   threadId?: string
+  threadMode?: ThreadMode
+  branchName?: string
 }
 
 export interface TerminalStatus {
