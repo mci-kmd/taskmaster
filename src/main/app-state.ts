@@ -34,6 +34,7 @@ import {
   type RepositorySnapshot,
   type ThreadSnapshot,
   type UpdateRepositoryInput,
+  type UpdateThreadInput,
   type UpdateThreadCopilotTitleInput,
   type UpdateSettingsInput,
   type UpdateUiInput
@@ -836,6 +837,11 @@ function resolveBaseRef(
   return { ok: true, ref: primary }
 }
 
+function normalizeCustomTitle(title: string | null | undefined): string | null {
+  const trimmedTitle = title?.trim()
+  return trimmedTitle ? trimmedTitle : null
+}
+
 function createThread(input: CreateThreadInput): MutationResult {
   const state = ensureState()
   const repository = state.repositories.find((item) => item.id === input.repositoryId)
@@ -845,9 +851,7 @@ function createThread(input: CreateThreadInput): MutationResult {
   }
 
   const createdAt = nowIso()
-  const trimmedTitle = input.title?.trim()
-
-  const customTitle = trimmedTitle ? trimmedTitle : null
+  const customTitle = normalizeCustomTitle(input.title)
 
   if (input.mode === 'worktree') {
     const branchName = input.branchName?.trim()
@@ -1071,6 +1075,22 @@ function updateRepository(input: UpdateRepositoryInput): MutationResult {
   return successResult()
 }
 
+function updateThread(input: UpdateThreadInput): MutationResult {
+  const thread = findThread(input.threadId)
+  if (!thread) {
+    return failureResult('Thread not found.')
+  }
+
+  const customTitle = normalizeCustomTitle(input.customTitle)
+  if (thread.customTitle === customTitle) {
+    return successResult()
+  }
+
+  thread.customTitle = customTitle
+  saveState()
+  return successResult()
+}
+
 async function pickRepositoryFavicon(
   sender: WebContents,
   repositoryId: string
@@ -1172,6 +1192,9 @@ export function registerAppStateIpc(): void {
   ipcMain.handle('app-state:close-thread', (_event, threadId: string) => closeThread(threadId))
   ipcMain.handle('app-state:update-repository', (_event, input: UpdateRepositoryInput) =>
     updateRepository(input)
+  )
+  ipcMain.handle('app-state:update-thread', (_event, input: UpdateThreadInput) =>
+    updateThread(input)
   )
   ipcMain.handle('app-state:pick-repository-favicon', (event, repositoryId: string) =>
     pickRepositoryFavicon(event.sender, repositoryId)

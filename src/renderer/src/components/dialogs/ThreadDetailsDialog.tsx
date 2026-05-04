@@ -79,7 +79,7 @@ export default function ThreadDetailsDialog({
     >
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-4 py-2.5">
         {thread.customTitle ? (
-          <Row label="Custom label" value={<span>{thread.customTitle}</span>} />
+          <Row label="Title prefix" value={<span>{thread.customTitle}</span>} />
         ) : null}
         {copilotTitle ? (
           <Row

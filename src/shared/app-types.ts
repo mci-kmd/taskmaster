@@ -159,6 +159,11 @@ export interface UpdateRepositoryInput {
   faviconPath: string | null
 }
 
+export interface UpdateThreadInput {
+  threadId: string
+  customTitle: string | null
+}
+
 export interface UpdateUiInput {
   sidebarWidth?: number
 }

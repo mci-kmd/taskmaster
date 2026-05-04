@@ -29,12 +29,14 @@ type SidebarProps = {
   onSelectThread: (id: string) => void
   onAddRepository: () => void
   onEditRepository: (id: string) => void
+  onEditThread: (id: string) => void
   onNewThread: () => void
   onOpenSettings: () => void
 }
 
-type RepositoryContextMenuState = {
-  repositoryId: string
+type ContextMenuState = {
+  kind: 'repository' | 'thread'
+  itemId: string
   x: number
   y: number
 }
@@ -81,11 +83,12 @@ export default function Sidebar({
   onSelectThread,
   onAddRepository,
   onEditRepository,
+  onEditThread,
   onNewThread,
   onOpenSettings
 }: SidebarProps): React.JSX.Element {
   const now = useNow(30_000)
-  const [contextMenu, setContextMenu] = useState<RepositoryContextMenuState | null>(null)
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const totalThreads = useMemo(
     () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
     [snapshot.repositories]
@@ -218,7 +221,8 @@ export default function Sidebar({
                   onContextMenu={(event) => {
                     event.preventDefault()
                     setContextMenu({
-                      repositoryId: repository.id,
+                      kind: 'repository',
+                      itemId: repository.id,
                       x: event.clientX,
                       y: event.clientY
                     })
@@ -281,6 +285,15 @@ export default function Sidebar({
                                 ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
                                 : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
                             }`}
+                            onContextMenu={(event) => {
+                              event.preventDefault()
+                              setContextMenu({
+                                kind: 'thread',
+                                itemId: thread.id,
+                                x: event.clientX,
+                                y: event.clientY
+                              })
+                            }}
                             onClick={() => onSelectThread(thread.id)}
                             title={`${composedTitle} · ${thread.displayBranchName}${
                               isRunning ? ' · running' : isLaunching ? ' · launching' : ''
@@ -346,7 +359,7 @@ export default function Sidebar({
       {contextMenu ? (
         <>
           <button
-            aria-label="Close project menu"
+            aria-label="Close item menu"
             className="fixed inset-0 z-40 cursor-default appearance-none border-0 bg-transparent p-0"
             onClick={() => setContextMenu(null)}
             onContextMenu={(event) => {
@@ -366,10 +379,14 @@ export default function Sidebar({
             <button
               className="flex w-full items-center rounded-md px-3 py-2 text-left text-[12.5px] text-[var(--color-fg)] transition hover:bg-[var(--color-hover)]"
               onClick={() => {
-                onEditRepository(contextMenu.repositoryId)
+                if (contextMenu.kind === 'repository') {
+                  onEditRepository(contextMenu.itemId)
+                } else {
+                  onEditThread(contextMenu.itemId)
+                }
                 setContextMenu(null)
               }}
-              title="Edit project"
+              title={contextMenu.kind === 'repository' ? 'Edit project' : 'Edit thread'}
               type="button"
             >
               Edit

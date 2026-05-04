@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import Toast, { type ToastTone } from './components/Toast'
 import EditRepositoryDialog from './components/dialogs/EditRepositoryDialog'
+import EditThreadDialog from './components/dialogs/EditThreadDialog'
 import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
 import ThreadDetailsDialog from './components/dialogs/ThreadDetailsDialog'
@@ -24,7 +25,7 @@ type Feedback = {
   message: string
 }
 
-type DialogKey = 'new-thread' | 'settings' | 'details' | 'edit-repository' | null
+type DialogKey = 'new-thread' | 'settings' | 'details' | 'edit-repository' | 'edit-thread' | null
 
 function findThreadById(snapshot: AppSnapshot, threadId: string): ThreadSnapshot | null {
   return (
@@ -91,6 +92,7 @@ export default function App(): React.JSX.Element {
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [dialog, setDialog] = useState<DialogKey>(null)
   const [editingRepositoryId, setEditingRepositoryId] = useState<string | null>(null)
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null)
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
   const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
@@ -134,6 +136,14 @@ export default function App(): React.JSX.Element {
 
     return snapshot.repositories.find((repository) => repository.id === editingRepositoryId) ?? null
   }, [editingRepositoryId, snapshot])
+
+  const editingThread = useMemo(() => {
+    if (!snapshot || !editingThreadId) {
+      return null
+    }
+
+    return findThreadById(snapshot, editingThreadId)
+  }, [editingThreadId, snapshot])
 
   const allThreads = useMemo<ThreadSnapshot[]>(() => {
     return snapshot ? snapshot.repositories.flatMap((repository) => repository.threads) : []
@@ -182,6 +192,16 @@ export default function App(): React.JSX.Element {
   const handleCloseRepositoryEditor = useCallback((): void => {
     setDialog(null)
     setEditingRepositoryId(null)
+  }, [])
+
+  const handleOpenThreadEditor = useCallback((threadId: string): void => {
+    setEditingThreadId(threadId)
+    setDialog('edit-thread')
+  }, [])
+
+  const handleCloseThreadEditor = useCallback((): void => {
+    setDialog(null)
+    setEditingThreadId(null)
   }, [])
 
   const handleSelectRepository = useCallback((repositoryId: string): void => {
@@ -303,6 +323,16 @@ export default function App(): React.JSX.Element {
     [applyMutation]
   )
 
+  const handleSaveThread = useCallback(
+    async (input: { threadId: string; customTitle: string | null }): Promise<boolean> => {
+      setBusyAction('save-thread')
+      const result = await applyMutation(window.api.appState.updateThread(input), 'Thread updated.')
+      setBusyAction(null)
+      return result.ok
+    },
+    [applyMutation]
+  )
+
   const handleCloseThread = useCallback(async (): Promise<void> => {
     if (!selectedThread) {
       return
@@ -361,6 +391,7 @@ export default function App(): React.JSX.Element {
           collapsedRepositoryIds={collapsedRepositoryIds}
           onAddRepository={() => void handleAddRepository()}
           onEditRepository={handleOpenRepositoryEditor}
+          onEditThread={handleOpenThreadEditor}
           onNewThread={() => setDialog('new-thread')}
           onOpenSettings={() => setDialog('settings')}
           onSelectRepository={(id) => void handleSelectRepository(id)}
@@ -429,6 +460,15 @@ export default function App(): React.JSX.Element {
         onSubmit={handleSaveRepository}
         open={dialog === 'edit-repository'}
         repository={editingRepository}
+      />
+
+      <EditThreadDialog
+        busy={busyAction === 'save-thread'}
+        onClose={handleCloseThreadEditor}
+        onSubmit={handleSaveThread}
+        open={dialog === 'edit-thread'}
+        runtimeTitle={editingThread ? (sessions.get(editingThread.id)?.runtimeTitle ?? null) : null}
+        thread={editingThread}
       />
 
       {feedback ? (

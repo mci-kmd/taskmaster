@@ -8,6 +8,7 @@ import type {
   TerminalDataEvent,
   TerminalExitEvent,
   UpdateRepositoryInput,
+  UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
   UpdateSettingsInput,
   UpdateUiInput
@@ -20,6 +21,7 @@ const api = {
     addRepository: () => ipcRenderer.invoke('app-state:add-repository'),
     updateRepository: (input: UpdateRepositoryInput) =>
       ipcRenderer.invoke('app-state:update-repository', input),
+    updateThread: (input: UpdateThreadInput) => ipcRenderer.invoke('app-state:update-thread', input),
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
       ipcRenderer.invoke('app-state:pick-repository-favicon', repositoryId),
     createThread: (input: CreateThreadInput) =>
