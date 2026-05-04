@@ -277,6 +277,21 @@ export default function App(): React.JSX.Element {
     [applyMutation, selectedRepository]
   )
 
+  const handleOpenNewThreadDialog = useCallback(
+    (repositoryId?: string): void => {
+      const targetRepositoryId = repositoryId ?? selectedRepository?.id
+      if (!targetRepositoryId) {
+        return
+      }
+
+      if (targetRepositoryId !== selectedRepository?.id) {
+        handleSelectRepository(targetRepositoryId)
+      }
+      setDialog('new-thread')
+    },
+    [handleSelectRepository, selectedRepository]
+  )
+
   const handleSaveSettings = useCallback(
     async (input: { globalFlagsInput: string }): Promise<boolean> => {
       setBusyAction('save-settings')
@@ -333,21 +348,27 @@ export default function App(): React.JSX.Element {
     [applyMutation]
   )
 
-  const handleCloseThread = useCallback(async (): Promise<void> => {
+  const handleCloseThread = useCallback(
+    async (threadId: string): Promise<void> => {
+      const shouldCloseDetails = dialog === 'details' && selectedThread?.id === threadId
+
+      setBusyAction('close-thread')
+      const result = await applyMutation(window.api.appState.closeThread(threadId), 'Thread closed.')
+      setBusyAction(null)
+      if (result.ok && shouldCloseDetails) {
+        setDialog(null)
+      }
+    },
+    [applyMutation, dialog, selectedThread]
+  )
+
+  const handleCloseSelectedThread = useCallback((): void => {
     if (!selectedThread) {
       return
     }
 
-    setBusyAction('close-thread')
-    const result = await applyMutation(
-      window.api.appState.closeThread(selectedThread.id),
-      'Thread closed.'
-    )
-    setBusyAction(null)
-    if (result.ok) {
-      setDialog(null)
-    }
-  }, [applyMutation, selectedThread])
+    void handleCloseThread(selectedThread.id)
+  }, [handleCloseThread, selectedThread])
 
   // Refresh repo state (current branch, primary branch, etc.) every time the
   // New Thread dialog opens — git state can change externally between opens.
@@ -362,15 +383,17 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
-        if (selectedRepository) {
-          event.preventDefault()
-          setDialog('new-thread')
+        if (!selectedRepository) {
+          return
         }
+
+        event.preventDefault()
+        handleOpenNewThreadDialog()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selectedRepository])
+  }, [handleOpenNewThreadDialog, selectedRepository])
 
   if (!snapshot) {
     return (
@@ -388,11 +411,13 @@ export default function App(): React.JSX.Element {
       <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
         <Sidebar
           busyAddRepository={busyAction === 'add-repository'}
+          closingThread={busyAction === 'close-thread'}
           collapsedRepositoryIds={collapsedRepositoryIds}
           onAddRepository={() => void handleAddRepository()}
+          onCloseThread={(id) => void handleCloseThread(id)}
           onEditRepository={handleOpenRepositoryEditor}
           onEditThread={handleOpenThreadEditor}
-          onNewThread={() => setDialog('new-thread')}
+          onNewThread={handleOpenNewThreadDialog}
           onOpenSettings={() => setDialog('settings')}
           onSelectRepository={(id) => void handleSelectRepository(id)}
           onSelectThread={(id) => void handleSelectThread(id)}
@@ -416,7 +441,7 @@ export default function App(): React.JSX.Element {
         hasRepositories={snapshot.repositories.length > 0}
         onAddRepository={() => void handleAddRepository()}
         onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
-        onNewThread={() => setDialog('new-thread')}
+        onNewThread={() => handleOpenNewThreadDialog()}
         onOpenDetails={() => setDialog('details')}
         onRefresh={refreshSnapshot}
         onSessionsChange={handleSessionsChange}
@@ -445,7 +470,7 @@ export default function App(): React.JSX.Element {
       <ThreadDetailsDialog
         closing={busyAction === 'close-thread'}
         onClose={() => setDialog(null)}
-        onCloseThread={() => void handleCloseThread()}
+        onCloseThread={handleCloseSelectedThread}
         open={dialog === 'details'}
         runtimeTitle={
           selectedThread ? (sessions.get(selectedThread.id)?.runtimeTitle ?? null) : null

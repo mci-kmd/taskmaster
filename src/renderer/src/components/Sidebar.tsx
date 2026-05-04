@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { AppSnapshot, RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type {
+  AppSnapshot,
+  RepositorySnapshot,
+  SidebarContextMenuActionEvent,
+  SidebarContextMenuRequest,
+  ThreadSnapshot
+} from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
 import {
   BranchIcon,
@@ -30,15 +36,10 @@ type SidebarProps = {
   onAddRepository: () => void
   onEditRepository: (id: string) => void
   onEditThread: (id: string) => void
-  onNewThread: () => void
+  onNewThread: (repositoryId: string) => void
   onOpenSettings: () => void
-}
-
-type ContextMenuState = {
-  kind: 'repository' | 'thread'
-  itemId: string
-  x: number
-  y: number
+  onCloseThread: (id: string) => void
+  closingThread: boolean
 }
 
 function RepositoryListIcon({
@@ -52,22 +53,26 @@ function RepositoryListIcon({
 
   if (repository.faviconUrl && !imageFailed) {
     return (
-      <img
-        alt=""
-        className="size-[13px] shrink-0 rounded-[3px] object-contain"
-        draggable={false}
-        onError={() => setImageFailed(true)}
-        src={repository.faviconUrl}
-      />
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        <img
+          alt=""
+          className="size-4 rounded-[4px] object-contain"
+          draggable={false}
+          onError={() => setImageFailed(true)}
+          src={repository.faviconUrl}
+        />
+      </span>
     )
   }
 
   return (
-    <FolderIcon
-      className={selected ? 'text-[var(--color-fg)]' : 'text-[var(--color-fg-subtle)]'}
-      width={13}
-      height={13}
-    />
+    <span className="flex size-4 shrink-0 items-center justify-center">
+      <FolderIcon
+        className={selected ? 'text-[var(--color-fg)]' : 'text-[var(--color-fg-subtle)]'}
+        width={13}
+        height={13}
+      />
+    </span>
   )
 }
 
@@ -85,37 +90,45 @@ export default function Sidebar({
   onEditRepository,
   onEditThread,
   onNewThread,
-  onOpenSettings
+  onOpenSettings,
+  onCloseThread,
+  closingThread
 }: SidebarProps): React.JSX.Element {
   const now = useNow(30_000)
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const totalThreads = useMemo(
     () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
     [snapshot.repositories]
   )
 
-  useEffect(() => {
-    if (!contextMenu) {
-      return
-    }
+  const handleContextMenuAction = useCallback(
+    (payload: SidebarContextMenuActionEvent): void => {
+      if (payload.kind === 'repository') {
+        if (payload.action === 'new-thread') {
+          onNewThread(payload.itemId)
+          return
+        }
 
-    const handleKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        setContextMenu(null)
+        if (payload.action === 'edit') {
+          onEditRepository(payload.itemId)
+        }
+        return
       }
-    }
 
-    const handleBlur = (): void => {
-      setContextMenu(null)
-    }
+      if (payload.action === 'edit') {
+        onEditThread(payload.itemId)
+        return
+      }
 
-    window.addEventListener('keydown', handleKey)
-    window.addEventListener('blur', handleBlur)
-    return () => {
-      window.removeEventListener('keydown', handleKey)
-      window.removeEventListener('blur', handleBlur)
-    }
-  }, [contextMenu])
+      if (payload.action === 'close-thread') {
+        onCloseThread(payload.itemId)
+      }
+    },
+    [onCloseThread, onEditRepository, onEditThread, onNewThread]
+  )
+
+  useEffect(() => {
+    return window.api.appState.onSidebarContextMenuAction(handleContextMenuAction)
+  }, [handleContextMenuAction])
 
   const getThreadModeTooltip = (thread: ThreadSnapshot): string | null => {
     if (thread.mode === 'worktree') {
@@ -126,6 +139,10 @@ export default function Sidebar({
     }
     return null
   }
+
+  const showContextMenu = useCallback((request: SidebarContextMenuRequest): void => {
+    void window.api.appState.showSidebarContextMenu(request)
+  }, [])
 
   return (
     <aside className="flex min-h-0 w-full min-w-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-panel)]">
@@ -143,27 +160,6 @@ export default function Sidebar({
           variant="ghost"
         >
           <GearIcon width={14} height={14} />
-        </Button>
-      </div>
-
-      <div className="px-3 pt-3">
-        <Button
-          className="w-full justify-start"
-          disabled={!selectedRepository}
-          onClick={onNewThread}
-          size="md"
-          title={
-            selectedRepository
-              ? `New thread in ${selectedRepository.name} (Ctrl+N)`
-              : 'Select a repository first'
-          }
-          variant="secondary"
-        >
-          <PlusIcon width={12} height={12} strokeWidth={1.8} />
-          New thread
-          <span className="ml-auto font-mono text-[10.5px] tracking-wide text-[var(--color-fg-subtle)]">
-            Ctrl N
-          </span>
         </Button>
       </div>
 
@@ -220,11 +216,12 @@ export default function Sidebar({
                   }`}
                   onContextMenu={(event) => {
                     event.preventDefault()
-                    setContextMenu({
+                    showContextMenu({
                       kind: 'repository',
                       itemId: repository.id,
                       x: event.clientX,
-                      y: event.clientY
+                      y: event.clientY,
+                      closeThreadEnabled: false
                     })
                   }}
                 >
@@ -282,11 +279,12 @@ export default function Sidebar({
                             }`}
                             onContextMenu={(event) => {
                               event.preventDefault()
-                              setContextMenu({
+                              showContextMenu({
                                 kind: 'thread',
                                 itemId: thread.id,
                                 x: event.clientX,
-                                y: event.clientY
+                                y: event.clientY,
+                                closeThreadEnabled: !closingThread
                               })
                             }}
                             onClick={() => onSelectThread(thread.id)}
@@ -315,23 +313,23 @@ export default function Sidebar({
                                 <span className="truncate font-mono">
                                   {thread.displayBranchName}
                                 </span>
+                                {threadModeTooltip ? (
+                                  <span
+                                    aria-label={threadModeTooltip}
+                                    className="shrink-0 text-[var(--color-fg-subtle)]"
+                                    title={threadModeTooltip}
+                                  >
+                                    {thread.mode === 'worktree' ? (
+                                      <WorktreeIcon width={11} height={11} />
+                                    ) : (
+                                      <BranchIcon width={11} height={11} />
+                                    )}
+                                  </span>
+                                ) : null}
                                 <span className="text-[var(--color-fg-faint)]">·</span>
                                 <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
                               </span>
                             </span>
-                            {threadModeTooltip ? (
-                              <span
-                                aria-label={threadModeTooltip}
-                                className="shrink-0 text-[var(--color-fg-subtle)]"
-                                title={threadModeTooltip}
-                              >
-                                {thread.mode === 'worktree' ? (
-                                  <WorktreeIcon width={11} height={11} />
-                                ) : (
-                                  <BranchIcon width={11} height={11} />
-                                )}
-                              </span>
-                            ) : null}
                           </button>
                         </li>
                       )
@@ -350,45 +348,6 @@ export default function Sidebar({
           {totalThreads} {totalThreads === 1 ? 'thread' : 'threads'}
         </span>
       </div>
-
-      {contextMenu ? (
-        <>
-          <button
-            aria-label="Close item menu"
-            className="fixed inset-0 z-40 cursor-default appearance-none border-0 bg-transparent p-0"
-            onClick={() => setContextMenu(null)}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              setContextMenu(null)
-            }}
-            type="button"
-          />
-          <div
-            className="fixed z-50 min-w-[10rem] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-1 shadow-[var(--shadow-pop)]"
-            onContextMenu={(event) => event.preventDefault()}
-            style={{
-              left: Math.min(contextMenu.x, window.innerWidth - 176),
-              top: Math.min(contextMenu.y, window.innerHeight - 56)
-            }}
-          >
-            <button
-              className="flex w-full items-center rounded-md px-3 py-2 text-left text-[12.5px] text-[var(--color-fg)] transition hover:bg-[var(--color-hover)]"
-              onClick={() => {
-                if (contextMenu.kind === 'repository') {
-                  onEditRepository(contextMenu.itemId)
-                } else {
-                  onEditThread(contextMenu.itemId)
-                }
-                setContextMenu(null)
-              }}
-              title={contextMenu.kind === 'repository' ? 'Edit project' : 'Edit thread'}
-              type="button"
-            >
-              Edit
-            </button>
-          </div>
-        </>
-      ) : null}
     </aside>
   )
 }

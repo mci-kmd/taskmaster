@@ -15,7 +15,7 @@ import TerminalSessions, {
 import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
 import Button from './ui/Button'
-import { BranchIcon, InfoIcon, RefreshIcon, StopIcon, WorktreeIcon } from './Icons'
+import { BranchIcon, InfoIcon, StopIcon, WorktreeIcon } from './Icons'
 import { composeThreadTitle } from '../lib/title'
 
 type WorkspaceProps = {
@@ -265,39 +265,7 @@ export default function Workspace({
               ) : (
                 <span>No selection</span>
               )}
-              {selectedThread ? (
-                <>
-                  <span className="text-[var(--color-fg-faint)]">·</span>
-                  <span className="truncate">
-                    {selectedThread.mode === 'worktree'
-                      ? 'worktree'
-                      : selectedThread.mode === 'new-branch'
-                        ? 'new branch'
-                        : 'active branch'}
-                  </span>
-                  {branchStatusSummary ? (
-                    <>
-                      <span className="text-[var(--color-fg-faint)]">·</span>
-                      <span className="truncate font-mono" title={branchStatusTitle ?? undefined}>
-                        {branchStatusSummary}
-                      </span>
-                    </>
-                  ) : null}
-                  <span className="text-[var(--color-fg-faint)]">·</span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span
-                      className={`size-1.5 rounded-full ${
-                        isRunning
-                          ? 'bg-[var(--color-positive)] tm-pulse-dot'
-                          : isLaunching
-                            ? 'bg-[var(--color-info)] tm-pulse-dot'
-                            : 'bg-[var(--color-fg-faint)]'
-                      }`}
-                    />
-                    {isRunning ? 'running' : isLaunching ? 'launching' : 'idle'}
-                  </span>
-                </>
-              ) : branchStatusSummary ? (
+              {branchStatusSummary ? (
                 <>
                   <span className="text-[var(--color-fg-faint)]">·</span>
                   <span className="truncate font-mono" title={branchStatusTitle ?? undefined}>
@@ -310,17 +278,6 @@ export default function Workspace({
         </div>
 
         <div className="ml-auto flex items-center gap-1.5">
-          <Button
-            aria-label="Refresh"
-            iconOnly
-            onClick={() => void onRefresh()}
-            size="sm"
-            title="Refresh state"
-            variant="ghost"
-          >
-            <RefreshIcon width={13} height={13} />
-          </Button>
-
           {selectedThread ? (
             <>
               <Button

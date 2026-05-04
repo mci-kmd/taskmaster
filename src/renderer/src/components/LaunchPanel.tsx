@@ -127,62 +127,67 @@ export default function LaunchPanel({
 }: LaunchPanelProps): React.JSX.Element {
   const visual = pickVisual(thread, session, copilotStatus, onLaunch)
   const isProgress = visual.tone === 'progress'
+  const isResumeOnly = visual.tone === 'idle' && thread.hasLaunched
   const composedTitle = composeThreadTitle(thread, session.runtimeTitle)
 
   return (
     <div className="tm-fade-in flex h-full w-full items-center justify-center rounded-lg border border-[var(--color-border)] bg-[#141414] px-6">
-      <div className="flex w-full max-w-md flex-col items-center text-center">
-        <div className="relative mb-5 grid size-14 place-items-center rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
-          {isProgress ? (
-            <span
-              aria-hidden
-              className="absolute size-9 rounded-full border-2 border-[var(--color-border)] border-t-[var(--color-fg)] tm-spin"
-            />
-          ) : null}
-          <SparkIcon width={18} height={18} className="text-[var(--color-fg)]" />
+      {isResumeOnly ? (
+        visual.action
+      ) : (
+        <div className="flex w-full max-w-md flex-col items-center text-center">
+          <div className="relative mb-5 grid size-14 place-items-center rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+            {isProgress ? (
+              <span
+                aria-hidden
+                className="absolute size-9 rounded-full border-2 border-[var(--color-border)] border-t-[var(--color-fg)] tm-spin"
+              />
+            ) : null}
+            <SparkIcon width={18} height={18} className="text-[var(--color-fg)]" />
+          </div>
+
+          <div className="mb-1.5 inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-input)] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
+            <span className={`size-1.5 shrink-0 rounded-full ${toneIndicator[visual.tone]}`} />
+            <span className="truncate normal-case tracking-normal text-[var(--color-fg-muted)]">
+              {composedTitle}
+            </span>
+          </div>
+
+          <h2 className="text-[18px] font-medium tracking-tight text-[var(--color-fg)]">
+            {visual.title}
+          </h2>
+          <p className="mt-1.5 max-w-sm text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
+            {visual.detail}
+          </p>
+
+          {visual.action ? <div className="mt-5">{visual.action}</div> : null}
+
+          <div className="mt-8 grid w-full grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-left text-[11.5px]">
+            <span className="font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+              Branch
+            </span>
+            <span className="truncate font-mono text-[var(--color-fg)]">
+              {thread.displayBranchName}
+            </span>
+            <span className="font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+              Mode
+            </span>
+            <span className="text-[var(--color-fg)]">
+              {thread.mode === 'worktree'
+                ? 'Worktree'
+                : thread.mode === 'new-branch'
+                  ? 'New branch'
+                  : 'Active branch'}
+            </span>
+            <span className="font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+              Session
+            </span>
+            <span className="truncate font-mono text-[var(--color-fg-muted)]">
+              {thread.sessionName}
+            </span>
+          </div>
         </div>
-
-        <div className="mb-1.5 inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-input)] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-          <span className={`size-1.5 shrink-0 rounded-full ${toneIndicator[visual.tone]}`} />
-          <span className="truncate normal-case tracking-normal text-[var(--color-fg-muted)]">
-            {composedTitle}
-          </span>
-        </div>
-
-        <h2 className="text-[18px] font-medium tracking-tight text-[var(--color-fg)]">
-          {visual.title}
-        </h2>
-        <p className="mt-1.5 max-w-sm text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-          {visual.detail}
-        </p>
-
-        {visual.action ? <div className="mt-5">{visual.action}</div> : null}
-
-        <div className="mt-8 grid w-full grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 text-left text-[11.5px]">
-          <span className="font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-            Branch
-          </span>
-          <span className="truncate font-mono text-[var(--color-fg)]">
-            {thread.displayBranchName}
-          </span>
-          <span className="font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-            Mode
-          </span>
-          <span className="text-[var(--color-fg)]">
-            {thread.mode === 'worktree'
-              ? 'Worktree'
-              : thread.mode === 'new-branch'
-                ? 'New branch'
-                : 'Active branch'}
-          </span>
-          <span className="font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-            Session
-          </span>
-          <span className="truncate font-mono text-[var(--color-fg-muted)]">
-            {thread.sessionName}
-          </span>
-        </div>
-      </div>
+      )}
     </div>
   )
 }

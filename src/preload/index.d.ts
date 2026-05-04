@@ -6,6 +6,8 @@ import type {
   CreateThreadInput,
   MutationResult,
   PickRepositoryFaviconResult,
+  SidebarContextMenuActionEvent,
+  SidebarContextMenuRequest,
   TerminalApi,
   UpdateRepositoryInput,
   UpdateThreadInput,
@@ -30,6 +32,10 @@ declare global {
     getBranchStatus: (input: BranchStatusRequest) => Promise<BranchStatusSnapshot | null>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
+    showSidebarContextMenu: (input: SidebarContextMenuRequest) => Promise<boolean>
+    onSidebarContextMenuAction: (
+      callback: (payload: SidebarContextMenuActionEvent) => void
+    ) => () => void
   }
 
   interface Window {

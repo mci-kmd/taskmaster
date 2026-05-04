@@ -4,6 +4,8 @@ import type {
   BranchStatusRequest,
   CreateThreadInput,
   PickRepositoryFaviconResult,
+  SidebarContextMenuActionEvent,
+  SidebarContextMenuRequest,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -21,7 +23,8 @@ const api = {
     addRepository: () => ipcRenderer.invoke('app-state:add-repository'),
     updateRepository: (input: UpdateRepositoryInput) =>
       ipcRenderer.invoke('app-state:update-repository', input),
-    updateThread: (input: UpdateThreadInput) => ipcRenderer.invoke('app-state:update-thread', input),
+    updateThread: (input: UpdateThreadInput) =>
+      ipcRenderer.invoke('app-state:update-thread', input),
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
       ipcRenderer.invoke('app-state:pick-repository-favicon', repositoryId),
     createThread: (input: CreateThreadInput) =>
@@ -37,7 +40,17 @@ const api = {
     selectRepository: (repositoryId: string | null) =>
       ipcRenderer.invoke('app-state:select-repository', repositoryId),
     selectThread: (threadId: string | null) =>
-      ipcRenderer.invoke('app-state:select-thread', threadId)
+      ipcRenderer.invoke('app-state:select-thread', threadId),
+    showSidebarContextMenu: (input: SidebarContextMenuRequest) =>
+      ipcRenderer.invoke('native-menu:show-sidebar-context-menu', input),
+    onSidebarContextMenuAction: (callback: (payload: SidebarContextMenuActionEvent) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: SidebarContextMenuActionEvent
+      ): void => callback(payload)
+      ipcRenderer.on('native-menu:sidebar-context-menu-action', listener)
+      return () => ipcRenderer.off('native-menu:sidebar-context-menu-action', listener)
+    }
   },
   terminal: {
     getStatus: () => ipcRenderer.invoke('terminal:status'),

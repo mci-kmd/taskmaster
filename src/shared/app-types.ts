@@ -126,6 +126,24 @@ export interface BranchStatusRequest {
   threadId?: string | null
 }
 
+export type SidebarContextMenuKind = 'repository' | 'thread'
+
+export type SidebarContextMenuAction = 'new-thread' | 'edit' | 'close-thread'
+
+export interface SidebarContextMenuRequest {
+  kind: SidebarContextMenuKind
+  itemId: string
+  x: number
+  y: number
+  closeThreadEnabled: boolean
+}
+
+export interface SidebarContextMenuActionEvent {
+  action: SidebarContextMenuAction
+  kind: SidebarContextMenuKind
+  itemId: string
+}
+
 export interface AppSnapshot {
   repositories: RepositorySnapshot[]
   settings: AppSettingsSnapshot

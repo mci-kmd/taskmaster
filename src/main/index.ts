@@ -11,6 +11,7 @@ import {
   markThreadStopped,
   registerAppStateIpc
 } from './app-state'
+import { registerNativeMenuIpc } from './native-menu'
 
 function createWindow(): void {
   const windowIcon = process.platform === 'win32' ? iconIco : iconPng
@@ -51,6 +52,7 @@ app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.taskmaster.app')
   initializeAppState()
   registerAppStateIpc()
+  registerNativeMenuIpc()
   registerTerminalIpc({
     onThreadStart: markThreadLaunched,
     onThreadActivity: markThreadActivity,
