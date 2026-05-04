@@ -1,6 +1,8 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
 import type {
   AppSnapshot,
+  BranchStatusRequest,
+  BranchStatusSnapshot,
   CreateThreadInput,
   MutationResult,
   TerminalApi,
@@ -19,6 +21,7 @@ declare global {
     updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>
     updateUi: (input: UpdateUiInput) => Promise<MutationResult>
     updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) => Promise<boolean>
+    getBranchStatus: (input: BranchStatusRequest) => Promise<BranchStatusSnapshot | null>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
   }

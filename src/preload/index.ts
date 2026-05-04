@@ -1,6 +1,7 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  BranchStatusRequest,
   CreateThreadInput,
   TerminalCreateRequest,
   TerminalDataEvent,
@@ -23,6 +24,8 @@ const api = {
     updateUi: (input: UpdateUiInput) => ipcRenderer.invoke('app-state:update-ui', input),
     updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) =>
       ipcRenderer.invoke('app-state:update-thread-copilot-title', input),
+    getBranchStatus: (input: BranchStatusRequest) =>
+      ipcRenderer.invoke('app-state:get-branch-status', input),
     selectRepository: (repositoryId: string | null) =>
       ipcRenderer.invoke('app-state:select-repository', repositoryId),
     selectThread: (threadId: string | null) =>

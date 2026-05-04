@@ -9,9 +9,11 @@ import {
   writeFileSync
 } from 'fs'
 import { basename, dirname, join } from 'path'
-import { spawnSync } from 'child_process'
+import { spawn, spawnSync } from 'child_process'
 import { app, dialog, ipcMain } from 'electron'
 import {
+  type BranchStatusRequest,
+  type BranchStatusSnapshot,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
@@ -32,9 +34,15 @@ import { getRunningThreadIds, killSessionsForThread } from './terminal'
 const STORE_FILENAME = 'taskmaster-state.json'
 const STATE_VERSION = 3 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
+const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 
 let persistedState: PersistedAppState | null = null
 const repositoryGitStateCache = new Map<string, RepositoryGitState>()
+const branchStatusCache = new Map<
+  string,
+  { expiresAt: number; value: BranchStatusSnapshot | null }
+>()
+const branchStatusInflight = new Map<string, Promise<BranchStatusSnapshot | null>>()
 
 type LegacyThreadV1 = Omit<PersistedThread, 'customTitle' | 'latestCopilotTitle'> & {
   title: string
@@ -226,6 +234,54 @@ function tryGit(cwd: string, args: string[]): { ok: boolean; stdout: string; std
   }
 }
 
+function tryGitAsync(
+  cwd: string,
+  args: string[]
+): Promise<{ ok: boolean; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn('git', ['-C', cwd, ...args], {
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (result: { ok: boolean; stdout: string; stderr: string }): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      resolve(result)
+    }
+
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk
+    })
+
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+
+    child.on('error', (error) => {
+      finish({
+        ok: false,
+        stdout: stdout.trim(),
+        stderr: error.message
+      })
+    })
+
+    child.on('close', (code) => {
+      finish({
+        ok: code === 0,
+        stdout: stdout.trim(),
+        stderr: stderr.trim()
+      })
+    })
+  })
+}
+
 function resolveGitRoot(path: string): string | null {
   const result = tryGit(path, ['rev-parse', '--show-toplevel'])
   return result.ok ? result.stdout : null
@@ -322,6 +378,13 @@ function isDirtyGitPath(path: string): boolean {
   return runGit(path, ['status', '--porcelain', '--untracked-files=all']).length > 0
 }
 
+function getThreadCwd(
+  thread: Pick<PersistedThread, 'mode' | 'worktreePath'>,
+  repositoryPath: string
+): string {
+  return thread.mode === 'worktree' ? (thread.worktreePath ?? repositoryPath) : repositoryPath
+}
+
 function removeWorktree(thread: PersistedThread, repositoryPath: string, force: boolean): void {
   if (
     thread.worktreePath &&
@@ -365,6 +428,128 @@ function getRepositoryGitState(
   return next
 }
 
+function parseBranchStatus(stdout: string): BranchStatusSnapshot {
+  const status: BranchStatusSnapshot = {
+    ahead: 0,
+    behind: 0,
+    staged: 0,
+    modified: 0,
+    deleted: 0,
+    untracked: 0,
+    conflicted: 0
+  }
+
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line) {
+      continue
+    }
+
+    if (line.startsWith('# branch.ab ')) {
+      const match = /^# branch\.ab \+(\d+) -(\d+)$/.exec(line)
+      if (match) {
+        status.ahead = Number(match[1])
+        status.behind = Number(match[2])
+      }
+      continue
+    }
+
+    if (line.startsWith('? ')) {
+      status.untracked += 1
+      continue
+    }
+
+    if (line.startsWith('u ')) {
+      status.conflicted += 1
+      continue
+    }
+
+    if (!line.startsWith('1 ') && !line.startsWith('2 ')) {
+      continue
+    }
+
+    const xy = line.split(' ', 3)[1] ?? '..'
+    const indexStatus = xy[0] ?? '.'
+    const worktreeStatus = xy[1] ?? '.'
+
+    if (indexStatus !== '.') {
+      status.staged += 1
+    }
+
+    if (worktreeStatus === 'D') {
+      status.deleted += 1
+      continue
+    }
+
+    if (worktreeStatus !== '.') {
+      status.modified += 1
+    }
+  }
+
+  return status
+}
+
+function resolveBranchStatusCwd(input: BranchStatusRequest): string | null {
+  const state = ensureState()
+
+  if (input.threadId) {
+    const thread = state.threads.find((item) => item.id === input.threadId)
+    if (!thread) {
+      return null
+    }
+
+    const repository = state.repositories.find((item) => item.id === thread.repositoryId)
+    if (!repository) {
+      return null
+    }
+
+    return getThreadCwd(thread, repository.path)
+  }
+
+  if (!input.repositoryId) {
+    return null
+  }
+
+  return state.repositories.find((item) => item.id === input.repositoryId)?.path ?? null
+}
+
+async function getBranchStatus(input: BranchStatusRequest): Promise<BranchStatusSnapshot | null> {
+  const cwd = resolveBranchStatusCwd(input)
+  if (!cwd) {
+    return null
+  }
+
+  const cacheKey = cwd.toLowerCase()
+  const cached = branchStatusCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value
+  }
+
+  const inflight = branchStatusInflight.get(cacheKey)
+  if (inflight) {
+    return inflight
+  }
+
+  const request = (async (): Promise<BranchStatusSnapshot | null> => {
+    const result = await tryGitAsync(cwd, [
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=all'
+    ])
+    const value = result.ok ? parseBranchStatus(result.stdout) : null
+
+    branchStatusCache.set(cacheKey, {
+      value,
+      expiresAt: Date.now() + BRANCH_STATUS_CACHE_TTL_MS
+    })
+    branchStatusInflight.delete(cacheKey)
+    return value
+  })()
+
+  branchStatusInflight.set(cacheKey, request)
+  return request
+}
+
 function buildThreadSnapshot(
   repository: PersistedRepository,
   thread: PersistedThread,
@@ -375,7 +560,7 @@ function buildThreadSnapshot(
     thread.mode === 'active-branch' ? repositoryGitState.currentBranch : thread.branchName
   return {
     ...thread,
-    cwd: thread.mode === 'worktree' ? (thread.worktreePath ?? repository.path) : repository.path,
+    cwd: getThreadCwd(thread, repository.path),
     displayBranchName,
     displayTitle: thread.customTitle ?? displayBranchName,
     isRunning: runningThreadIds.has(thread.id)
@@ -782,6 +967,9 @@ export function registerAppStateIpc(): void {
   ipcMain.handle(
     'app-state:update-thread-copilot-title',
     (_event, input: UpdateThreadCopilotTitleInput) => updateThreadCopilotTitle(input)
+  )
+  ipcMain.handle('app-state:get-branch-status', (_event, input: BranchStatusRequest) =>
+    getBranchStatus(input)
   )
   ipcMain.handle('app-state:select-repository', (_event, repositoryId: string | null) =>
     selectRepository(repositoryId)

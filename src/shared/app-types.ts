@@ -107,6 +107,21 @@ export interface RepositorySnapshot extends PersistedRepository {
   threads: ThreadSnapshot[]
 }
 
+export interface BranchStatusSnapshot {
+  ahead: number
+  behind: number
+  staged: number
+  modified: number
+  deleted: number
+  untracked: number
+  conflicted: number
+}
+
+export interface BranchStatusRequest {
+  repositoryId?: string | null
+  threadId?: string | null
+}
+
 export interface AppSnapshot {
   repositories: RepositorySnapshot[]
   settings: AppSettingsSnapshot

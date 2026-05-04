@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AppSettingsSnapshot,
+  BranchStatusRequest,
+  BranchStatusSnapshot,
   RepositorySnapshot,
   TerminalStatus,
   ThreadSnapshot
@@ -38,6 +40,34 @@ const IDLE_STATE: ThreadSessionState = {
   runtimeTitle: null
 }
 
+const ACTIVE_BRANCH_STATUS_POLL_MS = 4_000
+const IDLE_BRANCH_STATUS_POLL_MS = 15_000
+
+function formatBranchStatusTokens(status: BranchStatusSnapshot): string[] {
+  const tokens: string[] = []
+  if (status.ahead > 0) tokens.push(`↑${status.ahead}`)
+  if (status.behind > 0) tokens.push(`↓${status.behind}`)
+  if (status.staged > 0) tokens.push(`+${status.staged}`)
+  if (status.modified > 0) tokens.push(`~${status.modified}`)
+  if (status.deleted > 0) tokens.push(`-${status.deleted}`)
+  if (status.untracked > 0) tokens.push(`?${status.untracked}`)
+  if (status.conflicted > 0) tokens.push(`!${status.conflicted}`)
+  return tokens
+}
+
+function formatBranchStatusTitle(status: BranchStatusSnapshot): string {
+  const parts = [
+    `${status.ahead} ahead`,
+    `${status.behind} behind`,
+    `${status.staged} staged`,
+    `${status.modified} modified`,
+    `${status.deleted} deleted`,
+    `${status.untracked} untracked`,
+    `${status.conflicted} conflicted`
+  ]
+  return parts.join(' · ')
+}
+
 export default function Workspace({
   threads,
   selectedThread,
@@ -55,7 +85,15 @@ export default function Workspace({
   const sessionsRef = useRef<TerminalSessionsHandle | null>(null)
   const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
+  const [branchStatusState, setBranchStatusState] = useState<{
+    key: string | null
+    value: BranchStatusSnapshot | null
+  }>({
+    key: null,
+    value: null
+  })
   const autoLaunchedRef = useRef<Set<string>>(new Set())
+  const branchStatusPollMsRef = useRef(IDLE_BRANCH_STATUS_POLL_MS)
 
   useEffect(() => {
     let cancelled = false
@@ -85,6 +123,38 @@ export default function Workspace({
   const isLaunching = selectedSession.phase === 'launching'
   const cliAvailable = copilotStatus?.available ?? false
   const hasThread = Boolean(selectedThread)
+  const branchStatusTarget = useMemo<BranchStatusRequest | null>(() => {
+    if (selectedThread) {
+      return { threadId: selectedThread.id }
+    }
+    if (selectedRepository) {
+      return { repositoryId: selectedRepository.id }
+    }
+    return null
+  }, [selectedRepository, selectedThread])
+  const branchStatusTargetKey = selectedThread
+    ? `thread:${selectedThread.id}`
+    : selectedRepository
+      ? `repository:${selectedRepository.id}`
+      : null
+  const branchStatus =
+    branchStatusTargetKey && branchStatusState.key === branchStatusTargetKey
+      ? branchStatusState.value
+      : null
+  const branchStatusSummary = useMemo(() => {
+    if (!branchStatus) {
+      return null
+    }
+    const tokens = formatBranchStatusTokens(branchStatus)
+    return tokens.length > 0 ? tokens.join(' ') : 'clean'
+  }, [branchStatus])
+  const branchStatusTitle = useMemo(() => {
+    if (!branchStatus) {
+      return null
+    }
+    const tokens = formatBranchStatusTokens(branchStatus)
+    return tokens.length > 0 ? formatBranchStatusTitle(branchStatus) : 'Working tree clean'
+  }, [branchStatus])
 
   const headerTitle = selectedThread
     ? composeThreadTitle(selectedThread, selectedSession.runtimeTitle)
@@ -95,6 +165,45 @@ export default function Workspace({
   const headerBranch = selectedThread
     ? selectedThread.displayBranchName
     : selectedRepository?.currentBranch
+
+  useEffect(() => {
+    branchStatusPollMsRef.current =
+      hasThread && (isRunning || isLaunching)
+        ? ACTIVE_BRANCH_STATUS_POLL_MS
+        : IDLE_BRANCH_STATUS_POLL_MS
+  }, [hasThread, isLaunching, isRunning])
+
+  useEffect(() => {
+    if (!branchStatusTarget || !branchStatusTargetKey) {
+      return
+    }
+
+    let cancelled = false
+    let timeoutId: number | null = null
+
+    const load = async (): Promise<void> => {
+      const nextStatus = await window.api.appState.getBranchStatus(branchStatusTarget)
+      if (cancelled) {
+        return
+      }
+      setBranchStatusState({
+        key: branchStatusTargetKey,
+        value: nextStatus
+      })
+      timeoutId = window.setTimeout(() => {
+        void load()
+      }, branchStatusPollMsRef.current)
+    }
+
+    void load()
+
+    return () => {
+      cancelled = true
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [branchStatusTarget, branchStatusTargetKey, selectedSession.phase])
 
   // Auto-launch on freshly-created threads.
   useEffect(() => {
@@ -166,6 +275,14 @@ export default function Workspace({
                         ? 'new branch'
                         : 'active branch'}
                   </span>
+                  {branchStatusSummary ? (
+                    <>
+                      <span className="text-[var(--color-fg-faint)]">·</span>
+                      <span className="truncate font-mono" title={branchStatusTitle ?? undefined}>
+                        {branchStatusSummary}
+                      </span>
+                    </>
+                  ) : null}
                   <span className="text-[var(--color-fg-faint)]">·</span>
                   <span className="inline-flex items-center gap-1.5">
                     <span
@@ -178,6 +295,13 @@ export default function Workspace({
                       }`}
                     />
                     {isRunning ? 'running' : isLaunching ? 'launching' : 'idle'}
+                  </span>
+                </>
+              ) : branchStatusSummary ? (
+                <>
+                  <span className="text-[var(--color-fg-faint)]">·</span>
+                  <span className="truncate font-mono" title={branchStatusTitle ?? undefined}>
+                    {branchStatusSummary}
                   </span>
                 </>
               ) : null}
