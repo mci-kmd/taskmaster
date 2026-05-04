@@ -1,17 +1,16 @@
 import type { ThreadSnapshot } from '../../../shared/app-types'
 
 /**
- * Combines a thread's persisted custom label with whatever title the running
- * Copilot CLI has set via OSC. The runtime title takes priority — the custom
- * label only acts as a prefix when present.
+ * Prefers the live Copilot title, then the latest persisted Copilot title,
+ * and finally falls back to the thread's non-Copilot display label.
  */
 export function composeThreadTitle(
   thread: ThreadSnapshot,
   runtimeTitle: string | null | undefined
 ): string {
-  const trimmedRuntime = runtimeTitle?.trim()
-  if (trimmedRuntime) {
-    return thread.customTitle ? `${thread.customTitle} — ${trimmedRuntime}` : trimmedRuntime
+  const copilotTitle = runtimeTitle?.trim() || thread.latestCopilotTitle?.trim()
+  if (copilotTitle) {
+    return thread.customTitle ? `${thread.customTitle} — ${copilotTitle}` : copilotTitle
   }
   return thread.displayTitle
 }

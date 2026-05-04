@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import Toast, { type ToastTone } from './components/Toast'
@@ -56,6 +56,34 @@ function findSelectedThread(snapshot: AppSnapshot): ThreadSnapshot | null {
   )
 }
 
+function applyRepositorySelection(snapshot: AppSnapshot, repositoryId: string | null): AppSnapshot {
+  return {
+    ...snapshot,
+    selectedRepositoryId: repositoryId,
+    selectedThreadId: null
+  }
+}
+
+function applyThreadSelection(snapshot: AppSnapshot, threadId: string | null): AppSnapshot {
+  if (!threadId) {
+    return {
+      ...snapshot,
+      selectedThreadId: null
+    }
+  }
+
+  const thread = findThreadById(snapshot, threadId)
+  if (!thread) {
+    return snapshot
+  }
+
+  return {
+    ...snapshot,
+    selectedRepositoryId: thread.repositoryId,
+    selectedThreadId: thread.id
+  }
+}
+
 export default function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
@@ -65,6 +93,7 @@ export default function App(): React.JSX.Element {
   const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
+  const selectionRequestIdRef = useRef(0)
 
   useEffect(() => {
     let isMounted = true
@@ -135,14 +164,28 @@ export default function App(): React.JSX.Element {
     setBusyAction(null)
   }, [applyMutation])
 
-  const handleSelectRepository = useCallback(async (repositoryId: string): Promise<void> => {
-    const nextSnapshot = await window.api.appState.selectRepository(repositoryId)
-    setSnapshot(nextSnapshot)
+  const handleSelectRepository = useCallback((repositoryId: string): void => {
+    const requestId = ++selectionRequestIdRef.current
+    setSnapshot((current) => (current ? applyRepositorySelection(current, repositoryId) : current))
+    void window.api.appState.selectRepository(repositoryId).then((nextSnapshot) => {
+      if (selectionRequestIdRef.current !== requestId) {
+        return
+      }
+
+      setSnapshot(nextSnapshot)
+    })
   }, [])
 
-  const handleSelectThread = useCallback(async (threadId: string): Promise<void> => {
-    const nextSnapshot = await window.api.appState.selectThread(threadId)
-    setSnapshot(nextSnapshot)
+  const handleSelectThread = useCallback((threadId: string): void => {
+    const requestId = ++selectionRequestIdRef.current
+    setSnapshot((current) => (current ? applyThreadSelection(current, threadId) : current))
+    void window.api.appState.selectThread(threadId).then((nextSnapshot) => {
+      if (selectionRequestIdRef.current !== requestId) {
+        return
+      }
+
+      setSnapshot(nextSnapshot)
+    })
   }, [])
 
   const handleToggleRepository = useCallback((repositoryId: string): void => {

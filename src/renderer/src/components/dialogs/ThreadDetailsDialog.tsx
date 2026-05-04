@@ -40,6 +40,8 @@ export default function ThreadDetailsDialog({
     )
   }
 
+  const copilotTitle = runtimeTitle?.trim() || thread.latestCopilotTitle
+
   return (
     <Modal
       description={
@@ -79,10 +81,10 @@ export default function ThreadDetailsDialog({
         {thread.customTitle ? (
           <Row label="Custom label" value={<span>{thread.customTitle}</span>} />
         ) : null}
-        {runtimeTitle ? (
+        {copilotTitle ? (
           <Row
             label="Copilot title"
-            value={<span className="text-[var(--color-fg)]">{runtimeTitle}</span>}
+            value={<span className="text-[var(--color-fg)]">{copilotTitle}</span>}
           />
         ) : null}
         <Row label="Branch" value={<span className="font-mono">{thread.displayBranchName}</span>} />

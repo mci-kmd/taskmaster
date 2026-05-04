@@ -45,8 +45,8 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
     const [sessionStates, setSessionStates] = useState<SessionMap>(new Map())
     const handlesRef = useRef<Map<string, ThreadTerminalHandle>>(new Map())
 
-    // Live = threads with a launch key (have been started at least once) +
-    // the currently-selected thread (so we have an idle slot for its launcher).
+    // Live = threads that have been launched at least once.
+    // Idle, never-launched threads wait to mount until launch is requested.
     const liveEntries = useMemo<LiveEntry[]>(() => {
       const seen = new Set<string>()
       const result: LiveEntry[] = []
@@ -59,15 +59,12 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
         result.push({ thread, launchKey })
       }
 
-      if (selectedThreadId) {
-        pushIfThread(selectedThreadId, launchKeys.get(selectedThreadId) ?? 0)
-      }
       for (const [id, key] of launchKeys) {
         pushIfThread(id, key)
       }
 
       return result
-    }, [threads, selectedThreadId, launchKeys])
+    }, [threads, launchKeys])
 
     useEffect(() => {
       onSessionsChange(sessionStates)

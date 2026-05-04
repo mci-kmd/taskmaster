@@ -23,26 +23,58 @@ import {
   type PersistedThread,
   type RepositorySnapshot,
   type ThreadSnapshot,
+  type UpdateThreadCopilotTitleInput,
   type UpdateSettingsInput,
   type UpdateUiInput
 } from '../shared/app-types'
 import { getRunningThreadIds, killSessionsForThread } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 2 as const
+const STATE_VERSION = 3 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 
 let persistedState: PersistedAppState | null = null
+const repositoryGitStateCache = new Map<string, RepositoryGitState>()
 
-type LegacyThreadV1 = Omit<PersistedThread, 'customTitle'> & { title: string }
+type LegacyThreadV1 = Omit<PersistedThread, 'customTitle' | 'latestCopilotTitle'> & {
+  title: string
+}
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 1
   threads: LegacyThreadV1[]
 }
 
-function migrateState(parsed: PersistedAppState | LegacyAppStateV1): PersistedAppState {
+type LegacyThreadV2 = Omit<PersistedThread, 'latestCopilotTitle'>
+type LegacyAppStateV2 = Omit<PersistedAppState, 'version' | 'threads'> & {
+  version: 2
+  threads: LegacyThreadV2[]
+}
+
+type RepositoryGitState = {
+  currentBranch: string
+  primaryBranch: string | null
+}
+
+type BuildSnapshotOptions = {
+  refreshGit?: boolean
+}
+
+function migrateState(
+  parsed: PersistedAppState | LegacyAppStateV2 | LegacyAppStateV1
+): PersistedAppState {
   if (parsed.version === STATE_VERSION) {
     return parsed
+  }
+
+  if (parsed.version === 2) {
+    return {
+      ...parsed,
+      version: STATE_VERSION,
+      threads: parsed.threads.map((thread) => ({
+        ...thread,
+        latestCopilotTitle: null
+      }))
+    }
   }
 
   if (parsed.version === 1) {
@@ -53,7 +85,8 @@ function migrateState(parsed: PersistedAppState | LegacyAppStateV1): PersistedAp
       void _legacyTitle
       return {
         ...rest,
-        customTitle: looksAutoDerived ? null : trimmed
+        customTitle: looksAutoDerived ? null : trimmed,
+        latestCopilotTitle: null
       }
     })
 
@@ -97,7 +130,10 @@ function ensureState(): PersistedAppState {
     return persistedState
   }
 
-  const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as PersistedAppState | LegacyAppStateV1
+  const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as
+    | PersistedAppState
+    | LegacyAppStateV2
+    | LegacyAppStateV1
   const migrated = migrateState(parsed)
   persistedState = migrated
   normalizeSelection(migrated)
@@ -306,13 +342,37 @@ function removeWorktree(thread: PersistedThread, repositoryPath: string, force: 
   }
 }
 
+function readRepositoryGitState(repositoryPath: string): RepositoryGitState {
+  return {
+    currentBranch: getCurrentBranchLabel(repositoryPath),
+    primaryBranch: getPrimaryBranch(repositoryPath)
+  }
+}
+
+function getRepositoryGitState(
+  repository: PersistedRepository,
+  refreshGit: boolean
+): RepositoryGitState {
+  if (!refreshGit) {
+    const cached = repositoryGitStateCache.get(repository.id)
+    if (cached) {
+      return cached
+    }
+  }
+
+  const next = readRepositoryGitState(repository.path)
+  repositoryGitStateCache.set(repository.id, next)
+  return next
+}
+
 function buildThreadSnapshot(
   repository: PersistedRepository,
   thread: PersistedThread,
-  runningThreadIds: Set<string>
+  runningThreadIds: Set<string>,
+  repositoryGitState: RepositoryGitState
 ): ThreadSnapshot {
   const displayBranchName =
-    thread.mode === 'active-branch' ? getCurrentBranchLabel(repository.path) : thread.branchName
+    thread.mode === 'active-branch' ? repositoryGitState.currentBranch : thread.branchName
   return {
     ...thread,
     cwd: thread.mode === 'worktree' ? (thread.worktreePath ?? repository.path) : repository.path,
@@ -325,17 +385,19 @@ function buildThreadSnapshot(
 function buildRepositorySnapshot(
   repository: PersistedRepository,
   threads: PersistedThread[],
-  runningThreadIds: Set<string>
+  runningThreadIds: Set<string>,
+  refreshGit: boolean
 ): RepositorySnapshot {
+  const repositoryGitState = getRepositoryGitState(repository, refreshGit)
   const snapshotThreads = threads
     .filter((thread) => thread.repositoryId === repository.id)
-    .map((thread) => buildThreadSnapshot(repository, thread, runningThreadIds))
+    .map((thread) => buildThreadSnapshot(repository, thread, runningThreadIds, repositoryGitState))
     .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
 
   return {
     ...repository,
-    currentBranch: getCurrentBranchLabel(repository.path),
-    primaryBranch: getPrimaryBranch(repository.path),
+    currentBranch: repositoryGitState.currentBranch,
+    primaryBranch: repositoryGitState.primaryBranch,
     lastActivityAt: snapshotThreads[0]?.lastActivityAt ?? repository.addedAt,
     threads: snapshotThreads
   }
@@ -358,12 +420,15 @@ function clampSidebarWidth(value: number): number {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)))
 }
 
-function buildSnapshot(): AppSnapshot {
+function buildSnapshot(options: BuildSnapshotOptions = {}): AppSnapshot {
   const state = ensureState()
   const runningThreadIds = getRunningThreadIds()
+  const refreshGit = options.refreshGit ?? true
 
   const repositories = state.repositories
-    .map((repository) => buildRepositorySnapshot(repository, state.threads, runningThreadIds))
+    .map((repository) =>
+      buildRepositorySnapshot(repository, state.threads, runningThreadIds, refreshGit)
+    )
     .sort(compareRepositoriesAlphabetically)
 
   return {
@@ -376,6 +441,10 @@ function buildSnapshot(): AppSnapshot {
     selectedThreadId: state.ui.selectedThreadId,
     sidebarWidth: clampSidebarWidth(state.ui.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT)
   }
+}
+
+function buildSelectionSnapshot(): AppSnapshot {
+  return buildSnapshot({ refreshGit: false })
 }
 
 function successResult(): MutationResult {
@@ -461,6 +530,7 @@ function createThread(input: CreateThreadInput): MutationResult {
       id: randomUUID(),
       repositoryId: repository.id,
       customTitle,
+      latestCopilotTitle: null,
       mode: 'worktree',
       branchName,
       worktreePath,
@@ -507,6 +577,7 @@ function createThread(input: CreateThreadInput): MutationResult {
       id: randomUUID(),
       repositoryId: repository.id,
       customTitle,
+      latestCopilotTitle: null,
       mode: 'new-branch',
       branchName,
       worktreePath: null,
@@ -527,6 +598,7 @@ function createThread(input: CreateThreadInput): MutationResult {
     id: randomUUID(),
     repositoryId: repository.id,
     customTitle,
+    latestCopilotTitle: null,
     mode: 'active-branch',
     branchName: currentBranch,
     worktreePath: null,
@@ -646,10 +718,30 @@ function updateUi(input: UpdateUiInput): MutationResult {
   return successResult()
 }
 
+function updateThreadCopilotTitle(input: UpdateThreadCopilotTitleInput): boolean {
+  const thread = findThread(input.threadId)
+  if (!thread) {
+    return false
+  }
+
+  const trimmedTitle = input.title.trim()
+  if (!trimmedTitle) {
+    return false
+  }
+
+  if (thread.latestCopilotTitle === trimmedTitle) {
+    return true
+  }
+
+  thread.latestCopilotTitle = trimmedTitle
+  saveState()
+  return true
+}
+
 function selectRepository(repositoryId: string | null): AppSnapshot {
   updateSelection(repositoryId, null)
   saveState()
-  return buildSnapshot()
+  return buildSelectionSnapshot()
 }
 
 function selectThread(threadId: string | null): AppSnapshot {
@@ -657,17 +749,17 @@ function selectThread(threadId: string | null): AppSnapshot {
     const state = ensureState()
     state.ui.selectedThreadId = null
     saveState()
-    return buildSnapshot()
+    return buildSelectionSnapshot()
   }
 
   const thread = findThread(threadId)
   if (!thread) {
-    return buildSnapshot()
+    return buildSelectionSnapshot()
   }
 
   updateSelection(thread.repositoryId, thread.id)
   saveState()
-  return buildSnapshot()
+  return buildSelectionSnapshot()
 }
 
 export function initializeAppState(): void {
@@ -687,6 +779,10 @@ export function registerAppStateIpc(): void {
     updateSettings(input)
   )
   ipcMain.handle('app-state:update-ui', (_event, input: UpdateUiInput) => updateUi(input))
+  ipcMain.handle(
+    'app-state:update-thread-copilot-title',
+    (_event, input: UpdateThreadCopilotTitleInput) => updateThreadCopilotTitle(input)
+  )
   ipcMain.handle('app-state:select-repository', (_event, repositoryId: string | null) =>
     selectRepository(repositoryId)
   )

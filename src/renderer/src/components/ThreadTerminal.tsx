@@ -93,6 +93,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const phaseRef = useRef<SessionPhase>('idle')
     const launchKeyRef = useRef<number>(launchKey)
     const lastConsumedLaunchKeyRef = useRef<number>(launchKey)
+    const lastPersistedCopilotTitleRef = useRef(thread.latestCopilotTitle)
     const [phase, setPhase] = useState<SessionPhase>('idle')
     const [exitCode, setExitCode] = useState<number | null>(null)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -100,6 +101,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
     useEffect(() => {
       threadRef.current = thread
+      lastPersistedCopilotTitleRef.current = thread.latestCopilotTitle
     }, [thread])
 
     useEffect(() => {
@@ -125,6 +127,19 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     useEffect(() => {
       onStateChangeRef.current({ phase, exitCode, errorMessage, runtimeTitle })
     }, [phase, exitCode, errorMessage, runtimeTitle])
+
+    useEffect(() => {
+      const trimmedRuntimeTitle = runtimeTitle?.trim()
+      if (!trimmedRuntimeTitle || trimmedRuntimeTitle === lastPersistedCopilotTitleRef.current) {
+        return
+      }
+
+      lastPersistedCopilotTitleRef.current = trimmedRuntimeTitle
+      void window.api.appState.updateThreadCopilotTitle({
+        threadId: thread.id,
+        title: trimmedRuntimeTitle
+      })
+    }, [runtimeTitle, thread.id])
 
     const launchInternal = useCallback(
       async (mode: LaunchMode, retriedFromMissingSession = false): Promise<boolean> => {
@@ -328,6 +343,27 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (!terminalIdRef.current) return
         window.api.terminal.input(terminalIdRef.current, data)
       })
+      const sendTerminalInput = (data: string): void => {
+        const activeId = terminalIdRef.current
+        if (!activeId || data.length === 0) return
+        window.api.terminal.input(activeId, data)
+      }
+      const pasteTerminalText = (text: string): void => {
+        if (!terminalIdRef.current || text.length === 0) return
+        term.focus()
+        term.paste(text)
+      }
+      const pasteClipboardText = (): void => {
+        pasteTerminalText(window.api.terminal.readClipboardText())
+      }
+      const handlePaste = (event: ClipboardEvent): void => {
+        const text = event.clipboardData?.getData('text/plain')
+        if (text === undefined) return
+        event.preventDefault()
+        event.stopPropagation()
+        pasteTerminalText(text)
+      }
+      container.addEventListener('paste', handlePaste)
 
       // Translate keys Copilot CLI doesn't recognise on raw xterm.js into
       // sequences it does, and let Ctrl-C copy when a selection exists.
@@ -338,39 +374,52 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         const onlyCtrl = e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey
         const onlyShift = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey
+        const cancelHandledKey = (): false => {
+          e.preventDefault()
+          e.stopPropagation()
+          return false
+        }
 
         if (onlyCtrl && (e.key === 'c' || e.key === 'C')) {
           const sel = term.getSelection()
           if (sel) {
             void navigator.clipboard.writeText(sel)
-            return false
+            return cancelHandledKey()
           }
           return true
+        }
+        if (onlyCtrl && (e.key === 'v' || e.key === 'V')) {
+          pasteClipboardText()
+          return cancelHandledKey()
+        }
+        if (onlyShift && e.key === 'Insert') {
+          pasteClipboardText()
+          return cancelHandledKey()
         }
 
         // Shift-Enter: backslash+CR is Copilot's documented multiline trick
         if (onlyShift && e.key === 'Enter') {
-          window.api.terminal.input(id, '\\\r')
-          return false
+          sendTerminalInput('\\\r')
+          return cancelHandledKey()
         }
         // Ctrl-Backspace -> Ctrl-W (delete word back)
         if (onlyCtrl && e.key === 'Backspace') {
-          window.api.terminal.input(id, '\x17')
-          return false
+          sendTerminalInput('\x17')
+          return cancelHandledKey()
         }
         // Ctrl-Delete -> Alt-D (delete word forward)
         if (onlyCtrl && e.key === 'Delete') {
-          window.api.terminal.input(id, '\x1bd')
-          return false
+          sendTerminalInput('\x1bd')
+          return cancelHandledKey()
         }
-        // Ctrl-Left/Right -> ESC+CSI D/C (Copilot accepts Alt-arrow for word motion)
+        // Ctrl-Left/Right -> Alt-B/F so readline-style word motion works reliably.
         if (onlyCtrl && e.key === 'ArrowLeft') {
-          window.api.terminal.input(id, '\x1b\x1b[D')
-          return false
+          sendTerminalInput('\x1bb')
+          return cancelHandledKey()
         }
         if (onlyCtrl && e.key === 'ArrowRight') {
-          window.api.terminal.input(id, '\x1b\x1b[C')
-          return false
+          sendTerminalInput('\x1bf')
+          return cancelHandledKey()
         }
 
         return true
@@ -381,6 +430,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
       return () => {
         container.removeEventListener('pointerdown', handlePointerDown)
+        container.removeEventListener('paste', handlePaste)
         resizeObserver.disconnect()
         exitCleanup()
         dataCleanup()

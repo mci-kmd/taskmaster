@@ -4,6 +4,7 @@ import type {
   CreateThreadInput,
   MutationResult,
   TerminalApi,
+  UpdateThreadCopilotTitleInput,
   UpdateSettingsInput,
   UpdateUiInput
 } from '../shared/app-types'
@@ -17,6 +18,7 @@ declare global {
     closeThread: (threadId: string) => Promise<MutationResult>
     updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>
     updateUi: (input: UpdateUiInput) => Promise<MutationResult>
+    updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) => Promise<boolean>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
   }

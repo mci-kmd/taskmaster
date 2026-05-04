@@ -1,10 +1,11 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   CreateThreadInput,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
+  UpdateThreadCopilotTitleInput,
   UpdateSettingsInput,
   UpdateUiInput
 } from '../shared/app-types'
@@ -20,6 +21,8 @@ const api = {
     updateSettings: (input: UpdateSettingsInput) =>
       ipcRenderer.invoke('app-state:update-settings', input),
     updateUi: (input: UpdateUiInput) => ipcRenderer.invoke('app-state:update-ui', input),
+    updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) =>
+      ipcRenderer.invoke('app-state:update-thread-copilot-title', input),
     selectRepository: (repositoryId: string | null) =>
       ipcRenderer.invoke('app-state:select-repository', repositoryId),
     selectThread: (threadId: string | null) =>
@@ -29,6 +32,7 @@ const api = {
     getStatus: () => ipcRenderer.invoke('terminal:status'),
     create: (request: TerminalCreateRequest) => ipcRenderer.invoke('terminal:create', request),
     kill: (terminalId: string) => ipcRenderer.invoke('terminal:kill', terminalId),
+    readClipboardText: () => clipboard.readText(),
     input: (terminalId: string, data: string) =>
       ipcRenderer.send('terminal:input', { terminalId, data }),
     resize: (terminalId: string, cols: number, rows: number) =>

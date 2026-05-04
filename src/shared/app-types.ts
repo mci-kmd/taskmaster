@@ -43,6 +43,7 @@ export interface TerminalApi {
   getStatus: () => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
   kill: (terminalId: string) => Promise<boolean>
+  readClipboardText: () => string
   input: (terminalId: string, data: string) => void
   resize: (terminalId: string, cols: number, rows: number) => void
   onData: (callback: (payload: TerminalDataEvent) => void) => () => void
@@ -64,6 +65,7 @@ export interface PersistedThread {
   id: string
   repositoryId: string
   customTitle: string | null
+  latestCopilotTitle: string | null
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
@@ -74,7 +76,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 2
+  version: 3
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -92,7 +94,7 @@ export interface AppSettingsSnapshot extends PersistedSettings {
 export interface ThreadSnapshot extends PersistedThread {
   cwd: string
   displayBranchName: string
-  /** Custom label fallback for display; combine with runtime title in the UI. */
+  /** Fallback label when no live or persisted Copilot title is available. */
   displayTitle: string
   isRunning: boolean
 }
@@ -135,6 +137,11 @@ export interface UpdateSettingsInput {
 
 export interface UpdateUiInput {
   sidebarWidth?: number
+}
+
+export interface UpdateThreadCopilotTitleInput {
+  threadId: string
+  title: string
 }
 
 export const SIDEBAR_WIDTH_DEFAULT = 268
