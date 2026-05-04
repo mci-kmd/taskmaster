@@ -91,8 +91,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
     const phaseRef = useRef<SessionPhase>('idle')
-    const launchKeyRef = useRef<number>(launchKey)
-    const lastConsumedLaunchKeyRef = useRef<number>(launchKey)
+    const lastConsumedLaunchKeyRef = useRef<number>(0)
     const lastPersistedCopilotTitleRef = useRef(thread.latestCopilotTitle)
     const [phase, setPhase] = useState<SessionPhase>('idle')
     const [exitCode, setExitCode] = useState<number | null>(null)
@@ -450,7 +449,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     // bridge between an external imperative request and our async PTY
     // lifecycle.
     useEffect(() => {
-      launchKeyRef.current = launchKey
       if (launchKey === 0) return
       if (lastConsumedLaunchKeyRef.current === launchKey) return
       if (phase === 'launching' || phase === 'running') return
