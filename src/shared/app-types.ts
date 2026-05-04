@@ -58,6 +58,7 @@ export interface PersistedRepository {
   id: string
   name: string
   path: string
+  faviconPath: string | null
   addedAt: string
 }
 
@@ -76,7 +77,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 3
+  version: 4
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -101,6 +102,7 @@ export interface ThreadSnapshot extends PersistedThread {
 
 export interface RepositorySnapshot extends PersistedRepository {
   currentBranch: string
+  faviconUrl: string | null
   /** Resolved primary branch (origin/HEAD → main → master) or null if none found. */
   primaryBranch: string | null
   lastActivityAt: string
@@ -150,6 +152,11 @@ export interface UpdateSettingsInput {
   globalFlagsInput: string
 }
 
+export interface UpdateRepositoryInput {
+  repositoryId: string
+  faviconPath: string | null
+}
+
 export interface UpdateUiInput {
   sidebarWidth?: number
 }
@@ -158,6 +165,20 @@ export interface UpdateThreadCopilotTitleInput {
   threadId: string
   title: string
 }
+
+export type PickRepositoryFaviconResult =
+  | {
+      ok: true
+      path: string
+    }
+  | {
+      ok: false
+      cancelled: true
+    }
+  | {
+      ok: false
+      error: string
+    }
 
 export const SIDEBAR_WIDTH_DEFAULT = 268
 export const SIDEBAR_WIDTH_MIN = 220

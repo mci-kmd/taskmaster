@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import Toast, { type ToastTone } from './components/Toast'
+import EditRepositoryDialog from './components/dialogs/EditRepositoryDialog'
 import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
 import ThreadDetailsDialog from './components/dialogs/ThreadDetailsDialog'
@@ -23,7 +24,7 @@ type Feedback = {
   message: string
 }
 
-type DialogKey = 'new-thread' | 'settings' | 'details' | null
+type DialogKey = 'new-thread' | 'settings' | 'details' | 'edit-repository' | null
 
 function findThreadById(snapshot: AppSnapshot, threadId: string): ThreadSnapshot | null {
   return (
@@ -89,6 +90,7 @@ export default function App(): React.JSX.Element {
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [dialog, setDialog] = useState<DialogKey>(null)
+  const [editingRepositoryId, setEditingRepositoryId] = useState<string | null>(null)
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
   const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
@@ -124,6 +126,14 @@ export default function App(): React.JSX.Element {
   const selectedThread = useMemo(() => {
     return snapshot ? findSelectedThread(snapshot) : null
   }, [snapshot])
+
+  const editingRepository = useMemo(() => {
+    if (!snapshot || !editingRepositoryId) {
+      return null
+    }
+
+    return snapshot.repositories.find((repository) => repository.id === editingRepositoryId) ?? null
+  }, [editingRepositoryId, snapshot])
 
   const allThreads = useMemo<ThreadSnapshot[]>(() => {
     return snapshot ? snapshot.repositories.flatMap((repository) => repository.threads) : []
@@ -163,6 +173,16 @@ export default function App(): React.JSX.Element {
     await applyMutation(window.api.appState.addRepository(), 'Repository added.')
     setBusyAction(null)
   }, [applyMutation])
+
+  const handleOpenRepositoryEditor = useCallback((repositoryId: string): void => {
+    setEditingRepositoryId(repositoryId)
+    setDialog('edit-repository')
+  }, [])
+
+  const handleCloseRepositoryEditor = useCallback((): void => {
+    setDialog(null)
+    setEditingRepositoryId(null)
+  }, [])
 
   const handleSelectRepository = useCallback((repositoryId: string): void => {
     const requestId = ++selectionRequestIdRef.current
@@ -250,6 +270,39 @@ export default function App(): React.JSX.Element {
     [applyMutation]
   )
 
+  const handleBrowseRepositoryFavicon = useCallback(
+    async (repositoryId: string): Promise<string | null> => {
+      const result = await window.api.appState.pickRepositoryFavicon(repositoryId)
+      if (result.ok) {
+        return result.path
+      }
+
+      if ('cancelled' in result && result.cancelled) {
+        return null
+      }
+
+      if ('error' in result) {
+        setFeedback({ tone: 'error', message: result.error })
+      }
+
+      return null
+    },
+    []
+  )
+
+  const handleSaveRepository = useCallback(
+    async (input: { repositoryId: string; faviconPath: string | null }): Promise<boolean> => {
+      setBusyAction('save-repository')
+      const result = await applyMutation(
+        window.api.appState.updateRepository(input),
+        'Project updated.'
+      )
+      setBusyAction(null)
+      return result.ok
+    },
+    [applyMutation]
+  )
+
   const handleCloseThread = useCallback(async (): Promise<void> => {
     if (!selectedThread) {
       return
@@ -307,6 +360,7 @@ export default function App(): React.JSX.Element {
           busyAddRepository={busyAction === 'add-repository'}
           collapsedRepositoryIds={collapsedRepositoryIds}
           onAddRepository={() => void handleAddRepository()}
+          onEditRepository={handleOpenRepositoryEditor}
           onNewThread={() => setDialog('new-thread')}
           onOpenSettings={() => setDialog('settings')}
           onSelectRepository={(id) => void handleSelectRepository(id)}
@@ -366,6 +420,15 @@ export default function App(): React.JSX.Element {
           selectedThread ? (sessions.get(selectedThread.id)?.runtimeTitle ?? null) : null
         }
         thread={selectedThread}
+      />
+
+      <EditRepositoryDialog
+        busy={busyAction === 'save-repository'}
+        onBrowse={handleBrowseRepositoryFavicon}
+        onClose={handleCloseRepositoryEditor}
+        onSubmit={handleSaveRepository}
+        open={dialog === 'edit-repository'}
+        repository={editingRepository}
       />
 
       {feedback ? (

@@ -8,12 +8,20 @@ import {
   unlinkSync,
   writeFileSync
 } from 'fs'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'path'
 import { spawn, spawnSync } from 'child_process'
-import { app, dialog, ipcMain } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  type OpenDialogOptions,
+  type WebContents
+} from 'electron'
 import {
   type BranchStatusRequest,
   type BranchStatusSnapshot,
+  type PickRepositoryFaviconResult,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
@@ -25,6 +33,7 @@ import {
   type PersistedThread,
   type RepositorySnapshot,
   type ThreadSnapshot,
+  type UpdateRepositoryInput,
   type UpdateThreadCopilotTitleInput,
   type UpdateSettingsInput,
   type UpdateUiInput
@@ -32,9 +41,19 @@ import {
 import { getRunningThreadIds, killSessionsForThread } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 3 as const
+const STATE_VERSION = 4 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
+const REPOSITORY_FAVICON_EXTENSIONS = new Set([
+  '.bmp',
+  '.gif',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.webp'
+])
 
 let persistedState: PersistedAppState | null = null
 const repositoryGitStateCache = new Map<string, RepositoryGitState>()
@@ -49,12 +68,19 @@ type LegacyThreadV1 = Omit<PersistedThread, 'customTitle' | 'latestCopilotTitle'
 }
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 1
+  repositories: LegacyRepositoryV3[]
   threads: LegacyThreadV1[]
 }
 
 type LegacyThreadV2 = Omit<PersistedThread, 'latestCopilotTitle'>
+type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath'>
+type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
+  version: 3
+  repositories: LegacyRepositoryV3[]
+}
 type LegacyAppStateV2 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 2
+  repositories: LegacyRepositoryV3[]
   threads: LegacyThreadV2[]
 }
 
@@ -63,21 +89,37 @@ type RepositoryGitState = {
   primaryBranch: string | null
 }
 
+type RelativePathResult = { ok: true; path: string } | { ok: false; error: string }
+
 type BuildSnapshotOptions = {
   refreshGit?: boolean
 }
 
 function migrateState(
-  parsed: PersistedAppState | LegacyAppStateV2 | LegacyAppStateV1
+  parsed: PersistedAppState | LegacyAppStateV3 | LegacyAppStateV2 | LegacyAppStateV1
 ): PersistedAppState {
   if (parsed.version === STATE_VERSION) {
     return parsed
+  }
+
+  const migratedRepositories = parsed.repositories.map((repository) => ({
+    ...repository,
+    faviconPath: null
+  }))
+
+  if (parsed.version === 3) {
+    return {
+      ...parsed,
+      version: STATE_VERSION,
+      repositories: migratedRepositories
+    }
   }
 
   if (parsed.version === 2) {
     return {
       ...parsed,
       version: STATE_VERSION,
+      repositories: migratedRepositories,
       threads: parsed.threads.map((thread) => ({
         ...thread,
         latestCopilotTitle: null
@@ -101,6 +143,7 @@ function migrateState(
     return {
       ...parsed,
       version: STATE_VERSION,
+      repositories: migratedRepositories,
       threads: migratedThreads
     }
   }
@@ -205,6 +248,117 @@ function parseGlobalFlags(input: string): string[] {
 
 function sameWindowsPath(left: string, right: string): boolean {
   return left.toLowerCase() === right.toLowerCase()
+}
+
+function isPathInsideRepository(repositoryPath: string, candidatePath: string): boolean {
+  const relativePath = relative(repositoryPath, candidatePath)
+  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+}
+
+function resolveRepositoryAssetPath(repositoryPath: string, relativePath: string | null): string | null {
+  if (!relativePath) {
+    return null
+  }
+
+  const candidatePath = resolve(repositoryPath, relativePath)
+  if (!isPathInsideRepository(repositoryPath, candidatePath)) {
+    return null
+  }
+
+  if (!existsSync(candidatePath) || !statSync(candidatePath).isFile()) {
+    return null
+  }
+
+  const extension = extname(candidatePath).toLowerCase()
+  if (!REPOSITORY_FAVICON_EXTENSIONS.has(extension)) {
+    return null
+  }
+
+  return candidatePath
+}
+
+function getRepositoryFaviconMimeType(path: string): string | null {
+  switch (extname(path).toLowerCase()) {
+    case '.bmp':
+      return 'image/bmp'
+    case '.gif':
+      return 'image/gif'
+    case '.ico':
+      return 'image/x-icon'
+    case '.jpeg':
+    case '.jpg':
+      return 'image/jpeg'
+    case '.png':
+      return 'image/png'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.webp':
+      return 'image/webp'
+    default:
+      return null
+  }
+}
+
+function buildRepositoryFaviconUrl(repositoryPath: string, relativePath: string | null): string | null {
+  const resolvedPath = resolveRepositoryAssetPath(repositoryPath, relativePath)
+  if (!resolvedPath) {
+    return null
+  }
+
+  const mimeType = getRepositoryFaviconMimeType(resolvedPath)
+  if (!mimeType) {
+    return null
+  }
+
+  const encoded = readFileSync(resolvedPath).toString('base64')
+  return `data:${mimeType};base64,${encoded}`
+}
+
+function validateRepositoryFaviconAbsolutePath(
+  repositoryPath: string,
+  candidatePath: string
+): RelativePathResult {
+  const normalizedCandidate = normalize(candidatePath)
+  if (!isPathInsideRepository(repositoryPath, normalizedCandidate)) {
+    return { ok: false, error: 'Favicon must be inside the repository.' }
+  }
+
+  if (!existsSync(normalizedCandidate)) {
+    return { ok: false, error: 'Favicon file not found.' }
+  }
+
+  if (!statSync(normalizedCandidate).isFile()) {
+    return { ok: false, error: 'Favicon path must point to a file.' }
+  }
+
+  const extension = extname(normalizedCandidate).toLowerCase()
+  if (!REPOSITORY_FAVICON_EXTENSIONS.has(extension)) {
+    return {
+      ok: false,
+      error: 'Unsupported favicon file. Use .ico, .png, .svg, .jpg, .jpeg, .webp, .gif, or .bmp.'
+    }
+  }
+
+  return {
+    ok: true,
+    path: normalize(relative(repositoryPath, normalizedCandidate))
+  }
+}
+
+function validateRepositoryFaviconInput(
+  repositoryPath: string,
+  input: string | null
+): RelativePathResult | { ok: true; path: null } {
+  const trimmed = input?.trim() ?? ''
+  if (!trimmed) {
+    return { ok: true, path: null }
+  }
+
+  if (isAbsolute(trimmed)) {
+    return { ok: false, error: 'Use a path relative to the repository root.' }
+  }
+
+  return validateRepositoryFaviconAbsolutePath(repositoryPath, resolve(repositoryPath, trimmed))
 }
 
 function runGit(cwd: string, args: string[]): string {
@@ -582,6 +736,7 @@ function buildRepositorySnapshot(
   return {
     ...repository,
     currentBranch: repositoryGitState.currentBranch,
+    faviconUrl: buildRepositoryFaviconUrl(repository.path, repository.faviconPath),
     primaryBranch: repositoryGitState.primaryBranch,
     lastActivityAt: snapshotThreads[0]?.lastActivityAt ?? repository.addedAt,
     threads: snapshotThreads
@@ -656,6 +811,10 @@ function updateSelection(repositoryId: string | null, threadId: string | null): 
 
 function findThread(threadId: string): PersistedThread | undefined {
   return ensureState().threads.find((thread) => thread.id === threadId)
+}
+
+function findRepository(repositoryId: string): PersistedRepository | undefined {
+  return ensureState().repositories.find((repository) => repository.id === repositoryId)
 }
 
 type BaseRefResolution = { ok: true; ref: string } | { ok: false; error: string }
@@ -828,6 +987,7 @@ async function addRepository(): Promise<MutationResult> {
     id: randomUUID(),
     name: basename(gitRoot),
     path: gitRoot,
+    faviconPath: null,
     addedAt: nowIso()
   }
 
@@ -892,6 +1052,59 @@ function updateSettings(input: UpdateSettingsInput): MutationResult {
   state.settings.globalFlagsInput = input.globalFlagsInput.trim()
   saveState()
   return successResult()
+}
+
+function updateRepository(input: UpdateRepositoryInput): MutationResult {
+  const repository = findRepository(input.repositoryId)
+  if (!repository) {
+    return failureResult('Repository not found.')
+  }
+
+  const validation = validateRepositoryFaviconInput(repository.path, input.faviconPath)
+  if (!validation.ok) {
+    return failureResult(validation.error)
+  }
+
+  if (repository.faviconPath === validation.path) {
+    return successResult()
+  }
+
+  repository.faviconPath = validation.path
+  saveState()
+  return successResult()
+}
+
+async function pickRepositoryFavicon(
+  sender: WebContents,
+  repositoryId: string
+): Promise<PickRepositoryFaviconResult> {
+  const repository = findRepository(repositoryId)
+  if (!repository) {
+    return { ok: false, error: 'Repository not found.' }
+  }
+
+  const ownerWindow = BrowserWindow.fromWebContents(sender)
+  const dialogOptions: OpenDialogOptions = {
+    title: `Choose favicon for ${repository.name}`,
+    defaultPath: join(repository.path, 'favicon.ico'),
+    filters: [
+      {
+        name: 'Image files',
+        extensions: ['bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']
+      }
+    ],
+    properties: ['openFile']
+  }
+
+  const dialogResult = ownerWindow
+    ? await dialog.showOpenDialog(ownerWindow, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions)
+
+  if (dialogResult.canceled || dialogResult.filePaths.length === 0) {
+    return { ok: false, cancelled: true }
+  }
+
+  return validateRepositoryFaviconAbsolutePath(repository.path, dialogResult.filePaths[0])
 }
 
 function updateUi(input: UpdateUiInput): MutationResult {
@@ -960,6 +1173,12 @@ export function registerAppStateIpc(): void {
     createThread(input)
   )
   ipcMain.handle('app-state:close-thread', (_event, threadId: string) => closeThread(threadId))
+  ipcMain.handle('app-state:update-repository', (_event, input: UpdateRepositoryInput) =>
+    updateRepository(input)
+  )
+  ipcMain.handle('app-state:pick-repository-favicon', (event, repositoryId: string) =>
+    pickRepositoryFavicon(event.sender, repositoryId)
+  )
   ipcMain.handle('app-state:update-settings', (_event, input: UpdateSettingsInput) =>
     updateSettings(input)
   )

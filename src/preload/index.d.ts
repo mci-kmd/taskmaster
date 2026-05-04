@@ -5,7 +5,9 @@ import type {
   BranchStatusSnapshot,
   CreateThreadInput,
   MutationResult,
+  PickRepositoryFaviconResult,
   TerminalApi,
+  UpdateRepositoryInput,
   UpdateThreadCopilotTitleInput,
   UpdateSettingsInput,
   UpdateUiInput
@@ -16,6 +18,8 @@ declare global {
     getSnapshot: () => Promise<AppSnapshot>
     refresh: () => Promise<AppSnapshot>
     addRepository: () => Promise<MutationResult>
+    updateRepository: (input: UpdateRepositoryInput) => Promise<MutationResult>
+    pickRepositoryFavicon: (repositoryId: string) => Promise<PickRepositoryFaviconResult>
     createThread: (input: CreateThreadInput) => Promise<MutationResult>
     closeThread: (threadId: string) => Promise<MutationResult>
     updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>

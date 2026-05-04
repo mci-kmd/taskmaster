@@ -3,9 +3,11 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   BranchStatusRequest,
   CreateThreadInput,
+  PickRepositoryFaviconResult,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
+  UpdateRepositoryInput,
   UpdateThreadCopilotTitleInput,
   UpdateSettingsInput,
   UpdateUiInput
@@ -16,6 +18,10 @@ const api = {
     getSnapshot: () => ipcRenderer.invoke('app-state:get-snapshot'),
     refresh: () => ipcRenderer.invoke('app-state:refresh'),
     addRepository: () => ipcRenderer.invoke('app-state:add-repository'),
+    updateRepository: (input: UpdateRepositoryInput) =>
+      ipcRenderer.invoke('app-state:update-repository', input),
+    pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
+      ipcRenderer.invoke('app-state:pick-repository-favicon', repositoryId),
     createThread: (input: CreateThreadInput) =>
       ipcRenderer.invoke('app-state:create-thread', input),
     closeThread: (threadId: string) => ipcRenderer.invoke('app-state:close-thread', threadId),

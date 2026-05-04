@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AppSnapshot, RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
 import {
@@ -28,8 +28,45 @@ type SidebarProps = {
   onSelectRepository: (id: string) => void
   onSelectThread: (id: string) => void
   onAddRepository: () => void
+  onEditRepository: (id: string) => void
   onNewThread: () => void
   onOpenSettings: () => void
+}
+
+type RepositoryContextMenuState = {
+  repositoryId: string
+  x: number
+  y: number
+}
+
+function RepositoryListIcon({
+  repository,
+  selected
+}: {
+  repository: RepositorySnapshot
+  selected: boolean
+}): React.JSX.Element {
+  const [imageFailed, setImageFailed] = useState(false)
+
+  if (repository.faviconUrl && !imageFailed) {
+    return (
+      <img
+        alt=""
+        className="size-[13px] shrink-0 rounded-[3px] object-contain"
+        draggable={false}
+        onError={() => setImageFailed(true)}
+        src={repository.faviconUrl}
+      />
+    )
+  }
+
+  return (
+    <FolderIcon
+      className={selected ? 'text-[var(--color-fg)]' : 'text-[var(--color-fg-subtle)]'}
+      width={13}
+      height={13}
+    />
+  )
 }
 
 export default function Sidebar({
@@ -43,14 +80,40 @@ export default function Sidebar({
   onSelectRepository,
   onSelectThread,
   onAddRepository,
+  onEditRepository,
   onNewThread,
   onOpenSettings
 }: SidebarProps): React.JSX.Element {
   const now = useNow(30_000)
+  const [contextMenu, setContextMenu] = useState<RepositoryContextMenuState | null>(null)
   const totalThreads = useMemo(
     () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
     [snapshot.repositories]
   )
+
+  useEffect(() => {
+    if (!contextMenu) {
+      return
+    }
+
+    const handleKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        setContextMenu(null)
+      }
+    }
+
+    const handleBlur = (): void => {
+      setContextMenu(null)
+    }
+
+    window.addEventListener('keydown', handleKey)
+    window.addEventListener('blur', handleBlur)
+    return () => {
+      window.removeEventListener('keydown', handleKey)
+      window.removeEventListener('blur', handleBlur)
+    }
+  }, [contextMenu])
+
   const getThreadModeTooltip = (thread: ThreadSnapshot): string | null => {
     if (thread.mode === 'worktree') {
       return 'Worktree thread'
@@ -152,6 +215,14 @@ export default function Sidebar({
                       ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
                       : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
                   }`}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    setContextMenu({
+                      repositoryId: repository.id,
+                      x: event.clientX,
+                      y: event.clientY
+                    })
+                  }}
                 >
                   <button
                     aria-label={isCollapsed ? 'Expand repository' : 'Collapse repository'}
@@ -172,12 +243,10 @@ export default function Sidebar({
                     title={`${repository.name} — ${repository.path}`}
                     type="button"
                   >
-                    <FolderIcon
-                      className={
-                        isSelectedRepo ? 'text-[var(--color-fg)]' : 'text-[var(--color-fg-subtle)]'
-                      }
-                      width={13}
-                      height={13}
+                    <RepositoryListIcon
+                      key={`${repository.id}:${repository.faviconUrl ?? 'folder'}`}
+                      repository={repository}
+                      selected={isSelectedRepo}
                     />
                     <span className="truncate text-[13px] font-medium">{repository.name}</span>
                     {repository.threads.length > 0 ? (
@@ -273,6 +342,41 @@ export default function Sidebar({
           {totalThreads} {totalThreads === 1 ? 'thread' : 'threads'}
         </span>
       </div>
+
+      {contextMenu ? (
+        <>
+          <button
+            aria-label="Close project menu"
+            className="fixed inset-0 z-40 cursor-default appearance-none border-0 bg-transparent p-0"
+            onClick={() => setContextMenu(null)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setContextMenu(null)
+            }}
+            type="button"
+          />
+          <div
+            className="fixed z-50 min-w-[10rem] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-2)] p-1 shadow-[var(--shadow-pop)]"
+            onContextMenu={(event) => event.preventDefault()}
+            style={{
+              left: Math.min(contextMenu.x, window.innerWidth - 176),
+              top: Math.min(contextMenu.y, window.innerHeight - 56)
+            }}
+          >
+            <button
+              className="flex w-full items-center rounded-md px-3 py-2 text-left text-[12.5px] text-[var(--color-fg)] transition hover:bg-[var(--color-hover)]"
+              onClick={() => {
+                onEditRepository(contextMenu.repositoryId)
+                setContextMenu(null)
+              }}
+              title="Edit project"
+              type="button"
+            >
+              Edit
+            </button>
+          </div>
+        </>
+      ) : null}
     </aside>
   )
 }
