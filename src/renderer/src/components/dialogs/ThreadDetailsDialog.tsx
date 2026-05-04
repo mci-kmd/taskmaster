@@ -1,6 +1,7 @@
 import Modal from '../Modal'
 import Button from '../ui/Button'
 import type { ThreadSnapshot } from '../../../../shared/app-types'
+import { getCopilotTitle } from '../../../../shared/thread-title'
 import { formatRelativeTime } from '../../lib/time'
 import { composeThreadTitle } from '../../lib/title'
 
@@ -40,7 +41,7 @@ export default function ThreadDetailsDialog({
     )
   }
 
-  const copilotTitle = runtimeTitle?.trim() || thread.latestCopilotTitle
+  const copilotTitle = getCopilotTitle(thread, runtimeTitle)
 
   return (
     <Modal

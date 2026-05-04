@@ -39,6 +39,7 @@ import {
   type UpdateSettingsInput,
   type UpdateUiInput
 } from '../shared/app-types'
+import { normalizeCopilotTitle } from '../shared/thread-title'
 import { getRunningThreadIds, killSessionsForThread } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
@@ -96,11 +97,39 @@ type BuildSnapshotOptions = {
   refreshGit?: boolean
 }
 
+function normalizePersistedThread(thread: PersistedThread): PersistedThread {
+  const latestCopilotTitle = normalizeCopilotTitle(thread, thread.latestCopilotTitle)
+  return latestCopilotTitle === thread.latestCopilotTitle
+    ? thread
+    : {
+        ...thread,
+        latestCopilotTitle
+      }
+}
+
+function normalizePersistedState(state: PersistedAppState): PersistedAppState {
+  let didChange = false
+  const threads = state.threads.map((thread) => {
+    const normalizedThread = normalizePersistedThread(thread)
+    if (normalizedThread !== thread) {
+      didChange = true
+    }
+    return normalizedThread
+  })
+
+  return didChange
+    ? {
+        ...state,
+        threads
+      }
+    : state
+}
+
 function migrateState(
   parsed: PersistedAppState | LegacyAppStateV3 | LegacyAppStateV2 | LegacyAppStateV1
 ): PersistedAppState {
   if (parsed.version === STATE_VERSION) {
-    return parsed
+    return normalizePersistedState(parsed)
   }
 
   const migratedRepositories = parsed.repositories.map((repository) => ({
@@ -109,15 +138,15 @@ function migrateState(
   }))
 
   if (parsed.version === 3) {
-    return {
+    return normalizePersistedState({
       ...parsed,
       version: STATE_VERSION,
       repositories: migratedRepositories
-    }
+    })
   }
 
   if (parsed.version === 2) {
-    return {
+    return normalizePersistedState({
       ...parsed,
       version: STATE_VERSION,
       repositories: migratedRepositories,
@@ -125,7 +154,7 @@ function migrateState(
         ...thread,
         latestCopilotTitle: null
       }))
-    }
+    })
   }
 
   if (parsed.version === 1) {
@@ -141,12 +170,12 @@ function migrateState(
       }
     })
 
-    return {
+    return normalizePersistedState({
       ...parsed,
       version: STATE_VERSION,
       repositories: migratedRepositories,
       threads: migratedThreads
-    }
+    })
   }
 
   throw new Error(`Unsupported state version: ${(parsed as { version: number }).version}`)
@@ -256,7 +285,10 @@ function isPathInsideRepository(repositoryPath: string, candidatePath: string): 
   return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
 }
 
-function resolveRepositoryAssetPath(repositoryPath: string, relativePath: string | null): string | null {
+function resolveRepositoryAssetPath(
+  repositoryPath: string,
+  relativePath: string | null
+): string | null {
   if (!relativePath) {
     return null
   }
@@ -300,7 +332,10 @@ function getRepositoryFaviconMimeType(path: string): string | null {
   }
 }
 
-function buildRepositoryFaviconUrl(repositoryPath: string, relativePath: string | null): string | null {
+function buildRepositoryFaviconUrl(
+  repositoryPath: string,
+  relativePath: string | null
+): string | null {
   const resolvedPath = resolveRepositoryAssetPath(repositoryPath, relativePath)
   if (!resolvedPath) {
     return null
@@ -842,6 +877,21 @@ function normalizeCustomTitle(title: string | null | undefined): string | null {
   return trimmedTitle ? trimmedTitle : null
 }
 
+function sanitizeSessionNamePrefix(repositoryName: string): string {
+  const sanitized = repositoryName
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return sanitized || 'thread'
+}
+
+function buildThreadSessionName(repository: Pick<PersistedRepository, 'name'>): string {
+  return `${sanitizeSessionNamePrefix(repository.name)}-${randomUUID()}`
+}
+
 function createThread(input: CreateThreadInput): MutationResult {
   const state = ensureState()
   const repository = state.repositories.find((item) => item.id === input.repositoryId)
@@ -879,7 +929,7 @@ function createThread(input: CreateThreadInput): MutationResult {
       mode: 'worktree',
       branchName,
       worktreePath,
-      sessionName: `taskmaster-${randomUUID()}`,
+      sessionName: buildThreadSessionName(repository),
       createdAt,
       lastActivityAt: createdAt,
       hasLaunched: false
@@ -926,7 +976,7 @@ function createThread(input: CreateThreadInput): MutationResult {
       mode: 'new-branch',
       branchName,
       worktreePath: null,
-      sessionName: `taskmaster-${randomUUID()}`,
+      sessionName: buildThreadSessionName(repository),
       createdAt,
       lastActivityAt: createdAt,
       hasLaunched: false
@@ -947,7 +997,7 @@ function createThread(input: CreateThreadInput): MutationResult {
     mode: 'active-branch',
     branchName: currentBranch,
     worktreePath: null,
-    sessionName: `taskmaster-${randomUUID()}`,
+    sessionName: buildThreadSessionName(repository),
     createdAt,
     lastActivityAt: createdAt,
     hasLaunched: false
@@ -1144,11 +1194,12 @@ function updateThreadCopilotTitle(input: UpdateThreadCopilotTitleInput): boolean
     return false
   }
 
-  if (thread.latestCopilotTitle === trimmedTitle) {
+  const normalizedTitle = normalizeCopilotTitle(thread, trimmedTitle)
+  if (thread.latestCopilotTitle === normalizedTitle) {
     return true
   }
 
-  thread.latestCopilotTitle = trimmedTitle
+  thread.latestCopilotTitle = normalizedTitle
   saveState()
   return true
 }

@@ -253,11 +253,6 @@ export default function Sidebar({
                       selected={isSelectedRepo}
                     />
                     <span className="truncate text-[13px] font-medium">{repository.name}</span>
-                    {repository.threads.length > 0 ? (
-                      <span className="ml-auto pr-0.5 font-mono text-[11px] text-[var(--color-fg-faint)]">
-                        {repository.threads.length}
-                      </span>
-                    ) : null}
                   </button>
                 </div>
 

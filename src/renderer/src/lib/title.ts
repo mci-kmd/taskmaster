@@ -1,4 +1,5 @@
 import type { ThreadSnapshot } from '../../../shared/app-types'
+import { getCopilotTitle } from '../../../shared/thread-title'
 
 /**
  * Prefers the live Copilot title, then the latest persisted Copilot title,
@@ -8,7 +9,7 @@ export function composeThreadTitle(
   thread: ThreadSnapshot,
   runtimeTitle: string | null | undefined
 ): string {
-  const copilotTitle = runtimeTitle?.trim() || thread.latestCopilotTitle?.trim()
+  const copilotTitle = getCopilotTitle(thread, runtimeTitle)
   if (copilotTitle) {
     return thread.customTitle ? `${thread.customTitle} — ${copilotTitle}` : copilotTitle
   }

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ThreadSnapshot } from '../../../../shared/app-types'
+import { getCopilotTitle } from '../../../../shared/thread-title'
 import { composeThreadTitle } from '../../lib/title'
 import Modal from '../Modal'
 import Button from '../ui/Button'
@@ -84,7 +85,7 @@ function EditThreadForm({
   const dirty = draft !== (thread.customTitle ?? '')
   const normalizedDraft = draft.trim()
   const previewTitle = useMemo(() => {
-    const copilotTitle = runtimeTitle?.trim() || thread.latestCopilotTitle?.trim() || null
+    const copilotTitle = getCopilotTitle(thread, runtimeTitle)
     if (normalizedDraft) {
       return copilotTitle ? `${normalizedDraft} — ${copilotTitle}` : normalizedDraft
     }
@@ -146,7 +147,12 @@ function EditThreadForm({
           <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
             Cancel
           </Button>
-          <Button disabled={busy || !dirty} title="Save thread title prefix" type="submit" variant="primary">
+          <Button
+            disabled={busy || !dirty}
+            title="Save thread title prefix"
+            type="submit"
+            variant="primary"
+          >
             {busy ? 'Saving…' : 'Save'}
           </Button>
         </div>
