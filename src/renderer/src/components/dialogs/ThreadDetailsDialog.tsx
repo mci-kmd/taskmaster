@@ -64,7 +64,7 @@ export default function ThreadDetailsDialog({
               thread.mode === 'worktree'
                 ? 'Close thread, remove worktree, delete branch'
                 : thread.mode === 'new-branch'
-                  ? 'Close thread (the branch and working tree are preserved)'
+                  ? 'Close thread (may offer to delete the local branch if its remote is gone)'
                   : 'Close thread (branch and working tree are preserved)'
             }
             variant="danger"
@@ -132,9 +132,9 @@ export default function ThreadDetailsDialog({
         </p>
       ) : thread.mode === 'new-branch' ? (
         <p className="mt-4 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-          Closing this thread only forgets the persisted Copilot session. The{' '}
-          <span className="font-mono text-[var(--color-fg)]">{thread.branchName}</span> branch and
-          working tree are left untouched.
+          Closing this thread forgets the persisted Copilot session. If the remote{' '}
+          <span className="font-mono text-[var(--color-fg)]">{thread.branchName}</span> branch is
+          already gone, Taskmaster can also remove the local branch.
         </p>
       ) : (
         <p className="mt-4 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
