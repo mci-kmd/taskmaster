@@ -1,5 +1,4 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { AppSettingsSnapshot, TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
 
@@ -42,28 +41,256 @@ type LaunchAttempt = {
   retriedFromMissingSession: boolean
 }
 
+type XtermCore = {
+  _renderService: {
+    clear: () => void
+    dimensions: {
+      css: {
+        cell: {
+          width: number
+          height: number
+        }
+      }
+    }
+  }
+}
+
+type VisibleTextMap = {
+  plain: string
+  rawIndexByVisibleIndex: number[]
+}
+
+type StyledOutputState = {
+  current: string
+  insideToolBlock: boolean
+}
+
 const TERMINAL_THEME = {
   background: '#141414',
-  foreground: '#dcdcdc',
-  cursor: '#ededed',
+  foreground: '#c9d1d9',
+  cursor: '#f3f3f3',
   cursorAccent: '#141414',
   selectionBackground: '#2e2e2e',
-  black: '#1c1c1c',
-  red: '#f08c8c',
-  green: '#94c594',
-  yellow: '#e6c884',
-  blue: '#9bb6e0',
-  magenta: '#c1a4d8',
-  cyan: '#8fc4cc',
-  white: '#dcdcdc',
-  brightBlack: '#5a5a5a',
-  brightRed: '#f5a8a8',
-  brightGreen: '#b3d6b3',
-  brightYellow: '#ecd6a4',
-  brightBlue: '#b6c8e6',
-  brightMagenta: '#d3bce4',
-  brightCyan: '#a9d2d8',
-  brightWhite: '#ededed'
+  black: '#6e7681',
+  red: '#ffa198',
+  green: '#7ee787',
+  yellow: '#d29922',
+  blue: '#58a6ff',
+  magenta: '#d2a8ff',
+  cyan: '#79c0ff',
+  white: '#e6edf3',
+  brightBlack: '#8b949e',
+  brightRed: '#ffb1af',
+  brightGreen: '#56d364',
+  brightYellow: '#e3b341',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#e2c5ff',
+  brightCyan: '#a5d6ff',
+  brightWhite: '#f0f6fc'
+}
+
+const MINIMUM_TERMINAL_COLS = 2
+const MINIMUM_TERMINAL_ROWS = 1
+const TERMINAL_FONT_FAMILY =
+  "Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
+const ANSI_DIM = '\x1b[90m'
+const ANSI_BRIGHT_WHITE = '\x1b[97m'
+const ANSI_RESET_INTENSITY = '\x1b[22m'
+const ANSI_RESET_FOREGROUND = '\x1b[39m'
+
+function getXtermCore(term: Terminal): XtermCore | null {
+  return (term as Terminal & { _core?: XtermCore })._core ?? null
+}
+
+function fitTerminal(term: Terminal, container: HTMLElement): void {
+  const core = getXtermCore(term)
+  const cellWidth = core?._renderService.dimensions.css.cell.width ?? 0
+  const cellHeight = core?._renderService.dimensions.css.cell.height ?? 0
+
+  if (cellWidth <= 0 || cellHeight <= 0) {
+    return
+  }
+
+  const cols = Math.max(MINIMUM_TERMINAL_COLS, Math.floor(container.clientWidth / cellWidth))
+  const rows = Math.max(MINIMUM_TERMINAL_ROWS, Math.floor(container.clientHeight / cellHeight))
+
+  if (term.cols === cols && term.rows === rows) {
+    return
+  }
+
+  core?._renderService.clear()
+  term.resize(cols, rows)
+}
+
+function buildVisibleTextMap(raw: string): VisibleTextMap {
+  let plain = ''
+  const rawIndexByVisibleIndex: number[] = []
+
+  for (let index = 0; index < raw.length; ) {
+    const char = raw[index]
+    if (char !== '\x1b') {
+      rawIndexByVisibleIndex.push(index)
+      plain += char
+      index += 1
+      continue
+    }
+
+    const next = raw[index + 1]
+    if (next === '[') {
+      index += 2
+      while (index < raw.length) {
+        const code = raw.charCodeAt(index)
+        index += 1
+        if (code >= 0x40 && code <= 0x7e) {
+          break
+        }
+      }
+      continue
+    }
+
+    if (next === ']') {
+      index += 2
+      while (index < raw.length) {
+        if (raw[index] === '\x07') {
+          index += 1
+          break
+        }
+        if (raw[index] === '\x1b' && raw[index + 1] === '\\') {
+          index += 2
+          break
+        }
+        index += 1
+      }
+      continue
+    }
+
+    index += Math.min(2, raw.length - index)
+  }
+
+  return { plain, rawIndexByVisibleIndex }
+}
+
+function classifyStyledLine(
+  plain: string,
+  insideToolBlock: boolean
+): 'tool-title' | 'tool-body' | null {
+  const trimmedStart = plain.trimStart()
+  if (trimmedStart.length === 0) {
+    return null
+  }
+  if (/^[│┃║|┆┇┊┋╎╏└┕┖┗┘┙┚┛├┝┞┟┠┡┢┣╰╭╮╯]/u.test(trimmedStart)) {
+    return 'tool-body'
+  }
+
+  const bulletMatch = trimmedStart.match(/^[•●◦▪·]\s+(.*)$/u)
+  if (!bulletMatch) {
+    if (
+      insideToolBlock &&
+      /^(?:L\d+:\d+|-?\s*\d+\s+lines?(?:\.\.\.)?|['"`].*|--[\w-]+=|\.\.\.|Set-Location\b|[A-Za-z]:\\|(?:git|npm|pnpm|bun|yarn|node|python|go|if)\b|\$\w+)/u.test(
+        trimmedStart
+      )
+    ) {
+      return 'tool-body'
+    }
+    return null
+  }
+
+  return /[.!?]$/.test(bulletMatch[1].trim()) ? null : 'tool-title'
+}
+
+function getToolTitleVisibleStart(plain: string): number {
+  const firstNonWhitespace = plain.search(/\S/u)
+  if (firstNonWhitespace === -1) {
+    return 0
+  }
+
+  let index = firstNonWhitespace
+  if (/[•●◦▪·>›»]/u.test(plain[index] ?? '')) {
+    index += 1
+    while (index < plain.length && /\s/u.test(plain[index] ?? '')) {
+      index += 1
+    }
+  }
+  return index
+}
+
+function applyVisibleStyle(
+  rawContent: string,
+  visibleStart: number,
+  prefix: string,
+  suffix: string
+): string {
+  const visible = buildVisibleTextMap(rawContent)
+  if (visible.rawIndexByVisibleIndex.length === 0) {
+    return rawContent
+  }
+
+  const boundedStart = Math.max(0, Math.min(visibleStart, visible.rawIndexByVisibleIndex.length))
+  const rawStart =
+    boundedStart >= visible.rawIndexByVisibleIndex.length
+      ? rawContent.length
+      : visible.rawIndexByVisibleIndex[boundedStart]
+
+  return `${rawContent.slice(0, rawStart)}${prefix}${rawContent.slice(rawStart)}${suffix}`
+}
+
+function styleTerminalLine(rawLine: string, state: StyledOutputState): string {
+  const lineBreakMatch = rawLine.match(/(?:\r\n|\r|\n)$/u)
+  const lineBreak = lineBreakMatch?.[0] ?? ''
+  const content = lineBreak.length > 0 ? rawLine.slice(0, -lineBreak.length) : rawLine
+  const visible = buildVisibleTextMap(content)
+  const kind = classifyStyledLine(visible.plain, state.insideToolBlock)
+
+  state.insideToolBlock = kind === 'tool-title' || kind === 'tool-body'
+
+  if (!kind) {
+    return rawLine
+  }
+
+  if (kind === 'tool-body') {
+    return `${ANSI_DIM}${content}${ANSI_RESET_INTENSITY}${ANSI_RESET_FOREGROUND}${lineBreak}`
+  }
+
+  const titleStart = getToolTitleVisibleStart(visible.plain)
+  const styledContent = applyVisibleStyle(
+    content,
+    titleStart,
+    ANSI_BRIGHT_WHITE,
+    `${ANSI_RESET_INTENSITY}${ANSI_RESET_FOREGROUND}`
+  )
+  return `${styledContent}${lineBreak}`
+}
+
+function styleTerminalOutput(
+  incoming: string,
+  state: StyledOutputState
+): string {
+  state.current += incoming
+
+  let output = ''
+
+  while (true) {
+    const newlineMatch = state.current.match(/\r\n|\r|\n/u)
+    if (!newlineMatch || newlineMatch.index === undefined) {
+      break
+    }
+
+    const lineBreakIndex = newlineMatch.index
+    const lineBreak = newlineMatch[0]
+    const endIndex = lineBreakIndex + lineBreak.length
+    output += styleTerminalLine(state.current.slice(0, endIndex), state)
+    state.current = state.current.slice(endIndex)
+  }
+
+  const partialKind = classifyStyledLine(buildVisibleTextMap(state.current).plain, state.insideToolBlock)
+  if (!partialKind && state.current.length > 0) {
+    output += state.current
+    state.current = ''
+    state.insideToolBlock = false
+    return output
+  }
+
+  return output
 }
 
 function buildLaunchArgs(sessionName: string, globalFlags: string[], mode: LaunchMode): string[] {
@@ -82,7 +309,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
   ) {
     const containerRef = useRef<HTMLDivElement | null>(null)
     const terminalRef = useRef<Terminal | null>(null)
-    const fitAddonRef = useRef<FitAddon | null>(null)
     const terminalIdRef = useRef<string | null>(null)
     const launchAttemptRef = useRef<LaunchAttempt | null>(null)
     const threadRef = useRef(thread)
@@ -91,6 +317,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
     const phaseRef = useRef<SessionPhase>('idle')
+    const pendingStyledOutputRef = useRef<StyledOutputState>({
+      current: '',
+      insideToolBlock: false
+    })
     const lastConsumedLaunchKeyRef = useRef<number>(0)
     const lastPersistedCopilotTitleRef = useRef(thread.latestCopilotTitle)
     const [phase, setPhase] = useState<SessionPhase>('idle')
@@ -143,10 +373,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const launchInternal = useCallback(
       async (mode: LaunchMode, retriedFromMissingSession = false): Promise<boolean> => {
         const term = terminalRef.current
-        const fitAddon = fitAddonRef.current
+        const container = containerRef.current
         const status = copilotStatusRef.current
 
-        if (!term || !fitAddon || !status?.available) {
+        if (!term || !container || !status?.available) {
           return false
         }
         if (terminalIdRef.current) {
@@ -157,9 +387,11 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         setErrorMessage(null)
 
         if (!retriedFromMissingSession) {
+          pendingStyledOutputRef.current.current = ''
+          pendingStyledOutputRef.current.insideToolBlock = false
           term.reset()
           setRuntimeTitle(null)
-          fitAddon.fit()
+          fitTerminal(term, container)
         }
 
         const currentThread = threadRef.current
@@ -236,6 +468,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       await window.api.terminal.kill(id)
       terminalIdRef.current = null
       launchAttemptRef.current = null
+      pendingStyledOutputRef.current.current = ''
+      pendingStyledOutputRef.current.insideToolBlock = false
       setRuntimeTitle(null)
       setPhase('idle')
       setExitCode(null)
@@ -245,11 +479,11 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
     const refit = useCallback((): void => {
       const term = terminalRef.current
-      const fit = fitAddonRef.current
-      if (!term || !fit) {
+      const container = containerRef.current
+      if (!term || !container) {
         return
       }
-      fit.fit()
+      fitTerminal(term, container)
       if (terminalIdRef.current) {
         window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
       }
@@ -265,25 +499,29 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
       const container = containerRef.current
       const term = new Terminal({
+        customGlyphs: true,
         cursorBlink: true,
         convertEol: true,
-        fontFamily: "'Geist Mono Variable', 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace",
-        fontSize: 12.5,
-        lineHeight: 1.35,
+        drawBoldTextInBrightColors: true,
+        fontFamily: TERMINAL_FONT_FAMILY,
+        fontSize: 13,
+        fontWeight: 400,
+        fontWeightBold: 600,
+        lineHeight: 1.05,
         letterSpacing: 0,
+        minimumContrastRatio: 1,
+        rescaleOverlappingGlyphs: true,
         scrollback: 5000,
         theme: TERMINAL_THEME
       })
-      const fitAddon = new FitAddon()
-      term.loadAddon(fitAddon)
       term.open(container)
-      fitAddon.fit()
+      fitTerminal(term, container)
 
       const handlePointerDown = (): void => term.focus()
       container.addEventListener('pointerdown', handlePointerDown)
 
       const syncSize = (): void => {
-        fitAddon.fit()
+        fitTerminal(term, container)
         if (terminalIdRef.current) {
           window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
         }
@@ -293,7 +531,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
       if (typeof document !== 'undefined' && document.fonts?.ready) {
         void document.fonts.ready.then(() => {
-          if (!terminalRef.current || !fitAddonRef.current) return
+          if (!terminalRef.current || !containerRef.current) return
           syncSize()
         })
       }
@@ -309,7 +547,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (launchAttemptRef.current?.terminalId === payload.terminalId) {
           launchAttemptRef.current.buffer += payload.data
         }
-        term.write(payload.data)
+        const styled = styleTerminalOutput(payload.data, pendingStyledOutputRef.current)
+        if (styled.length > 0) {
+          term.write(styled)
+        }
       })
 
       const handleExit = async (code: number): Promise<void> => {
@@ -326,6 +567,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         ) {
           const ok = await launchInternal('new', true)
           if (ok) return
+        }
+
+        const trailingOutput = pendingStyledOutputRef.current.current
+        if (trailingOutput.length > 0) {
+          term.write(styleTerminalLine(trailingOutput, pendingStyledOutputRef.current))
+          pendingStyledOutputRef.current.current = ''
+          pendingStyledOutputRef.current.insideToolBlock = false
         }
 
         setExitCode(code)
@@ -428,7 +676,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       })
 
       terminalRef.current = term
-      fitAddonRef.current = fitAddon
 
       return () => {
         container.removeEventListener('pointerdown', handlePointerDown)
@@ -443,6 +690,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           terminalIdRef.current = null
           launchAttemptRef.current = null
         }
+        pendingStyledOutputRef.current.current = ''
+        pendingStyledOutputRef.current.insideToolBlock = false
         term.dispose()
       }
     }, [launchInternal])
@@ -467,11 +716,11 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     useEffect(() => {
       if (!visible) return
       const term = terminalRef.current
-      const fit = fitAddonRef.current
-      if (!term || !fit) return
+      const container = containerRef.current
+      if (!term || !container) return
       // RAF so layout is settled.
       const id = window.requestAnimationFrame(() => {
-        fit.fit()
+        fitTerminal(term, container)
         if (terminalIdRef.current) {
           window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
         }
@@ -485,7 +734,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         className="absolute inset-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#141414]"
         style={{ display: visible ? 'block' : 'none' }}
       >
-        <div className="h-full w-full px-3" ref={containerRef} />
+        <div className="absolute inset-y-0 left-3 right-3" ref={containerRef} />
       </div>
     )
   }
