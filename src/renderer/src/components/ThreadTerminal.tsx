@@ -267,11 +267,46 @@ function styleTerminalLine(rawLine: string, state: StyledOutputState): string {
   return `${styledContent}${lineBreak}`
 }
 
-function styleTerminalOutput(
-  incoming: string,
-  state: StyledOutputState
-): string {
+function hasDecModeSequence(value: string): boolean {
+  const prefix = '\x1b[?'
+  let index = value.indexOf(prefix)
+
+  while (index !== -1) {
+    let cursor = index + prefix.length
+    let sawDigit = false
+
+    while (cursor < value.length) {
+      const char = value[cursor]
+      if (char >= '0' && char <= '9') {
+        sawDigit = true
+        cursor += 1
+        continue
+      }
+      if (char === ';') {
+        cursor += 1
+        continue
+      }
+      if (sawDigit && (char === 'h' || char === 'l')) {
+        return true
+      }
+      break
+    }
+
+    index = value.indexOf(prefix, index + 1)
+  }
+
+  return false
+}
+
+function styleTerminalOutput(incoming: string, state: StyledOutputState): string {
   state.current += incoming
+
+  if (hasDecModeSequence(state.current)) {
+    const output = state.current
+    state.current = ''
+    state.insideToolBlock = false
+    return output
+  }
 
   let output = ''
 
@@ -288,7 +323,10 @@ function styleTerminalOutput(
     state.current = state.current.slice(endIndex)
   }
 
-  const partialKind = classifyStyledLine(buildVisibleTextMap(state.current).plain, state.insideToolBlock)
+  const partialKind = classifyStyledLine(
+    buildVisibleTextMap(state.current).plain,
+    state.insideToolBlock
+  )
   if (!partialKind && state.current.length > 0) {
     output += state.current
     state.current = ''
@@ -317,6 +355,43 @@ function isMissingNamedSessionError(output: string): boolean {
 function normalizeTrackedUserMessage(value: string): string | null {
   const normalized = value.replace(/\r\n?/gu, '\n').trim()
   return normalized.length > 0 ? normalized : null
+}
+
+function hasBlockingModal(document: Document): boolean {
+  return document.querySelector('[role="dialog"][aria-modal="true"]') !== null
+}
+
+function getTerminalHelperTextarea(container: HTMLElement): HTMLTextAreaElement | null {
+  const helper = container.querySelector('.xterm-helper-textarea')
+  return helper instanceof HTMLTextAreaElement ? helper : null
+}
+
+function focusTerminalInput(term: Terminal): void {
+  term.focus()
+}
+
+function isTextEntryElement(element: HTMLElement | null): boolean {
+  if (!element) {
+    return false
+  }
+  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    return true
+  }
+  if (element instanceof HTMLInputElement) {
+    return ![
+      'button',
+      'checkbox',
+      'color',
+      'file',
+      'hidden',
+      'image',
+      'radio',
+      'range',
+      'reset',
+      'submit'
+    ].includes(element.type)
+  }
+  return element.isContentEditable
 }
 
 function trimLastCharacter(value: string): string {
@@ -398,6 +473,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const copilotStatusRef = useRef(copilotStatus)
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
+    const visibleRef = useRef(visible)
     const phaseRef = useRef<SessionPhase>('idle')
     const sessionNameRef = useRef(thread.sessionName)
     const resumeSessionIdRef = useRef(thread.resumeSessionId)
@@ -437,6 +513,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     useEffect(() => {
       onRefreshRef.current = onRefresh
     }, [onRefresh])
+
+    useEffect(() => {
+      visibleRef.current = visible
+    }, [visible])
 
     useEffect(() => {
       onStateChangeRef.current = onStateChange
@@ -547,7 +627,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         setExitCode(null)
         setErrorMessage(null)
         setPhase('running')
-        term.focus()
+        focusTerminalInput(term)
         await onRefreshRef.current()
         return true
       },
@@ -661,7 +741,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       term.open(container)
       fitTerminal(term, container)
 
-      const handlePointerDown = (): void => term.focus()
+      const handlePointerDown = (): void => focusTerminalInput(term)
       container.addEventListener('pointerdown', handlePointerDown)
 
       const syncSize = (): void => {
@@ -691,9 +771,28 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (launchAttemptRef.current?.terminalId === payload.terminalId) {
           launchAttemptRef.current.buffer += payload.data
         }
-        const styled = styleTerminalOutput(payload.data, pendingStyledOutputRef.current)
+        let styled: string
+        if (term.buffer.active.type === 'alternate') {
+          pendingStyledOutputRef.current.current = ''
+          pendingStyledOutputRef.current.insideToolBlock = false
+          styled = payload.data
+        } else {
+          styled = styleTerminalOutput(payload.data, pendingStyledOutputRef.current)
+        }
         if (styled.length > 0) {
           term.write(styled)
+          if (visibleRef.current && terminalIdRef.current) {
+            const document = container.ownerDocument
+            const activeElement = document.activeElement as HTMLElement | null
+            const helperTextarea = getTerminalHelperTextarea(container)
+            if (
+              !hasBlockingModal(document) &&
+              !isTextEntryElement(activeElement) &&
+              activeElement !== helperTextarea
+            ) {
+              focusTerminalInput(term)
+            }
+          }
         }
       })
 
@@ -789,7 +888,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       })
       const pasteTerminalText = (text: string): void => {
         if (!terminalIdRef.current || text.length === 0) return
-        term.focus()
+        focusTerminalInput(term)
         term.paste(text)
       }
       const pasteClipboardText = (): void => {
@@ -803,6 +902,23 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         pasteTerminalText(text)
       }
       container.addEventListener('paste', handlePaste)
+
+      const handleWindowFocus = (): void => {
+        if (!visibleRef.current || !terminalIdRef.current) {
+          return
+        }
+        const document = container.ownerDocument
+        if (hasBlockingModal(document)) {
+          return
+        }
+        const activeElement = document.activeElement as HTMLElement | null
+        if (isTextEntryElement(activeElement)) {
+          return
+        }
+        focusTerminalInput(term)
+      }
+
+      window.addEventListener('focus', handleWindowFocus)
 
       // Translate keys Copilot CLI doesn't recognise on raw xterm.js into
       // sequences it does, and let Ctrl-C copy when a selection exists.
@@ -873,6 +989,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       return () => {
         container.removeEventListener('pointerdown', handlePointerDown)
         container.removeEventListener('paste', handlePaste)
+        window.removeEventListener('focus', handleWindowFocus)
         resizeObserver.disconnect()
         exitCleanup()
         sessionStartCleanup()
@@ -893,12 +1010,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
         term.dispose()
       }
-    }, [
-      launchInternal,
-      markTrackedInputDirty,
-      trackPromptLineBreak,
-      trackTerminalInput
-    ])
+    }, [launchInternal, markTrackedInputDirty, trackPromptLineBreak, trackTerminalInput])
 
     // External launch trigger via launchKey: parent increments to ask the
     // pane to (re)start. Effect-driven start() is intentional — it is the
@@ -928,7 +1040,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (terminalIdRef.current) {
           window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
         }
-        term.focus()
+        focusTerminalInput(term)
       })
       return () => window.cancelAnimationFrame(id)
     }, [visible])
