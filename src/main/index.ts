@@ -4,13 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import iconIco from '../../build/icon.ico?asset'
 import iconPng from '../../resources/icon.png?asset'
 import { registerTerminalIpc } from './terminal'
-import {
-  initializeAppState,
-  markThreadActivity,
-  markThreadLaunched,
-  markThreadStopped,
-  registerAppStateIpc
-} from './app-state'
+import { initializeAppState, markThreadLaunched, registerAppStateIpc } from './app-state'
 import { registerNativeMenuIpc } from './native-menu'
 
 function createWindow(): void {
@@ -54,9 +48,7 @@ app.whenReady().then(() => {
   registerAppStateIpc()
   registerNativeMenuIpc()
   registerTerminalIpc({
-    onThreadStart: markThreadLaunched,
-    onThreadActivity: markThreadActivity,
-    onThreadStop: markThreadStopped
+    onThreadStart: markThreadLaunched
   })
 
   app.on('browser-window-created', (_, window) => {

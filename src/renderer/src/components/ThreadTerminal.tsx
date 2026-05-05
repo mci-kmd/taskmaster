@@ -873,6 +873,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         const prompt = normalizeTrackedUserMessage(payload.prompt)
         setLastUserMessage((current) => (current === prompt ? current : prompt))
+        const currentThread = threadRef.current
+        if (currentThread && prompt === lastPersistedUserMessageRef.current) {
+          void window.api.appState.updateThreadLastUserMessage({
+            threadId: currentThread.id,
+            message: prompt
+          })
+        }
       })
 
       const forwardTerminalInput = (data: string, trackedData: string | null = data): void => {

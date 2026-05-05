@@ -130,9 +130,8 @@ export function BranchIcon(props: IconProps): React.JSX.Element {
 export function WorktreeIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>
-      <rect x="2.5" y="2.5" width="5" height="5" rx="1" />
-      <rect x="8.5" y="8.5" width="5" height="5" rx="1" />
-      <path d="M5 7.5v3a1 1 0 0 0 1 1h2.5" />
+      <path d="M8 2.7a2.4 2.4 0 0 0-2.4 2.4v.3a2.2 2.2 0 0 0-1.7 2.1c0 1.2 1 2.2 2.2 2.2h3.8c1.2 0 2.2-1 2.2-2.2 0-1-.7-1.9-1.7-2.1v-.3A2.4 2.4 0 0 0 8 2.7Z" />
+      <path d="M8 9.7v3.1M6.5 12.8h3" />
     </svg>
   )
 }

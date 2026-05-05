@@ -81,7 +81,10 @@ type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   threads: LegacyThreadV1[]
 }
 
-type LegacyThreadV2 = Omit<PersistedThread, 'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'>
+type LegacyThreadV2 = Omit<
+  PersistedThread,
+  'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'
+>
 type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath'>
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
@@ -117,7 +120,8 @@ type BuildSnapshotOptions = {
 function normalizePersistedThread(thread: PersistedThread): PersistedThread {
   const latestCopilotTitle = normalizeCopilotTitle(thread, thread.latestCopilotTitle)
   const lastUserMessage = normalizeTrackedText(thread.lastUserMessage ?? null)
-  return latestCopilotTitle === thread.latestCopilotTitle && lastUserMessage === thread.lastUserMessage
+  return latestCopilotTitle === thread.latestCopilotTitle &&
+    lastUserMessage === thread.lastUserMessage
     ? thread
     : {
         ...thread,
@@ -666,7 +670,9 @@ function getThreadCwd(
   return thread.mode === 'worktree' ? (thread.worktreePath ?? repositoryPath) : repositoryPath
 }
 
-async function openThreadWorkingDirectory(threadId: string): Promise<OpenThreadWorkingDirectoryResult> {
+async function openThreadWorkingDirectory(
+  threadId: string
+): Promise<OpenThreadWorkingDirectoryResult> {
   const thread = findThread(threadId)
   if (!thread) {
     return { ok: false, error: 'Thread not found.' }
@@ -715,7 +721,10 @@ async function maybeRemoveLocalBranchForNewBranchThread(
   thread: PersistedThread,
   repositoryPath: string
 ): Promise<MutationResult | null> {
-  if (!branchExists(repositoryPath, thread.branchName) || remoteBranchExists(repositoryPath, thread.branchName)) {
+  if (
+    !branchExists(repositoryPath, thread.branchName) ||
+    remoteBranchExists(repositoryPath, thread.branchName)
+  ) {
     return null
   }
 
@@ -1294,7 +1303,10 @@ async function closeThread(threadId: string): Promise<MutationResult> {
   }
 
   if (thread.mode === 'new-branch') {
-    const branchRemovalResult = await maybeRemoveLocalBranchForNewBranchThread(thread, repository.path)
+    const branchRemovalResult = await maybeRemoveLocalBranchForNewBranchThread(
+      thread,
+      repository.path
+    )
     if (branchRemovalResult) {
       return branchRemovalResult
     }
@@ -1442,7 +1454,6 @@ function updateThreadResumeSession(input: UpdateThreadResumeSessionInput): boole
   if (shouldClearTitle) {
     thread.latestCopilotTitle = null
   }
-  thread.lastActivityAt = nowIso()
   saveState()
   return true
 }
@@ -1454,12 +1465,15 @@ function updateThreadLastUserMessage(input: UpdateThreadLastUserMessageInput): b
   }
 
   const nextMessage = normalizeTrackedText(input.message)
+  const nextActivityAt = nowIso()
   if (thread.lastUserMessage === nextMessage) {
+    thread.lastActivityAt = nextActivityAt
+    saveState()
     return true
   }
 
   thread.lastUserMessage = nextMessage
-  thread.lastActivityAt = nowIso()
+  thread.lastActivityAt = nextActivityAt
   saveState()
   return true
 }
@@ -1518,8 +1532,9 @@ export function registerAppStateIpc(): void {
     'app-state:update-thread-copilot-title',
     (_event, input: UpdateThreadCopilotTitleInput) => updateThreadCopilotTitle(input)
   )
-  ipcMain.handle('app-state:update-thread-resume-session', (_event, input: UpdateThreadResumeSessionInput) =>
-    updateThreadResumeSession(input)
+  ipcMain.handle(
+    'app-state:update-thread-resume-session',
+    (_event, input: UpdateThreadResumeSessionInput) => updateThreadResumeSession(input)
   )
   ipcMain.handle(
     'app-state:update-thread-last-user-message',
@@ -1546,27 +1561,6 @@ export function markThreadLaunched(threadId: string): void {
   }
 
   thread.hasLaunched = true
-  thread.lastActivityAt = nowIso()
   updateSelection(thread.repositoryId, thread.id)
-  saveState()
-}
-
-export function markThreadActivity(threadId: string): void {
-  const thread = findThread(threadId)
-  if (!thread) {
-    return
-  }
-
-  thread.lastActivityAt = nowIso()
-  saveState()
-}
-
-export function markThreadStopped(threadId: string): void {
-  const thread = findThread(threadId)
-  if (!thread) {
-    return
-  }
-
-  thread.lastActivityAt = nowIso()
   saveState()
 }

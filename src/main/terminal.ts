@@ -38,8 +38,6 @@ type CopilotCommand = {
 
 type TerminalHooks = {
   onThreadStart?: (threadId: string) => void
-  onThreadActivity?: (threadId: string) => void
-  onThreadStop?: (threadId: string) => void
 }
 
 type HookFileReaderState = {
@@ -61,7 +59,6 @@ type HookUserPromptPayload = Omit<TerminalUserPromptEvent, 'terminalId'> & {
 
 const sessions = new Map<string, TerminalSession>()
 const ownerCleanupHooks = new Set<number>()
-const threadActivityTimestamps = new Map<string, number>()
 let terminalHooks: TerminalHooks = {}
 const LAUNCH_CONFIRMATION_MS = 1_500
 const HOOK_POLL_MS = 250
@@ -72,9 +69,9 @@ const TASKMASTER_HOOK_EXCLUDE_ENTRY = '.github/hooks/taskmaster-session-hooks.js
 const TASKMASTER_SESSION_START_FILE_ENV = 'TASKMASTER_COPILOT_SESSION_START_FILE'
 const TASKMASTER_USER_PROMPT_FILE_ENV = 'TASKMASTER_COPILOT_USER_PROMPT_FILE'
 const TASKMASTER_SESSION_START_HOOK_COMMAND =
-  "$file=$env:TASKMASTER_COPILOT_SESSION_START_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }"
+  '$file=$env:TASKMASTER_COPILOT_SESSION_START_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
 const TASKMASTER_USER_PROMPT_HOOK_COMMAND =
-  "$file=$env:TASKMASTER_COPILOT_USER_PROMPT_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }"
+  '$file=$env:TASKMASTER_COPILOT_USER_PROMPT_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
 
 function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
@@ -153,10 +150,7 @@ function createHookFileReader(filePath: string): HookFileReaderState {
   }
 }
 
-function readHookFile<T>(
-  reader: HookFileReaderState,
-  onPayload: (payload: T) => void
-): void {
+function readHookFile<T>(reader: HookFileReaderState, onPayload: (payload: T) => void): void {
   if (!existsSync(reader.filePath)) {
     return
   }
@@ -361,7 +355,10 @@ function hasUncommittedChanges(repoPath: string): boolean {
   return result.ok && result.stdout.length > 0
 }
 
-function ensureThreadBranch(cwd: string, request: TerminalCreateRequest): { ok: true } | { ok: false; error: string } {
+function ensureThreadBranch(
+  cwd: string,
+  request: TerminalCreateRequest
+): { ok: true } | { ok: false; error: string } {
   if (!request.threadId || !request.branchName || request.threadMode === 'worktree') {
     return { ok: true }
   }
@@ -432,11 +429,6 @@ function finalizeSession(session: TerminalSession, exitCode: number): void {
     return
   }
 
-  if (session.threadId) {
-    threadActivityTimestamps.delete(session.threadId)
-    terminalHooks.onThreadStop?.(session.threadId)
-  }
-
   const ownerContents = webContents.fromId(session.ownerId)
   if (!ownerContents || ownerContents.isDestroyed()) {
     return
@@ -458,21 +450,6 @@ function getOwnedSession(
   }
 
   return session
-}
-
-function notifyThreadActivity(threadId?: string): void {
-  if (!threadId) {
-    return
-  }
-
-  const now = Date.now()
-  const lastNotifiedAt = threadActivityTimestamps.get(threadId) ?? 0
-  if (now - lastNotifiedAt < 15_000) {
-    return
-  }
-
-  threadActivityTimestamps.set(threadId, now)
-  terminalHooks.onThreadActivity?.(threadId)
 }
 
 function createSession(
@@ -556,7 +533,6 @@ function createSession(
       return
     }
 
-    notifyThreadActivity(session.threadId)
     event.sender.send('terminal:data', {
       terminalId,
       data
@@ -620,7 +596,6 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
       return
     }
 
-    notifyThreadActivity(session.threadId)
     session.ptyProcess.write(payload.data)
   })
 
