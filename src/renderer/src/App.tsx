@@ -323,7 +323,7 @@ export default function App(): React.JSX.Element {
   )
 
   const handleSaveSettings = useCallback(
-    async (input: { globalFlagsInput: string }): Promise<boolean> => {
+    async (input: { globalFlagsInput: string; terminalFontFamilyInput: string }): Promise<boolean> => {
       setBusyAction('save-settings')
       const result = await applyMutation(
         window.api.appState.updateSettings(input),

@@ -13,6 +13,7 @@ import {
 import * as pty from 'node-pty'
 import type {
   TerminalCreateRequest,
+  TerminalKind,
   TerminalSessionStartEvent,
   TerminalStatus,
   TerminalUserPromptEvent
@@ -23,6 +24,7 @@ type TerminalSession = {
   cwd: string
   ownerId: number
   ptyProcess: pty.IPty
+  kind: TerminalKind
   threadId?: string
   launchConfirmationTimer: NodeJS.Timeout | null
   hookPollTimer: NodeJS.Timeout | null
@@ -30,7 +32,7 @@ type TerminalSession = {
   userPromptReader: HookFileReaderState | null
 }
 
-type CopilotCommand = {
+type TerminalCommand = {
   file: string
   args: string[]
   displayCommand: string
@@ -265,6 +267,24 @@ function resolveCopilotPath(): string | null {
   )
 }
 
+function resolveCommandOnPath(commandName: string): string | null {
+  const result = spawnSync('where.exe', [commandName], {
+    encoding: 'utf8',
+    windowsHide: true
+  })
+
+  if (result.status !== 0) {
+    return null
+  }
+
+  return (
+    result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? null
+  )
+}
+
 function getCopilotStatus(): TerminalStatus {
   const commandPath = resolveCopilotPath()
   const defaultCwd = getDefaultCwd()
@@ -290,7 +310,7 @@ function quoteCmdArgument(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
-function buildCopilotCommand(commandPath: string, args: string[] = []): CopilotCommand {
+function buildCopilotCommand(commandPath: string, args: string[] = []): TerminalCommand {
   const displayCommand = ['copilot', ...args].join(' ').trim()
 
   if (/\.(cmd|bat)$/i.test(commandPath)) {
@@ -306,6 +326,33 @@ function buildCopilotCommand(commandPath: string, args: string[] = []): CopilotC
     file: commandPath,
     args,
     displayCommand
+  }
+}
+
+function buildShellCommand(): TerminalCommand {
+  const pwshPath = resolveCommandOnPath('pwsh')
+  if (pwshPath) {
+    return {
+      file: pwshPath,
+      args: ['-NoLogo'],
+      displayCommand: 'pwsh -NoLogo'
+    }
+  }
+
+  const powershellPath = resolveCommandOnPath('powershell')
+  if (powershellPath) {
+    return {
+      file: powershellPath,
+      args: ['-NoLogo'],
+      displayCommand: 'powershell -NoLogo'
+    }
+  }
+
+  const cmdPath = process.env.ComSpec ?? process.env.COMSPEC ?? 'C:\\Windows\\System32\\cmd.exe'
+  return {
+    file: cmdPath,
+    args: [],
+    displayCommand: 'cmd'
   }
 }
 
@@ -458,9 +505,10 @@ function createSession(
 ):
   | { ok: true; terminalId: string; cwd: string; launchedCommand: string }
   | { ok: false; error: string } {
-  const status = getCopilotStatus()
-  if (!status.available || !status.commandPath) {
-    return { ok: false, error: status.message }
+  const kind = request.kind ?? 'copilot'
+  const status = kind === 'copilot' ? getCopilotStatus() : null
+  if (kind === 'copilot' && (!status?.available || !status.commandPath)) {
+    return { ok: false, error: status?.message ?? 'Copilot CLI unavailable.' }
   }
 
   attachOwnerCleanup(event.sender)
@@ -470,16 +518,23 @@ function createSession(
   if (!branchCheck.ok) {
     return branchCheck
   }
-  const command = buildCopilotCommand(status.commandPath, request.args)
+  const command =
+    kind === 'copilot' && status?.commandPath
+      ? buildCopilotCommand(status.commandPath, request.args)
+      : buildShellCommand()
   const terminalId = randomUUID()
-  ensureTaskmasterHookConfig(cwd)
-  const hookEventsDir = getTaskmasterHookEventsDir()
-  const sessionStartReader = request.threadId
-    ? createHookFileReader(join(hookEventsDir, `${terminalId}-session-start.jsonl`))
-    : null
-  const userPromptReader = request.threadId
-    ? createHookFileReader(join(hookEventsDir, `${terminalId}-user-prompt.jsonl`))
-    : null
+  if (kind === 'copilot') {
+    ensureTaskmasterHookConfig(cwd)
+  }
+  const hookEventsDir = kind === 'copilot' ? getTaskmasterHookEventsDir() : null
+  const sessionStartReader =
+    kind === 'copilot' && request.threadId && hookEventsDir
+      ? createHookFileReader(join(hookEventsDir, `${terminalId}-session-start.jsonl`))
+      : null
+  const userPromptReader =
+    kind === 'copilot' && request.threadId && hookEventsDir
+      ? createHookFileReader(join(hookEventsDir, `${terminalId}-user-prompt.jsonl`))
+      : null
 
   const ptyProcess = pty.spawn(command.file, command.args, {
     name: 'xterm-256color',
@@ -508,6 +563,7 @@ function createSession(
     cwd,
     ownerId: event.sender.id,
     ptyProcess,
+    kind,
     threadId: request.threadId,
     launchConfirmationTimer: null,
     hookPollTimer: null,
@@ -517,7 +573,7 @@ function createSession(
 
   sessions.set(terminalId, session)
   startHookPolling(session)
-  if (request.threadId) {
+  if (kind === 'copilot' && request.threadId) {
     session.launchConfirmationTimer = setTimeout(() => {
       if (!sessions.has(session.id) || !session.threadId) {
         return
@@ -554,6 +610,7 @@ function createSession(
 export function getRunningThreadIds(): Set<string> {
   return new Set(
     [...sessions.values()]
+      .filter((session) => session.kind === 'copilot')
       .map((session) => session.threadId)
       .filter((threadId): threadId is string => Boolean(threadId))
   )

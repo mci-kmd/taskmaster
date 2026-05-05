@@ -9,7 +9,7 @@ type SettingsDialogProps = {
   settings: AppSettingsSnapshot
   busy: boolean
   onClose: () => void
-  onSubmit: (input: { globalFlagsInput: string }) => Promise<boolean>
+  onSubmit: (input: { globalFlagsInput: string; terminalFontFamilyInput: string }) => Promise<boolean>
 }
 
 export default function SettingsDialog({
@@ -46,7 +46,7 @@ type SettingsFormProps = {
   settings: AppSettingsSnapshot
   busy: boolean
   onCancel: () => void
-  onSubmit: (input: { globalFlagsInput: string }) => Promise<void>
+  onSubmit: (input: { globalFlagsInput: string; terminalFontFamilyInput: string }) => Promise<void>
 }
 
 function SettingsForm({
@@ -56,6 +56,9 @@ function SettingsForm({
   onSubmit
 }: SettingsFormProps): React.JSX.Element {
   const [draft, setDraft] = useState(settings.globalFlagsInput)
+  const [terminalFontFamilyDraft, setTerminalFontFamilyDraft] = useState(
+    settings.terminalFontFamilyInput
+  )
 
   const parsedPreview =
     draft === settings.globalFlagsInput
@@ -64,7 +67,9 @@ function SettingsForm({
           token.replace(/^['"]|['"]$/g, '')
         )
 
-  const dirty = draft !== settings.globalFlagsInput
+  const dirty =
+    draft !== settings.globalFlagsInput ||
+    terminalFontFamilyDraft !== settings.terminalFontFamilyInput
 
   return (
     <form
@@ -72,7 +77,10 @@ function SettingsForm({
       onSubmit={(event) => {
         event.preventDefault()
         if (dirty && !busy) {
-          void onSubmit({ globalFlagsInput: draft })
+          void onSubmit({
+            globalFlagsInput: draft,
+            terminalFontFamilyInput: terminalFontFamilyDraft
+          })
         }
       }}
     >
@@ -87,6 +95,26 @@ function SettingsForm({
           value={draft}
         />
       </Field>
+
+      <Field
+        hint="CSS font-family stack for thread terminals. Leave blank to use the built-in Nerd Font fallback stack."
+        label="Terminal font family"
+      >
+        <TextInput
+          onChange={(event) => setTerminalFontFamilyDraft(event.target.value)}
+          placeholder="'CaskaydiaCove Nerd Font Mono', Consolas, monospace"
+          value={terminalFontFamilyDraft}
+        />
+      </Field>
+
+      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5">
+        <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+          Active terminal font stack
+        </div>
+        <div className="mt-1.5 break-words font-mono text-[11.5px] leading-5 text-[var(--color-fg)]">
+          {terminalFontFamilyDraft.trim() || settings.resolvedTerminalFontFamily}
+        </div>
+      </div>
 
       <div>
         <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
@@ -116,11 +144,11 @@ function SettingsForm({
         </Button>
         <Button
           disabled={busy || !dirty}
-          title="Save global Copilot flags"
+          title="Save settings"
           type="submit"
           variant="primary"
         >
-          {busy ? 'Saving…' : 'Save flags'}
+          {busy ? 'Saving…' : 'Save settings'}
         </Button>
       </div>
     </form>

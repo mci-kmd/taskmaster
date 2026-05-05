@@ -50,6 +50,8 @@ const STORE_FILENAME = 'taskmaster-state.json'
 const STATE_VERSION = 6 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
+const DEFAULT_TERMINAL_FONT_FAMILY =
+  "'CaskaydiaCove Nerd Font Mono', 'CaskaydiaMono Nerd Font', 'MesloLGM Nerd Font Mono', 'MesloLGS NF', 'JetBrainsMono Nerd Font Mono', 'SauceCodePro Nerd Font Mono', Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
 const REPOSITORY_FAVICON_EXTENSIONS = new Set([
   '.bmp',
   '.gif',
@@ -135,8 +137,27 @@ function normalizeTrackedText(value: string | null): string | null {
   return normalized.length > 0 ? normalized : null
 }
 
+function normalizeTerminalFontFamilyInput(value: string | null | undefined): string {
+  return value?.trim() ?? ''
+}
+
+function normalizePersistedSettings(settings: PersistedAppState['settings']): PersistedAppState['settings'] {
+  const terminalFontFamilyInput = normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput)
+  return terminalFontFamilyInput === settings.terminalFontFamilyInput
+    ? settings
+    : {
+        ...settings,
+        terminalFontFamilyInput
+      }
+}
+
+function resolveTerminalFontFamily(settings: PersistedAppState['settings']): string {
+  return normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput) || DEFAULT_TERMINAL_FONT_FAMILY
+}
+
 function normalizePersistedState(state: PersistedAppState): PersistedAppState {
-  let didChange = false
+  const settings = normalizePersistedSettings(state.settings)
+  let didChange = settings !== state.settings
   const threads = state.threads.map((thread) => {
     const normalizedThread = normalizePersistedThread(thread)
     if (normalizedThread !== thread) {
@@ -147,9 +168,10 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 
   return didChange
     ? {
-        ...state,
-        threads
-      }
+         ...state,
+         settings,
+         threads
+       }
     : state
 }
 
@@ -250,7 +272,8 @@ function createDefaultState(): PersistedAppState {
   return {
     version: STATE_VERSION,
     settings: {
-      globalFlagsInput: ''
+      globalFlagsInput: '',
+      terminalFontFamilyInput: ''
     },
     repositories: [],
     threads: [],
@@ -1013,7 +1036,8 @@ function buildSnapshot(options: BuildSnapshotOptions = {}): AppSnapshot {
     repositories,
     settings: {
       ...state.settings,
-      parsedGlobalFlags: parseGlobalFlags(state.settings.globalFlagsInput)
+      parsedGlobalFlags: parseGlobalFlags(state.settings.globalFlagsInput),
+      resolvedTerminalFontFamily: resolveTerminalFontFamily(state.settings)
     },
     selectedRepositoryId: state.ui.selectedRepositoryId,
     selectedThreadId: state.ui.selectedThreadId,
@@ -1326,6 +1350,9 @@ async function closeThread(threadId: string): Promise<MutationResult> {
 function updateSettings(input: UpdateSettingsInput): MutationResult {
   const state = ensureState()
   state.settings.globalFlagsInput = input.globalFlagsInput.trim()
+  state.settings.terminalFontFamilyInput = normalizeTerminalFontFamilyInput(
+    input.terminalFontFamilyInput
+  )
   saveState()
   return successResult()
 }

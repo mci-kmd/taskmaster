@@ -1,8 +1,10 @@
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
+export type TerminalKind = 'copilot' | 'shell'
 
 export interface TerminalCreateRequest {
   cols: number
   rows: number
+  kind?: TerminalKind
   cwd?: string
   args?: string[]
   threadId?: string
@@ -70,6 +72,7 @@ export interface TerminalApi {
 
 export interface PersistedSettings {
   globalFlagsInput: string
+  terminalFontFamilyInput: string
 }
 
 export interface PersistedRepository {
@@ -110,6 +113,7 @@ export interface PersistedAppState {
 
 export interface AppSettingsSnapshot extends PersistedSettings {
   parsedGlobalFlags: string[]
+  resolvedTerminalFontFamily: string
 }
 
 export interface ThreadSnapshot extends PersistedThread {
@@ -197,6 +201,7 @@ export interface CreateThreadInput {
 
 export interface UpdateSettingsInput {
   globalFlagsInput: string
+  terminalFontFamilyInput: string
 }
 
 export interface UpdateRepositoryInput {

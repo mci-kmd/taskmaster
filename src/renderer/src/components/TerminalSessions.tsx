@@ -7,7 +7,12 @@ import {
   useRef,
   useState
 } from 'react'
-import type { AppSettingsSnapshot, TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
+import type {
+  AppSettingsSnapshot,
+  TerminalKind,
+  TerminalStatus,
+  ThreadSnapshot
+} from '../../../shared/app-types'
 import ThreadTerminal, {
   type ThreadSessionState,
   type ThreadTerminalHandle
@@ -23,6 +28,7 @@ export type TerminalSessionsHandle = {
 }
 
 type TerminalSessionsProps = {
+  kind: TerminalKind
   threads: ThreadSnapshot[]
   selectedThreadId: string | null
   settings: AppSettingsSnapshot
@@ -38,7 +44,7 @@ type LiveEntry = {
 
 const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProps>(
   function TerminalSessions(
-    { threads, selectedThreadId, settings, copilotStatus, onSessionsChange, onRefresh },
+    { kind, threads, selectedThreadId, settings, copilotStatus, onSessionsChange, onRefresh },
     ref
   ) {
     const [launchKeys, setLaunchKeys] = useState<Map<string, number>>(new Map())
@@ -118,6 +124,7 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
         {liveEntries.map((entry) => (
           <ThreadTerminal
             copilotStatus={copilotStatus}
+            kind={kind}
             key={entry.thread.id}
             launchKey={entry.launchKey}
             onRefresh={onRefresh}

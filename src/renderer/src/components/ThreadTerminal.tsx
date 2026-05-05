@@ -1,6 +1,11 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
-import type { AppSettingsSnapshot, TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
+import type {
+  AppSettingsSnapshot,
+  TerminalKind,
+  TerminalStatus,
+  ThreadSnapshot
+} from '../../../shared/app-types'
 
 export type SessionPhase = 'initializing' | 'idle' | 'launching' | 'running' | 'stopped' | 'error'
 
@@ -19,6 +24,7 @@ export type ThreadTerminalHandle = {
 }
 
 type ThreadTerminalProps = {
+  kind: TerminalKind
   thread: ThreadSnapshot
   settings: AppSettingsSnapshot
   copilotStatus: TerminalStatus | null
@@ -97,12 +103,16 @@ const TERMINAL_THEME = {
 
 const MINIMUM_TERMINAL_COLS = 2
 const MINIMUM_TERMINAL_ROWS = 1
-const TERMINAL_FONT_FAMILY =
-  "Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
+const FALLBACK_TERMINAL_FONT_FAMILY =
+  "'CaskaydiaCove Nerd Font Mono', 'CaskaydiaMono Nerd Font', 'MesloLGM Nerd Font Mono', 'MesloLGS NF', 'JetBrainsMono Nerd Font Mono', 'SauceCodePro Nerd Font Mono', Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
 const ANSI_DIM = '\x1b[90m'
 const ANSI_BRIGHT_WHITE = '\x1b[97m'
 const ANSI_RESET_INTENSITY = '\x1b[22m'
 const ANSI_RESET_FOREGROUND = '\x1b[39m'
+
+function getTerminalFontFamily(settings: AppSettingsSnapshot | null | undefined): string {
+  return settings?.resolvedTerminalFontFamily || FALLBACK_TERMINAL_FONT_FAMILY
+}
 
 function getXtermCore(term: Terminal): XtermCore | null {
   return (term as Terminal & { _core?: XtermCore })._core ?? null
@@ -461,7 +471,7 @@ function consumeTrackedUserInput(
 
 const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
   function ThreadTerminal(
-    { thread, settings, copilotStatus, visible, launchKey, onStateChange, onRefresh },
+    { kind, thread, settings, copilotStatus, visible, launchKey, onStateChange, onRefresh },
     ref
   ) {
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -474,6 +484,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
     const visibleRef = useRef(visible)
+    const kindRef = useRef(kind)
     const phaseRef = useRef<SessionPhase>('idle')
     const sessionNameRef = useRef(thread.sessionName)
     const resumeSessionIdRef = useRef(thread.resumeSessionId)
@@ -492,7 +503,9 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const [exitCode, setExitCode] = useState<number | null>(null)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [runtimeTitle, setRuntimeTitle] = useState<string | null>(null)
-    const [lastUserMessage, setLastUserMessage] = useState<string | null>(thread.lastUserMessage)
+    const [lastUserMessage, setLastUserMessage] = useState<string | null>(
+      kind === 'copilot' ? thread.lastUserMessage : null
+    )
 
     useEffect(() => {
       threadRef.current = thread
@@ -504,6 +517,29 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
     useEffect(() => {
       settingsRef.current = settings
+    }, [settings])
+
+    useEffect(() => {
+      const term = terminalRef.current
+      const container = containerRef.current
+      if (!term || !container) {
+        return
+      }
+
+      const nextFontFamily = getTerminalFontFamily(settings)
+      if (term.options.fontFamily === nextFontFamily) {
+        return
+      }
+
+      term.options.fontFamily = nextFontFamily
+      const frameId = window.requestAnimationFrame(() => {
+        fitTerminal(term, container)
+        if (terminalIdRef.current) {
+          window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
+        }
+      })
+
+      return () => window.cancelAnimationFrame(frameId)
     }, [settings])
 
     useEffect(() => {
@@ -519,6 +555,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [visible])
 
     useEffect(() => {
+      kindRef.current = kind
+    }, [kind])
+
+    useEffect(() => {
       onStateChangeRef.current = onStateChange
     }, [onStateChange])
 
@@ -531,6 +571,9 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [phase, exitCode, errorMessage, runtimeTitle, lastUserMessage])
 
     useEffect(() => {
+      if (kind !== 'copilot') {
+        return
+      }
       const trimmedRuntimeTitle = runtimeTitle?.trim()
       if (!trimmedRuntimeTitle || trimmedRuntimeTitle === lastPersistedCopilotTitleRef.current) {
         return
@@ -541,9 +584,12 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         threadId: thread.id,
         title: trimmedRuntimeTitle
       })
-    }, [runtimeTitle, thread.id])
+    }, [kind, runtimeTitle, thread.id])
 
     useEffect(() => {
+      if (kind !== 'copilot') {
+        return
+      }
       const normalizedLastUserMessage = normalizeTrackedUserMessage(lastUserMessage ?? '')
       if (normalizedLastUserMessage === lastPersistedUserMessageRef.current) {
         return
@@ -554,15 +600,16 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         threadId: thread.id,
         message: normalizedLastUserMessage
       })
-    }, [lastUserMessage, thread.id])
+    }, [kind, lastUserMessage, thread.id])
 
     const launchInternal = useCallback(
       async (mode: LaunchMode, retriedFromMissingSession = false): Promise<boolean> => {
         const term = terminalRef.current
         const container = containerRef.current
         const status = copilotStatusRef.current
+        const isCopilotTerminal = kindRef.current === 'copilot'
 
-        if (!term || !container || !status?.available) {
+        if (!term || !container || (isCopilotTerminal && !status?.available)) {
           return false
         }
         if (terminalIdRef.current) {
@@ -592,21 +639,22 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           return false
         }
 
-        const args = buildLaunchArgs(
-          sessionNameRef.current,
-          resumeSessionIdRef.current,
-          currentSettings.parsedGlobalFlags,
-          mode
-        )
-
         const result = await window.api.terminal.create({
+          kind: isCopilotTerminal ? 'copilot' : 'shell',
           threadId: currentThread.id,
           threadMode: currentThread.mode,
           branchName: currentThread.branchName,
           cols: term.cols,
           rows: term.rows,
           cwd: currentThread.cwd,
-          args
+          args: isCopilotTerminal
+            ? buildLaunchArgs(
+                sessionNameRef.current,
+                resumeSessionIdRef.current,
+                currentSettings.parsedGlobalFlags,
+                mode
+              )
+            : undefined
         })
 
         if (!result.ok) {
@@ -671,7 +719,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       if (phaseRef.current === 'launching' || phaseRef.current === 'running') {
         return
       }
-      const mode: LaunchMode = resumeSessionIdRef.current ? 'resume' : 'new'
+      const mode: LaunchMode =
+        kindRef.current === 'copilot' && resumeSessionIdRef.current ? 'resume' : 'new'
       await launchInternal(mode)
     }, [launchInternal])
 
@@ -727,7 +776,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         cursorBlink: true,
         convertEol: true,
         drawBoldTextInBrightColors: true,
-        fontFamily: TERMINAL_FONT_FAMILY,
+        fontFamily: getTerminalFontFamily(settingsRef.current),
         fontSize: 13,
         fontWeight: 400,
         fontWeightBold: 600,
@@ -772,7 +821,9 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           launchAttemptRef.current.buffer += payload.data
         }
         let styled: string
-        if (term.buffer.active.type === 'alternate') {
+        if (kindRef.current !== 'copilot') {
+          styled = payload.data
+        } else if (term.buffer.active.type === 'alternate') {
           pendingStyledOutputRef.current.current = ''
           pendingStyledOutputRef.current.insideToolBlock = false
           styled = payload.data
@@ -796,15 +847,16 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
       })
 
-      const handleExit = async (code: number): Promise<void> => {
-        const attempt = launchAttemptRef.current
-        terminalIdRef.current = null
-        launchAttemptRef.current = null
+        const handleExit = async (code: number): Promise<void> => {
+          const attempt = launchAttemptRef.current
+          terminalIdRef.current = null
+          launchAttemptRef.current = null
 
-        if (
-          attempt &&
-          attempt.mode === 'resume' &&
-          !attempt.retriedFromMissingSession &&
+          if (
+            kindRef.current === 'copilot' &&
+            attempt &&
+            attempt.mode === 'resume' &&
+            !attempt.retriedFromMissingSession &&
           code === 1 &&
           isMissingNamedSessionError(attempt.buffer)
         ) {
@@ -836,10 +888,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         void handleExit(payload.exitCode)
       })
 
-      const sessionStartCleanup = window.api.terminal.onSessionStart((payload) => {
-        if (payload.terminalId !== terminalIdRef.current) {
-          return
-        }
+        const sessionStartCleanup = window.api.terminal.onSessionStart((payload) => {
+          if (kindRef.current !== 'copilot') {
+            return
+          }
+          if (payload.terminalId !== terminalIdRef.current) {
+            return
+          }
 
         resumeSessionIdRef.current = payload.sessionId
         if (payload.source === 'new') {
@@ -866,10 +921,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           })
       })
 
-      const userPromptCleanup = window.api.terminal.onUserPrompt((payload) => {
-        if (payload.terminalId !== terminalIdRef.current) {
-          return
-        }
+        const userPromptCleanup = window.api.terminal.onUserPrompt((payload) => {
+          if (kindRef.current !== 'copilot') {
+            return
+          }
+          if (payload.terminalId !== terminalIdRef.current) {
+            return
+          }
 
         const prompt = normalizeTrackedUserMessage(payload.prompt)
         setLastUserMessage((current) => (current === prompt ? current : prompt))
@@ -885,7 +943,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const forwardTerminalInput = (data: string, trackedData: string | null = data): void => {
         const activeId = terminalIdRef.current
         if (!activeId || data.length === 0) return
-        if (trackedData !== null && trackedData.length > 0) {
+        if (kindRef.current === 'copilot' && trackedData !== null && trackedData.length > 0) {
           trackTerminalInput(trackedData)
         }
         window.api.terminal.input(activeId, data)
@@ -957,6 +1015,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (onlyShift && e.key === 'Insert') {
           pasteClipboardText()
           return cancelHandledKey()
+        }
+
+        if (kindRef.current !== 'copilot') {
+          return true
         }
 
         // Shift-Enter: backslash+CR is Copilot's documented multiline trick
@@ -1057,7 +1119,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         className="absolute inset-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#141414]"
         style={{ display: visible ? 'block' : 'none' }}
       >
-        <div className="absolute inset-y-0 left-3 right-3" ref={containerRef} />
+        <div className="absolute inset-3" ref={containerRef} />
       </div>
     )
   }
