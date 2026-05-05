@@ -5,6 +5,7 @@ import type {
   BranchStatusSnapshot,
   CreateThreadInput,
   MutationResult,
+  OpenThreadWorkingDirectoryResult,
   PickRepositoryFaviconResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -30,6 +31,7 @@ declare global {
     updateUi: (input: UpdateUiInput) => Promise<MutationResult>
     updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) => Promise<boolean>
     getBranchStatus: (input: BranchStatusRequest) => Promise<BranchStatusSnapshot | null>
+    openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
     showSidebarContextMenu: (input: SidebarContextMenuRequest) => Promise<boolean>

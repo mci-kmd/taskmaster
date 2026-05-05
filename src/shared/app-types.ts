@@ -159,6 +159,15 @@ export interface MutationResult {
   cancelled?: boolean
 }
 
+export type OpenThreadWorkingDirectoryResult =
+  | {
+      ok: true
+    }
+  | {
+      ok: false
+      error: string
+    }
+
 export interface CreateThreadInput {
   repositoryId: string
   mode: ThreadMode

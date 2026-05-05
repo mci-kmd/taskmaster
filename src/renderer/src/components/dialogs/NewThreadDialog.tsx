@@ -81,7 +81,7 @@ function NewThreadForm({
   onCancel,
   onSubmit
 }: NewThreadFormProps): React.JSX.Element {
-  const [mode, setMode] = useState<ThreadMode>('active-branch')
+  const [mode, setMode] = useState<ThreadMode>('new-branch')
   const [title, setTitle] = useState('')
   const [branchName, setBranchName] = useState('')
   const [useCurrentBranch, setUseCurrentBranch] = useState(false)

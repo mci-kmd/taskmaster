@@ -3,6 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   BranchStatusRequest,
   CreateThreadInput,
+  OpenThreadWorkingDirectoryResult,
   PickRepositoryFaviconResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -37,6 +38,8 @@ const api = {
       ipcRenderer.invoke('app-state:update-thread-copilot-title', input),
     getBranchStatus: (input: BranchStatusRequest) =>
       ipcRenderer.invoke('app-state:get-branch-status', input),
+    openThreadWorkingDirectory: (threadId: string): Promise<OpenThreadWorkingDirectoryResult> =>
+      ipcRenderer.invoke('app-state:open-thread-working-directory', threadId),
     selectRepository: (repositoryId: string | null) =>
       ipcRenderer.invoke('app-state:select-repository', repositoryId),
     selectThread: (threadId: string | null) =>

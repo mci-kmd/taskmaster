@@ -15,12 +15,14 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  shell,
   type OpenDialogOptions,
   type WebContents
 } from 'electron'
 import {
   type BranchStatusRequest,
   type BranchStatusSnapshot,
+  type OpenThreadWorkingDirectoryResult,
   type PickRepositoryFaviconResult,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -605,6 +607,26 @@ function getThreadCwd(
   repositoryPath: string
 ): string {
   return thread.mode === 'worktree' ? (thread.worktreePath ?? repositoryPath) : repositoryPath
+}
+
+async function openThreadWorkingDirectory(threadId: string): Promise<OpenThreadWorkingDirectoryResult> {
+  const thread = findThread(threadId)
+  if (!thread) {
+    return { ok: false, error: 'Thread not found.' }
+  }
+
+  const repository = findRepository(thread.repositoryId)
+  if (!repository) {
+    return { ok: false, error: 'Repository not found.' }
+  }
+
+  const cwd = getThreadCwd(thread, repository.path)
+  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+    return { ok: false, error: `Working directory not found: ${cwd}` }
+  }
+
+  const error = await shell.openPath(cwd)
+  return error ? { ok: false, error: `Failed to open working directory: ${error}` } : { ok: true }
 }
 
 function removeWorktree(thread: PersistedThread, repositoryPath: string, force: boolean): void {
@@ -1388,6 +1410,9 @@ export function registerAppStateIpc(): void {
   )
   ipcMain.handle('app-state:get-branch-status', (_event, input: BranchStatusRequest) =>
     getBranchStatus(input)
+  )
+  ipcMain.handle('app-state:open-thread-working-directory', (_event, threadId: string) =>
+    openThreadWorkingDirectory(threadId)
   )
   ipcMain.handle('app-state:select-repository', (_event, repositoryId: string | null) =>
     selectRepository(repositoryId)

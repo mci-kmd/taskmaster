@@ -27,6 +27,8 @@ type Feedback = {
 
 type DialogKey = 'new-thread' | 'settings' | 'details' | 'edit-repository' | 'edit-thread' | null
 
+const DEFAULT_COLLAPSE_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000
+
 function findThreadById(snapshot: AppSnapshot, threadId: string): ThreadSnapshot | null {
   return (
     snapshot.repositories
@@ -86,6 +88,33 @@ function applyThreadSelection(snapshot: AppSnapshot, threadId: string | null): A
   }
 }
 
+function shouldCollapseRepositoryByDefault(
+  repository: RepositorySnapshot,
+  now: number = Date.now()
+): boolean {
+  if (repository.threads.length === 0) {
+    return true
+  }
+
+  const lastActivityAt = new Date(repository.lastActivityAt).getTime()
+  if (!Number.isFinite(lastActivityAt)) {
+    return false
+  }
+
+  return now - lastActivityAt >= DEFAULT_COLLAPSE_WINDOW_MS
+}
+
+function getDefaultCollapsedRepositoryIds(
+  snapshot: AppSnapshot,
+  now: number = Date.now()
+): Set<string> {
+  return new Set(
+    snapshot.repositories
+      .filter((repository) => shouldCollapseRepositoryByDefault(repository, now))
+      .map((repository) => repository.id)
+  )
+}
+
 export default function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
@@ -108,6 +137,7 @@ export default function App(): React.JSX.Element {
       }
 
       setSnapshot(nextSnapshot)
+      setCollapsedRepositoryIds(getDefaultCollapsedRepositoryIds(nextSnapshot))
       setSidebarWidth(nextSnapshot.sidebarWidth)
     })
 
@@ -370,6 +400,17 @@ export default function App(): React.JSX.Element {
     void handleCloseThread(selectedThread.id)
   }, [handleCloseThread, selectedThread])
 
+  const handleOpenWorkingDirectory = useCallback(async (): Promise<void> => {
+    if (!selectedThread) {
+      return
+    }
+
+    const result = await window.api.appState.openThreadWorkingDirectory(selectedThread.id)
+    if (!result.ok) {
+      setFeedback({ tone: 'error', message: result.error })
+    }
+  }, [selectedThread])
+
   // Refresh repo state (current branch, primary branch, etc.) every time the
   // New Thread dialog opens — git state can change externally between opens.
   useEffect(() => {
@@ -442,6 +483,7 @@ export default function App(): React.JSX.Element {
         onAddRepository={() => void handleAddRepository()}
         onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
         onNewThread={() => handleOpenNewThreadDialog()}
+        onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
         onOpenDetails={() => setDialog('details')}
         onRefresh={refreshSnapshot}
         onSessionsChange={handleSessionsChange}

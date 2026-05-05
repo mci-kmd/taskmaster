@@ -15,7 +15,7 @@ import TerminalSessions, {
 import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
 import Button from './ui/Button'
-import { BranchIcon, InfoIcon, StopIcon, WorktreeIcon } from './Icons'
+import { BranchIcon, FolderIcon, InfoIcon, StopIcon, WorktreeIcon } from './Icons'
 import { composeThreadTitle } from '../lib/title'
 
 type WorkspaceProps = {
@@ -29,6 +29,7 @@ type WorkspaceProps = {
   onRefresh: () => Promise<void>
   onAddRepository: () => void
   onNewThread: () => void
+  onOpenWorkingDirectory: () => void
   onOpenDetails: () => void
   onSessionsChange: (sessions: SessionMap) => void
 }
@@ -79,6 +80,7 @@ export default function Workspace({
   onRefresh,
   onAddRepository,
   onNewThread,
+  onOpenWorkingDirectory,
   onOpenDetails,
   onSessionsChange
 }: WorkspaceProps): React.JSX.Element {
@@ -280,6 +282,17 @@ export default function Workspace({
         <div className="ml-auto flex items-center gap-1.5">
           {selectedThread ? (
             <>
+              <Button
+                aria-label="Open working directory"
+                iconOnly
+                onClick={onOpenWorkingDirectory}
+                size="sm"
+                title="Open working directory"
+                variant="ghost"
+              >
+                <FolderIcon width={13} height={13} />
+              </Button>
+
               <Button
                 aria-label="Thread details"
                 iconOnly
