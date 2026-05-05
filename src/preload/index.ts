@@ -10,9 +10,13 @@ import type {
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
+  TerminalSessionStartEvent,
+  TerminalUserPromptEvent,
+  UpdateThreadLastUserMessageInput,
   UpdateRepositoryInput,
   UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
+  UpdateThreadResumeSessionInput,
   UpdateSettingsInput,
   UpdateUiInput
 } from '../shared/app-types'
@@ -36,6 +40,10 @@ const api = {
     updateUi: (input: UpdateUiInput) => ipcRenderer.invoke('app-state:update-ui', input),
     updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) =>
       ipcRenderer.invoke('app-state:update-thread-copilot-title', input),
+    updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) =>
+      ipcRenderer.invoke('app-state:update-thread-last-user-message', input),
+    updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) =>
+      ipcRenderer.invoke('app-state:update-thread-resume-session', input),
     getBranchStatus: (input: BranchStatusRequest) =>
       ipcRenderer.invoke('app-state:get-branch-status', input),
     openThreadWorkingDirectory: (threadId: string): Promise<OpenThreadWorkingDirectoryResult> =>
@@ -75,6 +83,22 @@ const api = {
         callback(payload)
       ipcRenderer.on('terminal:exit', listener)
       return () => ipcRenderer.off('terminal:exit', listener)
+    },
+    onSessionStart: (callback: (payload: TerminalSessionStartEvent) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: TerminalSessionStartEvent
+      ): void => callback(payload)
+      ipcRenderer.on('terminal:session-start', listener)
+      return () => ipcRenderer.off('terminal:session-start', listener)
+    },
+    onUserPrompt: (callback: (payload: TerminalUserPromptEvent) => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: TerminalUserPromptEvent
+      ): void => callback(payload)
+      ipcRenderer.on('terminal:user-prompt', listener)
+      return () => ipcRenderer.off('terminal:user-prompt', listener)
     }
   }
 }

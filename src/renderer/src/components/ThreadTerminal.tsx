@@ -9,6 +9,7 @@ export type ThreadSessionState = {
   exitCode: number | null
   errorMessage: string | null
   runtimeTitle: string | null
+  lastUserMessage: string | null
 }
 
 export type ThreadTerminalHandle = {
@@ -63,6 +64,11 @@ type VisibleTextMap = {
 type StyledOutputState = {
   current: string
   insideToolBlock: boolean
+}
+
+type UserInputTrackingState = {
+  draft: string
+  dirty: boolean
 }
 
 const TERMINAL_THEME = {
@@ -293,13 +299,89 @@ function styleTerminalOutput(
   return output
 }
 
-function buildLaunchArgs(sessionName: string, globalFlags: string[], mode: LaunchMode): string[] {
-  const launchFlag = mode === 'resume' ? `--resume=${sessionName}` : `--name=${sessionName}`
+function buildLaunchArgs(
+  sessionName: string,
+  resumeSessionId: string | null,
+  globalFlags: string[],
+  mode: LaunchMode
+): string[] {
+  const launchFlag =
+    mode === 'resume' && resumeSessionId ? `--resume=${resumeSessionId}` : `--name=${sessionName}`
   return [launchFlag, ...globalFlags]
 }
 
 function isMissingNamedSessionError(output: string): boolean {
   return /No session, task, or name matched/i.test(output)
+}
+
+function normalizeTrackedUserMessage(value: string): string | null {
+  const normalized = value.replace(/\r\n?/gu, '\n').trim()
+  return normalized.length > 0 ? normalized : null
+}
+
+function trimLastCharacter(value: string): string {
+  const chars = Array.from(value)
+  chars.pop()
+  return chars.join('')
+}
+
+function trimLastWord(value: string): string {
+  return value.replace(/[^\s]+[\s\u00a0]*$/u, '')
+}
+
+function consumeTrackedUserInput(
+  state: UserInputTrackingState,
+  data: string
+): { state: UserInputTrackingState; submittedMessage: string | null } {
+  let draft = state.draft
+  let dirty = state.dirty
+  let submittedMessage: string | null = null
+
+  for (const char of Array.from(data)) {
+    if (char === '\r' || char === '\n') {
+      if (!dirty) {
+        submittedMessage = normalizeTrackedUserMessage(draft)
+      }
+      draft = ''
+      dirty = false
+      continue
+    }
+
+    if (char === '\b' || char === '\x7f') {
+      if (!dirty) {
+        draft = trimLastCharacter(draft)
+      }
+      continue
+    }
+
+    if (char === '\x17') {
+      if (!dirty) {
+        draft = trimLastWord(draft)
+      }
+      continue
+    }
+
+    if (char === '\t') {
+      if (!dirty) {
+        draft += char
+      }
+      continue
+    }
+
+    if (char === '\x1b' || char.charCodeAt(0) < 0x20) {
+      dirty = true
+      continue
+    }
+
+    if (!dirty) {
+      draft += char
+    }
+  }
+
+  return {
+    state: { draft, dirty },
+    submittedMessage
+  }
 }
 
 const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
@@ -317,20 +399,31 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
     const phaseRef = useRef<SessionPhase>('idle')
+    const sessionNameRef = useRef(thread.sessionName)
+    const resumeSessionIdRef = useRef(thread.resumeSessionId)
     const pendingStyledOutputRef = useRef<StyledOutputState>({
       current: '',
       insideToolBlock: false
     })
+    const trackedUserInputRef = useRef<UserInputTrackingState>({
+      draft: '',
+      dirty: false
+    })
     const lastConsumedLaunchKeyRef = useRef<number>(0)
     const lastPersistedCopilotTitleRef = useRef(thread.latestCopilotTitle)
+    const lastPersistedUserMessageRef = useRef(thread.lastUserMessage)
     const [phase, setPhase] = useState<SessionPhase>('idle')
     const [exitCode, setExitCode] = useState<number | null>(null)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [runtimeTitle, setRuntimeTitle] = useState<string | null>(null)
+    const [lastUserMessage, setLastUserMessage] = useState<string | null>(thread.lastUserMessage)
 
     useEffect(() => {
       threadRef.current = thread
+      sessionNameRef.current = thread.sessionName
+      resumeSessionIdRef.current = thread.resumeSessionId
       lastPersistedCopilotTitleRef.current = thread.latestCopilotTitle
+      lastPersistedUserMessageRef.current = thread.lastUserMessage
     }, [thread])
 
     useEffect(() => {
@@ -354,8 +447,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [phase])
 
     useEffect(() => {
-      onStateChangeRef.current({ phase, exitCode, errorMessage, runtimeTitle })
-    }, [phase, exitCode, errorMessage, runtimeTitle])
+      onStateChangeRef.current({ phase, exitCode, errorMessage, runtimeTitle, lastUserMessage })
+    }, [phase, exitCode, errorMessage, runtimeTitle, lastUserMessage])
 
     useEffect(() => {
       const trimmedRuntimeTitle = runtimeTitle?.trim()
@@ -369,6 +462,19 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         title: trimmedRuntimeTitle
       })
     }, [runtimeTitle, thread.id])
+
+    useEffect(() => {
+      const normalizedLastUserMessage = normalizeTrackedUserMessage(lastUserMessage ?? '')
+      if (normalizedLastUserMessage === lastPersistedUserMessageRef.current) {
+        return
+      }
+
+      lastPersistedUserMessageRef.current = normalizedLastUserMessage
+      void window.api.appState.updateThreadLastUserMessage({
+        threadId: thread.id,
+        message: normalizedLastUserMessage
+      })
+    }, [lastUserMessage, thread.id])
 
     const launchInternal = useCallback(
       async (mode: LaunchMode, retriedFromMissingSession = false): Promise<boolean> => {
@@ -389,6 +495,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (!retriedFromMissingSession) {
           pendingStyledOutputRef.current.current = ''
           pendingStyledOutputRef.current.insideToolBlock = false
+          trackedUserInputRef.current = {
+            draft: '',
+            dirty: false
+          }
           term.reset()
           setRuntimeTitle(null)
           fitTerminal(term, container)
@@ -403,7 +513,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
 
         const args = buildLaunchArgs(
-          currentThread.sessionName,
+          sessionNameRef.current,
+          resumeSessionIdRef.current,
           currentSettings.parsedGlobalFlags,
           mode
         )
@@ -443,15 +554,44 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       []
     )
 
+    const trackTerminalInput = useCallback((data: string): string | null => {
+      const result = consumeTrackedUserInput(trackedUserInputRef.current, data)
+      trackedUserInputRef.current = result.state
+      if (result.submittedMessage) {
+        setLastUserMessage((current) =>
+          current === result.submittedMessage ? current : result.submittedMessage
+        )
+      }
+      return result.submittedMessage
+    }, [])
+
+    const trackPromptLineBreak = useCallback((): void => {
+      const current = trackedUserInputRef.current
+      if (current.dirty) {
+        return
+      }
+      trackedUserInputRef.current = {
+        draft: `${current.draft}\n`,
+        dirty: false
+      }
+    }, [])
+
+    const markTrackedInputDirty = useCallback((): void => {
+      const current = trackedUserInputRef.current
+      if (current.dirty) {
+        return
+      }
+      trackedUserInputRef.current = {
+        draft: current.draft,
+        dirty: true
+      }
+    }, [])
+
     const start = useCallback(async (): Promise<void> => {
       if (phaseRef.current === 'launching' || phaseRef.current === 'running') {
         return
       }
-      const thread = threadRef.current
-      if (!thread) {
-        return
-      }
-      const mode: LaunchMode = thread.hasLaunched ? 'resume' : 'new'
+      const mode: LaunchMode = resumeSessionIdRef.current ? 'resume' : 'new'
       await launchInternal(mode)
     }, [launchInternal])
 
@@ -470,6 +610,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       launchAttemptRef.current = null
       pendingStyledOutputRef.current.current = ''
       pendingStyledOutputRef.current.insideToolBlock = false
+      trackedUserInputRef.current = {
+        draft: '',
+        dirty: false
+      }
       setRuntimeTitle(null)
       setPhase('idle')
       setExitCode(null)
@@ -578,6 +722,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         setExitCode(code)
         setRuntimeTitle(null)
+        trackedUserInputRef.current = {
+          draft: '',
+          dirty: false
+        }
         setPhase('stopped')
         await onRefreshRef.current()
       }
@@ -589,15 +737,56 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         void handleExit(payload.exitCode)
       })
 
-      const inputDisposable = term.onData((data) => {
-        if (!terminalIdRef.current) return
-        window.api.terminal.input(terminalIdRef.current, data)
+      const sessionStartCleanup = window.api.terminal.onSessionStart((payload) => {
+        if (payload.terminalId !== terminalIdRef.current) {
+          return
+        }
+
+        resumeSessionIdRef.current = payload.sessionId
+        if (payload.source === 'new') {
+          lastPersistedCopilotTitleRef.current = null
+          setRuntimeTitle(null)
+        }
+
+        const currentThread = threadRef.current
+        if (!currentThread) {
+          return
+        }
+
+        void window.api.appState
+          .updateThreadResumeSession({
+            threadId: currentThread.id,
+            sessionId: payload.sessionId,
+            source: payload.source
+          })
+          .then((ok) => {
+            if (!ok) {
+              return
+            }
+            return onRefreshRef.current()
+          })
       })
-      const sendTerminalInput = (data: string): void => {
+
+      const userPromptCleanup = window.api.terminal.onUserPrompt((payload) => {
+        if (payload.terminalId !== terminalIdRef.current) {
+          return
+        }
+
+        const prompt = normalizeTrackedUserMessage(payload.prompt)
+        setLastUserMessage((current) => (current === prompt ? current : prompt))
+      })
+
+      const forwardTerminalInput = (data: string, trackedData: string | null = data): void => {
         const activeId = terminalIdRef.current
         if (!activeId || data.length === 0) return
+        if (trackedData !== null && trackedData.length > 0) {
+          trackTerminalInput(trackedData)
+        }
         window.api.terminal.input(activeId, data)
       }
+      const inputDisposable = term.onData((data) => {
+        forwardTerminalInput(data)
+      })
       const pasteTerminalText = (text: string): void => {
         if (!terminalIdRef.current || text.length === 0) return
         term.focus()
@@ -649,26 +838,30 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         // Shift-Enter: backslash+CR is Copilot's documented multiline trick
         if (onlyShift && e.key === 'Enter') {
-          sendTerminalInput('\\\r')
+          trackPromptLineBreak()
+          forwardTerminalInput('\\\r', null)
           return cancelHandledKey()
         }
         // Ctrl-Backspace -> Ctrl-W (delete word back)
         if (onlyCtrl && e.key === 'Backspace') {
-          sendTerminalInput('\x17')
+          forwardTerminalInput('\x17')
           return cancelHandledKey()
         }
         // Ctrl-Delete -> Alt-D (delete word forward)
         if (onlyCtrl && e.key === 'Delete') {
-          sendTerminalInput('\x1bd')
+          markTrackedInputDirty()
+          forwardTerminalInput('\x1bd', null)
           return cancelHandledKey()
         }
         // Ctrl-Left/Right -> Alt-B/F so readline-style word motion works reliably.
         if (onlyCtrl && e.key === 'ArrowLeft') {
-          sendTerminalInput('\x1bb')
+          markTrackedInputDirty()
+          forwardTerminalInput('\x1bb', null)
           return cancelHandledKey()
         }
         if (onlyCtrl && e.key === 'ArrowRight') {
-          sendTerminalInput('\x1bf')
+          markTrackedInputDirty()
+          forwardTerminalInput('\x1bf', null)
           return cancelHandledKey()
         }
 
@@ -682,6 +875,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         container.removeEventListener('paste', handlePaste)
         resizeObserver.disconnect()
         exitCleanup()
+        sessionStartCleanup()
+        userPromptCleanup()
         dataCleanup()
         inputDisposable.dispose()
         titleDisposable.dispose()
@@ -692,9 +887,18 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
         pendingStyledOutputRef.current.current = ''
         pendingStyledOutputRef.current.insideToolBlock = false
+        trackedUserInputRef.current = {
+          draft: '',
+          dirty: false
+        }
         term.dispose()
       }
-    }, [launchInternal])
+    }, [
+      launchInternal,
+      markTrackedInputDirty,
+      trackPromptLineBreak,
+      trackTerminalInput
+    ])
 
     // External launch trigger via launchKey: parent increments to ask the
     // pane to (re)start. Effect-driven start() is intentional — it is the

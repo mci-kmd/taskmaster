@@ -38,6 +38,8 @@ import {
   type UpdateRepositoryInput,
   type UpdateThreadInput,
   type UpdateThreadCopilotTitleInput,
+  type UpdateThreadLastUserMessageInput,
+  type UpdateThreadResumeSessionInput,
   type UpdateSettingsInput,
   type UpdateUiInput
 } from '../shared/app-types'
@@ -45,7 +47,7 @@ import { normalizeCopilotTitle } from '../shared/thread-title'
 import { getRunningThreadIds, killSessionsForThread } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 4 as const
+const STATE_VERSION = 6 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const REPOSITORY_FAVICON_EXTENSIONS = new Set([
@@ -67,7 +69,10 @@ const branchStatusCache = new Map<
 >()
 const branchStatusInflight = new Map<string, Promise<BranchStatusSnapshot | null>>()
 
-type LegacyThreadV1 = Omit<PersistedThread, 'customTitle' | 'latestCopilotTitle'> & {
+type LegacyThreadV1 = Omit<
+  PersistedThread,
+  'customTitle' | 'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'
+> & {
   title: string
 }
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
@@ -76,7 +81,7 @@ type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   threads: LegacyThreadV1[]
 }
 
-type LegacyThreadV2 = Omit<PersistedThread, 'latestCopilotTitle'>
+type LegacyThreadV2 = Omit<PersistedThread, 'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'>
 type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath'>
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
@@ -86,6 +91,16 @@ type LegacyAppStateV2 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 2
   repositories: LegacyRepositoryV3[]
   threads: LegacyThreadV2[]
+}
+type LegacyThreadV4 = Omit<PersistedThread, 'lastUserMessage' | 'resumeSessionId'>
+type LegacyAppStateV4 = Omit<PersistedAppState, 'version' | 'threads'> & {
+  version: 4
+  threads: LegacyThreadV4[]
+}
+type LegacyThreadV5 = Omit<PersistedThread, 'lastUserMessage'>
+type LegacyAppStateV5 = Omit<PersistedAppState, 'version' | 'threads'> & {
+  version: 5
+  threads: LegacyThreadV5[]
 }
 
 type RepositoryGitState = {
@@ -101,12 +116,19 @@ type BuildSnapshotOptions = {
 
 function normalizePersistedThread(thread: PersistedThread): PersistedThread {
   const latestCopilotTitle = normalizeCopilotTitle(thread, thread.latestCopilotTitle)
-  return latestCopilotTitle === thread.latestCopilotTitle
+  const lastUserMessage = normalizeTrackedText(thread.lastUserMessage ?? null)
+  return latestCopilotTitle === thread.latestCopilotTitle && lastUserMessage === thread.lastUserMessage
     ? thread
     : {
         ...thread,
-        latestCopilotTitle
+        latestCopilotTitle,
+        lastUserMessage
       }
+}
+
+function normalizeTrackedText(value: string | null): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
 }
 
 function normalizePersistedState(state: PersistedAppState): PersistedAppState {
@@ -128,10 +150,39 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 }
 
 function migrateState(
-  parsed: PersistedAppState | LegacyAppStateV3 | LegacyAppStateV2 | LegacyAppStateV1
+  parsed:
+    | PersistedAppState
+    | LegacyAppStateV5
+    | LegacyAppStateV4
+    | LegacyAppStateV3
+    | LegacyAppStateV2
+    | LegacyAppStateV1
 ): PersistedAppState {
   if (parsed.version === STATE_VERSION) {
     return normalizePersistedState(parsed)
+  }
+
+  if (parsed.version === 5) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      threads: parsed.threads.map((thread) => ({
+        ...thread,
+        lastUserMessage: null
+      }))
+    })
+  }
+
+  if (parsed.version === 4) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      threads: parsed.threads.map((thread) => ({
+        ...thread,
+        lastUserMessage: null,
+        resumeSessionId: null
+      }))
+    })
   }
 
   const migratedRepositories = parsed.repositories.map((repository) => ({
@@ -154,7 +205,9 @@ function migrateState(
       repositories: migratedRepositories,
       threads: parsed.threads.map((thread) => ({
         ...thread,
-        latestCopilotTitle: null
+        latestCopilotTitle: null,
+        lastUserMessage: null,
+        resumeSessionId: null
       }))
     })
   }
@@ -168,7 +221,9 @@ function migrateState(
       return {
         ...rest,
         customTitle: looksAutoDerived ? null : trimmed,
-        latestCopilotTitle: null
+        latestCopilotTitle: null,
+        lastUserMessage: null,
+        resumeSessionId: null
       }
     })
 
@@ -215,6 +270,8 @@ function ensureState(): PersistedAppState {
 
   const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as
     | PersistedAppState
+    | LegacyAppStateV4
+    | LegacyAppStateV3
     | LegacyAppStateV2
     | LegacyAppStateV1
   const migrated = migrateState(parsed)
@@ -1065,10 +1122,12 @@ function createThread(input: CreateThreadInput): MutationResult {
       repositoryId: repository.id,
       customTitle,
       latestCopilotTitle: null,
+      lastUserMessage: null,
       mode: 'worktree',
       branchName,
       worktreePath,
       sessionName: buildThreadSessionName(repository),
+      resumeSessionId: null,
       createdAt,
       lastActivityAt: createdAt,
       hasLaunched: false
@@ -1112,10 +1171,12 @@ function createThread(input: CreateThreadInput): MutationResult {
       repositoryId: repository.id,
       customTitle,
       latestCopilotTitle: null,
+      lastUserMessage: null,
       mode: 'new-branch',
       branchName,
       worktreePath: null,
       sessionName: buildThreadSessionName(repository),
+      resumeSessionId: null,
       createdAt,
       lastActivityAt: createdAt,
       hasLaunched: false
@@ -1133,10 +1194,12 @@ function createThread(input: CreateThreadInput): MutationResult {
     repositoryId: repository.id,
     customTitle,
     latestCopilotTitle: null,
+    lastUserMessage: null,
     mode: 'active-branch',
     branchName: currentBranch,
     worktreePath: null,
     sessionName: buildThreadSessionName(repository),
+    resumeSessionId: null,
     createdAt,
     lastActivityAt: createdAt,
     hasLaunched: false
@@ -1354,6 +1417,53 @@ function updateThreadCopilotTitle(input: UpdateThreadCopilotTitleInput): boolean
   return true
 }
 
+function updateThreadResumeSession(input: UpdateThreadResumeSessionInput): boolean {
+  const thread = findThread(input.threadId)
+  if (!thread) {
+    return false
+  }
+
+  const nextSessionId = input.sessionId.trim()
+  if (!nextSessionId) {
+    return false
+  }
+
+  const shouldClearTitle = input.source === 'new'
+  if (
+    thread.resumeSessionId === nextSessionId &&
+    (!shouldClearTitle || thread.latestCopilotTitle === null) &&
+    thread.hasLaunched
+  ) {
+    return true
+  }
+
+  thread.resumeSessionId = nextSessionId
+  thread.hasLaunched = true
+  if (shouldClearTitle) {
+    thread.latestCopilotTitle = null
+  }
+  thread.lastActivityAt = nowIso()
+  saveState()
+  return true
+}
+
+function updateThreadLastUserMessage(input: UpdateThreadLastUserMessageInput): boolean {
+  const thread = findThread(input.threadId)
+  if (!thread) {
+    return false
+  }
+
+  const nextMessage = normalizeTrackedText(input.message)
+  if (thread.lastUserMessage === nextMessage) {
+    return true
+  }
+
+  thread.lastUserMessage = nextMessage
+  thread.lastActivityAt = nowIso()
+  saveState()
+  return true
+}
+
 function selectRepository(repositoryId: string | null): AppSnapshot {
   updateSelection(repositoryId, null)
   saveState()
@@ -1407,6 +1517,13 @@ export function registerAppStateIpc(): void {
   ipcMain.handle(
     'app-state:update-thread-copilot-title',
     (_event, input: UpdateThreadCopilotTitleInput) => updateThreadCopilotTitle(input)
+  )
+  ipcMain.handle('app-state:update-thread-resume-session', (_event, input: UpdateThreadResumeSessionInput) =>
+    updateThreadResumeSession(input)
+  )
+  ipcMain.handle(
+    'app-state:update-thread-last-user-message',
+    (_event, input: UpdateThreadLastUserMessageInput) => updateThreadLastUserMessage(input)
   )
   ipcMain.handle('app-state:get-branch-status', (_event, input: BranchStatusRequest) =>
     getBranchStatus(input)

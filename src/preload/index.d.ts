@@ -10,6 +10,8 @@ import type {
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
   TerminalApi,
+  UpdateThreadLastUserMessageInput,
+  UpdateThreadResumeSessionInput,
   UpdateRepositoryInput,
   UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
@@ -30,6 +32,8 @@ declare global {
     updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>
     updateUi: (input: UpdateUiInput) => Promise<MutationResult>
     updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) => Promise<boolean>
+    updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) => Promise<boolean>
+    updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) => Promise<boolean>
     getBranchStatus: (input: BranchStatusRequest) => Promise<BranchStatusSnapshot | null>
     openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>

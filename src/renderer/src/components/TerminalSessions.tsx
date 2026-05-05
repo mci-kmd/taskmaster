@@ -78,7 +78,8 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
           previous.phase === state.phase &&
           previous.exitCode === state.exitCode &&
           previous.errorMessage === state.errorMessage &&
-          previous.runtimeTitle === state.runtimeTitle
+          previous.runtimeTitle === state.runtimeTitle &&
+          previous.lastUserMessage === state.lastUserMessage
         ) {
           return current
         }

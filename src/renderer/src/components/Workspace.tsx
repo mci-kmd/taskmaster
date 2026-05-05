@@ -38,7 +38,8 @@ const IDLE_STATE: ThreadSessionState = {
   phase: 'idle',
   exitCode: null,
   errorMessage: null,
-  runtimeTitle: null
+  runtimeTitle: null,
+  lastUserMessage: null
 }
 
 const ACTIVE_BRANCH_STATUS_POLL_MS = 4_000
@@ -167,6 +168,8 @@ export default function Workspace({
   const headerBranch = selectedThread
     ? selectedThread.displayBranchName
     : selectedRepository?.currentBranch
+  const latestUserMessage =
+    selectedSession.lastUserMessage?.trim() ?? selectedThread?.lastUserMessage?.trim() ?? null
 
   useEffect(() => {
     branchStatusPollMsRef.current =
@@ -327,27 +330,42 @@ export default function Workspace({
             hasThread ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >
-          <div className="relative min-h-0 flex-1">
-            <TerminalSessions
-              copilotStatus={copilotStatus}
-              onRefresh={onRefresh}
-              onSessionsChange={handleSessionsChange}
-              ref={sessionsRef}
-              selectedThreadId={selectedThread?.id ?? null}
-              settings={settings}
-              threads={threads}
-            />
-
-            {selectedThread && !isRunning ? (
-              <div className="absolute inset-0">
-                <LaunchPanel
-                  copilotStatus={copilotStatus}
-                  onLaunch={handleLaunch}
-                  session={selectedSession}
-                  thread={selectedThread}
-                />
+          <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <section className="shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3">
+              <div className="text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
+                Most recent user message
               </div>
-            ) : null}
+              <div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[var(--color-fg)]">
+                {latestUserMessage ? (
+                  latestUserMessage
+                ) : (
+                  <span className="text-[var(--color-fg-muted)]">No user message yet.</span>
+                )}
+              </div>
+            </section>
+
+            <div className="relative min-h-0 flex-1">
+              <TerminalSessions
+                copilotStatus={copilotStatus}
+                onRefresh={onRefresh}
+                onSessionsChange={handleSessionsChange}
+                ref={sessionsRef}
+                selectedThreadId={selectedThread?.id ?? null}
+                settings={settings}
+                threads={threads}
+              />
+
+              {selectedThread && !isRunning ? (
+                <div className="absolute inset-0">
+                  <LaunchPanel
+                    copilotStatus={copilotStatus}
+                    onLaunch={handleLaunch}
+                    session={selectedSession}
+                    thread={selectedThread}
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
 

@@ -41,6 +41,20 @@ export interface TerminalExitEvent {
   exitCode: number
 }
 
+export type TerminalSessionStartSource = 'startup' | 'resume' | 'new'
+
+export interface TerminalSessionStartEvent {
+  terminalId: string
+  sessionId: string
+  source: TerminalSessionStartSource
+}
+
+export interface TerminalUserPromptEvent {
+  terminalId: string
+  sessionId: string
+  prompt: string
+}
+
 export interface TerminalApi {
   getStatus: () => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
@@ -50,6 +64,8 @@ export interface TerminalApi {
   resize: (terminalId: string, cols: number, rows: number) => void
   onData: (callback: (payload: TerminalDataEvent) => void) => () => void
   onExit: (callback: (payload: TerminalExitEvent) => void) => () => void
+  onSessionStart: (callback: (payload: TerminalSessionStartEvent) => void) => () => void
+  onUserPrompt: (callback: (payload: TerminalUserPromptEvent) => void) => () => void
 }
 
 export interface PersistedSettings {
@@ -69,17 +85,19 @@ export interface PersistedThread {
   repositoryId: string
   customTitle: string | null
   latestCopilotTitle: string | null
+  lastUserMessage: string | null
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
   sessionName: string
+  resumeSessionId: string | null
   createdAt: string
   lastActivityAt: string
   hasLaunched: boolean
 }
 
 export interface PersistedAppState {
-  version: 4
+  version: 6
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -198,6 +216,17 @@ export interface UpdateUiInput {
 export interface UpdateThreadCopilotTitleInput {
   threadId: string
   title: string
+}
+
+export interface UpdateThreadResumeSessionInput {
+  threadId: string
+  sessionId: string
+  source: TerminalSessionStartSource
+}
+
+export interface UpdateThreadLastUserMessageInput {
+  threadId: string
+  message: string | null
 }
 
 export type PickRepositoryFaviconResult =

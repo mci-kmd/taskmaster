@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
-import { existsSync, statSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
 import { spawnSync } from 'child_process'
+import { dirname, isAbsolute, join, resolve } from 'path'
 import {
   app,
   ipcMain,
@@ -10,7 +11,12 @@ import {
   type WebContents
 } from 'electron'
 import * as pty from 'node-pty'
-import type { TerminalCreateRequest, TerminalStatus } from '../shared/app-types'
+import type {
+  TerminalCreateRequest,
+  TerminalSessionStartEvent,
+  TerminalStatus,
+  TerminalUserPromptEvent
+} from '../shared/app-types'
 
 type TerminalSession = {
   id: string
@@ -19,6 +25,9 @@ type TerminalSession = {
   ptyProcess: pty.IPty
   threadId?: string
   launchConfirmationTimer: NodeJS.Timeout | null
+  hookPollTimer: NodeJS.Timeout | null
+  sessionStartReader: HookFileReaderState | null
+  userPromptReader: HookFileReaderState | null
 }
 
 type CopilotCommand = {
@@ -33,11 +42,39 @@ type TerminalHooks = {
   onThreadStop?: (threadId: string) => void
 }
 
+type HookFileReaderState = {
+  filePath: string
+  offset: number
+  remainder: string
+}
+
+type HookSessionStartPayload = Omit<TerminalSessionStartEvent, 'terminalId'> & {
+  cwd: string
+  timestamp: number
+  initialPrompt?: string
+}
+
+type HookUserPromptPayload = Omit<TerminalUserPromptEvent, 'terminalId'> & {
+  cwd: string
+  timestamp: number
+}
+
 const sessions = new Map<string, TerminalSession>()
 const ownerCleanupHooks = new Set<number>()
 const threadActivityTimestamps = new Map<string, number>()
 let terminalHooks: TerminalHooks = {}
 const LAUNCH_CONFIRMATION_MS = 1_500
+const HOOK_POLL_MS = 250
+const TASKMASTER_HOOKS_FILENAME = 'taskmaster-session-hooks.json'
+const TASKMASTER_HOOK_EVENTS_DIRNAME = 'taskmaster-hook-events'
+const TASKMASTER_HOOK_RELATIVE_PATH = join('.github', 'hooks', TASKMASTER_HOOKS_FILENAME)
+const TASKMASTER_HOOK_EXCLUDE_ENTRY = '.github/hooks/taskmaster-session-hooks.json'
+const TASKMASTER_SESSION_START_FILE_ENV = 'TASKMASTER_COPILOT_SESSION_START_FILE'
+const TASKMASTER_USER_PROMPT_FILE_ENV = 'TASKMASTER_COPILOT_USER_PROMPT_FILE'
+const TASKMASTER_SESSION_START_HOOK_COMMAND =
+  "$file=$env:TASKMASTER_COPILOT_SESSION_START_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }"
+const TASKMASTER_USER_PROMPT_HOOK_COMMAND =
+  "$file=$env:TASKMASTER_COPILOT_USER_PROMPT_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }"
 
 function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
@@ -53,6 +90,167 @@ function normalizeCwd(cwd?: string): string {
   }
 
   return cwd
+}
+
+function getTaskmasterHookEventsDir(): string {
+  return join(app.getPath('userData'), TASKMASTER_HOOK_EVENTS_DIRNAME)
+}
+
+function resolveGitPath(cwd: string, gitPath: string): string {
+  const resolvedPath = runGit(cwd, ['rev-parse', '--git-path', gitPath])
+  return isAbsolute(resolvedPath) ? resolvedPath : resolve(cwd, resolvedPath)
+}
+
+function ensureTaskmasterHookIgnored(cwd: string): void {
+  const excludePath = resolveGitPath(cwd, 'info/exclude')
+  mkdirSync(dirname(excludePath), { recursive: true })
+
+  const current = existsSync(excludePath) ? readFileSync(excludePath, 'utf8') : ''
+  const lines = current.split(/\r?\n/u).map((line) => line.trim())
+  if (lines.includes(TASKMASTER_HOOK_EXCLUDE_ENTRY)) {
+    return
+  }
+
+  const prefix = current.length > 0 && !current.endsWith('\n') ? '\n' : ''
+  writeFileSync(excludePath, `${current}${prefix}${TASKMASTER_HOOK_EXCLUDE_ENTRY}\n`)
+}
+
+function ensureTaskmasterHookConfig(cwd: string): void {
+  const hookPath = join(cwd, TASKMASTER_HOOK_RELATIVE_PATH)
+  mkdirSync(dirname(hookPath), { recursive: true })
+
+  const hookConfig = {
+    version: 1,
+    hooks: {
+      sessionStart: [
+        {
+          type: 'command',
+          powershell: TASKMASTER_SESSION_START_HOOK_COMMAND,
+          timeoutSec: 5
+        }
+      ],
+      userPromptSubmitted: [
+        {
+          type: 'command',
+          powershell: TASKMASTER_USER_PROMPT_HOOK_COMMAND,
+          timeoutSec: 5
+        }
+      ]
+    }
+  }
+
+  writeFileSync(hookPath, `${JSON.stringify(hookConfig, null, 2)}\n`)
+  ensureTaskmasterHookIgnored(cwd)
+}
+
+function createHookFileReader(filePath: string): HookFileReaderState {
+  mkdirSync(dirname(filePath), { recursive: true })
+  writeFileSync(filePath, '')
+  return {
+    filePath,
+    offset: 0,
+    remainder: ''
+  }
+}
+
+function readHookFile<T>(
+  reader: HookFileReaderState,
+  onPayload: (payload: T) => void
+): void {
+  if (!existsSync(reader.filePath)) {
+    return
+  }
+
+  const buffer = readFileSync(reader.filePath)
+  if (buffer.length < reader.offset) {
+    reader.offset = 0
+    reader.remainder = ''
+  }
+  if (buffer.length === reader.offset) {
+    return
+  }
+
+  const chunk = buffer.subarray(reader.offset).toString('utf8')
+  reader.offset = buffer.length
+
+  const text = reader.remainder + chunk
+  const lines = text.split(/\r?\n/u)
+  reader.remainder = lines.pop() ?? ''
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      continue
+    }
+    try {
+      onPayload(JSON.parse(trimmed) as T)
+    } catch {
+      // Ignore malformed hook lines.
+    }
+  }
+}
+
+function emitSessionStart(session: TerminalSession, payload: HookSessionStartPayload): void {
+  const ownerContents = webContents.fromId(session.ownerId)
+  if (!ownerContents || ownerContents.isDestroyed()) {
+    return
+  }
+
+  ownerContents.send('terminal:session-start', {
+    terminalId: session.id,
+    sessionId: payload.sessionId,
+    source: payload.source
+  } satisfies TerminalSessionStartEvent)
+}
+
+function emitUserPrompt(session: TerminalSession, payload: HookUserPromptPayload): void {
+  const ownerContents = webContents.fromId(session.ownerId)
+  if (!ownerContents || ownerContents.isDestroyed()) {
+    return
+  }
+
+  ownerContents.send('terminal:user-prompt', {
+    terminalId: session.id,
+    sessionId: payload.sessionId,
+    prompt: payload.prompt
+  } satisfies TerminalUserPromptEvent)
+}
+
+function startHookPolling(session: TerminalSession): void {
+  if (!session.sessionStartReader && !session.userPromptReader) {
+    return
+  }
+
+  session.hookPollTimer = setInterval(() => {
+    if (session.sessionStartReader) {
+      readHookFile<HookSessionStartPayload>(session.sessionStartReader, (payload) =>
+        emitSessionStart(session, payload)
+      )
+    }
+    if (session.userPromptReader) {
+      readHookFile<HookUserPromptPayload>(session.userPromptReader, (payload) =>
+        emitUserPrompt(session, payload)
+      )
+    }
+  }, HOOK_POLL_MS)
+}
+
+function stopHookPolling(session: TerminalSession): void {
+  if (session.hookPollTimer) {
+    clearInterval(session.hookPollTimer)
+    session.hookPollTimer = null
+  }
+
+  for (const reader of [session.sessionStartReader, session.userPromptReader]) {
+    if (!reader) {
+      continue
+    }
+    try {
+      rmSync(reader.filePath, { force: true })
+    } catch {
+      // Ignore cleanup failures.
+    }
+  }
 }
 
 function resolveCopilotPath(): string | null {
@@ -219,6 +417,7 @@ function attachOwnerCleanup(ownerContents: WebContents): void {
       }
 
       clearLaunchConfirmation(session)
+      stopHookPolling(session)
       sessions.delete(session.id)
       session.ptyProcess.kill()
     }
@@ -227,6 +426,7 @@ function attachOwnerCleanup(ownerContents: WebContents): void {
 
 function finalizeSession(session: TerminalSession, exitCode: number): void {
   clearLaunchConfirmation(session)
+  stopHookPolling(session)
 
   if (!sessions.delete(session.id)) {
     return
@@ -295,6 +495,14 @@ function createSession(
   }
   const command = buildCopilotCommand(status.commandPath, request.args)
   const terminalId = randomUUID()
+  ensureTaskmasterHookConfig(cwd)
+  const hookEventsDir = getTaskmasterHookEventsDir()
+  const sessionStartReader = request.threadId
+    ? createHookFileReader(join(hookEventsDir, `${terminalId}-session-start.jsonl`))
+    : null
+  const userPromptReader = request.threadId
+    ? createHookFileReader(join(hookEventsDir, `${terminalId}-user-prompt.jsonl`))
+    : null
 
   const ptyProcess = pty.spawn(command.file, command.args, {
     name: 'xterm-256color',
@@ -303,7 +511,17 @@ function createSession(
     cwd,
     env: {
       ...process.env,
-      TERM: 'xterm-256color'
+      TERM: 'xterm-256color',
+      ...(sessionStartReader
+        ? {
+            [TASKMASTER_SESSION_START_FILE_ENV]: sessionStartReader.filePath
+          }
+        : {}),
+      ...(userPromptReader
+        ? {
+            [TASKMASTER_USER_PROMPT_FILE_ENV]: userPromptReader.filePath
+          }
+        : {})
     },
     useConpty: true
   })
@@ -314,10 +532,14 @@ function createSession(
     ownerId: event.sender.id,
     ptyProcess,
     threadId: request.threadId,
-    launchConfirmationTimer: null
+    launchConfirmationTimer: null,
+    hookPollTimer: null,
+    sessionStartReader,
+    userPromptReader
   }
 
   sessions.set(terminalId, session)
+  startHookPolling(session)
   if (request.threadId) {
     session.launchConfirmationTimer = setTimeout(() => {
       if (!sessions.has(session.id) || !session.threadId) {
