@@ -23,6 +23,8 @@ import { formatRelativeTime } from '../lib/time'
 import { composeThreadTitle } from '../lib/title'
 import { useNow } from '../lib/useNow'
 
+const isDevMode = import.meta.env.DEV
+
 type SidebarProps = {
   snapshot: AppSnapshot
   selectedRepository: RepositorySnapshot | null
@@ -149,7 +151,14 @@ export default function Sidebar({
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] px-4">
         <div className="flex items-center gap-2 text-[var(--color-fg)]">
           <LogoMark className="text-[var(--color-fg)]" />
-          <span className="text-[13.5px] font-medium tracking-tight">Taskmaster</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[13.5px] font-medium tracking-tight">Taskmaster</span>
+            {isDevMode ? (
+              <span className="rounded-full border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/12 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--color-warning)]">
+                Dev Mode
+              </span>
+            ) : null}
+          </div>
         </div>
         <Button
           aria-label="Open settings"
