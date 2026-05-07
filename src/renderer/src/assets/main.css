@@ -6,8 +6,7 @@
   --font-sans:
     'Geist Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     sans-serif;
-  --font-mono:
-    'Geist Mono Variable', 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+  --font-mono: 'Geist Mono Variable', 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
 
   --color-bg: #181818;
   --color-panel: #141414;
@@ -79,12 +78,31 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.tm-truncate-start {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
 input,
 textarea,
 select {
   background: transparent;
   border: none;
   outline: none;
+}
+
+.tm-select {
+  color-scheme: dark;
+}
+
+.tm-select option,
+.tm-select optgroup {
+  background: var(--color-input);
+  color: var(--color-fg);
 }
 
 ::-webkit-scrollbar {
@@ -354,6 +372,70 @@ select {
     0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
+.tm-diff-view {
+  --diff-background-color: transparent;
+  --diff-text-color: var(--color-fg);
+  --diff-font-family: var(--font-mono);
+  --diff-selection-background-color: rgba(255, 255, 255, 0.12);
+  --diff-selection-text-color: var(--color-fg);
+  --diff-gutter-insert-background-color: rgba(110, 231, 168, 0.1);
+  --diff-gutter-insert-text-color: var(--color-positive);
+  --diff-gutter-delete-background-color: rgba(240, 140, 140, 0.1);
+  --diff-gutter-delete-text-color: var(--color-danger);
+  --diff-gutter-selected-background-color: rgba(255, 255, 255, 0.08);
+  --diff-gutter-selected-text-color: var(--color-fg);
+  --diff-code-insert-background-color: rgba(110, 231, 168, 0.08);
+  --diff-code-insert-text-color: var(--color-fg);
+  --diff-code-delete-background-color: rgba(240, 140, 140, 0.08);
+  --diff-code-delete-text-color: var(--color-fg);
+  --diff-code-insert-edit-background-color: rgba(110, 231, 168, 0.18);
+  --diff-code-insert-edit-text-color: var(--color-fg);
+  --diff-code-delete-edit-background-color: rgba(240, 140, 140, 0.18);
+  --diff-code-delete-edit-text-color: var(--color-fg);
+  --diff-code-selected-background-color: rgba(255, 255, 255, 0.08);
+  --diff-code-selected-text-color: var(--color-fg);
+  --diff-omit-gutter-line-color: var(--color-border-strong);
+}
+
+.tm-diff-view .diff {
+  min-width: 100%;
+}
+
+.tm-diff-view--split .diff {
+  min-width: 1100px;
+}
+
+.tm-diff-view .diff td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.tm-diff-view .diff-gutter {
+  min-width: 0;
+  padding: 0 0.45ch 0 0.2ch;
+  color: var(--color-fg-subtle);
+}
+
+.tm-diff-view .diff-gutter-col {
+  width: 4.5ch;
+}
+
+.tm-diff-view .diff-gutter-omit:before {
+  margin-left: calc(100% - 2px);
+}
+
+.tm-diff-view .diff-code,
+.tm-diff-view .diff-line,
+.tm-diff-view .diff-decoration-content {
+  font-size: 12.5px;
+}
+
+.tm-diff-view .diff-code {
+  padding-right: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 /* Sidebar resize handle. The handle straddles the right edge of the sidebar
    so the visible boundary is part of the grab target. */
 .tm-resize-handle {
@@ -374,9 +456,29 @@ select {
   pointer-events: none;
 }
 
+.tm-resize-handle.tm-diff-pane-resize .tm-resize-handle__indicator {
+  background: transparent;
+}
+
+.tm-resize-handle.tm-diff-pane-resize {
+  position: relative;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  width: 12px;
+  flex: 0 0 12px;
+  align-self: stretch;
+  z-index: auto;
+}
+
 .tm-resize-handle:hover .tm-resize-handle__indicator,
 .tm-resize-handle[data-dragging='true'] .tm-resize-handle__indicator {
   background: var(--color-border-strong);
+}
+
+.tm-resize-handle.tm-diff-pane-resize:hover .tm-resize-handle__indicator,
+.tm-resize-handle.tm-diff-pane-resize[data-dragging='true'] .tm-resize-handle__indicator {
+  background: transparent;
 }
 
 .tm-resizing,

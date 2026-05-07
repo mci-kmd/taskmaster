@@ -6,6 +6,10 @@ type ResizeHandleProps = {
   max: number
   onResize: (next: number) => void
   onResizeEnd: (final: number) => void
+  ariaLabel?: string
+  title?: string
+  collapseWidth?: number
+  className?: string
 }
 
 export default function ResizeHandle({
@@ -13,7 +17,11 @@ export default function ResizeHandle({
   min,
   max,
   onResize,
-  onResizeEnd
+  onResizeEnd,
+  ariaLabel = 'Resize sidebar',
+  title = 'Drag to resize · double-click to collapse',
+  collapseWidth,
+  className = ''
 }: ResizeHandleProps): React.JSX.Element {
   const [dragging, setDragging] = useState(false)
 
@@ -49,23 +57,24 @@ export default function ResizeHandle({
   )
 
   const handleDoubleClick = useCallback((): void => {
-    onResize(min)
-    onResizeEnd(min)
-  }, [min, onResize, onResizeEnd])
+    const next = collapseWidth ?? min
+    onResize(next)
+    onResizeEnd(next)
+  }, [collapseWidth, min, onResize, onResizeEnd])
 
   return (
     <div
-      aria-label="Resize sidebar"
+      aria-label={ariaLabel}
       aria-orientation="vertical"
       aria-valuemax={max}
       aria-valuemin={min}
       aria-valuenow={width}
-      className="tm-resize-handle"
+      className={`tm-resize-handle ${className}`.trim()}
       data-dragging={dragging || undefined}
       onDoubleClick={handleDoubleClick}
       onMouseDown={handleMouseDown}
       role="separator"
-      title="Drag to resize · double-click to collapse"
+      title={title}
     >
       <div className="tm-resize-handle__indicator" />
     </div>

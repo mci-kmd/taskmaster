@@ -1,5 +1,6 @@
 import './assets/main.css'
 import '@xterm/xterm/css/xterm.css'
+import 'react-diff-view/style/index.css'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

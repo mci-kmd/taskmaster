@@ -9,6 +9,11 @@ import type {
   PickRepositoryFaviconResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
+  ThreadDiffPatchRequest,
+  ThreadDiffPatchResult,
+  ThreadDiffQuery,
+  ThreadDiffRangeOptionsResult,
+  ThreadDiffSummaryResult,
   TerminalApi,
   UpdateThreadLastUserMessageInput,
   UpdateThreadResumeSessionInput,
@@ -35,6 +40,9 @@ declare global {
     updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) => Promise<boolean>
     updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) => Promise<boolean>
     getBranchStatus: (input: BranchStatusRequest) => Promise<BranchStatusSnapshot | null>
+    getThreadDiffRangeOptions: (threadId: string) => Promise<ThreadDiffRangeOptionsResult>
+    getThreadDiffSummary: (input: ThreadDiffQuery) => Promise<ThreadDiffSummaryResult>
+    getThreadDiffPatch: (input: ThreadDiffPatchRequest) => Promise<ThreadDiffPatchResult>
     openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>

@@ -1,4 +1,11 @@
 import { randomUUID } from 'crypto'
+import simpleGit, {
+  type DiffResult,
+  type DiffResultTextFile,
+  type FileStatusResult,
+  type SimpleGit,
+  type StatusResult
+} from 'simple-git'
 import {
   existsSync,
   mkdirSync,
@@ -34,6 +41,15 @@ import {
   type PersistedRepository,
   type PersistedThread,
   type RepositorySnapshot,
+  type ThreadDiffFileStatus,
+  type ThreadDiffFileSummary,
+  type ThreadDiffPatchRequest,
+  type ThreadDiffPatchResult,
+  type ThreadDiffQuery,
+  type ThreadDiffRangeOption,
+  type ThreadDiffRangeOptionsResult,
+  type ThreadDiffSummaryResult,
+  THREAD_DIFF_WORKTREE_REF,
   type ThreadSnapshot,
   type UpdateRepositoryInput,
   type UpdateThreadInput,
@@ -50,6 +66,7 @@ const STORE_FILENAME = 'taskmaster-state.json'
 const STATE_VERSION = 6 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
+const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const DEFAULT_TERMINAL_FONT_FAMILY =
   "'CaskaydiaCove Nerd Font Mono', 'CaskaydiaMono Nerd Font', 'MesloLGM Nerd Font Mono', 'MesloLGS NF', 'JetBrainsMono Nerd Font Mono', 'SauceCodePro Nerd Font Mono', Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
 const REPOSITORY_FAVICON_EXTENSIONS = new Set([
@@ -114,6 +131,22 @@ type RepositoryGitState = {
 }
 
 type RelativePathResult = { ok: true; path: string } | { ok: false; error: string }
+type ParsedCommitLine = {
+  fullHash: string
+  shortHash: string
+  subject: string
+}
+type ThreadGitContext =
+  | {
+      ok: true
+      thread: PersistedThread
+      repository: PersistedRepository
+      cwd: string
+    }
+  | {
+      ok: false
+      error: string
+    }
 
 type BuildSnapshotOptions = {
   refreshGit?: boolean
@@ -141,7 +174,9 @@ function normalizeTerminalFontFamilyInput(value: string | null | undefined): str
   return value?.trim() ?? ''
 }
 
-function normalizePersistedSettings(settings: PersistedAppState['settings']): PersistedAppState['settings'] {
+function normalizePersistedSettings(
+  settings: PersistedAppState['settings']
+): PersistedAppState['settings'] {
   const terminalFontFamilyInput = normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput)
   return terminalFontFamilyInput === settings.terminalFontFamilyInput
     ? settings
@@ -152,7 +187,10 @@ function normalizePersistedSettings(settings: PersistedAppState['settings']): Pe
 }
 
 function resolveTerminalFontFamily(settings: PersistedAppState['settings']): string {
-  return normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput) || DEFAULT_TERMINAL_FONT_FAMILY
+  return (
+    normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput) ||
+    DEFAULT_TERMINAL_FONT_FAMILY
+  )
 }
 
 function normalizePersistedState(state: PersistedAppState): PersistedAppState {
@@ -168,10 +206,10 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 
   return didChange
     ? {
-         ...state,
-         settings,
-         threads
-       }
+        ...state,
+        settings,
+        threads
+      }
     : state
 }
 
@@ -558,6 +596,10 @@ function tryGitAsync(
   })
 }
 
+function getGitClient(cwd: string): SimpleGit {
+  return simpleGit(cwd)
+}
+
 function resolveGitRoot(path: string): string | null {
   const result = tryGit(path, ['rev-parse', '--show-toplevel'])
   return result.ok ? result.stdout : null
@@ -693,9 +735,7 @@ function getThreadCwd(
   return thread.mode === 'worktree' ? (thread.worktreePath ?? repositoryPath) : repositoryPath
 }
 
-async function openThreadWorkingDirectory(
-  threadId: string
-): Promise<OpenThreadWorkingDirectoryResult> {
+function resolveThreadGitContext(threadId: string): ThreadGitContext {
   const thread = findThread(threadId)
   if (!thread) {
     return { ok: false, error: 'Thread not found.' }
@@ -706,7 +746,23 @@ async function openThreadWorkingDirectory(
     return { ok: false, error: 'Repository not found.' }
   }
 
-  const cwd = getThreadCwd(thread, repository.path)
+  return {
+    ok: true,
+    thread,
+    repository,
+    cwd: getThreadCwd(thread, repository.path)
+  }
+}
+
+async function openThreadWorkingDirectory(
+  threadId: string
+): Promise<OpenThreadWorkingDirectoryResult> {
+  const context = resolveThreadGitContext(threadId)
+  if (!context.ok) {
+    return { ok: false, error: context.error }
+  }
+
+  const { cwd } = context
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
     return { ok: false, error: `Working directory not found: ${cwd}` }
   }
@@ -904,6 +960,473 @@ function parseBranchStatus(stdout: string): BranchStatusSnapshot {
   }
 
   return status
+}
+
+function hasHeadCommit(cwd: string): boolean {
+  return tryGit(cwd, ['rev-parse', '--verify', 'HEAD']).ok
+}
+
+function getWorkingTreeDiffBase(cwd: string): string {
+  return hasHeadCommit(cwd) ? 'HEAD' : EMPTY_TREE_HASH
+}
+
+function isWorkingTreeRef(ref: string | null | undefined): boolean {
+  return (ref?.trim() ?? '') === THREAD_DIFF_WORKTREE_REF
+}
+
+function parseCommitLines(stdout: string): ParsedCommitLine[] {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [fullHash = '', shortHash = '', subject = ''] = line.split('\u001f')
+      return {
+        fullHash,
+        shortHash,
+        subject
+      }
+    })
+    .filter((commit) => commit.fullHash.length > 0)
+}
+
+function buildCommitOption(commit: ParsedCommitLine, labelPrefix?: string): ThreadDiffRangeOption {
+  const subject = commit.subject || '(no subject)'
+  return {
+    value: commit.fullHash,
+    label: labelPrefix ? `${labelPrefix}: ${subject} (${commit.shortHash})` : `${subject} (${commit.shortHash})`,
+    description: commit.fullHash
+  }
+}
+
+async function readCommitOption(
+  cwd: string,
+  ref: string,
+  labelPrefix?: string
+): Promise<ThreadDiffRangeOption> {
+  const result = await tryGitAsync(cwd, ['show', '-s', '--format=%H%x1f%h%x1f%s', ref])
+  if (!result.ok) {
+    throw new Error(result.stderr || `Unable to read commit ${ref}.`)
+  }
+
+  const commit = parseCommitLines(result.stdout)[0]
+  if (!commit) {
+    throw new Error(`Unable to read commit ${ref}.`)
+  }
+
+  return buildCommitOption(commit, labelPrefix)
+}
+
+function buildUntrackedDiffFiles(status: StatusResult): ThreadDiffFileSummary[] {
+  return status.files
+    .filter((file) => resolveWorkingTreeFileStatus(file, new Map()) === 'untracked')
+    .map((file) => ({
+      path: file.path,
+      previousPath: null,
+      status: 'untracked' as const,
+      additions: null,
+      deletions: null,
+      isBinary: false
+    }))
+}
+
+function normalizeDiffStatPath(path: string): string {
+  const braceRename = /^(.*)\{([^{}]+?) => ([^{}]+?)\}(.*)$/.exec(path)
+  if (braceRename) {
+    return `${braceRename[1]}${braceRename[3]}${braceRename[4]}`
+  }
+
+  const arrowIndex = path.lastIndexOf(' => ')
+  return arrowIndex >= 0 ? path.slice(arrowIndex + 4) : path
+}
+
+function buildDiffStatMap(result: DiffResult): Map<string, DiffResultTextFile> {
+  const stats = new Map<string, DiffResultTextFile>()
+
+  for (const file of result.files) {
+    if (file.binary) {
+      continue
+    }
+
+    stats.set(normalizeDiffStatPath(file.file), file)
+  }
+
+  return stats
+}
+
+function mapStatusTokenToDiffStatus(token: string): ThreadDiffFileStatus {
+  switch (token[0]) {
+    case 'A':
+      return 'added'
+    case 'D':
+      return 'deleted'
+    case 'R':
+      return 'renamed'
+    case 'C':
+      return 'copied'
+    case 'U':
+      return 'conflicted'
+    case 'T':
+      return 'typechange'
+    default:
+      return 'modified'
+  }
+}
+
+function parseNameStatusOutput(
+  stdout: string,
+  stats: Map<string, DiffResultTextFile>
+): ThreadDiffFileSummary[] {
+  const files: ThreadDiffFileSummary[] = []
+  const tokens = stdout.split('\0')
+
+  for (let index = 0; index < tokens.length; ) {
+    const statusToken = tokens[index++]
+    if (!statusToken) {
+      continue
+    }
+
+    const status = mapStatusTokenToDiffStatus(statusToken)
+    if (status === 'renamed' || status === 'copied') {
+      const previousPath = tokens[index++] ?? ''
+      const path = tokens[index++] ?? ''
+      if (!path) {
+        continue
+      }
+
+      const stat = stats.get(path) ?? null
+      files.push({
+        path,
+        previousPath: previousPath || null,
+        status,
+        additions: stat?.insertions ?? null,
+        deletions: stat?.deletions ?? null,
+        isBinary: false
+      })
+      continue
+    }
+
+    const path = tokens[index++] ?? ''
+    if (!path) {
+      continue
+    }
+
+    const stat = stats.get(path) ?? null
+    files.push({
+      path,
+      previousPath: null,
+      status,
+      additions: stat?.insertions ?? null,
+      deletions: stat?.deletions ?? null,
+      isBinary: false
+    })
+  }
+
+  return files.sort((left, right) =>
+    left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
+  )
+}
+
+function resolveWorkingTreeFileStatus(
+  file: FileStatusResult,
+  renamedByPath: Map<string, string>
+): ThreadDiffFileStatus {
+  if (file.index === 'U' || file.working_dir === 'U') {
+    return 'conflicted'
+  }
+
+  if (file.index === '?' || file.working_dir === '?') {
+    return 'untracked'
+  }
+
+  if (file.index === 'T' || file.working_dir === 'T') {
+    return 'typechange'
+  }
+
+  if (file.index === 'D' || file.working_dir === 'D') {
+    return 'deleted'
+  }
+
+  if (file.index === 'A' || file.working_dir === 'A') {
+    return 'added'
+  }
+
+  if (file.index === 'C' || file.working_dir === 'C') {
+    return 'copied'
+  }
+
+  if (file.index === 'R' || file.working_dir === 'R' || renamedByPath.has(file.path)) {
+    return 'renamed'
+  }
+
+  return 'modified'
+}
+
+function buildWorkingTreeDiffFiles(
+  status: StatusResult,
+  stats: Map<string, DiffResultTextFile>
+): ThreadDiffFileSummary[] {
+  const renamedByPath = new Map(status.renamed.map((entry) => [entry.to, entry.from]))
+
+  return status.files
+    .map((file) => {
+      const stat = stats.get(file.path) ?? null
+      const diffStatus = resolveWorkingTreeFileStatus(file, renamedByPath)
+      return {
+        path: file.path,
+        previousPath: file.from ?? renamedByPath.get(file.path) ?? null,
+        status: diffStatus,
+        additions: stat?.insertions ?? null,
+        deletions: stat?.deletions ?? null,
+        isBinary: false
+      }
+    })
+    .sort((left, right) => left.path.localeCompare(right.path, undefined, { sensitivity: 'base' }))
+}
+
+async function getThreadDiffRangeOptions(threadId: string): Promise<ThreadDiffRangeOptionsResult> {
+  const context = resolveThreadGitContext(threadId)
+  if (!context.ok) {
+    return { ok: false, error: context.error }
+  }
+
+  const { cwd } = context
+  if (!hasHeadCommit(cwd)) {
+    return { ok: false, error: 'No commits exist on this branch yet.' }
+  }
+
+  try {
+    const currentBranch = getCurrentBranchName(cwd)
+    const primaryBranch = getPrimaryBranch(cwd)
+
+    let defaultBaseRef = ''
+    if (currentBranch && primaryBranch && currentBranch !== primaryBranch) {
+      const mergeBase = tryGit(cwd, ['merge-base', primaryBranch, 'HEAD'])
+      if (mergeBase.ok && mergeBase.stdout) {
+        defaultBaseRef = mergeBase.stdout
+      }
+    }
+
+    if (!defaultBaseRef) {
+      const rootCommit = tryGit(cwd, ['rev-list', '--max-parents=0', 'HEAD'])
+      defaultBaseRef = rootCommit.stdout.split(/\r?\n/)[0] ?? ''
+    }
+
+    if (!defaultBaseRef) {
+      return { ok: false, error: 'Unable to determine a branch base commit.' }
+    }
+
+    const baseOption = await readCommitOption(cwd, defaultBaseRef, 'Branch base')
+    const history = await tryGitAsync(cwd, [
+      'log',
+      '--reverse',
+      '--format=%H%x1f%h%x1f%s',
+      `${defaultBaseRef}..HEAD`
+    ])
+    if (!history.ok) {
+      return { ok: false, error: history.stderr || 'Unable to read current branch history.' }
+    }
+
+    const commitOptions = [
+      baseOption,
+      ...parseCommitLines(history.stdout).map((commit) => buildCommitOption(commit))
+    ]
+
+    return {
+      ok: true,
+      options: {
+        baseOptions: commitOptions,
+        headOptions: [
+          ...commitOptions,
+          {
+            value: THREAD_DIFF_WORKTREE_REF,
+            label: 'Current changes',
+            description: 'Working tree state on top of HEAD'
+          }
+        ],
+        defaultBaseRef,
+        defaultHeadRef: THREAD_DIFF_WORKTREE_REF
+      }
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function getRangeToWorkingTreeDiffFiles(
+  git: SimpleGit,
+  baseRef: string
+): Promise<ThreadDiffFileSummary[]> {
+  const [nameStatus, diffSummary, status] = await Promise.all([
+    git.raw(['diff', '--name-status', '-z', '--find-renames', baseRef]),
+    git.diffSummary([baseRef]),
+    git.status()
+  ])
+
+  const trackedFiles = parseNameStatusOutput(nameStatus, buildDiffStatMap(diffSummary))
+  const trackedByPath = new Set(trackedFiles.map((file) => file.path))
+  const untrackedFiles = buildUntrackedDiffFiles(status).filter((file) => !trackedByPath.has(file.path))
+
+  return [...trackedFiles, ...untrackedFiles].sort((left, right) =>
+    left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
+  )
+}
+
+async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffSummaryResult> {
+  const context = resolveThreadGitContext(input.threadId)
+  if (!context.ok) {
+    return { ok: false, error: context.error }
+  }
+
+  const { cwd } = context
+  const git = getGitClient(cwd)
+
+  try {
+    if (input.mode === 'range') {
+      const baseRef = input.baseRef?.trim() ?? ''
+      const headRef = input.headRef?.trim() ?? ''
+      if (!baseRef || !headRef) {
+        return { ok: false, error: 'Both range refs are required.' }
+      }
+
+      if (isWorkingTreeRef(baseRef)) {
+        return { ok: false, error: 'Base ref must be a commit.' }
+      }
+
+      if (isWorkingTreeRef(headRef)) {
+        return {
+          ok: true,
+          summary: {
+            mode: input.mode,
+            baseRef,
+            headRef,
+            files: await getRangeToWorkingTreeDiffFiles(git, baseRef)
+          }
+        }
+      }
+
+      const [nameStatus, diffSummary] = await Promise.all([
+        git.raw(['diff', '--name-status', '-z', '--find-renames', baseRef, headRef]),
+        git.diffSummary([baseRef, headRef])
+      ])
+
+      return {
+        ok: true,
+        summary: {
+          mode: input.mode,
+          baseRef,
+          headRef,
+          files: parseNameStatusOutput(nameStatus, buildDiffStatMap(diffSummary))
+        }
+      }
+    }
+
+    const diffBase = getWorkingTreeDiffBase(cwd)
+    const [status, diffSummary] = await Promise.all([git.status(), git.diffSummary([diffBase])])
+
+    return {
+      ok: true,
+      summary: {
+        mode: input.mode,
+        baseRef: null,
+        headRef: null,
+        files: buildWorkingTreeDiffFiles(status, buildDiffStatMap(diffSummary))
+      }
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function buildUntrackedFilePatch(cwd: string, path: string): Promise<ThreadDiffPatchResult> {
+  const nullPath = process.platform === 'win32' ? 'NUL' : '/dev/null'
+  const result = await tryGitAsync(cwd, ['diff', '--no-index', '--binary', '--', nullPath, path])
+  if (result.stdout.trim().length > 0) {
+    return { ok: true, patch: result.stdout, isBinary: false }
+  }
+
+  return {
+    ok: false,
+    error: result.stderr || `Unable to build a patch for "${path}".`
+  }
+}
+
+async function getThreadDiffPatch(input: ThreadDiffPatchRequest): Promise<ThreadDiffPatchResult> {
+  const context = resolveThreadGitContext(input.threadId)
+  if (!context.ok) {
+    return { ok: false, error: context.error }
+  }
+
+  const { cwd } = context
+  const trimmedPath = input.path.trim()
+  if (!trimmedPath) {
+    return { ok: false, error: 'Diff path is required.' }
+  }
+
+  const resolvedPath = resolve(cwd, trimmedPath)
+  if (!isPathInsideRepository(cwd, resolvedPath)) {
+    return { ok: false, error: 'Diff path must stay inside the thread working directory.' }
+  }
+
+  if (input.status === 'untracked') {
+    return buildUntrackedFilePatch(cwd, trimmedPath)
+  }
+
+  const git = getGitClient(cwd)
+  const previousPath = input.previousPath?.trim() ?? ''
+  const pathspec =
+    previousPath && previousPath !== trimmedPath ? [previousPath, trimmedPath] : [trimmedPath]
+
+  try {
+    const baseRef = input.baseRef?.trim() ?? ''
+    const headRef = input.headRef?.trim() ?? ''
+    if (input.mode === 'range' && (!baseRef || !headRef)) {
+      return { ok: false, error: 'Both range refs are required.' }
+    }
+    if (input.mode === 'range' && isWorkingTreeRef(baseRef)) {
+      return { ok: false, error: 'Base ref must be a commit.' }
+    }
+
+    const patch =
+      input.mode === 'range'
+        ? isWorkingTreeRef(headRef)
+          ? await git.raw([
+              'diff',
+              '--patch',
+              '--binary',
+              '--find-renames',
+              baseRef,
+              '--',
+              ...pathspec
+            ])
+          : await git.raw([
+              'diff',
+              '--patch',
+              '--binary',
+              '--find-renames',
+              baseRef,
+              headRef,
+              '--',
+              ...pathspec
+            ])
+        : await git.raw([
+            'diff',
+            '--patch',
+            '--binary',
+            '--find-renames',
+            getWorkingTreeDiffBase(cwd),
+            '--',
+            ...pathspec
+          ])
+
+    return {
+      ok: true,
+      patch,
+      isBinary: patch.includes('GIT binary patch') || patch.includes('Binary files')
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 function resolveBranchStatusCwd(input: BranchStatusRequest): string | null {
@@ -1569,6 +2092,15 @@ export function registerAppStateIpc(): void {
   )
   ipcMain.handle('app-state:get-branch-status', (_event, input: BranchStatusRequest) =>
     getBranchStatus(input)
+  )
+  ipcMain.handle('app-state:get-thread-diff-summary', (_event, input: ThreadDiffQuery) =>
+    getThreadDiffSummary(input)
+  )
+  ipcMain.handle('app-state:get-thread-diff-range-options', (_event, threadId: string) =>
+    getThreadDiffRangeOptions(threadId)
+  )
+  ipcMain.handle('app-state:get-thread-diff-patch', (_event, input: ThreadDiffPatchRequest) =>
+    getThreadDiffPatch(input)
   )
   ipcMain.handle('app-state:open-thread-working-directory', (_event, threadId: string) =>
     openThreadWorkingDirectory(threadId)

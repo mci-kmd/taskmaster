@@ -33,12 +33,13 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>): React.JS
   const { className = '', children, ...rest } = props
   return (
     <select
-      className={`${inputClass} appearance-none pr-8 ${className}`}
+      className={`${inputClass} tm-select appearance-none pr-8 ${className}`}
       style={{
         backgroundImage:
           "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%236b6b6b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E\")",
         backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'right 10px center'
+        backgroundPosition: 'right 10px center',
+        colorScheme: 'dark'
       }}
       {...rest}
     >

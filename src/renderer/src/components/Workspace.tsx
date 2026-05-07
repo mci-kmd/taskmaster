@@ -12,11 +12,20 @@ import TerminalSessions, {
   type TerminalSessionsHandle,
   type ThreadSessionState
 } from './TerminalSessions'
+import ThreadDiffView from './ThreadDiffView'
 import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
 import Button from './ui/Button'
 import SegmentedControl from './ui/SegmentedControl'
-import { BranchIcon, FolderIcon, InfoIcon, PlayIcon, RefreshIcon, StopIcon, WorktreeIcon } from './Icons'
+import {
+  BranchIcon,
+  FolderIcon,
+  InfoIcon,
+  PlayIcon,
+  RefreshIcon,
+  StopIcon,
+  WorktreeIcon
+} from './Icons'
 import { composeThreadTitle } from '../lib/title'
 
 type WorkspaceProps = {
@@ -35,7 +44,7 @@ type WorkspaceProps = {
   onSessionsChange: (sessions: SessionMap) => void
 }
 
-type ThreadWorkspaceViewId = 'copilot' | 'terminal'
+type ThreadWorkspaceViewId = 'copilot' | 'terminal' | 'diff'
 
 type TerminalViewVisual = {
   tone: 'idle' | 'progress' | 'error' | 'stopped'
@@ -68,8 +77,14 @@ const THREAD_VIEW_OPTIONS: Array<{
     value: 'terminal',
     label: 'Terminal',
     description: 'Plain shell in the thread working directory'
+  },
+  {
+    value: 'diff',
+    label: 'Diff',
+    description: 'Changed files and patches for this thread'
   }
 ]
+const THREAD_VIEW_CONTROL_WIDTH_PX = THREAD_VIEW_OPTIONS.length * 88
 
 function formatBranchStatusTokens(status: BranchStatusSnapshot): string[] {
   const tokens: string[] = []
@@ -167,9 +182,7 @@ function TerminalLaunchPanel({
         </h2>
         <p
           className={`mt-2 max-w-sm text-[12.5px] leading-5 ${
-            visual.tone === 'error'
-              ? 'text-[var(--color-danger)]'
-              : 'text-[var(--color-fg-muted)]'
+            visual.tone === 'error' ? 'text-[var(--color-danger)]' : 'text-[var(--color-fg-muted)]'
           }`}
         >
           {visual.detail}
@@ -217,9 +230,9 @@ export default function Workspace({
   const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
   const [copilotSessions, setCopilotSessions] = useState<SessionMap>(new Map())
   const [terminalSessions, setTerminalSessions] = useState<SessionMap>(new Map())
-  const [threadViewSelections, setThreadViewSelections] = useState<Map<string, ThreadWorkspaceViewId>>(
-    new Map()
-  )
+  const [threadViewSelections, setThreadViewSelections] = useState<
+    Map<string, ThreadWorkspaceViewId>
+  >(new Map())
   const [branchStatusState, setBranchStatusState] = useState<{
     key: string | null
     value: BranchStatusSnapshot | null
@@ -264,7 +277,12 @@ export default function Workspace({
   }, [selectedThread, terminalSessions])
 
   const selectedView = getSelectedThreadView(threadViewSelections, selectedThread?.id)
-  const activeSession = selectedView === 'terminal' ? selectedTerminalSession : selectedCopilotSession
+  const activeSession =
+    selectedView === 'terminal'
+      ? selectedTerminalSession
+      : selectedView === 'copilot'
+        ? selectedCopilotSession
+        : IDLE_STATE
   const isRunning = activeSession.phase === 'running'
   const copilotRunning = selectedCopilotSession.phase === 'running'
   const cliAvailable = copilotStatus?.available ?? false
@@ -308,9 +326,13 @@ export default function Workspace({
       ? selectedRepository.name
       : 'Taskmaster'
 
-  const headerBranch = selectedThread ? selectedThread.displayBranchName : selectedRepository?.currentBranch
+  const headerBranch = selectedThread
+    ? selectedThread.displayBranchName
+    : selectedRepository?.currentBranch
   const latestUserMessage =
-    selectedCopilotSession.lastUserMessage?.trim() ?? selectedThread?.lastUserMessage?.trim() ?? null
+    selectedCopilotSession.lastUserMessage?.trim() ??
+    selectedThread?.lastUserMessage?.trim() ??
+    null
 
   useEffect(() => {
     const hasActiveThreadSession =
@@ -354,7 +376,12 @@ export default function Workspace({
         window.clearTimeout(timeoutId)
       }
     }
-  }, [branchStatusTarget, branchStatusTargetKey, selectedCopilotSession.phase, selectedTerminalSession.phase])
+  }, [
+    branchStatusTarget,
+    branchStatusTargetKey,
+    selectedCopilotSession.phase,
+    selectedTerminalSession.phase
+  ])
 
   // Auto-launch on freshly-created threads.
   useEffect(() => {
@@ -370,7 +397,13 @@ export default function Workspace({
     autoLaunchedRef.current.add(autoLaunchThreadId)
     onAutoLaunchHandled()
     copilotSessionsRef.current?.start(autoLaunchThreadId)
-  }, [autoLaunchThreadId, cliAvailable, onAutoLaunchHandled, selectedCopilotSession.phase, selectedThread])
+  }, [
+    autoLaunchThreadId,
+    cliAvailable,
+    onAutoLaunchHandled,
+    selectedCopilotSession.phase,
+    selectedThread
+  ])
 
   useEffect(() => {
     if (!selectedThread || selectedView !== 'terminal') {
@@ -500,7 +533,7 @@ export default function Workspace({
                 </Button>
               ) : null}
 
-              <div className="w-[176px]">
+              <div style={{ width: THREAD_VIEW_CONTROL_WIDTH_PX }}>
                 <SegmentedControl<ThreadWorkspaceViewId>
                   ariaLabel="Thread view"
                   onChange={handleSelectView}
@@ -537,48 +570,61 @@ export default function Workspace({
             ) : null}
 
             <div className="relative min-h-0 flex-1">
-              <TerminalSessions
-                copilotStatus={copilotStatus}
-                kind="copilot"
-                onRefresh={onRefresh}
-                onSessionsChange={handleCopilotSessionsChange}
-                ref={copilotSessionsRef}
-                selectedThreadId={selectedView === 'copilot' ? (selectedThread?.id ?? null) : null}
-                settings={settings}
-                threads={threads}
-              />
-
-              <TerminalSessions
-                copilotStatus={copilotStatus}
-                kind="shell"
-                onRefresh={onRefresh}
-                onSessionsChange={handleTerminalSessionsChange}
-                ref={terminalSessionsRef}
-                selectedThreadId={selectedView === 'terminal' ? (selectedThread?.id ?? null) : null}
-                settings={settings}
-                threads={threads}
-              />
-
-              {selectedThread && selectedView === 'copilot' && !copilotRunning ? (
-                <div className="absolute inset-0">
-                  <LaunchPanel
+              {selectedView === 'diff' && selectedThread ? (
+                <ThreadDiffView
+                  key={selectedThread.id}
+                  thread={selectedThread}
+                />
+              ) : (
+                <>
+                  <TerminalSessions
                     copilotStatus={copilotStatus}
-                    onLaunch={handleLaunchCopilot}
-                    session={selectedCopilotSession}
-                    thread={selectedThread}
+                    kind="copilot"
+                    onRefresh={onRefresh}
+                    onSessionsChange={handleCopilotSessionsChange}
+                    ref={copilotSessionsRef}
+                    selectedThreadId={
+                      selectedView === 'copilot' ? (selectedThread?.id ?? null) : null
+                    }
+                    settings={settings}
+                    threads={threads}
                   />
-                </div>
-              ) : null}
 
-              {selectedThread && selectedView === 'terminal' && !isRunning ? (
-                <div className="absolute inset-0">
-                  <TerminalLaunchPanel
-                    onLaunch={handleLaunchTerminal}
-                    session={selectedTerminalSession}
-                    thread={selectedThread}
+                  <TerminalSessions
+                    copilotStatus={copilotStatus}
+                    kind="shell"
+                    onRefresh={onRefresh}
+                    onSessionsChange={handleTerminalSessionsChange}
+                    ref={terminalSessionsRef}
+                    selectedThreadId={
+                      selectedView === 'terminal' ? (selectedThread?.id ?? null) : null
+                    }
+                    settings={settings}
+                    threads={threads}
                   />
-                </div>
-              ) : null}
+
+                  {selectedThread && selectedView === 'copilot' && !copilotRunning ? (
+                    <div className="absolute inset-0">
+                      <LaunchPanel
+                        copilotStatus={copilotStatus}
+                        onLaunch={handleLaunchCopilot}
+                        session={selectedCopilotSession}
+                        thread={selectedThread}
+                      />
+                    </div>
+                  ) : null}
+
+                  {selectedThread && selectedView === 'terminal' && !isRunning ? (
+                    <div className="absolute inset-0">
+                      <TerminalLaunchPanel
+                        onLaunch={handleLaunchTerminal}
+                        session={selectedTerminalSession}
+                        thread={selectedThread}
+                      />
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         </div>

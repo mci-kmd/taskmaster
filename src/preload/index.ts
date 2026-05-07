@@ -7,6 +7,11 @@ import type {
   PickRepositoryFaviconResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
+  ThreadDiffPatchRequest,
+  ThreadDiffPatchResult,
+  ThreadDiffQuery,
+  ThreadDiffRangeOptionsResult,
+  ThreadDiffSummaryResult,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -46,6 +51,12 @@ const api = {
       ipcRenderer.invoke('app-state:update-thread-resume-session', input),
     getBranchStatus: (input: BranchStatusRequest) =>
       ipcRenderer.invoke('app-state:get-branch-status', input),
+    getThreadDiffRangeOptions: (threadId: string): Promise<ThreadDiffRangeOptionsResult> =>
+      ipcRenderer.invoke('app-state:get-thread-diff-range-options', threadId),
+    getThreadDiffSummary: (input: ThreadDiffQuery): Promise<ThreadDiffSummaryResult> =>
+      ipcRenderer.invoke('app-state:get-thread-diff-summary', input),
+    getThreadDiffPatch: (input: ThreadDiffPatchRequest): Promise<ThreadDiffPatchResult> =>
+      ipcRenderer.invoke('app-state:get-thread-diff-patch', input),
     openThreadWorkingDirectory: (threadId: string): Promise<OpenThreadWorkingDirectoryResult> =>
       ipcRenderer.invoke('app-state:open-thread-working-directory', threadId),
     selectRepository: (repositoryId: string | null) =>

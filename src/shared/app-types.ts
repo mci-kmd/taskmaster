@@ -148,6 +148,92 @@ export interface BranchStatusRequest {
   threadId?: string | null
 }
 
+export type ThreadDiffMode = 'working-tree' | 'range'
+export const THREAD_DIFF_WORKTREE_REF = '__taskmaster_worktree__'
+
+export type ThreadDiffFileStatus =
+  | 'added'
+  | 'modified'
+  | 'deleted'
+  | 'renamed'
+  | 'copied'
+  | 'untracked'
+  | 'conflicted'
+  | 'typechange'
+
+export interface ThreadDiffQuery {
+  threadId: string
+  mode: ThreadDiffMode
+  baseRef?: string | null
+  headRef?: string | null
+}
+
+export interface ThreadDiffFileSummary {
+  path: string
+  previousPath: string | null
+  status: ThreadDiffFileStatus
+  additions: number | null
+  deletions: number | null
+  isBinary: boolean
+}
+
+export interface ThreadDiffSummary {
+  mode: ThreadDiffMode
+  baseRef: string | null
+  headRef: string | null
+  files: ThreadDiffFileSummary[]
+}
+
+export type ThreadDiffSummaryResult =
+  | {
+      ok: true
+      summary: ThreadDiffSummary
+    }
+  | {
+      ok: false
+      error: string
+    }
+
+export interface ThreadDiffRangeOption {
+  value: string
+  label: string
+  description: string | null
+}
+
+export interface ThreadDiffRangeOptions {
+  baseOptions: ThreadDiffRangeOption[]
+  headOptions: ThreadDiffRangeOption[]
+  defaultBaseRef: string
+  defaultHeadRef: string
+}
+
+export type ThreadDiffRangeOptionsResult =
+  | {
+      ok: true
+      options: ThreadDiffRangeOptions
+    }
+  | {
+      ok: false
+      error: string
+    }
+
+export interface ThreadDiffPatchRequest extends ThreadDiffQuery {
+  path: string
+  previousPath?: string | null
+  status: ThreadDiffFileStatus
+}
+
+export type ThreadDiffPatchResult =
+  | {
+      ok: true
+      patch: string
+      isBinary: boolean
+    }
+  | {
+      ok: false
+      error: string
+    }
+
 export type SidebarContextMenuKind = 'repository' | 'thread'
 
 export type SidebarContextMenuAction = 'new-thread' | 'edit' | 'close-thread'
