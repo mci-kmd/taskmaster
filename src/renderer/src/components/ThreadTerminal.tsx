@@ -277,47 +277,7 @@ function styleTerminalLine(rawLine: string, state: StyledOutputState): string {
   return `${styledContent}${lineBreak}`
 }
 
-function hasDecModeSequence(value: string): boolean {
-  const prefix = '\x1b[?'
-  let index = value.indexOf(prefix)
-
-  while (index !== -1) {
-    let cursor = index + prefix.length
-    let sawDigit = false
-
-    while (cursor < value.length) {
-      const char = value[cursor]
-      if (char >= '0' && char <= '9') {
-        sawDigit = true
-        cursor += 1
-        continue
-      }
-      if (char === ';') {
-        cursor += 1
-        continue
-      }
-      if (sawDigit && (char === 'h' || char === 'l')) {
-        return true
-      }
-      break
-    }
-
-    index = value.indexOf(prefix, index + 1)
-  }
-
-  return false
-}
-
-function styleTerminalOutput(incoming: string, state: StyledOutputState): string {
-  state.current += incoming
-
-  if (hasDecModeSequence(state.current)) {
-    const output = state.current
-    state.current = ''
-    state.insideToolBlock = false
-    return output
-  }
-
+function flushStyledLines(state: StyledOutputState): string {
   let output = ''
 
   while (true) {
@@ -333,17 +293,128 @@ function styleTerminalOutput(incoming: string, state: StyledOutputState): string
     state.current = state.current.slice(endIndex)
   }
 
+  return output
+}
+
+function flushStyledPartial(state: StyledOutputState, force = false): string {
+  if (state.current.length === 0) {
+    return ''
+  }
+
+  if (force) {
+    const output = styleTerminalLine(state.current, state)
+    state.current = ''
+    return output
+  }
+
   const partialKind = classifyStyledLine(
     buildVisibleTextMap(state.current).plain,
     state.insideToolBlock
   )
-  if (!partialKind && state.current.length > 0) {
-    output += state.current
+  if (!partialKind) {
+    const output = state.current
     state.current = ''
     state.insideToolBlock = false
     return output
   }
 
+  return ''
+}
+
+function readEscapeSequence(
+  value: string,
+  start: number
+): { sequence: string; end: number; isSgr: boolean } | null {
+  if (value[start] !== '\x1b') {
+    return null
+  }
+
+  const next = value[start + 1]
+  if (!next) {
+    return null
+  }
+
+  if (next === '[') {
+    let cursor = start + 2
+    while (cursor < value.length) {
+      const code = value.charCodeAt(cursor)
+      cursor += 1
+      if (code >= 0x40 && code <= 0x7e) {
+        return {
+          sequence: value.slice(start, cursor),
+          end: cursor,
+          isSgr: value[cursor - 1] === 'm'
+        }
+      }
+    }
+    return null
+  }
+
+  if (next === ']') {
+    let cursor = start + 2
+    while (cursor < value.length) {
+      if (value[cursor] === '\x07') {
+        return {
+          sequence: value.slice(start, cursor + 1),
+          end: cursor + 1,
+          isSgr: false
+        }
+      }
+      if (value[cursor] === '\x1b' && value[cursor + 1] === '\\') {
+        return {
+          sequence: value.slice(start, cursor + 2),
+          end: cursor + 2,
+          isSgr: false
+        }
+      }
+      cursor += 1
+    }
+    return null
+  }
+
+  if (start + 1 >= value.length) {
+    return null
+  }
+
+  return {
+    sequence: value.slice(start, start + 2),
+    end: start + 2,
+    isSgr: false
+  }
+}
+
+function styleTerminalOutput(incoming: string, state: StyledOutputState): string {
+  let output = ''
+
+  for (let index = 0; index < incoming.length; ) {
+    const char = incoming[index]
+    if (char !== '\x1b') {
+      const nextEscape = incoming.indexOf('\x1b', index)
+      const endIndex = nextEscape === -1 ? incoming.length : nextEscape
+      state.current += incoming.slice(index, endIndex)
+      output += flushStyledLines(state)
+      index = endIndex
+      continue
+    }
+
+    const escape = readEscapeSequence(incoming, index)
+    if (!escape) {
+      state.current += incoming.slice(index)
+      break
+    }
+
+    if (escape.isSgr) {
+      state.current += escape.sequence
+      index = escape.end
+      continue
+    }
+
+    output += flushStyledPartial(state, true)
+    output += escape.sequence
+    index = escape.end
+  }
+
+  output += flushStyledPartial(state)
   return output
 }
 
@@ -822,10 +893,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
         let styled: string
         if (kindRef.current !== 'copilot') {
-          styled = payload.data
-        } else if (term.buffer.active.type === 'alternate') {
-          pendingStyledOutputRef.current.current = ''
-          pendingStyledOutputRef.current.insideToolBlock = false
           styled = payload.data
         } else {
           styled = styleTerminalOutput(payload.data, pendingStyledOutputRef.current)
