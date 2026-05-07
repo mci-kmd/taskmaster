@@ -570,61 +570,54 @@ export default function Workspace({
             ) : null}
 
             <div className="relative min-h-0 flex-1">
+              <TerminalSessions
+                copilotStatus={copilotStatus}
+                kind="copilot"
+                onRefresh={onRefresh}
+                onSessionsChange={handleCopilotSessionsChange}
+                ref={copilotSessionsRef}
+                selectedThreadId={selectedView === 'copilot' ? (selectedThread?.id ?? null) : null}
+                settings={settings}
+                threads={threads}
+              />
+
+              <TerminalSessions
+                copilotStatus={copilotStatus}
+                kind="shell"
+                onRefresh={onRefresh}
+                onSessionsChange={handleTerminalSessionsChange}
+                ref={terminalSessionsRef}
+                selectedThreadId={selectedView === 'terminal' ? (selectedThread?.id ?? null) : null}
+                settings={settings}
+                threads={threads}
+              />
+
+              {selectedThread && selectedView === 'copilot' && !copilotRunning ? (
+                <div className="absolute inset-0">
+                  <LaunchPanel
+                    copilotStatus={copilotStatus}
+                    onLaunch={handleLaunchCopilot}
+                    session={selectedCopilotSession}
+                    thread={selectedThread}
+                  />
+                </div>
+              ) : null}
+
+              {selectedThread && selectedView === 'terminal' && !isRunning ? (
+                <div className="absolute inset-0">
+                  <TerminalLaunchPanel
+                    onLaunch={handleLaunchTerminal}
+                    session={selectedTerminalSession}
+                    thread={selectedThread}
+                  />
+                </div>
+              ) : null}
+
               {selectedView === 'diff' && selectedThread ? (
-                <ThreadDiffView
-                  key={selectedThread.id}
-                  thread={selectedThread}
-                />
-              ) : (
-                <>
-                  <TerminalSessions
-                    copilotStatus={copilotStatus}
-                    kind="copilot"
-                    onRefresh={onRefresh}
-                    onSessionsChange={handleCopilotSessionsChange}
-                    ref={copilotSessionsRef}
-                    selectedThreadId={
-                      selectedView === 'copilot' ? (selectedThread?.id ?? null) : null
-                    }
-                    settings={settings}
-                    threads={threads}
-                  />
-
-                  <TerminalSessions
-                    copilotStatus={copilotStatus}
-                    kind="shell"
-                    onRefresh={onRefresh}
-                    onSessionsChange={handleTerminalSessionsChange}
-                    ref={terminalSessionsRef}
-                    selectedThreadId={
-                      selectedView === 'terminal' ? (selectedThread?.id ?? null) : null
-                    }
-                    settings={settings}
-                    threads={threads}
-                  />
-
-                  {selectedThread && selectedView === 'copilot' && !copilotRunning ? (
-                    <div className="absolute inset-0">
-                      <LaunchPanel
-                        copilotStatus={copilotStatus}
-                        onLaunch={handleLaunchCopilot}
-                        session={selectedCopilotSession}
-                        thread={selectedThread}
-                      />
-                    </div>
-                  ) : null}
-
-                  {selectedThread && selectedView === 'terminal' && !isRunning ? (
-                    <div className="absolute inset-0">
-                      <TerminalLaunchPanel
-                        onLaunch={handleLaunchTerminal}
-                        session={selectedTerminalSession}
-                        thread={selectedThread}
-                      />
-                    </div>
-                  ) : null}
-                </>
-              )}
+                <div className="absolute inset-0">
+                  <ThreadDiffView key={selectedThread.id} thread={selectedThread} />
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
