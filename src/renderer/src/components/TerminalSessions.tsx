@@ -120,7 +120,9 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
     }, [])
 
     return (
-      <div className="absolute inset-0">
+      <div
+        className={`absolute inset-0 ${selectedThreadId ? 'pointer-events-auto' : 'pointer-events-none'}`}
+      >
         {liveEntries.map((entry) => (
           <ThreadTerminal
             copilotStatus={copilotStatus}
