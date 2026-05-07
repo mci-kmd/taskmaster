@@ -12,6 +12,7 @@ import type {
   ThreadDiffQuery,
   ThreadDiffRangeOptionsResult,
   ThreadDiffSummaryResult,
+  ThreadRunStateEvent,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -33,6 +34,9 @@ const api = {
     addRepository: () => ipcRenderer.invoke('app-state:add-repository'),
     updateRepository: (input: UpdateRepositoryInput) =>
       ipcRenderer.invoke('app-state:update-repository', input),
+    startThreadRun: (threadId: string) =>
+      ipcRenderer.invoke('app-state:start-thread-run', threadId),
+    stopThreadRun: (threadId: string) => ipcRenderer.invoke('app-state:stop-thread-run', threadId),
     updateThread: (input: UpdateThreadInput) =>
       ipcRenderer.invoke('app-state:update-thread', input),
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
@@ -65,6 +69,12 @@ const api = {
       ipcRenderer.invoke('app-state:select-thread', threadId),
     showSidebarContextMenu: (input: SidebarContextMenuRequest) =>
       ipcRenderer.invoke('native-menu:show-sidebar-context-menu', input),
+    onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: ThreadRunStateEvent): void =>
+        callback(payload)
+      ipcRenderer.on('app-state:thread-run-state', listener)
+      return () => ipcRenderer.off('app-state:thread-run-state', listener)
+    },
     onSidebarContextMenuAction: (callback: (payload: SidebarContextMenuActionEvent) => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,

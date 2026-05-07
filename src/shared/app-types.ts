@@ -80,6 +80,7 @@ export interface PersistedRepository {
   name: string
   path: string
   faviconPath: string | null
+  runCommand: string | null
   addedAt: string
 }
 
@@ -100,7 +101,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 6
+  version: 7
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -122,6 +123,7 @@ export interface ThreadSnapshot extends PersistedThread {
   /** Fallback label when no live or persisted Copilot title is available. */
   displayTitle: string
   isRunning: boolean
+  isRunCommandRunning: boolean
 }
 
 export interface RepositorySnapshot extends PersistedRepository {
@@ -293,6 +295,11 @@ export interface UpdateSettingsInput {
 export interface UpdateRepositoryInput {
   repositoryId: string
   faviconPath: string | null
+  runCommand: string | null
+}
+
+export interface ThreadRunStateEvent {
+  threadId: string
 }
 
 export interface UpdateThreadInput {

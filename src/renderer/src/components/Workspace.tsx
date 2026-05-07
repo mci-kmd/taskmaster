@@ -35,10 +35,13 @@ type WorkspaceProps = {
   settings: AppSettingsSnapshot
   hasRepositories: boolean
   autoLaunchThreadId: string | null
+  runCommandBusy: boolean
   onAutoLaunchHandled: () => void
   onRefresh: () => Promise<void>
   onAddRepository: () => void
   onNewThread: () => void
+  onStartRunCommand: () => void
+  onStopRunCommand: () => void
   onOpenWorkingDirectory: () => void
   onOpenDetails: () => void
   onSessionsChange: (sessions: SessionMap) => void
@@ -217,10 +220,13 @@ export default function Workspace({
   settings,
   hasRepositories,
   autoLaunchThreadId,
+  runCommandBusy,
   onAutoLaunchHandled,
   onRefresh,
   onAddRepository,
   onNewThread,
+  onStartRunCommand,
+  onStopRunCommand,
   onOpenWorkingDirectory,
   onOpenDetails,
   onSessionsChange
@@ -287,6 +293,9 @@ export default function Workspace({
   const copilotRunning = selectedCopilotSession.phase === 'running'
   const cliAvailable = copilotStatus?.available ?? false
   const hasThread = Boolean(selectedThread)
+  const hasRunCommand = Boolean(selectedRepository?.runCommand)
+  const runCommandRunning = selectedThread?.isRunCommandRunning ?? false
+  const showRunCommandButton = hasRunCommand || runCommandRunning
   const branchStatusTarget = useMemo<BranchStatusRequest | null>(() => {
     if (selectedThread) {
       return { threadId: selectedThread.id }
@@ -329,6 +338,7 @@ export default function Workspace({
   const headerBranch = selectedThread
     ? selectedThread.displayBranchName
     : selectedRepository?.currentBranch
+  const selectedThreadId = selectedThread?.id ?? null
   const latestUserMessage =
     selectedCopilotSession.lastUserMessage?.trim() ??
     selectedThread?.lastUserMessage?.trim() ??
@@ -406,12 +416,12 @@ export default function Workspace({
   ])
 
   useEffect(() => {
-    if (!selectedThread || selectedView !== 'terminal') {
+    if (!selectedThreadId || selectedView !== 'terminal') {
       return
     }
 
-    terminalSessionsRef.current?.start(selectedThread.id)
-  }, [selectedThread?.id, selectedView])
+    terminalSessionsRef.current?.start(selectedThreadId)
+  }, [selectedThreadId, selectedView])
 
   const handleSelectView = useCallback(
     (nextView: ThreadWorkspaceViewId): void => {
@@ -440,15 +450,6 @@ export default function Workspace({
     if (!selectedThread) return
     terminalSessionsRef.current?.start(selectedThread.id)
   }, [selectedThread])
-
-  const handleStop = useCallback((): void => {
-    if (!selectedThread) return
-    if (selectedView === 'terminal') {
-      void terminalSessionsRef.current?.stop(selectedThread.id)
-      return
-    }
-    void copilotSessionsRef.current?.stop(selectedThread.id)
-  }, [selectedThread, selectedView])
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-bg)]">
@@ -499,6 +500,24 @@ export default function Workspace({
         <div className="ml-auto flex items-center gap-1.5">
           {selectedThread ? (
             <>
+              {showRunCommandButton ? (
+                <Button
+                  aria-label={runCommandRunning ? 'Stop run command' : 'Run project command'}
+                  disabled={runCommandBusy}
+                  iconOnly
+                  onClick={runCommandRunning ? onStopRunCommand : onStartRunCommand}
+                  size="sm"
+                  title={runCommandRunning ? 'Stop run command' : 'Run project command'}
+                  variant="ghost"
+                >
+                  {runCommandRunning ? (
+                    <StopIcon width={13} height={13} />
+                  ) : (
+                    <PlayIcon width={13} height={13} />
+                  )}
+                </Button>
+              ) : null}
+
               <Button
                 aria-label="Open working directory"
                 iconOnly
@@ -520,18 +539,6 @@ export default function Workspace({
               >
                 <InfoIcon width={13} height={13} />
               </Button>
-
-              {selectedView === 'copilot' && isRunning ? (
-                <Button
-                  onClick={handleStop}
-                  size="sm"
-                  title="Stop the running Copilot session"
-                  variant="secondary"
-                >
-                  <StopIcon width={11} height={11} />
-                  Stop
-                </Button>
-              ) : null}
 
               <div style={{ width: THREAD_VIEW_CONTROL_WIDTH_PX }}>
                 <SegmentedControl<ThreadWorkspaceViewId>

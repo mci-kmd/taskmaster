@@ -151,6 +151,12 @@ export default function App(): React.JSX.Element {
     setSnapshot(nextSnapshot)
   }, [])
 
+  useEffect(() => {
+    return window.api.appState.onThreadRunState(() => {
+      void refreshSnapshot()
+    })
+  }, [refreshSnapshot])
+
   const selectedRepository = useMemo(() => {
     return snapshot ? findSelectedRepository(snapshot) : null
   }, [snapshot])
@@ -323,7 +329,10 @@ export default function App(): React.JSX.Element {
   )
 
   const handleSaveSettings = useCallback(
-    async (input: { globalFlagsInput: string; terminalFontFamilyInput: string }): Promise<boolean> => {
+    async (input: {
+      globalFlagsInput: string
+      terminalFontFamilyInput: string
+    }): Promise<boolean> => {
       setBusyAction('save-settings')
       const result = await applyMutation(
         window.api.appState.updateSettings(input),
@@ -356,7 +365,11 @@ export default function App(): React.JSX.Element {
   )
 
   const handleSaveRepository = useCallback(
-    async (input: { repositoryId: string; faviconPath: string | null }): Promise<boolean> => {
+    async (input: {
+      repositoryId: string
+      faviconPath: string | null
+      runCommand: string | null
+    }): Promise<boolean> => {
       setBusyAction('save-repository')
       const result = await applyMutation(
         window.api.appState.updateRepository(input),
@@ -367,6 +380,26 @@ export default function App(): React.JSX.Element {
     },
     [applyMutation]
   )
+
+  const handleStartRunCommand = useCallback(async (): Promise<void> => {
+    if (!selectedThread) {
+      return
+    }
+
+    setBusyAction('run-command')
+    await applyMutation(window.api.appState.startThreadRun(selectedThread.id))
+    setBusyAction(null)
+  }, [applyMutation, selectedThread])
+
+  const handleStopRunCommand = useCallback(async (): Promise<void> => {
+    if (!selectedThread) {
+      return
+    }
+
+    setBusyAction('run-command')
+    await applyMutation(window.api.appState.stopThreadRun(selectedThread.id))
+    setBusyAction(null)
+  }, [applyMutation, selectedThread])
 
   const handleSaveThread = useCallback(
     async (input: { threadId: string; customTitle: string | null }): Promise<boolean> => {
@@ -383,7 +416,10 @@ export default function App(): React.JSX.Element {
       const shouldCloseDetails = dialog === 'details' && selectedThread?.id === threadId
 
       setBusyAction('close-thread')
-      const result = await applyMutation(window.api.appState.closeThread(threadId), 'Thread closed.')
+      const result = await applyMutation(
+        window.api.appState.closeThread(threadId),
+        'Thread closed.'
+      )
       setBusyAction(null)
       if (result.ok && shouldCloseDetails) {
         setDialog(null)
@@ -483,10 +519,13 @@ export default function App(): React.JSX.Element {
         onAddRepository={() => void handleAddRepository()}
         onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
         onNewThread={() => handleOpenNewThreadDialog()}
+        onStartRunCommand={() => void handleStartRunCommand()}
+        onStopRunCommand={() => void handleStopRunCommand()}
         onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
         onOpenDetails={() => setDialog('details')}
         onRefresh={refreshSnapshot}
         onSessionsChange={handleSessionsChange}
+        runCommandBusy={busyAction === 'run-command'}
         selectedRepository={selectedRepository}
         selectedThread={selectedThread}
         settings={snapshot.settings}

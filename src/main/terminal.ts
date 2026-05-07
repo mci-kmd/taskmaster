@@ -356,6 +356,28 @@ function buildShellCommand(): TerminalCommand {
   }
 }
 
+export function buildScriptCommand(script: string): {
+  file: string
+  args: string[]
+  displayCommand: string
+} {
+  const shellCommand = buildShellCommand()
+  const shellPath = shellCommand.file.toLowerCase()
+  if (shellPath.endsWith('pwsh.exe') || shellPath.endsWith('powershell.exe')) {
+    return {
+      file: shellCommand.file,
+      args: [...shellCommand.args, '-NoProfile', '-NonInteractive', '-Command', script],
+      displayCommand: `${shellCommand.displayCommand} -Command <script>`
+    }
+  }
+
+  return {
+    file: shellCommand.file,
+    args: ['/d', '/s', '/c', script],
+    displayCommand: `${shellCommand.displayCommand} /d /s /c <script>`
+  }
+}
+
 function runGit(cwd: string, args: string[]): string {
   const result = spawnSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',

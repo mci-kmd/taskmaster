@@ -14,6 +14,7 @@ import type {
   ThreadDiffQuery,
   ThreadDiffRangeOptionsResult,
   ThreadDiffSummaryResult,
+  ThreadRunStateEvent,
   TerminalApi,
   UpdateThreadLastUserMessageInput,
   UpdateThreadResumeSessionInput,
@@ -30,6 +31,8 @@ declare global {
     refresh: () => Promise<AppSnapshot>
     addRepository: () => Promise<MutationResult>
     updateRepository: (input: UpdateRepositoryInput) => Promise<MutationResult>
+    startThreadRun: (threadId: string) => Promise<MutationResult>
+    stopThreadRun: (threadId: string) => Promise<MutationResult>
     updateThread: (input: UpdateThreadInput) => Promise<MutationResult>
     pickRepositoryFavicon: (repositoryId: string) => Promise<PickRepositoryFaviconResult>
     createThread: (input: CreateThreadInput) => Promise<MutationResult>
@@ -47,6 +50,7 @@ declare global {
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
     showSidebarContextMenu: (input: SidebarContextMenuRequest) => Promise<boolean>
+    onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) => () => void
     onSidebarContextMenuAction: (
       callback: (payload: SidebarContextMenuActionEvent) => void
     ) => () => void

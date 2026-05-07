@@ -16,7 +16,7 @@ import {
   writeFileSync
 } from 'fs'
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'path'
-import { spawn, spawnSync } from 'child_process'
+import { spawn, spawnSync, type ChildProcess } from 'child_process'
 import {
   app,
   BrowserWindow,
@@ -60,13 +60,14 @@ import {
   type UpdateUiInput
 } from '../shared/app-types'
 import { normalizeCopilotTitle } from '../shared/thread-title'
-import { getRunningThreadIds, killSessionsForThread } from './terminal'
+import { buildScriptCommand, getRunningThreadIds, killSessionsForThread } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 6 as const
+const STATE_VERSION = 7 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+const RUN_OUTPUT_LIMIT = 24_000
 const DEFAULT_TERMINAL_FONT_FAMILY =
   "'CaskaydiaCove Nerd Font Mono', 'CaskaydiaMono Nerd Font', 'MesloLGM Nerd Font Mono', 'MesloLGS NF', 'JetBrainsMono Nerd Font Mono', 'SauceCodePro Nerd Font Mono', Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
 const REPOSITORY_FAVICON_EXTENSIONS = new Set([
@@ -87,6 +88,18 @@ const branchStatusCache = new Map<
   { expiresAt: number; value: BranchStatusSnapshot | null }
 >()
 const branchStatusInflight = new Map<string, Promise<BranchStatusSnapshot | null>>()
+const threadRunSessions = new Map<string, ThreadRunSession>()
+let appIsQuitting = false
+
+type ThreadRunSession = {
+  threadId: string
+  child: ChildProcess
+  cwd: string
+  command: string
+  threadLabel: string
+  output: string
+  stopping: boolean
+}
 
 type LegacyThreadV1 = Omit<
   PersistedThread,
@@ -94,6 +107,7 @@ type LegacyThreadV1 = Omit<
 > & {
   title: string
 }
+type LegacyRepositoryV6 = Omit<PersistedRepository, 'runCommand'>
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 1
   repositories: LegacyRepositoryV3[]
@@ -104,7 +118,7 @@ type LegacyThreadV2 = Omit<
   PersistedThread,
   'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'
 >
-type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath'>
+type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath' | 'runCommand'>
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
   repositories: LegacyRepositoryV3[]
@@ -113,6 +127,10 @@ type LegacyAppStateV2 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 2
   repositories: LegacyRepositoryV3[]
   threads: LegacyThreadV2[]
+}
+type LegacyAppStateV6 = Omit<PersistedAppState, 'version' | 'repositories'> & {
+  version: 6
+  repositories: LegacyRepositoryV6[]
 }
 type LegacyThreadV4 = Omit<PersistedThread, 'lastUserMessage' | 'resumeSessionId'>
 type LegacyAppStateV4 = Omit<PersistedAppState, 'version' | 'threads'> & {
@@ -170,6 +188,21 @@ function normalizeTrackedText(value: string | null): string | null {
   return normalized.length > 0 ? normalized : null
 }
 
+function normalizeRunCommand(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+}
+
+function normalizePersistedRepository(repository: PersistedRepository): PersistedRepository {
+  const runCommand = normalizeRunCommand(repository.runCommand)
+  return runCommand === repository.runCommand
+    ? repository
+    : {
+        ...repository,
+        runCommand
+      }
+}
+
 function normalizeTerminalFontFamilyInput(value: string | null | undefined): string {
   return value?.trim() ?? ''
 }
@@ -196,6 +229,13 @@ function resolveTerminalFontFamily(settings: PersistedAppState['settings']): str
 function normalizePersistedState(state: PersistedAppState): PersistedAppState {
   const settings = normalizePersistedSettings(state.settings)
   let didChange = settings !== state.settings
+  const repositories = state.repositories.map((repository) => {
+    const normalizedRepository = normalizePersistedRepository(repository)
+    if (normalizedRepository !== repository) {
+      didChange = true
+    }
+    return normalizedRepository
+  })
   const threads = state.threads.map((thread) => {
     const normalizedThread = normalizePersistedThread(thread)
     if (normalizedThread !== thread) {
@@ -208,6 +248,7 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
     ? {
         ...state,
         settings,
+        repositories,
         threads
       }
     : state
@@ -216,6 +257,7 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 function migrateState(
   parsed:
     | PersistedAppState
+    | LegacyAppStateV6
     | LegacyAppStateV5
     | LegacyAppStateV4
     | LegacyAppStateV3
@@ -251,8 +293,20 @@ function migrateState(
 
   const migratedRepositories = parsed.repositories.map((repository) => ({
     ...repository,
-    faviconPath: null
+    faviconPath: null,
+    runCommand: null
   }))
+
+  if (parsed.version === 6) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        runCommand: null
+      }))
+    })
+  }
 
   if (parsed.version === 3) {
     return normalizePersistedState({
@@ -335,6 +389,8 @@ function ensureState(): PersistedAppState {
 
   const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as
     | PersistedAppState
+    | LegacyAppStateV6
+    | LegacyAppStateV5
     | LegacyAppStateV4
     | LegacyAppStateV3
     | LegacyAppStateV2
@@ -519,6 +575,16 @@ function validateRepositoryFaviconInput(
   }
 
   return validateRepositoryFaviconAbsolutePath(repositoryPath, resolve(repositoryPath, trimmed))
+}
+
+function validateRepositoryRunCommandInput(input: string | null): {
+  ok: true
+  command: string | null
+} {
+  return {
+    ok: true,
+    command: normalizeRunCommand(input)
+  }
 }
 
 function runGit(cwd: string, args: string[]): string {
@@ -771,6 +837,210 @@ async function openThreadWorkingDirectory(
   return error ? { ok: false, error: `Failed to open working directory: ${error}` } : { ok: true }
 }
 
+function appendThreadRunOutput(session: ThreadRunSession, chunk: string | Buffer): void {
+  const text = typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+  if (!text) {
+    return
+  }
+
+  session.output = `${session.output}${text}`.slice(-RUN_OUTPUT_LIMIT)
+}
+
+function formatThreadRunFailureDetail(
+  session: Pick<ThreadRunSession, 'command' | 'cwd' | 'output'>,
+  fallbackMessage: string | null = null
+): string {
+  const sections = [`Command:\n${session.command}`, `Working directory:\n${session.cwd}`]
+  const output = session.output.trim()
+  if (output) {
+    sections.push(`Output:\n${output}`)
+  } else if (fallbackMessage) {
+    sections.push(`Details:\n${fallbackMessage}`)
+  }
+  return sections.join('\n\n')
+}
+
+async function showThreadRunFailureDialog(
+  title: string,
+  message: string,
+  detail: string
+): Promise<void> {
+  const ownerWindow =
+    BrowserWindow.getFocusedWindow() ??
+    BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ??
+    null
+
+  const options = {
+    type: 'error' as const,
+    buttons: ['OK'],
+    defaultId: 0,
+    title,
+    message,
+    detail,
+    noLink: true
+  }
+
+  if (ownerWindow) {
+    await dialog.showMessageBox(ownerWindow, options)
+    return
+  }
+
+  await dialog.showMessageBox(options)
+}
+
+function broadcastThreadRunState(threadId: string): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) {
+      continue
+    }
+    window.webContents.send('app-state:thread-run-state', { threadId })
+  }
+}
+
+function killChildProcessTree(child: Pick<ChildProcess, 'pid'>): void {
+  if (!child.pid) {
+    return
+  }
+
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    return
+  }
+
+  try {
+    process.kill(-child.pid, 'SIGTERM')
+    return
+  } catch {
+    // Fall through to direct child kill.
+  }
+
+  try {
+    process.kill(child.pid, 'SIGTERM')
+  } catch {
+    // Ignore best-effort cleanup failures.
+  }
+}
+
+function stopThreadRunSession(threadId: string): boolean {
+  const session = threadRunSessions.get(threadId)
+  if (!session) {
+    return false
+  }
+
+  session.stopping = true
+  threadRunSessions.delete(threadId)
+  broadcastThreadRunState(threadId)
+  killChildProcessTree(session.child)
+  return true
+}
+
+function finalizeThreadRun(
+  threadId: string,
+  result: { exitCode?: number | null; error?: Error | string | null } = {}
+): void {
+  const session = threadRunSessions.get(threadId)
+  if (!session) {
+    return
+  }
+
+  threadRunSessions.delete(threadId)
+  broadcastThreadRunState(threadId)
+
+  if (session.stopping || appIsQuitting) {
+    return
+  }
+
+  if (result.error) {
+    const detail = formatThreadRunFailureDetail(
+      session,
+      result.error instanceof Error ? result.error.message : String(result.error)
+    )
+    void showThreadRunFailureDialog(
+      'Run command failed',
+      `${session.threadLabel} failed to start.`,
+      detail
+    )
+    return
+  }
+
+  if (typeof result.exitCode === 'number' && result.exitCode !== 0) {
+    const detail = formatThreadRunFailureDetail(
+      session,
+      `Process exited with code ${result.exitCode}.`
+    )
+    void showThreadRunFailureDialog(
+      'Run command failed',
+      `${session.threadLabel} exited with code ${result.exitCode}.`,
+      detail
+    )
+  }
+}
+
+function startThreadRun(threadId: string): MutationResult {
+  if (threadRunSessions.has(threadId)) {
+    return failureResult('Run command already active for this thread.')
+  }
+
+  const context = resolveThreadGitContext(threadId)
+  if (!context.ok) {
+    return failureResult(context.error)
+  }
+
+  const runCommand = normalizeRunCommand(context.repository.runCommand)
+  if (!runCommand) {
+    return failureResult('No run command configured for this project.')
+  }
+
+  if (!existsSync(context.cwd) || !statSync(context.cwd).isDirectory()) {
+    return failureResult(`Working directory not found: ${context.cwd}`)
+  }
+
+  const command = buildScriptCommand(runCommand)
+
+  try {
+    const child = spawn(command.file, command.args, {
+      cwd: context.cwd,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    const session: ThreadRunSession = {
+      threadId,
+      child,
+      cwd: context.cwd,
+      command: runCommand,
+      threadLabel: context.thread.customTitle ?? context.thread.branchName,
+      output: '',
+      stopping: false
+    }
+
+    threadRunSessions.set(threadId, session)
+    child.stdout.on('data', (chunk) => appendThreadRunOutput(session, chunk))
+    child.stderr.on('data', (chunk) => appendThreadRunOutput(session, chunk))
+    child.once('error', (error) => finalizeThreadRun(threadId, { error }))
+    child.once('exit', (exitCode) => finalizeThreadRun(threadId, { exitCode }))
+
+    broadcastThreadRunState(threadId)
+    return successResult()
+  } catch (error) {
+    return failureResult(error instanceof Error ? error.message : String(error))
+  }
+}
+
+function stopThreadRun(threadId: string): MutationResult {
+  const thread = findThread(threadId)
+  if (!thread) {
+    return failureResult('Thread not found.')
+  }
+
+  stopThreadRunSession(threadId)
+  return successResult()
+}
+
 function removeWorktree(thread: PersistedThread, repositoryPath: string, force: boolean): void {
   const protectedBranchError = getProtectedBranchDeletionError(repositoryPath, thread.branchName)
   if (protectedBranchError) {
@@ -994,7 +1264,9 @@ function buildCommitOption(commit: ParsedCommitLine, labelPrefix?: string): Thre
   const subject = commit.subject || '(no subject)'
   return {
     value: commit.fullHash,
-    label: labelPrefix ? `${labelPrefix}: ${subject} (${commit.shortHash})` : `${subject} (${commit.shortHash})`,
+    label: labelPrefix
+      ? `${labelPrefix}: ${subject} (${commit.shortHash})`
+      : `${subject} (${commit.shortHash})`,
     description: commit.fullHash
   }
 }
@@ -1265,7 +1537,9 @@ async function getRangeToWorkingTreeDiffFiles(
 
   const trackedFiles = parseNameStatusOutput(nameStatus, buildDiffStatMap(diffSummary))
   const trackedByPath = new Set(trackedFiles.map((file) => file.path))
-  const untrackedFiles = buildUntrackedDiffFiles(status).filter((file) => !trackedByPath.has(file.path))
+  const untrackedFiles = buildUntrackedDiffFiles(status).filter(
+    (file) => !trackedByPath.has(file.path)
+  )
 
   return [...trackedFiles, ...untrackedFiles].sort((left, right) =>
     left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
@@ -1494,14 +1768,16 @@ async function getBranchStatus(input: BranchStatusRequest): Promise<BranchStatus
 function buildThreadSnapshot(
   repository: PersistedRepository,
   thread: PersistedThread,
-  runningThreadIds: Set<string>
+  runningThreadIds: Set<string>,
+  runningRunThreadIds: Set<string>
 ): ThreadSnapshot {
   return {
     ...thread,
     cwd: getThreadCwd(thread, repository.path),
     displayBranchName: thread.branchName,
     displayTitle: thread.customTitle ?? thread.branchName,
-    isRunning: runningThreadIds.has(thread.id)
+    isRunning: runningThreadIds.has(thread.id),
+    isRunCommandRunning: runningRunThreadIds.has(thread.id)
   }
 }
 
@@ -1509,12 +1785,13 @@ function buildRepositorySnapshot(
   repository: PersistedRepository,
   threads: PersistedThread[],
   runningThreadIds: Set<string>,
+  runningRunThreadIds: Set<string>,
   refreshGit: boolean
 ): RepositorySnapshot {
   const repositoryGitState = getRepositoryGitState(repository, refreshGit)
   const snapshotThreads = threads
     .filter((thread) => thread.repositoryId === repository.id)
-    .map((thread) => buildThreadSnapshot(repository, thread, runningThreadIds))
+    .map((thread) => buildThreadSnapshot(repository, thread, runningThreadIds, runningRunThreadIds))
     .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
 
   return {
@@ -1547,11 +1824,18 @@ function clampSidebarWidth(value: number): number {
 function buildSnapshot(options: BuildSnapshotOptions = {}): AppSnapshot {
   const state = ensureState()
   const runningThreadIds = getRunningThreadIds()
+  const runningRunThreadIds = new Set(threadRunSessions.keys())
   const refreshGit = options.refreshGit ?? true
 
   const repositories = state.repositories
     .map((repository) =>
-      buildRepositorySnapshot(repository, state.threads, runningThreadIds, refreshGit)
+      buildRepositorySnapshot(
+        repository,
+        state.threads,
+        runningThreadIds,
+        runningRunThreadIds,
+        refreshGit
+      )
     )
     .sort(compareRepositoriesAlphabetically)
 
@@ -1797,6 +2081,7 @@ async function addRepository(): Promise<MutationResult> {
     name: basename(gitRoot),
     path: gitRoot,
     faviconPath: null,
+    runCommand: null,
     addedAt: nowIso()
   }
 
@@ -1819,6 +2104,7 @@ async function closeThread(threadId: string): Promise<MutationResult> {
   }
 
   killSessionsForThread(threadId)
+  stopThreadRunSession(threadId)
 
   if (thread.mode === 'worktree' && thread.worktreePath) {
     const dirty =
@@ -1886,16 +2172,25 @@ function updateRepository(input: UpdateRepositoryInput): MutationResult {
     return failureResult('Repository not found.')
   }
 
-  const validation = validateRepositoryFaviconInput(repository.path, input.faviconPath)
-  if (!validation.ok) {
-    return failureResult(validation.error)
+  const faviconValidation = validateRepositoryFaviconInput(repository.path, input.faviconPath)
+  if (!faviconValidation.ok) {
+    return failureResult(faviconValidation.error)
   }
 
-  if (repository.faviconPath === validation.path) {
+  const runCommandValidation = validateRepositoryRunCommandInput(input.runCommand)
+  if (!runCommandValidation.ok) {
+    return failureResult('Run command is invalid.')
+  }
+
+  if (
+    repository.faviconPath === faviconValidation.path &&
+    repository.runCommand === runCommandValidation.command
+  ) {
     return successResult()
   }
 
-  repository.faviconPath = validation.path
+  repository.faviconPath = faviconValidation.path
+  repository.runCommand = runCommandValidation.command
   saveState()
   return successResult()
 }
@@ -2058,6 +2353,15 @@ export function initializeAppState(): void {
 }
 
 export function registerAppStateIpc(): void {
+  app.on('before-quit', () => {
+    appIsQuitting = true
+    for (const session of threadRunSessions.values()) {
+      session.stopping = true
+      killChildProcessTree(session.child)
+    }
+    threadRunSessions.clear()
+  })
+
   ipcMain.handle('app-state:get-snapshot', () => buildSnapshot())
   ipcMain.handle('app-state:refresh', () => buildSnapshot())
   ipcMain.handle('app-state:add-repository', () => addRepository())
@@ -2068,6 +2372,10 @@ export function registerAppStateIpc(): void {
   ipcMain.handle('app-state:update-repository', (_event, input: UpdateRepositoryInput) =>
     updateRepository(input)
   )
+  ipcMain.handle('app-state:start-thread-run', (_event, threadId: string) =>
+    startThreadRun(threadId)
+  )
+  ipcMain.handle('app-state:stop-thread-run', (_event, threadId: string) => stopThreadRun(threadId))
   ipcMain.handle('app-state:update-thread', (_event, input: UpdateThreadInput) =>
     updateThread(input)
   )

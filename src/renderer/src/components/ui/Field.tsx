@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes } from 'react'
+import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 
 type FieldShellProps = {
   label: string
@@ -45,5 +45,12 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>): React.JS
     >
       {children}
     </select>
+  )
+}
+
+export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>): React.JSX.Element {
+  const { className = '', ...rest } = props
+  return (
+    <textarea className={`${inputClass} min-h-[112px] resize-y font-mono ${className}`} {...rest} />
   )
 }
