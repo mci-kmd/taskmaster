@@ -61,6 +61,7 @@ export interface TerminalApi {
   getStatus: () => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
   kill: (terminalId: string) => Promise<boolean>
+  hasClipboardImage: () => boolean
   readClipboardText: () => string
   input: (terminalId: string, data: string) => void
   resize: (terminalId: string, cols: number, rows: number) => void

@@ -1023,10 +1023,32 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         focusTerminalInput(term)
         term.paste(text)
       }
-      const pasteClipboardText = (): void => {
+      const pasteClipboardImage = (): void => {
+        if (kindRef.current !== 'copilot') {
+          return
+        }
+        focusTerminalInput(term)
+        markTrackedInputDirty()
+        forwardTerminalInput('\x1bv', null)
+      }
+      const clipboardHasImage = (): boolean =>
+        kindRef.current === 'copilot' && window.api.terminal.hasClipboardImage()
+      const pasteClipboard = (): void => {
+        if (clipboardHasImage()) {
+          pasteClipboardImage()
+          return
+        }
         pasteTerminalText(window.api.terminal.readClipboardText())
       }
+      const pasteEventHasImage = (event: ClipboardEvent): boolean =>
+        Array.from(event.clipboardData?.items ?? []).some((item) => item.type.startsWith('image/'))
       const handlePaste = (event: ClipboardEvent): void => {
+        if (kindRef.current === 'copilot' && pasteEventHasImage(event)) {
+          event.preventDefault()
+          event.stopPropagation()
+          pasteClipboardImage()
+          return
+        }
         const text = event.clipboardData?.getData('text/plain')
         if (text === undefined) return
         event.preventDefault()
@@ -1076,11 +1098,11 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           return true
         }
         if (onlyCtrl && (e.key === 'v' || e.key === 'V')) {
-          pasteClipboardText()
+          pasteClipboard()
           return cancelHandledKey()
         }
         if (onlyShift && e.key === 'Insert') {
-          pasteClipboardText()
+          pasteClipboard()
           return cancelHandledKey()
         }
 

@@ -91,6 +91,7 @@ const api = {
     getStatus: () => ipcRenderer.invoke('terminal:status'),
     create: (request: TerminalCreateRequest) => ipcRenderer.invoke('terminal:create', request),
     kill: (terminalId: string) => ipcRenderer.invoke('terminal:kill', terminalId),
+    hasClipboardImage: () => !clipboard.readImage().isEmpty(),
     readClipboardText: () => clipboard.readText(),
     input: (terminalId: string, data: string) =>
       ipcRenderer.send('terminal:input', { terminalId, data }),
