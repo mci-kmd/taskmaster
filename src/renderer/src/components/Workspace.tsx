@@ -21,7 +21,6 @@ import {
   BranchIcon,
   CodeIcon,
   FolderIcon,
-  InfoIcon,
   PlayIcon,
   RefreshIcon,
   StopIcon,
@@ -45,7 +44,6 @@ type WorkspaceProps = {
   onStopRunCommand: () => void
   onOpenWorkingDirectory: () => void
   onOpenWorkingDirectoryInVscode: () => void
-  onOpenDetails: () => void
   onSessionsChange: (sessions: SessionMap) => void
 }
 
@@ -231,7 +229,6 @@ export default function Workspace({
   onStopRunCommand,
   onOpenWorkingDirectory,
   onOpenWorkingDirectoryInVscode,
-  onOpenDetails,
   onSessionsChange
 }: WorkspaceProps): React.JSX.Element {
   const copilotSessionsRef = useRef<TerminalSessionsHandle | null>(null)
@@ -542,17 +539,6 @@ export default function Workspace({
                 >
                   <CodeIcon width={13} height={13} />
                 </Button>
-
-                <Button
-                  aria-label="Thread details"
-                iconOnly
-                onClick={onOpenDetails}
-                size="sm"
-                title="Thread details"
-                variant="ghost"
-              >
-                <InfoIcon width={13} height={13} />
-              </Button>
 
               <div style={{ width: THREAD_VIEW_CONTROL_WIDTH_PX }}>
                 <SegmentedControl<ThreadWorkspaceViewId>

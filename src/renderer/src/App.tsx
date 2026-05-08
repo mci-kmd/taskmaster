@@ -6,7 +6,6 @@ import EditRepositoryDialog from './components/dialogs/EditRepositoryDialog'
 import EditThreadDialog from './components/dialogs/EditThreadDialog'
 import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
-import ThreadDetailsDialog from './components/dialogs/ThreadDetailsDialog'
 import ResizeHandle from './components/ResizeHandle'
 import type { SessionMap } from './components/TerminalSessions'
 import {
@@ -25,7 +24,7 @@ type Feedback = {
   message: string
 }
 
-type DialogKey = 'new-thread' | 'settings' | 'details' | 'edit-repository' | 'edit-thread' | null
+type DialogKey = 'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | null
 
 const DEFAULT_COLLAPSE_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000
 
@@ -413,28 +412,12 @@ export default function App(): React.JSX.Element {
 
   const handleCloseThread = useCallback(
     async (threadId: string): Promise<void> => {
-      const shouldCloseDetails = dialog === 'details' && selectedThread?.id === threadId
-
       setBusyAction('close-thread')
-      const result = await applyMutation(
-        window.api.appState.closeThread(threadId),
-        'Thread closed.'
-      )
+      await applyMutation(window.api.appState.closeThread(threadId), 'Thread closed.')
       setBusyAction(null)
-      if (result.ok && shouldCloseDetails) {
-        setDialog(null)
-      }
     },
-    [applyMutation, dialog, selectedThread]
+    [applyMutation]
   )
-
-  const handleCloseSelectedThread = useCallback((): void => {
-    if (!selectedThread) {
-      return
-    }
-
-    void handleCloseThread(selectedThread.id)
-  }, [handleCloseThread, selectedThread])
 
   const handleOpenWorkingDirectory = useCallback(async (): Promise<void> => {
     if (!selectedThread) {
@@ -537,7 +520,6 @@ export default function App(): React.JSX.Element {
         onStopRunCommand={() => void handleStopRunCommand()}
         onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
         onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
-        onOpenDetails={() => setDialog('details')}
         onRefresh={refreshSnapshot}
         onSessionsChange={handleSessionsChange}
         runCommandBusy={busyAction === 'run-command'}
@@ -561,17 +543,6 @@ export default function App(): React.JSX.Element {
         onSubmit={handleSaveSettings}
         open={dialog === 'settings'}
         settings={snapshot.settings}
-      />
-
-      <ThreadDetailsDialog
-        closing={busyAction === 'close-thread'}
-        onClose={() => setDialog(null)}
-        onCloseThread={handleCloseSelectedThread}
-        open={dialog === 'details'}
-        runtimeTitle={
-          selectedThread ? (sessions.get(selectedThread.id)?.runtimeTitle ?? null) : null
-        }
-        thread={selectedThread}
       />
 
       <EditRepositoryDialog

@@ -72,16 +72,6 @@ export function GearIcon(props: IconProps): React.JSX.Element {
   )
 }
 
-export function InfoIcon(props: IconProps): React.JSX.Element {
-  return (
-    <svg {...baseProps} {...props}>
-      <circle cx="8" cy="8" r="6" />
-      <path d="M8 7.2v3.6" />
-      <circle cx="8" cy="5.2" r="0.4" fill="currentColor" stroke="none" />
-    </svg>
-  )
-}
-
 export function PlayIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>
