@@ -6,6 +6,7 @@ import type {
   CreateThreadInput,
   MutationResult,
   OpenThreadWorkingDirectoryResult,
+  OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -47,6 +48,7 @@ declare global {
     getThreadDiffSummary: (input: ThreadDiffQuery) => Promise<ThreadDiffSummaryResult>
     getThreadDiffPatch: (input: ThreadDiffPatchRequest) => Promise<ThreadDiffPatchResult>
     openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
+    openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
     showSidebarContextMenu: (input: SidebarContextMenuRequest) => Promise<boolean>

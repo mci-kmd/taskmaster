@@ -4,6 +4,7 @@ import type {
   BranchStatusRequest,
   CreateThreadInput,
   OpenThreadWorkingDirectoryResult,
+  OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -63,6 +64,8 @@ const api = {
       ipcRenderer.invoke('app-state:get-thread-diff-patch', input),
     openThreadWorkingDirectory: (threadId: string): Promise<OpenThreadWorkingDirectoryResult> =>
       ipcRenderer.invoke('app-state:open-thread-working-directory', threadId),
+    openThreadWorkspaceInVscode: (threadId: string): Promise<OpenThreadWorkspaceInVscodeResult> =>
+      ipcRenderer.invoke('app-state:open-thread-workspace-in-vscode', threadId),
     selectRepository: (repositoryId: string | null) =>
       ipcRenderer.invoke('app-state:select-repository', repositoryId),
     selectThread: (threadId: string | null) =>

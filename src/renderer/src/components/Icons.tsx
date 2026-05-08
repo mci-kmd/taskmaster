@@ -29,6 +29,14 @@ export function FolderIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function CodeIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M5.25 5 2.75 8l2.5 3M10.75 5 13.25 8l-2.5 3M8.8 4 7.2 12" />
+    </svg>
+  )
+}
+
 export function ChevronRightIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

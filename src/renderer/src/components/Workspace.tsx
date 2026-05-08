@@ -19,6 +19,7 @@ import Button from './ui/Button'
 import SegmentedControl from './ui/SegmentedControl'
 import {
   BranchIcon,
+  CodeIcon,
   FolderIcon,
   InfoIcon,
   PlayIcon,
@@ -43,6 +44,7 @@ type WorkspaceProps = {
   onStartRunCommand: () => void
   onStopRunCommand: () => void
   onOpenWorkingDirectory: () => void
+  onOpenWorkingDirectoryInVscode: () => void
   onOpenDetails: () => void
   onSessionsChange: (sessions: SessionMap) => void
 }
@@ -228,6 +230,7 @@ export default function Workspace({
   onStartRunCommand,
   onStopRunCommand,
   onOpenWorkingDirectory,
+  onOpenWorkingDirectoryInVscode,
   onOpenDetails,
   onSessionsChange
 }: WorkspaceProps): React.JSX.Element {
@@ -518,19 +521,30 @@ export default function Workspace({
                 </Button>
               ) : null}
 
-              <Button
-                aria-label="Open working directory"
-                iconOnly
+                <Button
+                  aria-label="Open working directory"
+                  iconOnly
                 onClick={onOpenWorkingDirectory}
                 size="sm"
                 title="Open working directory"
                 variant="ghost"
-              >
-                <FolderIcon width={13} height={13} />
-              </Button>
+                >
+                  <FolderIcon width={13} height={13} />
+                </Button>
 
-              <Button
-                aria-label="Thread details"
+                <Button
+                  aria-label="Open workspace in VS Code"
+                  iconOnly
+                  onClick={onOpenWorkingDirectoryInVscode}
+                  size="sm"
+                  title="Open workspace in VS Code"
+                  variant="ghost"
+                >
+                  <CodeIcon width={13} height={13} />
+                </Button>
+
+                <Button
+                  aria-label="Thread details"
                 iconOnly
                 onClick={onOpenDetails}
                 size="sm"

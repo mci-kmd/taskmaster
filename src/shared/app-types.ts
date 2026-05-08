@@ -269,7 +269,7 @@ export interface MutationResult {
   cancelled?: boolean
 }
 
-export type OpenThreadWorkingDirectoryResult =
+export type OpenThreadLocationResult =
   | {
       ok: true
     }
@@ -277,6 +277,10 @@ export type OpenThreadWorkingDirectoryResult =
       ok: false
       error: string
     }
+
+export type OpenThreadWorkingDirectoryResult = OpenThreadLocationResult
+
+export type OpenThreadWorkspaceInVscodeResult = OpenThreadLocationResult
 
 export interface CreateThreadInput {
   repositoryId: string

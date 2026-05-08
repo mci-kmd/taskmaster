@@ -267,7 +267,7 @@ function resolveCopilotPath(): string | null {
   )
 }
 
-function resolveCommandOnPath(commandName: string): string | null {
+export function resolveCommandOnPath(commandName: string): string | null {
   const result = spawnSync('where.exe', [commandName], {
     encoding: 'utf8',
     windowsHide: true
@@ -277,12 +277,21 @@ function resolveCommandOnPath(commandName: string): string | null {
     return null
   }
 
-  return (
-    result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean) ?? null
-  )
+  const matches = result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (matches.length === 0) {
+    return null
+  }
+
+  if (process.platform !== 'win32') {
+    return matches[0] ?? null
+  }
+
+  const executableMatch = matches.find((match) => /\.(exe|cmd|bat|com)$/i.test(match))
+  return executableMatch ?? matches[0] ?? null
 }
 
 function getCopilotStatus(): TerminalStatus {
@@ -306,7 +315,7 @@ function getCopilotStatus(): TerminalStatus {
   }
 }
 
-function quoteCmdArgument(value: string): string {
+export function quoteCmdArgument(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 

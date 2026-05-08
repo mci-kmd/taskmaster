@@ -447,6 +447,20 @@ export default function App(): React.JSX.Element {
     }
   }, [selectedThread])
 
+  const handleOpenWorkingDirectoryInVscode = useCallback(async (): Promise<void> => {
+    if (!selectedThread) {
+      return
+    }
+
+    const result = await window.api.appState.openThreadWorkspaceInVscode(selectedThread.id)
+    if (!result.ok) {
+      setFeedback({ tone: 'error', message: result.error })
+      return
+    }
+
+    setFeedback({ tone: 'success', message: 'Opened workspace in VS Code.' })
+  }, [selectedThread])
+
   // Refresh repo state (current branch, primary branch, etc.) every time the
   // New Thread dialog opens — git state can change externally between opens.
   useEffect(() => {
@@ -522,6 +536,7 @@ export default function App(): React.JSX.Element {
         onStartRunCommand={() => void handleStartRunCommand()}
         onStopRunCommand={() => void handleStopRunCommand()}
         onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
+        onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
         onOpenDetails={() => setDialog('details')}
         onRefresh={refreshSnapshot}
         onSessionsChange={handleSessionsChange}

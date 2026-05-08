@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { pathToFileURL } from 'url'
 import simpleGit, {
   type DiffResult,
   type DiffResultTextFile,
@@ -30,6 +31,7 @@ import {
   type BranchStatusRequest,
   type BranchStatusSnapshot,
   type OpenThreadWorkingDirectoryResult,
+  type OpenThreadWorkspaceInVscodeResult,
   type PickRepositoryFaviconResult,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
@@ -60,7 +62,13 @@ import {
   type UpdateUiInput
 } from '../shared/app-types'
 import { normalizeCopilotTitle } from '../shared/thread-title'
-import { buildScriptCommand, getRunningThreadIds, killSessionsForThread } from './terminal'
+import {
+  buildScriptCommand,
+  getRunningThreadIds,
+  killSessionsForThread,
+  quoteCmdArgument,
+  resolveCommandOnPath
+} from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
 const STATE_VERSION = 7 as const
@@ -835,6 +843,91 @@ async function openThreadWorkingDirectory(
 
   const error = await shell.openPath(cwd)
   return error ? { ok: false, error: `Failed to open working directory: ${error}` } : { ok: true }
+}
+
+function buildVscodeWorkspaceUri(cwd: string): string {
+  return `vscode://file${pathToFileURL(cwd).pathname}`
+}
+
+function buildVscodeLaunchCommand(commandPath: string, cwd: string): { file: string; args: string[] } {
+  const vscodeArgs = ['-n', cwd]
+
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(commandPath)) {
+    const command = [quoteCmdArgument(commandPath), ...vscodeArgs.map(quoteCmdArgument)].join(' ')
+    return {
+      file: process.env.ComSpec ?? process.env.COMSPEC ?? 'C:\\Windows\\System32\\cmd.exe',
+      args: ['/d', '/s', '/c', command]
+    }
+  }
+
+  return { file: commandPath, args: vscodeArgs }
+}
+
+function spawnDetachedProcess(
+  command: { file: string; args: string[] },
+  cwd: string
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command.file, command.args, {
+      cwd,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      stdio: 'ignore'
+    })
+
+    const handleError = (error: Error): void => reject(error)
+    const handleSpawn = (): void => {
+      child.off('error', handleError)
+      child.unref()
+      resolve()
+    }
+
+    child.once('error', handleError)
+    child.once('spawn', handleSpawn)
+  })
+}
+
+async function openThreadWorkspaceInVscode(
+  threadId: string
+): Promise<OpenThreadWorkspaceInVscodeResult> {
+  const context = resolveThreadGitContext(threadId)
+  if (!context.ok) {
+    return { ok: false, error: context.error }
+  }
+
+  const { cwd } = context
+  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+    return { ok: false, error: `Working directory not found: ${cwd}` }
+  }
+
+  try {
+    await shell.openExternal(buildVscodeWorkspaceUri(cwd))
+    return { ok: true }
+  } catch (uriError) {
+    const codePath = resolveCommandOnPath('code')
+    if (codePath) {
+      try {
+        const command = buildVscodeLaunchCommand(codePath, cwd)
+        await spawnDetachedProcess(command, cwd)
+        return { ok: true }
+      } catch (cliError) {
+        return {
+          ok: false,
+          error: `Failed to open workspace in VS Code: ${
+            cliError instanceof Error ? cliError.message : String(cliError)
+          }`
+        }
+      }
+    }
+
+    return {
+      ok: false,
+      error:
+        uriError instanceof Error
+          ? `VS Code is unavailable: ${uriError.message}`
+          : `VS Code is unavailable: ${String(uriError)}`
+    }
+  }
 }
 
 function appendThreadRunOutput(session: ThreadRunSession, chunk: string | Buffer): void {
@@ -2412,6 +2505,9 @@ export function registerAppStateIpc(): void {
   )
   ipcMain.handle('app-state:open-thread-working-directory', (_event, threadId: string) =>
     openThreadWorkingDirectory(threadId)
+  )
+  ipcMain.handle('app-state:open-thread-workspace-in-vscode', (_event, threadId: string) =>
+    openThreadWorkspaceInVscode(threadId)
   )
   ipcMain.handle('app-state:select-repository', (_event, repositoryId: string | null) =>
     selectRepository(repositoryId)
