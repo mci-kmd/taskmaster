@@ -3,9 +3,11 @@ import type {
   AppSettingsSnapshot,
   BranchStatusRequest,
   BranchStatusSnapshot,
+  CreateRepositoryTaskInput,
   RepositorySnapshot,
   TerminalStatus,
-  ThreadSnapshot
+  ThreadSnapshot,
+  UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
 import TerminalSessions, {
   type SessionMap,
@@ -15,6 +17,7 @@ import TerminalSessions, {
 import ThreadDiffView from './ThreadDiffView'
 import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
+import ProjectTaskManager from './ProjectTaskManager'
 import Button from './ui/Button'
 import SegmentedControl from './ui/SegmentedControl'
 import {
@@ -35,10 +38,18 @@ type WorkspaceProps = {
   settings: AppSettingsSnapshot
   hasRepositories: boolean
   autoLaunchThreadId: string | null
+  repositoryTaskBusy: boolean
   runCommandBusy: boolean
   onAutoLaunchHandled: () => void
   onRefresh: () => Promise<void>
   onAddRepository: () => void
+  onCreateRepositoryTask: (
+    input: Omit<CreateRepositoryTaskInput, 'repositoryId'>
+  ) => Promise<boolean>
+  onCompleteRepositoryTask: (taskId: string) => Promise<void>
+  onUpdateRepositoryTask: (
+    input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>
+  ) => Promise<boolean>
   onNewThread: () => void
   onStartRunCommand: () => void
   onStopRunCommand: () => void
@@ -220,10 +231,14 @@ export default function Workspace({
   settings,
   hasRepositories,
   autoLaunchThreadId,
+  repositoryTaskBusy,
   runCommandBusy,
   onAutoLaunchHandled,
   onRefresh,
   onAddRepository,
+  onCreateRepositoryTask,
+  onCompleteRepositoryTask,
+  onUpdateRepositoryTask,
   onNewThread,
   onStartRunCommand,
   onStopRunCommand,
@@ -518,27 +533,27 @@ export default function Workspace({
                 </Button>
               ) : null}
 
-                <Button
-                  aria-label="Open working directory"
-                  iconOnly
+              <Button
+                aria-label="Open working directory"
+                iconOnly
                 onClick={onOpenWorkingDirectory}
                 size="sm"
                 title="Open working directory"
                 variant="ghost"
-                >
-                  <FolderIcon width={13} height={13} />
-                </Button>
+              >
+                <FolderIcon width={13} height={13} />
+              </Button>
 
-                <Button
-                  aria-label="Open workspace in VS Code"
-                  iconOnly
-                  onClick={onOpenWorkingDirectoryInVscode}
-                  size="sm"
-                  title="Open workspace in VS Code"
-                  variant="ghost"
-                >
-                  <CodeIcon width={13} height={13} />
-                </Button>
+              <Button
+                aria-label="Open workspace in VS Code"
+                iconOnly
+                onClick={onOpenWorkingDirectoryInVscode}
+                size="sm"
+                title="Open workspace in VS Code"
+                variant="ghost"
+              >
+                <CodeIcon width={13} height={13} />
+              </Button>
 
               <div style={{ width: THREAD_VIEW_CONTROL_WIDTH_PX }}>
                 <SegmentedControl<ThreadWorkspaceViewId>
@@ -629,7 +644,20 @@ export default function Workspace({
           </div>
         </div>
 
-        {!hasThread ? (
+        {!hasThread && selectedRepository ? (
+          <div className="absolute inset-0">
+            <ProjectTaskManager
+              busy={repositoryTaskBusy}
+              key={selectedRepository.id}
+              onCompleteTask={onCompleteRepositoryTask}
+              onCreateTask={onCreateRepositoryTask}
+              onUpdateTask={onUpdateRepositoryTask}
+              repository={selectedRepository}
+            />
+          </div>
+        ) : null}
+
+        {!hasThread && !selectedRepository ? (
           <div className="absolute inset-0">
             <EmptyState
               hasRepositories={hasRepositories}

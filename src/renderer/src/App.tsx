@@ -13,10 +13,12 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   type AppSnapshot,
+  type CreateRepositoryTaskInput,
   type MutationResult,
   type RepositorySnapshot,
   type ThreadMode,
-  type ThreadSnapshot
+  type ThreadSnapshot,
+  type UpdateRepositoryTaskInput
 } from '../../shared/app-types'
 
 type Feedback = {
@@ -380,6 +382,70 @@ export default function App(): React.JSX.Element {
     [applyMutation]
   )
 
+  const handleCreateRepositoryTask = useCallback(
+    async (input: Omit<CreateRepositoryTaskInput, 'repositoryId'>): Promise<boolean> => {
+      if (!selectedRepository) {
+        return false
+      }
+
+      setBusyAction('create-task')
+      const result = await applyMutation(
+        window.api.appState.createRepositoryTask({
+          repositoryId: selectedRepository.id,
+          title: input.title,
+          description: input.description,
+          tags: input.tags
+        }),
+        'Task created.'
+      )
+      setBusyAction(null)
+      return result.ok
+    },
+    [applyMutation, selectedRepository]
+  )
+
+  const handleCompleteRepositoryTask = useCallback(
+    async (taskId: string): Promise<void> => {
+      if (!selectedRepository) {
+        return
+      }
+
+      setBusyAction('complete-task')
+      await applyMutation(
+        window.api.appState.completeRepositoryTask({
+          repositoryId: selectedRepository.id,
+          taskId
+        }),
+        'Task completed.'
+      )
+      setBusyAction(null)
+    },
+    [applyMutation, selectedRepository]
+  )
+
+  const handleUpdateRepositoryTask = useCallback(
+    async (input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>): Promise<boolean> => {
+      if (!selectedRepository) {
+        return false
+      }
+
+      setBusyAction('update-task')
+      const result = await applyMutation(
+        window.api.appState.updateRepositoryTask({
+          repositoryId: selectedRepository.id,
+          taskId: input.taskId,
+          title: input.title,
+          description: input.description,
+          tags: input.tags
+        }),
+        'Task updated.'
+      )
+      setBusyAction(null)
+      return result.ok
+    },
+    [applyMutation, selectedRepository]
+  )
+
   const handleStartRunCommand = useCallback(async (): Promise<void> => {
     if (!selectedThread) {
       return
@@ -515,6 +581,9 @@ export default function App(): React.JSX.Element {
         hasRepositories={snapshot.repositories.length > 0}
         onAddRepository={() => void handleAddRepository()}
         onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
+        onCompleteRepositoryTask={handleCompleteRepositoryTask}
+        onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
+        onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
         onNewThread={() => handleOpenNewThreadDialog()}
         onStartRunCommand={() => void handleStartRunCommand()}
         onStopRunCommand={() => void handleStopRunCommand()}
@@ -522,6 +591,11 @@ export default function App(): React.JSX.Element {
         onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
         onRefresh={refreshSnapshot}
         onSessionsChange={handleSessionsChange}
+        repositoryTaskBusy={
+          busyAction === 'create-task' ||
+          busyAction === 'complete-task' ||
+          busyAction === 'update-task'
+        }
         runCommandBusy={busyAction === 'run-command'}
         selectedRepository={selectedRepository}
         selectedThread={selectedThread}

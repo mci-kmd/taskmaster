@@ -1,5 +1,15 @@
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
 export type TerminalKind = 'copilot' | 'shell'
+export const PROJECT_TASK_TAGS = ['bug', 'feature'] as const
+export type ProjectTaskTag = (typeof PROJECT_TASK_TAGS)[number]
+
+export interface PersistedProjectTask {
+  id: string
+  title: string
+  description: string
+  tags: ProjectTaskTag[]
+  createdAt: string
+}
 
 export interface TerminalCreateRequest {
   cols: number
@@ -83,6 +93,7 @@ export interface PersistedRepository {
   faviconPath: string | null
   runCommand: string | null
   addedAt: string
+  tasks: PersistedProjectTask[]
 }
 
 export interface PersistedThread {
@@ -102,7 +113,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 7
+  version: 8
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -135,6 +146,8 @@ export interface RepositorySnapshot extends PersistedRepository {
   lastActivityAt: string
   threads: ThreadSnapshot[]
 }
+
+export type ProjectTaskSnapshot = PersistedProjectTask
 
 export interface BranchStatusSnapshot {
   ahead: number
@@ -301,6 +314,26 @@ export interface UpdateRepositoryInput {
   repositoryId: string
   faviconPath: string | null
   runCommand: string | null
+}
+
+export interface CreateRepositoryTaskInput {
+  repositoryId: string
+  title: string
+  description: string
+  tags: ProjectTaskTag[]
+}
+
+export interface CompleteRepositoryTaskInput {
+  repositoryId: string
+  taskId: string
+}
+
+export interface UpdateRepositoryTaskInput {
+  repositoryId: string
+  taskId: string
+  title: string
+  description: string
+  tags: ProjectTaskTag[]
 }
 
 export interface ThreadRunStateEvent {

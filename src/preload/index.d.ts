@@ -4,6 +4,8 @@ import type {
   BranchStatusRequest,
   BranchStatusSnapshot,
   CreateThreadInput,
+  CreateRepositoryTaskInput,
+  CompleteRepositoryTaskInput,
   MutationResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
@@ -22,6 +24,7 @@ import type {
   UpdateRepositoryInput,
   UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
+  UpdateRepositoryTaskInput,
   UpdateSettingsInput,
   UpdateUiInput
 } from '../shared/app-types'
@@ -32,6 +35,9 @@ declare global {
     refresh: () => Promise<AppSnapshot>
     addRepository: () => Promise<MutationResult>
     updateRepository: (input: UpdateRepositoryInput) => Promise<MutationResult>
+    createRepositoryTask: (input: CreateRepositoryTaskInput) => Promise<MutationResult>
+    completeRepositoryTask: (input: CompleteRepositoryTaskInput) => Promise<MutationResult>
+    updateRepositoryTask: (input: UpdateRepositoryTaskInput) => Promise<MutationResult>
     startThreadRun: (threadId: string) => Promise<MutationResult>
     stopThreadRun: (threadId: string) => Promise<MutationResult>
     updateThread: (input: UpdateThreadInput) => Promise<MutationResult>

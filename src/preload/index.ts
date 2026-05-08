@@ -3,6 +3,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   BranchStatusRequest,
   CreateThreadInput,
+  CreateRepositoryTaskInput,
+  CompleteRepositoryTaskInput,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
@@ -24,6 +26,7 @@ import type {
   UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
   UpdateThreadResumeSessionInput,
+  UpdateRepositoryTaskInput,
   UpdateSettingsInput,
   UpdateUiInput
 } from '../shared/app-types'
@@ -35,6 +38,12 @@ const api = {
     addRepository: () => ipcRenderer.invoke('app-state:add-repository'),
     updateRepository: (input: UpdateRepositoryInput) =>
       ipcRenderer.invoke('app-state:update-repository', input),
+    createRepositoryTask: (input: CreateRepositoryTaskInput) =>
+      ipcRenderer.invoke('app-state:create-repository-task', input),
+    completeRepositoryTask: (input: CompleteRepositoryTaskInput) =>
+      ipcRenderer.invoke('app-state:complete-repository-task', input),
+    updateRepositoryTask: (input: UpdateRepositoryTaskInput) =>
+      ipcRenderer.invoke('app-state:update-repository-task', input),
     startThreadRun: (threadId: string) =>
       ipcRenderer.invoke('app-state:start-thread-run', threadId),
     stopThreadRun: (threadId: string) => ipcRenderer.invoke('app-state:stop-thread-run', threadId),

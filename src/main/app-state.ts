@@ -30,18 +30,23 @@ import {
 import {
   type BranchStatusRequest,
   type BranchStatusSnapshot,
+  type CompleteRepositoryTaskInput,
   type OpenThreadWorkingDirectoryResult,
   type OpenThreadWorkspaceInVscodeResult,
   type PickRepositoryFaviconResult,
+  PROJECT_TASK_TAGS,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   type AppSnapshot,
+  type CreateRepositoryTaskInput,
   type CreateThreadInput,
   type MutationResult,
   type PersistedAppState,
+  type PersistedProjectTask,
   type PersistedRepository,
   type PersistedThread,
+  type ProjectTaskTag,
   type RepositorySnapshot,
   type ThreadDiffFileStatus,
   type ThreadDiffFileSummary,
@@ -54,6 +59,7 @@ import {
   THREAD_DIFF_WORKTREE_REF,
   type ThreadSnapshot,
   type UpdateRepositoryInput,
+  type UpdateRepositoryTaskInput,
   type UpdateThreadInput,
   type UpdateThreadCopilotTitleInput,
   type UpdateThreadLastUserMessageInput,
@@ -71,7 +77,7 @@ import {
 } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 7 as const
+const STATE_VERSION = 8 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -88,6 +94,7 @@ const REPOSITORY_FAVICON_EXTENSIONS = new Set([
   '.svg',
   '.webp'
 ])
+const PROJECT_TASK_TAG_SET = new Set<ProjectTaskTag>(PROJECT_TASK_TAGS)
 
 let persistedState: PersistedAppState | null = null
 const repositoryGitStateCache = new Map<string, RepositoryGitState>()
@@ -115,7 +122,8 @@ type LegacyThreadV1 = Omit<
 > & {
   title: string
 }
-type LegacyRepositoryV6 = Omit<PersistedRepository, 'runCommand'>
+type LegacyRepositoryV7 = Omit<PersistedRepository, 'tasks'>
+type LegacyRepositoryV6 = Omit<PersistedRepository, 'runCommand' | 'tasks'>
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 1
   repositories: LegacyRepositoryV3[]
@@ -126,7 +134,7 @@ type LegacyThreadV2 = Omit<
   PersistedThread,
   'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'
 >
-type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath' | 'runCommand'>
+type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath' | 'runCommand' | 'tasks'>
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
   repositories: LegacyRepositoryV3[]
@@ -140,14 +148,20 @@ type LegacyAppStateV6 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 6
   repositories: LegacyRepositoryV6[]
 }
+type LegacyAppStateV7 = Omit<PersistedAppState, 'version' | 'repositories'> & {
+  version: 7
+  repositories: LegacyRepositoryV7[]
+}
 type LegacyThreadV4 = Omit<PersistedThread, 'lastUserMessage' | 'resumeSessionId'>
-type LegacyAppStateV4 = Omit<PersistedAppState, 'version' | 'threads'> & {
+type LegacyAppStateV4 = Omit<PersistedAppState, 'version' | 'threads' | 'repositories'> & {
   version: 4
+  repositories: LegacyRepositoryV6[]
   threads: LegacyThreadV4[]
 }
 type LegacyThreadV5 = Omit<PersistedThread, 'lastUserMessage'>
-type LegacyAppStateV5 = Omit<PersistedAppState, 'version' | 'threads'> & {
+type LegacyAppStateV5 = Omit<PersistedAppState, 'version' | 'threads' | 'repositories'> & {
   version: 5
+  repositories: LegacyRepositoryV6[]
   threads: LegacyThreadV5[]
 }
 
@@ -196,6 +210,47 @@ function normalizeTrackedText(value: string | null): string | null {
   return normalized.length > 0 ? normalized : null
 }
 
+function normalizeTaskTitle(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+}
+
+function normalizeTaskDescription(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+}
+
+function normalizeTaskTags(tags: readonly ProjectTaskTag[] | null | undefined): ProjectTaskTag[] {
+  if (!tags || tags.length === 0) {
+    return []
+  }
+
+  return PROJECT_TASK_TAGS.filter((tag) => PROJECT_TASK_TAG_SET.has(tag) && tags.includes(tag))
+}
+
+function sameTaskTags(left: readonly ProjectTaskTag[], right: readonly ProjectTaskTag[]): boolean {
+  return left.length === right.length && left.every((tag, index) => tag === right[index])
+}
+
+function normalizePersistedTask(task: PersistedProjectTask): PersistedProjectTask {
+  const title = normalizeTaskTitle(task.title) ?? 'Untitled task'
+  const description = normalizeTaskDescription(task.description) ?? ''
+  const currentTags = Array.isArray(task.tags) ? task.tags : []
+  const tags = normalizeTaskTags(currentTags)
+
+  return title === task.title &&
+    description === task.description &&
+    Array.isArray(task.tags) &&
+    sameTaskTags(tags, currentTags)
+    ? task
+    : {
+        ...task,
+        title,
+        description,
+        tags
+      }
+}
+
 function normalizeRunCommand(value: string | null | undefined): string | null {
   const normalized = value?.trim() ?? ''
   return normalized.length > 0 ? normalized : null
@@ -203,11 +258,17 @@ function normalizeRunCommand(value: string | null | undefined): string | null {
 
 function normalizePersistedRepository(repository: PersistedRepository): PersistedRepository {
   const runCommand = normalizeRunCommand(repository.runCommand)
-  return runCommand === repository.runCommand
+  const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
+  const tasks = currentTasks.map((task) => normalizePersistedTask(task))
+  return runCommand === repository.runCommand &&
+    Array.isArray(repository.tasks) &&
+    tasks.length === currentTasks.length &&
+    tasks.every((task, index) => task === currentTasks[index])
     ? repository
     : {
         ...repository,
-        runCommand
+        runCommand,
+        tasks
       }
 }
 
@@ -265,6 +326,7 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 function migrateState(
   parsed:
     | PersistedAppState
+    | LegacyAppStateV7
     | LegacyAppStateV6
     | LegacyAppStateV5
     | LegacyAppStateV4
@@ -276,10 +338,26 @@ function migrateState(
     return normalizePersistedState(parsed)
   }
 
+  if (parsed.version === 7) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        tasks: []
+      }))
+    })
+  }
+
   if (parsed.version === 5) {
     return normalizePersistedState({
       ...parsed,
       version: STATE_VERSION,
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        runCommand: null,
+        tasks: []
+      })),
       threads: parsed.threads.map((thread) => ({
         ...thread,
         lastUserMessage: null
@@ -291,6 +369,11 @@ function migrateState(
     return normalizePersistedState({
       ...parsed,
       version: STATE_VERSION,
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        runCommand: null,
+        tasks: []
+      })),
       threads: parsed.threads.map((thread) => ({
         ...thread,
         lastUserMessage: null,
@@ -302,7 +385,8 @@ function migrateState(
   const migratedRepositories = parsed.repositories.map((repository) => ({
     ...repository,
     faviconPath: null,
-    runCommand: null
+    runCommand: null,
+    tasks: []
   }))
 
   if (parsed.version === 6) {
@@ -311,7 +395,8 @@ function migrateState(
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
-        runCommand: null
+        runCommand: null,
+        tasks: []
       }))
     })
   }
@@ -397,6 +482,7 @@ function ensureState(): PersistedAppState {
 
   const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as
     | PersistedAppState
+    | LegacyAppStateV7
     | LegacyAppStateV6
     | LegacyAppStateV5
     | LegacyAppStateV4
@@ -849,7 +935,10 @@ function buildVscodeWorkspaceUri(cwd: string): string {
   return `vscode://file${pathToFileURL(cwd).pathname}`
 }
 
-function buildVscodeLaunchCommand(commandPath: string, cwd: string): { file: string; args: string[] } {
+function buildVscodeLaunchCommand(
+  commandPath: string,
+  cwd: string
+): { file: string; args: string[] } {
   const vscodeArgs = ['-n', cwd]
 
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(commandPath)) {
@@ -2021,6 +2110,112 @@ function buildThreadSessionName(repository: Pick<PersistedRepository, 'name'>): 
   return `${sanitizeSessionNamePrefix(repository.name)}-${randomUUID()}`
 }
 
+function validateRepositoryTaskValues(input: {
+  title: string
+  description: string
+  tags: ProjectTaskTag[]
+}):
+  | {
+      ok: true
+      title: string
+      description: string
+      tags: ProjectTaskTag[]
+    }
+  | {
+      ok: false
+      error: string
+    } {
+  const title = normalizeTaskTitle(input.title)
+  if (!title) {
+    return { ok: false, error: 'Task title is required.' }
+  }
+
+  const description = normalizeTaskDescription(input.description)
+  if (!description) {
+    return { ok: false, error: 'Task description is required.' }
+  }
+
+  return {
+    ok: true,
+    title,
+    description,
+    tags: normalizeTaskTags(input.tags)
+  }
+}
+
+function createRepositoryTask(input: CreateRepositoryTaskInput): MutationResult {
+  const repository = findRepository(input.repositoryId)
+  if (!repository) {
+    return failureResult('Repository not found.')
+  }
+
+  const validation = validateRepositoryTaskValues(input)
+  if (!validation.ok) {
+    return failureResult(validation.error)
+  }
+
+  const task: PersistedProjectTask = {
+    id: randomUUID(),
+    title: validation.title,
+    description: validation.description,
+    tags: validation.tags,
+    createdAt: nowIso()
+  }
+
+  repository.tasks = [task, ...(repository.tasks ?? [])]
+  saveState()
+  return successResult()
+}
+
+function updateRepositoryTask(input: UpdateRepositoryTaskInput): MutationResult {
+  const repository = findRepository(input.repositoryId)
+  if (!repository) {
+    return failureResult('Repository not found.')
+  }
+
+  const task = (repository.tasks ?? []).find((item) => item.id === input.taskId)
+  if (!task) {
+    return failureResult('Task not found.')
+  }
+
+  const validation = validateRepositoryTaskValues(input)
+  if (!validation.ok) {
+    return failureResult(validation.error)
+  }
+
+  const currentTags = normalizeTaskTags(task.tags)
+  if (
+    task.title === validation.title &&
+    task.description === validation.description &&
+    sameTaskTags(currentTags, validation.tags)
+  ) {
+    return successResult()
+  }
+
+  task.title = validation.title
+  task.description = validation.description
+  task.tags = validation.tags
+  saveState()
+  return successResult()
+}
+
+function completeRepositoryTask(input: CompleteRepositoryTaskInput): MutationResult {
+  const repository = findRepository(input.repositoryId)
+  if (!repository) {
+    return failureResult('Repository not found.')
+  }
+
+  const currentTasks = repository.tasks ?? []
+  const nextTasks = currentTasks.filter((task) => task.id !== input.taskId)
+  if (nextTasks.length === currentTasks.length) {
+    return failureResult('Task not found.')
+  }
+
+  repository.tasks = nextTasks
+  saveState()
+  return successResult()
+}
+
 function createThread(input: CreateThreadInput): MutationResult {
   const state = ensureState()
   const repository = state.repositories.find((item) => item.id === input.repositoryId)
@@ -2175,7 +2370,8 @@ async function addRepository(): Promise<MutationResult> {
     path: gitRoot,
     faviconPath: null,
     runCommand: null,
-    addedAt: nowIso()
+    addedAt: nowIso(),
+    tasks: []
   }
 
   state.repositories.push(repository)
@@ -2458,6 +2654,16 @@ export function registerAppStateIpc(): void {
   ipcMain.handle('app-state:get-snapshot', () => buildSnapshot())
   ipcMain.handle('app-state:refresh', () => buildSnapshot())
   ipcMain.handle('app-state:add-repository', () => addRepository())
+  ipcMain.handle('app-state:create-repository-task', (_event, input: CreateRepositoryTaskInput) =>
+    createRepositoryTask(input)
+  )
+  ipcMain.handle(
+    'app-state:complete-repository-task',
+    (_event, input: CompleteRepositoryTaskInput) => completeRepositoryTask(input)
+  )
+  ipcMain.handle('app-state:update-repository-task', (_event, input: UpdateRepositoryTaskInput) =>
+    updateRepositoryTask(input)
+  )
   ipcMain.handle('app-state:create-thread', (_event, input: CreateThreadInput) =>
     createThread(input)
   )
