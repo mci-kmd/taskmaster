@@ -38,6 +38,12 @@ type RangeOptionsState = {
   error: string | null
 }
 
+type FileGroup = {
+  key: string
+  title: string | null
+  files: ThreadDiffFileSummary[]
+}
+
 const DIFF_SPLIT_MIN_WIDTH_PX = 1320
 const FILE_LIST_WIDTH_DEFAULT = 380
 const FILE_LIST_WIDTH_MIN = 220
@@ -87,10 +93,56 @@ function splitPathForDisplay(path: string): {
   }
 }
 
-function getRangeOptionLabel(
-  value: string,
-  optionMap: Map<string, ThreadDiffRangeOption>
-): string {
+function normalizeDisplayPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
+function getPathTail(path: string): string {
+  const normalizedPath = path.replace(/[\\/]+$/, '')
+  const lastSeparatorIndex = Math.max(
+    normalizedPath.lastIndexOf('/'),
+    normalizedPath.lastIndexOf('\\')
+  )
+  return lastSeparatorIndex === -1 ? normalizedPath : normalizedPath.slice(lastSeparatorIndex + 1)
+}
+
+function getProjectTitle(projectRootPath: string | null, cwd: string): string | null {
+  if (projectRootPath === null) {
+    return null
+  }
+
+  return projectRootPath.length > 0 ? getPathTail(projectRootPath) : getPathTail(cwd)
+}
+
+function getProjectRelativePath(path: string, projectRootPath: string | null): string {
+  const normalizedPath = normalizeDisplayPath(path)
+  if (projectRootPath === null || projectRootPath.length === 0) {
+    return normalizedPath
+  }
+
+  const normalizedRootPath = normalizeDisplayPath(projectRootPath)
+  const prefix = `${normalizedRootPath}/`
+  return normalizedPath.startsWith(prefix) ? normalizedPath.slice(prefix.length) : normalizedPath
+}
+
+function getPreviousPathDisplay(file: ThreadDiffFileSummary, cwd: string): string | null {
+  if (!file.previousPath) {
+    return null
+  }
+
+  const previousPath = getProjectRelativePath(file.previousPath, file.previousProjectRootPath)
+  if (
+    file.previousProjectRootPath !== null &&
+    file.previousProjectRootPath !== file.projectRootPath
+  ) {
+    const previousProjectTitle = getProjectTitle(file.previousProjectRootPath, cwd)
+    return previousProjectTitle ? `${previousProjectTitle}/${previousPath}` : previousPath
+  }
+
+  return previousPath
+}
+
+function getRangeOptionLabel(value: string, optionMap: Map<string, ThreadDiffRangeOption>): string {
   return optionMap.get(value)?.label ?? value
 }
 
@@ -283,6 +335,27 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
   const selectedFile = useMemo(() => {
     return summaryState.files.find((file) => file.path === selectedPath) ?? null
   }, [selectedPath, summaryState.files])
+  const fileGroups = useMemo<FileGroup[]>(() => {
+    const groups = new Map<string, FileGroup>()
+
+    for (const file of summaryState.files) {
+      const key =
+        file.projectRootPath === null ? '__ungrouped__' : `project:${file.projectRootPath}`
+      const existingGroup = groups.get(key)
+      if (existingGroup) {
+        existingGroup.files.push(file)
+        continue
+      }
+
+      groups.set(key, {
+        key,
+        title: getProjectTitle(file.projectRootPath, thread.cwd),
+        files: [file]
+      })
+    }
+
+    return [...groups.values()]
+  }, [summaryState.files, thread.cwd])
 
   const patchKey = selectedFile ? `${requestKey}:${selectedFile.path}` : null
   const selectedPatchState = patchKey ? (patchStates[patchKey] ?? null) : null
@@ -581,9 +654,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
             <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--color-danger)]">
               Diff load failed
             </div>
-            <p className="mt-3 text-[13px] leading-6 text-[var(--color-fg-muted)]">
-              {panelError}
-            </p>
+            <p className="mt-3 text-[13px] leading-6 text-[var(--color-fg-muted)]">{panelError}</p>
           </div>
         </section>
       ) : null}
@@ -615,67 +686,84 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                   </div>
                 ) : null}
 
-                {summaryState.files.map((file) => {
-                  const additions = formatStatDelta('+', file.additions)
-                  const deletions = formatStatDelta('-', file.deletions)
-                  const active = file.path === selectedPath
-                  const showNewLabel = file.status === 'untracked'
-                  const pathDisplay = splitPathForDisplay(file.path)
-                  const tooltip =
-                    file.previousPath !== null && file.previousPath.length > 0
-                      ? `${file.path}\nfrom ${file.previousPath}`
-                      : file.path
-
-                  return (
-                    <button
-                      className={`mb-[2px] w-full rounded-md border px-[6px] py-[5px] text-left transition-colors ${
-                        active
-                          ? 'border-[var(--color-border-strong)] bg-[var(--color-surface)]'
-                          : 'border-transparent bg-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]'
-                      }`}
-                      key={`${file.previousPath ?? ''}:${file.path}`}
-                      onClick={() => setSelectedPath(file.path)}
-                      title={tooltip}
-                      type="button"
-                    >
-                      <div className="min-w-0">
-                        <div className="inline-flex min-w-0 max-w-full font-mono text-[12.5px]">
-                          {pathDisplay.directory ? (
-                            <span className="tm-truncate-start min-w-0 flex-1 text-[var(--color-fg-subtle)]">
-                              {pathDisplay.directory}
-                            </span>
-                          ) : null}
-                          {pathDisplay.separator ? (
-                            <span className="shrink-0 text-[var(--color-fg-subtle)]">
-                              {pathDisplay.separator}
-                            </span>
-                          ) : null}
-                          <span className="truncate text-[var(--color-fg)]">
-                            {pathDisplay.filename}
-                          </span>
-                        </div>
-                        {file.previousPath ? (
-                          <div className="tm-truncate-start mt-[2px] font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
-                            from {file.previousPath}
-                          </div>
-                        ) : null}
-                        {additions || deletions || showNewLabel ? (
-                          <div className="mt-[2px] flex items-center gap-1 text-[11.5px] font-mono">
-                            {additions ? (
-                              <span className="text-[var(--color-positive)]">{additions}</span>
-                            ) : null}
-                            {deletions ? (
-                              <span className="text-[var(--color-danger)]">{deletions}</span>
-                            ) : null}
-                            {showNewLabel ? (
-                              <span className="text-[var(--color-positive)]">New</span>
-                            ) : null}
-                          </div>
-                        ) : null}
+                {fileGroups.map((group, groupIndex) => (
+                  <div key={group.key}>
+                    {group.title ? (
+                      <div
+                        className={`px-[6px] pb-1 text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)] ${
+                          groupIndex === 0 ? 'pt-1' : 'pt-3'
+                        }`}
+                      >
+                        {group.title}
                       </div>
-                    </button>
-                  )
-                })}
+                    ) : null}
+
+                    {group.files.map((file) => {
+                      const additions = formatStatDelta('+', file.additions)
+                      const deletions = formatStatDelta('-', file.deletions)
+                      const active = file.path === selectedPath
+                      const showNewLabel = file.status === 'untracked'
+                      const pathDisplay = splitPathForDisplay(
+                        getProjectRelativePath(file.path, file.projectRootPath)
+                      )
+                      const previousPathDisplay = getPreviousPathDisplay(file, thread.cwd)
+                      const tooltip =
+                        file.previousPath !== null && file.previousPath.length > 0
+                          ? `${file.path}\nfrom ${file.previousPath}`
+                          : file.path
+
+                      return (
+                        <button
+                          className={`mb-[2px] w-full rounded-md border px-[6px] py-[5px] text-left transition-colors ${
+                            active
+                              ? 'border-[var(--color-border-strong)] bg-[var(--color-surface)]'
+                              : 'border-transparent bg-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]'
+                          }`}
+                          key={`${file.previousPath ?? ''}:${file.path}`}
+                          onClick={() => setSelectedPath(file.path)}
+                          title={tooltip}
+                          type="button"
+                        >
+                          <div className="min-w-0">
+                            <div className="inline-flex min-w-0 max-w-full font-mono text-[12.5px]">
+                              {pathDisplay.directory ? (
+                                <span className="tm-truncate-start min-w-0 flex-1 text-[var(--color-fg-subtle)]">
+                                  {pathDisplay.directory}
+                                </span>
+                              ) : null}
+                              {pathDisplay.separator ? (
+                                <span className="shrink-0 text-[var(--color-fg-subtle)]">
+                                  {pathDisplay.separator}
+                                </span>
+                              ) : null}
+                              <span className="truncate text-[var(--color-fg)]">
+                                {pathDisplay.filename}
+                              </span>
+                            </div>
+                            {previousPathDisplay ? (
+                              <div className="tm-truncate-start mt-[2px] font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
+                                from {previousPathDisplay}
+                              </div>
+                            ) : null}
+                            {additions || deletions || showNewLabel ? (
+                              <div className="mt-[2px] flex items-center gap-1 text-[11.5px] font-mono">
+                                {additions ? (
+                                  <span className="text-[var(--color-positive)]">{additions}</span>
+                                ) : null}
+                                {deletions ? (
+                                  <span className="text-[var(--color-danger)]">{deletions}</span>
+                                ) : null}
+                                {showNewLabel ? (
+                                  <span className="text-[var(--color-positive)]">New</span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
               </div>
             </aside>
 

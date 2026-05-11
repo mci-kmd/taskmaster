@@ -188,6 +188,8 @@ export interface ThreadDiffQuery {
 export interface ThreadDiffFileSummary {
   path: string
   previousPath: string | null
+  projectRootPath: string | null
+  previousProjectRootPath: string | null
   status: ThreadDiffFileStatus
   additions: number | null
   deletions: number | null

@@ -10,6 +10,7 @@ import simpleGit, {
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   statSync,
@@ -175,6 +176,10 @@ type LegacyAppStateV5 = Omit<PersistedAppState, 'version' | 'threads' | 'reposit
 type RepositoryGitState = {
   currentBranch: string
   primaryBranch: string | null
+}
+
+type DiffProjectInfo = {
+  rootPath: string
 }
 
 type RelativePathResult = { ok: true; path: string } | { ok: false; error: string }
@@ -1488,6 +1493,8 @@ function buildUntrackedDiffFiles(status: StatusResult): ThreadDiffFileSummary[] 
     .map((file) => ({
       path: file.path,
       previousPath: null,
+      projectRootPath: null,
+      previousProjectRootPath: null,
       status: 'untracked' as const,
       additions: null,
       deletions: null,
@@ -1563,6 +1570,8 @@ function parseNameStatusOutput(
       files.push({
         path,
         previousPath: previousPath || null,
+        projectRootPath: null,
+        previousProjectRootPath: null,
         status,
         additions: stat?.insertions ?? null,
         deletions: stat?.deletions ?? null,
@@ -1580,6 +1589,8 @@ function parseNameStatusOutput(
     files.push({
       path,
       previousPath: null,
+      projectRootPath: null,
+      previousProjectRootPath: null,
       status,
       additions: stat?.insertions ?? null,
       deletions: stat?.deletions ?? null,
@@ -1640,6 +1651,8 @@ function buildWorkingTreeDiffFiles(
       return {
         path: file.path,
         previousPath: file.from ?? renamedByPath.get(file.path) ?? null,
+        projectRootPath: null,
+        previousProjectRootPath: null,
         status: diffStatus,
         additions: stat?.insertions ?? null,
         deletions: stat?.deletions ?? null,
@@ -1647,6 +1660,101 @@ function buildWorkingTreeDiffFiles(
       }
     })
     .sort((left, right) => left.path.localeCompare(right.path, undefined, { sensitivity: 'base' }))
+}
+
+function normalizeDiffProjectPath(path: string): string {
+  return path.replaceAll('\\', '/')
+}
+
+function directoryContainsProjectMarker(path: string): boolean {
+  if (!existsSync(path)) {
+    return false
+  }
+
+  if (existsSync(join(path, 'package.json'))) {
+    return true
+  }
+
+  return readdirSync(path, { withFileTypes: true }).some(
+    (entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.csproj'
+  )
+}
+
+function findDiffProjectForPath(
+  cwd: string,
+  relativePath: string,
+  cache: Map<string, DiffProjectInfo | null>
+): DiffProjectInfo | null {
+  const normalizedCwd = normalize(cwd)
+  let currentDirectory = dirname(resolve(cwd, relativePath))
+  const visitedDirectories: string[] = []
+
+  while (true) {
+    const normalizedDirectory = normalize(currentDirectory)
+    if (
+      normalizedDirectory !== normalizedCwd &&
+      !isPathInsideRepository(cwd, normalizedDirectory)
+    ) {
+      break
+    }
+
+    const cached = cache.get(normalizedDirectory)
+    if (cached !== undefined) {
+      for (const directory of visitedDirectories) {
+        cache.set(directory, cached)
+      }
+      return cached
+    }
+
+    visitedDirectories.push(normalizedDirectory)
+    if (directoryContainsProjectMarker(normalizedDirectory)) {
+      const project = {
+        rootPath: normalizeDiffProjectPath(relative(cwd, normalizedDirectory))
+      }
+      for (const directory of visitedDirectories) {
+        cache.set(directory, project)
+      }
+      return project
+    }
+
+    if (normalizedDirectory === normalizedCwd) {
+      break
+    }
+
+    const parentDirectory = dirname(normalizedDirectory)
+    if (parentDirectory === normalizedDirectory) {
+      break
+    }
+
+    currentDirectory = parentDirectory
+  }
+
+  for (const directory of visitedDirectories) {
+    cache.set(directory, null)
+  }
+
+  return null
+}
+
+function annotateDiffFilesWithProjects(
+  cwd: string,
+  files: ThreadDiffFileSummary[]
+): ThreadDiffFileSummary[] {
+  const projectCache = new Map<string, DiffProjectInfo | null>()
+
+  return files.map((file) => {
+    const project = findDiffProjectForPath(cwd, file.path, projectCache)
+    const previousProject =
+      file.previousPath === null
+        ? null
+        : findDiffProjectForPath(cwd, file.previousPath, projectCache)
+
+    return {
+      ...file,
+      projectRootPath: project?.rootPath ?? null,
+      previousProjectRootPath: previousProject?.rootPath ?? null
+    }
+  })
 }
 
 async function getThreadDiffRangeOptions(threadId: string): Promise<ThreadDiffRangeOptionsResult> {
@@ -1767,7 +1875,10 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
             mode: input.mode,
             baseRef,
             headRef,
-            files: await getRangeToWorkingTreeDiffFiles(git, baseRef)
+            files: annotateDiffFilesWithProjects(
+              cwd,
+              await getRangeToWorkingTreeDiffFiles(git, baseRef)
+            )
           }
         }
       }
@@ -1783,7 +1894,10 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
           mode: input.mode,
           baseRef,
           headRef,
-          files: parseNameStatusOutput(nameStatus, buildDiffStatMap(diffSummary))
+          files: annotateDiffFilesWithProjects(
+            cwd,
+            parseNameStatusOutput(nameStatus, buildDiffStatMap(diffSummary))
+          )
         }
       }
     }
@@ -1797,7 +1911,10 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
         mode: input.mode,
         baseRef: null,
         headRef: null,
-        files: buildWorkingTreeDiffFiles(status, buildDiffStatMap(diffSummary))
+        files: annotateDiffFilesWithProjects(
+          cwd,
+          buildWorkingTreeDiffFiles(status, buildDiffStatMap(diffSummary))
+        )
       }
     }
   } catch (error) {
