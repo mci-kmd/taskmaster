@@ -126,6 +126,7 @@ export default function App(): React.JSX.Element {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null)
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
   const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
+  const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
   const selectionRequestIdRef = useRef(0)
@@ -160,12 +161,34 @@ export default function App(): React.JSX.Element {
   }, [refreshSnapshot])
 
   const selectedRepository = useMemo(() => {
-    return snapshot ? findSelectedRepository(snapshot) : null
-  }, [snapshot])
+    if (!snapshot) {
+      return null
+    }
+
+    if (repositoryViewId) {
+      return snapshot.repositories.find((repository) => repository.id === repositoryViewId) ?? null
+    }
+
+    return findSelectedRepository(snapshot)
+  }, [repositoryViewId, snapshot])
 
   const selectedThread = useMemo(() => {
-    return snapshot ? findSelectedThread(snapshot) : null
-  }, [snapshot])
+    if (!snapshot || repositoryViewId) {
+      return null
+    }
+
+    return findSelectedThread(snapshot)
+  }, [repositoryViewId, snapshot])
+
+  useEffect(() => {
+    if (!snapshot || !repositoryViewId) {
+      return
+    }
+
+    if (!snapshot.repositories.some((repository) => repository.id === repositoryViewId)) {
+      setRepositoryViewId(null)
+    }
+  }, [repositoryViewId, snapshot])
 
   const editingRepository = useMemo(() => {
     if (!snapshot || !editingRepositoryId) {
@@ -218,7 +241,10 @@ export default function App(): React.JSX.Element {
 
   const handleAddRepository = useCallback(async (): Promise<void> => {
     setBusyAction('add-repository')
-    await applyMutation(window.api.appState.addRepository(), 'Repository added.')
+    const result = await applyMutation(window.api.appState.addRepository(), 'Repository added.')
+    if (result.ok && result.snapshot?.selectedRepositoryId) {
+      setRepositoryViewId(result.snapshot.selectedRepositoryId)
+    }
     setBusyAction(null)
   }, [applyMutation])
 
@@ -244,6 +270,7 @@ export default function App(): React.JSX.Element {
 
   const handleSelectRepository = useCallback((repositoryId: string): void => {
     const requestId = ++selectionRequestIdRef.current
+    setRepositoryViewId(repositoryId)
     setSnapshot((current) => (current ? applyRepositorySelection(current, repositoryId) : current))
     void window.api.appState.selectRepository(repositoryId).then((nextSnapshot) => {
       if (selectionRequestIdRef.current !== requestId) {
@@ -256,6 +283,7 @@ export default function App(): React.JSX.Element {
 
   const handleSelectThread = useCallback((threadId: string): void => {
     const requestId = ++selectionRequestIdRef.current
+    setRepositoryViewId(null)
     setSnapshot((current) => (current ? applyThreadSelection(current, threadId) : current))
     void window.api.appState.selectThread(threadId).then((nextSnapshot) => {
       if (selectionRequestIdRef.current !== requestId) {
@@ -303,6 +331,7 @@ export default function App(): React.JSX.Element {
       setBusyAction(null)
 
       if (result.ok && result.snapshot?.selectedThreadId) {
+        setRepositoryViewId(null)
         const newThreadId = result.snapshot.selectedThreadId
         const newThread = findThreadById(result.snapshot, newThreadId)
         if (newThread && !newThread.hasLaunched) {

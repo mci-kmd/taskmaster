@@ -8,8 +8,8 @@ type FieldShellProps = {
 }
 
 export function Field({ label, hint, children, htmlFor }: FieldShellProps): React.JSX.Element {
-  return (
-    <label className="block" htmlFor={htmlFor}>
+  const content = (
+    <>
       <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
         {label}
       </div>
@@ -17,8 +17,18 @@ export function Field({ label, hint, children, htmlFor }: FieldShellProps): Reac
       {hint ? (
         <p className="mt-1.5 text-[12px] leading-5 text-[var(--color-fg-subtle)]">{hint}</p>
       ) : null}
-    </label>
+    </>
   )
+
+  if (htmlFor) {
+    return (
+      <label className="block" htmlFor={htmlFor}>
+        {content}
+      </label>
+    )
+  }
+
+  return <div className="block">{content}</div>
 }
 
 const inputClass =

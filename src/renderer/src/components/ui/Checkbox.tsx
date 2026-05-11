@@ -22,7 +22,7 @@ export default function Checkbox({
     >
       <input
         checked={checked}
-        className="sr-only"
+        className="tm-checkbox__input"
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
         type="checkbox"
