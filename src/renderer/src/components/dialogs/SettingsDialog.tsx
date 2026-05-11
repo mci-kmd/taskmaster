@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import Modal from '../Modal'
 import Button from '../ui/Button'
-import { Field, TextInput } from '../ui/Field'
-import type { AppSettingsSnapshot } from '../../../../shared/app-types'
+import { Field, TextArea, TextInput } from '../ui/Field'
+import type { AppSettingsSnapshot, UpdateSettingsInput } from '../../../../shared/app-types'
+import { parseTaskTagsInput } from '../../../../shared/task-tags'
 
 type SettingsDialogProps = {
   open: boolean
   settings: AppSettingsSnapshot
   busy: boolean
   onClose: () => void
-  onSubmit: (input: { globalFlagsInput: string; terminalFontFamilyInput: string }) => Promise<boolean>
+  onSubmit: (input: UpdateSettingsInput) => Promise<boolean>
 }
 
 export default function SettingsDialog({
@@ -46,7 +47,7 @@ type SettingsFormProps = {
   settings: AppSettingsSnapshot
   busy: boolean
   onCancel: () => void
-  onSubmit: (input: { globalFlagsInput: string; terminalFontFamilyInput: string }) => Promise<void>
+  onSubmit: (input: UpdateSettingsInput) => Promise<void>
 }
 
 function SettingsForm({
@@ -59,6 +60,7 @@ function SettingsForm({
   const [terminalFontFamilyDraft, setTerminalFontFamilyDraft] = useState(
     settings.terminalFontFamilyInput
   )
+  const [taskTagsDraft, setTaskTagsDraft] = useState(settings.taskTagsInput)
 
   const parsedPreview =
     draft === settings.globalFlagsInput
@@ -66,10 +68,15 @@ function SettingsForm({
       : (draft.match(/("[^"]*"|'[^']*'|\S+)/g) ?? []).map((token) =>
           token.replace(/^['"]|['"]$/g, '')
         )
+  const parsedTaskTagsPreview =
+    taskTagsDraft === settings.taskTagsInput
+      ? settings.parsedTaskTags
+      : parseTaskTagsInput(taskTagsDraft)
 
   const dirty =
     draft !== settings.globalFlagsInput ||
-    terminalFontFamilyDraft !== settings.terminalFontFamilyInput
+    terminalFontFamilyDraft !== settings.terminalFontFamilyInput ||
+    taskTagsDraft !== settings.taskTagsInput
 
   return (
     <form
@@ -79,7 +86,8 @@ function SettingsForm({
         if (dirty && !busy) {
           void onSubmit({
             globalFlagsInput: draft,
-            terminalFontFamilyInput: terminalFontFamilyDraft
+            terminalFontFamilyInput: terminalFontFamilyDraft,
+            taskTagsInput: taskTagsDraft
           })
         }
       }}
@@ -107,12 +115,46 @@ function SettingsForm({
         />
       </Field>
 
+      <Field
+        hint="Comma- or newline-separated labels available in project task create/edit forms."
+        label="Task tags"
+      >
+        <TextArea
+          onChange={(event) => setTaskTagsDraft(event.target.value)}
+          placeholder={'bug\nfeature'}
+          spellCheck={false}
+          value={taskTagsDraft}
+        />
+      </Field>
+
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5">
         <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
           Active terminal font stack
         </div>
         <div className="mt-1.5 break-words font-mono text-[11.5px] leading-5 text-[var(--color-fg)]">
           {terminalFontFamilyDraft.trim() || settings.resolvedTerminalFontFamily}
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+          Task tag preview
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {parsedTaskTagsPreview.length > 0 ? (
+            parsedTaskTagsPreview.map((tag) => (
+              <span
+                className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-1 text-[11.5px] text-[var(--color-fg)]"
+                key={tag}
+              >
+                {tag}
+              </span>
+            ))
+          ) : (
+            <span className="text-[12.5px] text-[var(--color-fg-subtle)]">
+              No task tags configured.
+            </span>
+          )}
         </div>
       </div>
 
@@ -142,12 +184,7 @@ function SettingsForm({
         <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
           Cancel
         </Button>
-        <Button
-          disabled={busy || !dirty}
-          title="Save settings"
-          type="submit"
-          variant="primary"
-        >
+        <Button disabled={busy || !dirty} title="Save settings" type="submit" variant="primary">
           {busy ? 'Saving…' : 'Save settings'}
         </Button>
       </div>

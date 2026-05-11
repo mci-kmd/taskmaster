@@ -653,6 +653,7 @@ export default function Workspace({
               onCreateTask={onCreateRepositoryTask}
               onUpdateTask={onUpdateRepositoryTask}
               repository={selectedRepository}
+              taskTags={settings.parsedTaskTags}
             />
           </div>
         ) : null}

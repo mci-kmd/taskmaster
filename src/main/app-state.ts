@@ -31,10 +31,10 @@ import {
   type BranchStatusRequest,
   type BranchStatusSnapshot,
   type CompleteRepositoryTaskInput,
+  type ProjectTaskTag,
   type OpenThreadWorkingDirectoryResult,
   type OpenThreadWorkspaceInVscodeResult,
   type PickRepositoryFaviconResult,
-  PROJECT_TASK_TAGS,
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
@@ -46,7 +46,6 @@ import {
   type PersistedProjectTask,
   type PersistedRepository,
   type PersistedThread,
-  type ProjectTaskTag,
   type RepositorySnapshot,
   type ThreadDiffFileStatus,
   type ThreadDiffFileSummary,
@@ -67,6 +66,14 @@ import {
   type UpdateSettingsInput,
   type UpdateUiInput
 } from '../shared/app-types'
+import {
+  DEFAULT_PROJECT_TASK_TAGS,
+  mergeTaskTags,
+  normalizeTaskTags,
+  normalizeTaskTagsAgainstAllowed,
+  normalizeTaskTagsInput,
+  parseTaskTagsInput
+} from '../shared/task-tags'
 import { normalizeCopilotTitle } from '../shared/thread-title'
 import {
   buildScriptCommand,
@@ -84,6 +91,7 @@ const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const RUN_OUTPUT_LIMIT = 24_000
 const DEFAULT_TERMINAL_FONT_FAMILY =
   "'CaskaydiaCove Nerd Font Mono', 'CaskaydiaMono Nerd Font', 'MesloLGM Nerd Font Mono', 'MesloLGS NF', 'JetBrainsMono Nerd Font Mono', 'SauceCodePro Nerd Font Mono', Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
+const DEFAULT_TASK_TAGS_INPUT = DEFAULT_PROJECT_TASK_TAGS.join('\n')
 const REPOSITORY_FAVICON_EXTENSIONS = new Set([
   '.bmp',
   '.gif',
@@ -94,7 +102,6 @@ const REPOSITORY_FAVICON_EXTENSIONS = new Set([
   '.svg',
   '.webp'
 ])
-const PROJECT_TASK_TAG_SET = new Set<ProjectTaskTag>(PROJECT_TASK_TAGS)
 
 let persistedState: PersistedAppState | null = null
 const repositoryGitStateCache = new Map<string, RepositoryGitState>()
@@ -220,14 +227,6 @@ function normalizeTaskDescription(value: string | null | undefined): string | nu
   return normalized.length > 0 ? normalized : null
 }
 
-function normalizeTaskTags(tags: readonly ProjectTaskTag[] | null | undefined): ProjectTaskTag[] {
-  if (!tags || tags.length === 0) {
-    return []
-  }
-
-  return PROJECT_TASK_TAGS.filter((tag) => PROJECT_TASK_TAG_SET.has(tag) && tags.includes(tag))
-}
-
 function sameTaskTags(left: readonly ProjectTaskTag[], right: readonly ProjectTaskTag[]): boolean {
   return left.length === right.length && left.every((tag, index) => tag === right[index])
 }
@@ -280,11 +279,22 @@ function normalizePersistedSettings(
   settings: PersistedAppState['settings']
 ): PersistedAppState['settings'] {
   const terminalFontFamilyInput = normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput)
-  return terminalFontFamilyInput === settings.terminalFontFamilyInput
+  const currentTaskTagsInput =
+    typeof (settings as { taskTagsInput?: unknown }).taskTagsInput === 'string'
+      ? (settings as { taskTagsInput: string }).taskTagsInput
+      : undefined
+  const taskTagsInput =
+    currentTaskTagsInput === undefined
+      ? DEFAULT_TASK_TAGS_INPUT
+      : normalizeTaskTagsInput(currentTaskTagsInput)
+
+  return terminalFontFamilyInput === settings.terminalFontFamilyInput &&
+    taskTagsInput === currentTaskTagsInput
     ? settings
     : {
         ...settings,
-        terminalFontFamilyInput
+        terminalFontFamilyInput,
+        taskTagsInput
       }
 }
 
@@ -458,7 +468,8 @@ function createDefaultState(): PersistedAppState {
     version: STATE_VERSION,
     settings: {
       globalFlagsInput: '',
-      terminalFontFamilyInput: ''
+      terminalFontFamilyInput: '',
+      taskTagsInput: DEFAULT_TASK_TAGS_INPUT
     },
     repositories: [],
     threads: [],
@@ -2026,6 +2037,7 @@ function buildSnapshot(options: BuildSnapshotOptions = {}): AppSnapshot {
     settings: {
       ...state.settings,
       parsedGlobalFlags: parseGlobalFlags(state.settings.globalFlagsInput),
+      parsedTaskTags: parseTaskTagsInput(state.settings.taskTagsInput),
       resolvedTerminalFontFamily: resolveTerminalFontFamily(state.settings)
     },
     selectedRepositoryId: state.ui.selectedRepositoryId,
@@ -2114,6 +2126,7 @@ function validateRepositoryTaskValues(input: {
   title: string
   description: string
   tags: ProjectTaskTag[]
+  allowedTags: readonly ProjectTaskTag[]
 }):
   | {
       ok: true
@@ -2139,7 +2152,7 @@ function validateRepositoryTaskValues(input: {
     ok: true,
     title,
     description,
-    tags: normalizeTaskTags(input.tags)
+    tags: normalizeTaskTagsAgainstAllowed(input.tags, input.allowedTags)
   }
 }
 
@@ -2149,7 +2162,10 @@ function createRepositoryTask(input: CreateRepositoryTaskInput): MutationResult 
     return failureResult('Repository not found.')
   }
 
-  const validation = validateRepositoryTaskValues(input)
+  const validation = validateRepositoryTaskValues({
+    ...input,
+    allowedTags: parseTaskTagsInput(ensureState().settings.taskTagsInput)
+  })
   if (!validation.ok) {
     return failureResult(validation.error)
   }
@@ -2178,7 +2194,10 @@ function updateRepositoryTask(input: UpdateRepositoryTaskInput): MutationResult 
     return failureResult('Task not found.')
   }
 
-  const validation = validateRepositoryTaskValues(input)
+  const validation = validateRepositoryTaskValues({
+    ...input,
+    allowedTags: mergeTaskTags(parseTaskTagsInput(ensureState().settings.taskTagsInput), task.tags)
+  })
   if (!validation.ok) {
     return failureResult(validation.error)
   }
@@ -2451,6 +2470,7 @@ function updateSettings(input: UpdateSettingsInput): MutationResult {
   state.settings.terminalFontFamilyInput = normalizeTerminalFontFamilyInput(
     input.terminalFontFamilyInput
   )
+  state.settings.taskTagsInput = normalizeTaskTagsInput(input.taskTagsInput)
   saveState()
   return successResult()
 }

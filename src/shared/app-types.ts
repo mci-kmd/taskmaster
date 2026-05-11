@@ -1,7 +1,6 @@
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
 export type TerminalKind = 'copilot' | 'shell'
-export const PROJECT_TASK_TAGS = ['bug', 'feature'] as const
-export type ProjectTaskTag = (typeof PROJECT_TASK_TAGS)[number]
+export type ProjectTaskTag = string
 
 export interface PersistedProjectTask {
   id: string
@@ -84,6 +83,7 @@ export interface TerminalApi {
 export interface PersistedSettings {
   globalFlagsInput: string
   terminalFontFamilyInput: string
+  taskTagsInput: string
 }
 
 export interface PersistedRepository {
@@ -126,6 +126,7 @@ export interface PersistedAppState {
 
 export interface AppSettingsSnapshot extends PersistedSettings {
   parsedGlobalFlags: string[]
+  parsedTaskTags: ProjectTaskTag[]
   resolvedTerminalFontFamily: string
 }
 
@@ -308,6 +309,7 @@ export interface CreateThreadInput {
 export interface UpdateSettingsInput {
   globalFlagsInput: string
   terminalFontFamilyInput: string
+  taskTagsInput: string
 }
 
 export interface UpdateRepositoryInput {

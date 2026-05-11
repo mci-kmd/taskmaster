@@ -18,6 +18,7 @@ import {
   type RepositorySnapshot,
   type ThreadMode,
   type ThreadSnapshot,
+  type UpdateSettingsInput,
   type UpdateRepositoryTaskInput
 } from '../../shared/app-types'
 
@@ -330,10 +331,7 @@ export default function App(): React.JSX.Element {
   )
 
   const handleSaveSettings = useCallback(
-    async (input: {
-      globalFlagsInput: string
-      terminalFontFamilyInput: string
-    }): Promise<boolean> => {
+    async (input: UpdateSettingsInput): Promise<boolean> => {
       setBusyAction('save-settings')
       const result = await applyMutation(
         window.api.appState.updateSettings(input),

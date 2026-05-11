@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import {
-  PROJECT_TASK_TAGS,
   type CreateRepositoryTaskInput,
   type ProjectTaskSnapshot,
   type ProjectTaskTag,
   type RepositorySnapshot,
   type UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
+import { mergeTaskTags, sortTaskTags } from '../../../shared/task-tags'
 import { formatRelativeTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
 import Modal from './Modal'
@@ -17,28 +17,27 @@ import { PlusIcon } from './Icons'
 
 type ProjectTaskManagerProps = {
   repository: RepositorySnapshot
+  taskTags: ProjectTaskTag[]
   busy: boolean
   onCreateTask: (input: Omit<CreateRepositoryTaskInput, 'repositoryId'>) => Promise<boolean>
   onCompleteTask: (taskId: string) => Promise<void>
   onUpdateTask: (input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>) => Promise<boolean>
 }
 
-function formatTagLabel(tag: ProjectTaskTag): string {
-  return tag.charAt(0).toUpperCase() + tag.slice(1)
-}
-
-function sortTaskTags(tags: readonly ProjectTaskTag[]): ProjectTaskTag[] {
-  return PROJECT_TASK_TAGS.filter((tag) => tags.includes(tag))
-}
-
 function getTagTone(tag: ProjectTaskTag): string {
-  return tag === 'bug'
-    ? 'border-[rgba(240,140,140,0.35)] bg-[rgba(240,140,140,0.1)] text-[var(--color-danger)]'
-    : 'border-[rgba(158,197,255,0.35)] bg-[rgba(158,197,255,0.1)] text-[var(--color-info)]'
+  switch (tag.trim().toLowerCase()) {
+    case 'bug':
+      return 'border-[rgba(240,140,140,0.35)] bg-[rgba(240,140,140,0.1)] text-[var(--color-danger)]'
+    case 'feature':
+      return 'border-[rgba(158,197,255,0.35)] bg-[rgba(158,197,255,0.1)] text-[var(--color-info)]'
+    default:
+      return 'border-[rgba(196,167,255,0.35)] bg-[rgba(196,167,255,0.1)] text-[#c4a7ff]'
+  }
 }
 
 export default function ProjectTaskManager({
   repository,
+  taskTags,
   busy,
   onCreateTask,
   onCompleteTask,
@@ -53,6 +52,8 @@ export default function ProjectTaskManager({
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDescription, setEditingDescription] = useState('')
   const [editingTags, setEditingTags] = useState<ProjectTaskTag[]>([])
+  const createTagOptions = taskTags
+  const editTagOptions = mergeTaskTags(taskTags, editingTags)
 
   const handleToggleTag = (tag: ProjectTaskTag, checked: boolean): void => {
     setTags((current) => {
@@ -86,7 +87,7 @@ export default function ProjectTaskManager({
     setEditingTaskId(task.id)
     setEditingTitle(task.title)
     setEditingDescription(task.description)
-    setEditingTags(sortTaskTags(task.tags))
+    setEditingTags(sortTaskTags(task.tags, taskTags))
   }
 
   const handleToggleEditingTag = (tag: ProjectTaskTag, checked: boolean): void => {
@@ -105,7 +106,7 @@ export default function ProjectTaskManager({
     const ok = await onCreateTask({
       title,
       description,
-      tags: sortTaskTags(tags)
+      tags: sortTaskTags(tags, taskTags)
     })
     if (!ok) {
       return
@@ -124,7 +125,7 @@ export default function ProjectTaskManager({
       taskId,
       title: editingTitle,
       description: editingDescription,
-      tags: sortTaskTags(editingTags)
+      tags: sortTaskTags(editingTags, taskTags)
     })
     if (!ok) {
       return
@@ -188,16 +189,22 @@ export default function ProjectTaskManager({
 
                         <Field label="Tags">
                           <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-3">
-                            {PROJECT_TASK_TAGS.map((tag) => (
-                              <Checkbox
-                                key={tag}
-                                checked={editingTags.includes(tag)}
-                                disabled={busy}
-                                label={formatTagLabel(tag)}
-                                onChange={(checked) => handleToggleEditingTag(tag, checked)}
-                                title={`Assign ${tag} tag`}
-                              />
-                            ))}
+                            {editTagOptions.length > 0 ? (
+                              editTagOptions.map((tag) => (
+                                <Checkbox
+                                  key={tag}
+                                  checked={editingTags.includes(tag)}
+                                  disabled={busy}
+                                  label={tag}
+                                  onChange={(checked) => handleToggleEditingTag(tag, checked)}
+                                  title={`Assign ${tag} tag`}
+                                />
+                              ))
+                            ) : (
+                              <p className="text-[12.5px] text-[var(--color-fg-subtle)]">
+                                No task tags configured in Settings.
+                              </p>
+                            )}
                           </div>
                         </Field>
 
@@ -244,7 +251,7 @@ export default function ProjectTaskManager({
                             <h4 className="text-[14px] font-medium text-[var(--color-fg)]">
                               {task.title}
                             </h4>
-                            {sortTaskTags(task.tags).map((tag) => (
+                            {sortTaskTags(task.tags, taskTags).map((tag) => (
                               <span
                                 key={tag}
                                 className={`rounded-full border px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.14em] ${getTagTone(tag)}`}
@@ -296,7 +303,11 @@ export default function ProjectTaskManager({
       </div>
 
       <Modal
-        description="Add a title, description, and optional bug/feature tags."
+        description={
+          createTagOptions.length > 0
+            ? 'Add a title, description, and optional tags.'
+            : 'Add a title and description.'
+        }
         onClose={handleCloseCreateDialog}
         open={createDialogOpen}
         title="Add task"
@@ -324,16 +335,22 @@ export default function ProjectTaskManager({
 
           <Field label="Tags">
             <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-3">
-              {PROJECT_TASK_TAGS.map((tag) => (
-                <Checkbox
-                  key={tag}
-                  checked={tags.includes(tag)}
-                  disabled={busy}
-                  label={formatTagLabel(tag)}
-                  onChange={(checked) => handleToggleTag(tag, checked)}
-                  title={`Assign ${tag} tag`}
-                />
-              ))}
+              {createTagOptions.length > 0 ? (
+                createTagOptions.map((tag) => (
+                  <Checkbox
+                    key={tag}
+                    checked={tags.includes(tag)}
+                    disabled={busy}
+                    label={tag}
+                    onChange={(checked) => handleToggleTag(tag, checked)}
+                    title={`Assign ${tag} tag`}
+                  />
+                ))
+              ) : (
+                <p className="text-[12.5px] text-[var(--color-fg-subtle)]">
+                  No task tags configured in Settings.
+                </p>
+              )}
             </div>
           </Field>
 
