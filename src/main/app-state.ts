@@ -92,6 +92,9 @@ const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const RUN_OUTPUT_LIMIT = 24_000
 const BRANCH_NAME_TOKEN = '{BRANCH-NAME}'
 const BRANCH_NAME_SAFE_TOKEN = '{BRANCH-NAME-SAFE}'
+const BRANCH_PORT_TOKEN = '{BRANCH-PORT}'
+const BRANCH_PORT_MIN = 20_000
+const BRANCH_PORT_SPAN = 20_000
 const DEFAULT_TERMINAL_FONT_FAMILY =
   "'CaskaydiaCove Nerd Font Mono', 'CaskaydiaMono Nerd Font', 'MesloLGM Nerd Font Mono', 'MesloLGS NF', 'JetBrainsMono Nerd Font Mono', 'SauceCodePro Nerd Font Mono', Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
 const DEFAULT_TASK_TAGS_INPUT = DEFAULT_PROJECT_TASK_TAGS.join('\n')
@@ -893,11 +896,26 @@ function sanitizeBranchTokenValue(branchName: string): string {
   return normalized || 'branch'
 }
 
+function computeDeterministicBranchPort(repositoryPath: string, branchName: string): string {
+  const seed = `${repositoryPath}\u0000${branchName}`
+  let hash = 2_166_136_261
+
+  for (const character of seed) {
+    hash ^= character.charCodeAt(0)
+    hash = Math.imul(hash, 16_777_619)
+  }
+
+  return String(BRANCH_PORT_MIN + ((hash >>> 0) % BRANCH_PORT_SPAN))
+}
+
 function applyThreadBranchTokens(
   command: string,
+  repository: Pick<PersistedRepository, 'path'>,
   thread: Pick<PersistedThread, 'branchName'>
 ): string {
   return command
+    .split(BRANCH_PORT_TOKEN)
+    .join(computeDeterministicBranchPort(repository.path, thread.branchName))
     .split(BRANCH_NAME_SAFE_TOKEN)
     .join(sanitizeBranchTokenValue(thread.branchName))
     .split(BRANCH_NAME_TOKEN)
@@ -1266,7 +1284,7 @@ function startThreadRun(threadId: string): MutationResult {
     return failureResult(`Working directory not found: ${context.cwd}`)
   }
 
-  const resolvedRunCommand = applyThreadBranchTokens(runCommand, context.thread)
+  const resolvedRunCommand = applyThreadBranchTokens(runCommand, context.repository, context.thread)
   const command = buildScriptCommand(resolvedRunCommand)
 
   try {
@@ -1344,7 +1362,7 @@ function runPostWorktreeRemoveCommand(
     return
   }
 
-  const resolvedScript = applyThreadBranchTokens(script, thread)
+  const resolvedScript = applyThreadBranchTokens(script, repository, thread)
   const command = buildScriptCommand(resolvedScript)
   const result = spawnSync(command.file, command.args, {
     cwd: repository.path,

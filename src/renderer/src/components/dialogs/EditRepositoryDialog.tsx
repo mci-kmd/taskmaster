@@ -144,7 +144,7 @@ function EditRepositoryForm({
       </Field>
 
       <Field
-        hint="Runs in the selected thread's working directory. Use {BRANCH-NAME} for the raw branch name or {BRANCH-NAME-SAFE} for a lowercased, Docker-safe variant."
+        hint="Runs in the selected thread's working directory. Use {BRANCH-NAME} for the raw branch name, {BRANCH-NAME-SAFE} for a lowercased Docker-safe variant, or {BRANCH-PORT} for a deterministic pseudo-random port for this repo + branch."
         label="Run command"
       >
         <TextArea
@@ -158,7 +158,7 @@ function EditRepositoryForm({
       </Field>
 
       <Field
-        hint="Optional. Runs in the repository root after a worktree thread is removed and its branch is deleted. Useful for cleaning named Docker volumes, containers, or other branch-scoped resources."
+        hint="Optional. Runs in the repository root after a worktree thread is removed and its branch is deleted. Supports the same tokens as the run command."
         label="Post-worktree-remove script"
       >
         <TextArea
