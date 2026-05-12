@@ -14,6 +14,7 @@ type EditRepositoryDialogProps = {
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
+    postWorktreeRemoveCommand: string | null
   }) => Promise<boolean>
 }
 
@@ -29,7 +30,7 @@ export default function EditRepositoryDialog({
     <Modal
       description={
         repository
-          ? `Configure the icon and run command for ${repository.name}.`
+          ? `Configure the icon and project commands for ${repository.name}.`
           : 'Pick a repository in the sidebar first.'
       }
       onClose={onClose}
@@ -40,7 +41,7 @@ export default function EditRepositoryDialog({
       {repository ? (
         <EditRepositoryForm
           busy={busy}
-          key={`${repository.id}:${repository.faviconPath ?? ''}`}
+          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}`}
           onBrowse={onBrowse}
           onCancel={onClose}
           onSubmit={async (input) => {
@@ -76,6 +77,7 @@ type EditRepositoryFormProps = {
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
+    postWorktreeRemoveCommand: string | null
   }) => Promise<void>
 }
 
@@ -88,10 +90,14 @@ function EditRepositoryForm({
 }: EditRepositoryFormProps): React.JSX.Element {
   const [faviconDraft, setFaviconDraft] = useState(repository.faviconPath ?? '')
   const [runCommandDraft, setRunCommandDraft] = useState(repository.runCommand ?? '')
+  const [postWorktreeRemoveCommandDraft, setPostWorktreeRemoveCommandDraft] = useState(
+    repository.postWorktreeRemoveCommand ?? ''
+  )
 
   const dirty =
     faviconDraft !== (repository.faviconPath ?? '') ||
-    runCommandDraft !== (repository.runCommand ?? '')
+    runCommandDraft !== (repository.runCommand ?? '') ||
+    postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '')
 
   return (
     <form
@@ -102,7 +108,8 @@ function EditRepositoryForm({
           void onSubmit({
             repositoryId: repository.id,
             faviconPath: faviconDraft.trim() || null,
-            runCommand: runCommandDraft.trim() || null
+            runCommand: runCommandDraft.trim() || null,
+            postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null
           })
         }
       }}
@@ -137,7 +144,7 @@ function EditRepositoryForm({
       </Field>
 
       <Field
-        hint="Runs in the selected thread's working directory, so worktree and branch threads launch against their own checkout."
+        hint="Runs in the selected thread's working directory. Use {BRANCH-NAME} for the raw branch name or {BRANCH-NAME-SAFE} for a lowercased, Docker-safe variant."
         label="Run command"
       >
         <TextArea
@@ -150,6 +157,20 @@ function EditRepositoryForm({
         />
       </Field>
 
+      <Field
+        hint="Optional. Runs in the repository root after a worktree thread is removed and its branch is deleted. Useful for cleaning named Docker volumes, containers, or other branch-scoped resources."
+        label="Post-worktree-remove script"
+      >
+        <TextArea
+          className="min-w-0 w-full"
+          onChange={(event) => setPostWorktreeRemoveCommandDraft(event.target.value)}
+          placeholder={'docker volume rm myapp-{BRANCH-NAME-SAFE}-sql'}
+          rows={4}
+          spellCheck={false}
+          value={postWorktreeRemoveCommandDraft}
+        />
+      </Field>
+
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
         Repository root: <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>
       </div>
@@ -157,10 +178,16 @@ function EditRepositoryForm({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Button
-            disabled={busy || (faviconDraft.length === 0 && runCommandDraft.length === 0)}
+            disabled={
+              busy ||
+              (faviconDraft.length === 0 &&
+                runCommandDraft.length === 0 &&
+                postWorktreeRemoveCommandDraft.length === 0)
+            }
             onClick={() => {
               setFaviconDraft('')
               setRunCommandDraft('')
+              setPostWorktreeRemoveCommandDraft('')
             }}
             title="Clear project fields"
             type="button"
@@ -176,7 +203,7 @@ function EditRepositoryForm({
           </Button>
           <Button
             disabled={busy || !dirty}
-            title="Save project icon"
+            title="Save project settings"
             type="submit"
             variant="primary"
           >

@@ -92,6 +92,7 @@ export interface PersistedRepository {
   path: string
   faviconPath: string | null
   runCommand: string | null
+  postWorktreeRemoveCommand: string | null
   addedAt: string
   tasks: PersistedProjectTask[]
 }
@@ -113,7 +114,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 8
+  version: 9
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -318,6 +319,7 @@ export interface UpdateRepositoryInput {
   repositoryId: string
   faviconPath: string | null
   runCommand: string | null
+  postWorktreeRemoveCommand: string | null
 }
 
 export interface CreateRepositoryTaskInput {

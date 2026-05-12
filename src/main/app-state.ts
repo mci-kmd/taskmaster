@@ -85,11 +85,13 @@ import {
 } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 8 as const
+const STATE_VERSION = 9 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const RUN_OUTPUT_LIMIT = 24_000
+const BRANCH_NAME_TOKEN = '{BRANCH-NAME}'
+const BRANCH_NAME_SAFE_TOKEN = '{BRANCH-NAME-SAFE}'
 const DEFAULT_TERMINAL_FONT_FAMILY =
   "'CaskaydiaCove Nerd Font Mono', 'CaskaydiaMono Nerd Font', 'MesloLGM Nerd Font Mono', 'MesloLGS NF', 'JetBrainsMono Nerd Font Mono', 'SauceCodePro Nerd Font Mono', Consolas, 'Cascadia Mono', 'Cascadia Code', 'SFMono-Regular', Menlo, Monaco, 'Geist Mono Variable', monospace"
 const DEFAULT_TASK_TAGS_INPUT = DEFAULT_PROJECT_TASK_TAGS.join('\n')
@@ -130,8 +132,12 @@ type LegacyThreadV1 = Omit<
 > & {
   title: string
 }
-type LegacyRepositoryV7 = Omit<PersistedRepository, 'tasks'>
-type LegacyRepositoryV6 = Omit<PersistedRepository, 'runCommand' | 'tasks'>
+type LegacyRepositoryV8 = Omit<PersistedRepository, 'postWorktreeRemoveCommand'>
+type LegacyRepositoryV7 = Omit<PersistedRepository, 'postWorktreeRemoveCommand' | 'tasks'>
+type LegacyRepositoryV6 = Omit<
+  PersistedRepository,
+  'postWorktreeRemoveCommand' | 'runCommand' | 'tasks'
+>
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 1
   repositories: LegacyRepositoryV3[]
@@ -142,10 +148,17 @@ type LegacyThreadV2 = Omit<
   PersistedThread,
   'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'
 >
-type LegacyRepositoryV3 = Omit<PersistedRepository, 'faviconPath' | 'runCommand' | 'tasks'>
+type LegacyRepositoryV3 = Omit<
+  PersistedRepository,
+  'postWorktreeRemoveCommand' | 'faviconPath' | 'runCommand' | 'tasks'
+>
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
   repositories: LegacyRepositoryV3[]
+}
+type LegacyAppStateV8 = Omit<PersistedAppState, 'version' | 'repositories'> & {
+  version: 8
+  repositories: LegacyRepositoryV8[]
 }
 type LegacyAppStateV2 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 2
@@ -260,11 +273,18 @@ function normalizeRunCommand(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null
 }
 
+function normalizeRepositoryScript(value: string | null | undefined): string | null {
+  const normalized = value?.trim() ?? ''
+  return normalized.length > 0 ? normalized : null
+}
+
 function normalizePersistedRepository(repository: PersistedRepository): PersistedRepository {
   const runCommand = normalizeRunCommand(repository.runCommand)
+  const postWorktreeRemoveCommand = normalizeRepositoryScript(repository.postWorktreeRemoveCommand)
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const tasks = currentTasks.map((task) => normalizePersistedTask(task))
   return runCommand === repository.runCommand &&
+    postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
     tasks.every((task, index) => task === currentTasks[index])
@@ -272,6 +292,7 @@ function normalizePersistedRepository(repository: PersistedRepository): Persiste
     : {
         ...repository,
         runCommand,
+        postWorktreeRemoveCommand,
         tasks
       }
 }
@@ -341,6 +362,7 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 function migrateState(
   parsed:
     | PersistedAppState
+    | LegacyAppStateV8
     | LegacyAppStateV7
     | LegacyAppStateV6
     | LegacyAppStateV5
@@ -353,12 +375,24 @@ function migrateState(
     return normalizePersistedState(parsed)
   }
 
+  if (parsed.version === 8) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        postWorktreeRemoveCommand: null
+      }))
+    })
+  }
+
   if (parsed.version === 7) {
     return normalizePersistedState({
       ...parsed,
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
+        postWorktreeRemoveCommand: null,
         tasks: []
       }))
     })
@@ -371,6 +405,7 @@ function migrateState(
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
         runCommand: null,
+        postWorktreeRemoveCommand: null,
         tasks: []
       })),
       threads: parsed.threads.map((thread) => ({
@@ -387,6 +422,7 @@ function migrateState(
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
         runCommand: null,
+        postWorktreeRemoveCommand: null,
         tasks: []
       })),
       threads: parsed.threads.map((thread) => ({
@@ -401,6 +437,7 @@ function migrateState(
     ...repository,
     faviconPath: null,
     runCommand: null,
+    postWorktreeRemoveCommand: null,
     tasks: []
   }))
 
@@ -411,6 +448,7 @@ function migrateState(
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
         runCommand: null,
+        postWorktreeRemoveCommand: null,
         tasks: []
       }))
     })
@@ -697,6 +735,16 @@ function validateRepositoryRunCommandInput(input: string | null): {
   }
 }
 
+function validateRepositoryPostWorktreeRemoveCommandInput(input: string | null): {
+  ok: true
+  command: string | null
+} {
+  return {
+    ok: true,
+    command: normalizeRepositoryScript(input)
+  }
+}
+
 function runGit(cwd: string, args: string[]): string {
   const result = spawnSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
@@ -832,6 +880,28 @@ function sanitizeWorktreeName(branchName: string): string {
     .replace(/^[.-]+|[.-]+$/g, '')
 
   return sanitized || 'worktree'
+}
+
+function sanitizeBranchTokenValue(branchName: string): string {
+  const normalized = branchName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '')
+
+  return normalized || 'branch'
+}
+
+function applyThreadBranchTokens(
+  command: string,
+  thread: Pick<PersistedThread, 'branchName'>
+): string {
+  return command
+    .split(BRANCH_NAME_SAFE_TOKEN)
+    .join(sanitizeBranchTokenValue(thread.branchName))
+    .split(BRANCH_NAME_TOKEN)
+    .join(thread.branchName)
 }
 
 function deriveWorktreePath(repoPath: string, branchName: string): string {
@@ -1196,7 +1266,8 @@ function startThreadRun(threadId: string): MutationResult {
     return failureResult(`Working directory not found: ${context.cwd}`)
   }
 
-  const command = buildScriptCommand(runCommand)
+  const resolvedRunCommand = applyThreadBranchTokens(runCommand, context.thread)
+  const command = buildScriptCommand(resolvedRunCommand)
 
   try {
     const child = spawn(command.file, command.args, {
@@ -1210,7 +1281,7 @@ function startThreadRun(threadId: string): MutationResult {
       threadId,
       child,
       cwd: context.cwd,
-      command: runCommand,
+      command: resolvedRunCommand,
       threadLabel: context.thread.customTitle ?? context.thread.branchName,
       output: '',
       stopping: false
@@ -1261,6 +1332,36 @@ function removeWorktree(thread: PersistedThread, repositoryPath: string, force: 
 
   if (branchExists(repositoryPath, thread.branchName)) {
     runGit(repositoryPath, ['branch', '-D', thread.branchName])
+  }
+}
+
+function runPostWorktreeRemoveCommand(
+  repository: Pick<PersistedRepository, 'path' | 'postWorktreeRemoveCommand'>,
+  thread: Pick<PersistedThread, 'branchName'>
+): void {
+  const script = normalizeRepositoryScript(repository.postWorktreeRemoveCommand)
+  if (!script) {
+    return
+  }
+
+  const resolvedScript = applyThreadBranchTokens(script, thread)
+  const command = buildScriptCommand(resolvedScript)
+  const result = spawnSync(command.file, command.args, {
+    cwd: repository.path,
+    encoding: 'utf8',
+    windowsHide: true
+  })
+
+  if (result.error) {
+    throw result.error
+  }
+
+  if (result.status !== 0) {
+    const detail =
+      result.stderr.trim() ||
+      result.stdout.trim() ||
+      `Script exited with code ${result.status ?? 'unknown'}.`
+    throw new Error(detail)
   }
 }
 
@@ -2506,6 +2607,7 @@ async function addRepository(): Promise<MutationResult> {
     path: gitRoot,
     faviconPath: null,
     runCommand: null,
+    postWorktreeRemoveCommand: null,
     addedAt: nowIso(),
     tasks: []
   }
@@ -2530,6 +2632,7 @@ async function closeThread(threadId: string): Promise<MutationResult> {
 
   killSessionsForThread(threadId)
   stopThreadRunSession(threadId)
+  let postWorktreeRemoveError: string | null = null
 
   if (thread.mode === 'worktree' && thread.worktreePath) {
     const dirty =
@@ -2558,6 +2661,12 @@ async function closeThread(threadId: string): Promise<MutationResult> {
     } catch (error) {
       return failureResult(error instanceof Error ? error.message : String(error))
     }
+
+    try {
+      runPostWorktreeRemoveCommand(repository, thread)
+    } catch (error) {
+      postWorktreeRemoveError = error instanceof Error ? error.message : String(error)
+    }
   }
 
   if (thread.mode === 'new-branch') {
@@ -2578,7 +2687,9 @@ async function closeThread(threadId: string): Promise<MutationResult> {
   }
 
   saveState()
-  return successResult()
+  return postWorktreeRemoveError
+    ? failureResult(`Worktree removed, but post-remove script failed: ${postWorktreeRemoveError}`)
+    : successResult()
 }
 
 function updateSettings(input: UpdateSettingsInput): MutationResult {
@@ -2608,15 +2719,24 @@ function updateRepository(input: UpdateRepositoryInput): MutationResult {
     return failureResult('Run command is invalid.')
   }
 
+  const postWorktreeRemoveCommandValidation = validateRepositoryPostWorktreeRemoveCommandInput(
+    input.postWorktreeRemoveCommand
+  )
+  if (!postWorktreeRemoveCommandValidation.ok) {
+    return failureResult('Post-worktree-remove script is invalid.')
+  }
+
   if (
     repository.faviconPath === faviconValidation.path &&
-    repository.runCommand === runCommandValidation.command
+    repository.runCommand === runCommandValidation.command &&
+    repository.postWorktreeRemoveCommand === postWorktreeRemoveCommandValidation.command
   ) {
     return successResult()
   }
 
   repository.faviconPath = faviconValidation.path
   repository.runCommand = runCommandValidation.command
+  repository.postWorktreeRemoveCommand = postWorktreeRemoveCommandValidation.command
   saveState()
   return successResult()
 }
