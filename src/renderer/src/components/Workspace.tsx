@@ -248,7 +248,7 @@ export default function Workspace({
 }: WorkspaceProps): React.JSX.Element {
   const copilotSessionsRef = useRef<TerminalSessionsHandle | null>(null)
   const terminalSessionsRef = useRef<TerminalSessionsHandle | null>(null)
-  const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
+  const [agentStatus, setAgentStatus] = useState<TerminalStatus | null>(null)
   const [copilotSessions, setCopilotSessions] = useState<SessionMap>(new Map())
   const [terminalSessions, setTerminalSessions] = useState<SessionMap>(new Map())
   const [threadViewSelections, setThreadViewSelections] = useState<
@@ -268,7 +268,7 @@ export default function Workspace({
     let cancelled = false
     void window.api.terminal.getStatus().then((status) => {
       if (cancelled) return
-      setCopilotStatus(status)
+      setAgentStatus(status)
     })
     return () => {
       cancelled = true
@@ -306,7 +306,7 @@ export default function Workspace({
         : IDLE_STATE
   const isRunning = activeSession.phase === 'running'
   const copilotRunning = selectedCopilotSession.phase === 'running'
-  const cliAvailable = copilotStatus?.available ?? false
+  const cliAvailable = agentStatus?.available ?? false
   const hasThread = Boolean(selectedThread)
   const hasRunCommand = Boolean(selectedRepository?.runCommand)
   const runCommandRunning = selectedThread?.isRunCommandRunning ?? false
@@ -593,8 +593,8 @@ export default function Workspace({
 
             <div className="relative min-h-0 flex-1">
               <TerminalSessions
-                copilotStatus={copilotStatus}
-                kind="copilot"
+                agentStatus={agentStatus}
+                kind="agent"
                 onRefresh={onRefresh}
                 onSessionsChange={handleCopilotSessionsChange}
                 ref={copilotSessionsRef}
@@ -604,7 +604,7 @@ export default function Workspace({
               />
 
               <TerminalSessions
-                copilotStatus={copilotStatus}
+                agentStatus={agentStatus}
                 kind="shell"
                 onRefresh={onRefresh}
                 onSessionsChange={handleTerminalSessionsChange}
@@ -617,7 +617,7 @@ export default function Workspace({
               {selectedThread && selectedView === 'copilot' && !copilotRunning ? (
                 <div className="absolute inset-0">
                   <LaunchPanel
-                    copilotStatus={copilotStatus}
+                    copilotStatus={agentStatus}
                     onLaunch={handleLaunchCopilot}
                     session={selectedCopilotSession}
                     thread={selectedThread}

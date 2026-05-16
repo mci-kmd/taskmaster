@@ -1,11 +1,16 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import type {
+  AgentProviderId,
   AppSettingsSnapshot,
   TerminalKind,
   TerminalStatus,
   ThreadSnapshot
 } from '../../../shared/app-types'
+import {
+  DEFAULT_AGENT_PROVIDER_ID,
+  getAgentProviderDescriptor
+} from '../../../shared/agent-providers'
 
 export type SessionPhase = 'initializing' | 'idle' | 'launching' | 'running' | 'stopped' | 'error'
 
@@ -25,9 +30,10 @@ export type ThreadTerminalHandle = {
 
 type ThreadTerminalProps = {
   kind: TerminalKind
+  agentProviderId?: AgentProviderId
   thread: ThreadSnapshot
   settings: AppSettingsSnapshot
-  copilotStatus: TerminalStatus | null
+  agentStatus: TerminalStatus | null
   visible: boolean
   /**
    * When this monotonically-increasing key changes, the terminal will
@@ -418,18 +424,7 @@ function styleTerminalOutput(incoming: string, state: StyledOutputState): string
   return output
 }
 
-function buildLaunchArgs(
-  sessionName: string,
-  resumeSessionId: string | null,
-  globalFlags: string[],
-  mode: LaunchMode
-): string[] {
-  const launchFlag =
-    mode === 'resume' && resumeSessionId ? `--resume=${resumeSessionId}` : `--name=${sessionName}`
-  return [launchFlag, ...globalFlags]
-}
-
-function isMissingNamedSessionError(output: string): boolean {
+function isMissingResumeSessionError(output: string): boolean {
   return /No session, task, or name matched/i.test(output)
 }
 
@@ -542,16 +537,28 @@ function consumeTrackedUserInput(
 
 const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
   function ThreadTerminal(
-    { kind, thread, settings, copilotStatus, visible, launchKey, onStateChange, onRefresh },
+    {
+      kind,
+      agentProviderId = DEFAULT_AGENT_PROVIDER_ID,
+      thread,
+      settings,
+      agentStatus,
+      visible,
+      launchKey,
+      onStateChange,
+      onRefresh
+    },
     ref
   ) {
+    const agentProvider = getAgentProviderDescriptor(agentProviderId)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const terminalRef = useRef<Terminal | null>(null)
     const terminalIdRef = useRef<string | null>(null)
     const launchAttemptRef = useRef<LaunchAttempt | null>(null)
     const threadRef = useRef(thread)
     const settingsRef = useRef(settings)
-    const copilotStatusRef = useRef(copilotStatus)
+    const agentStatusRef = useRef(agentStatus)
+    const agentProviderRef = useRef(agentProvider)
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
     const visibleRef = useRef(visible)
@@ -575,7 +582,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [runtimeTitle, setRuntimeTitle] = useState<string | null>(null)
     const [lastUserMessage, setLastUserMessage] = useState<string | null>(
-      kind === 'copilot' ? thread.lastUserMessage : null
+      kind === 'agent' ? thread.lastUserMessage : null
     )
 
     useEffect(() => {
@@ -614,8 +621,12 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [settings])
 
     useEffect(() => {
-      copilotStatusRef.current = copilotStatus
-    }, [copilotStatus])
+      agentStatusRef.current = agentStatus
+    }, [agentStatus])
+
+    useEffect(() => {
+      agentProviderRef.current = agentProvider
+    }, [agentProvider])
 
     useEffect(() => {
       onRefreshRef.current = onRefresh
@@ -642,7 +653,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [phase, exitCode, errorMessage, runtimeTitle, lastUserMessage])
 
     useEffect(() => {
-      if (kind !== 'copilot') {
+      if (kind !== 'agent') {
         return
       }
       const trimmedRuntimeTitle = runtimeTitle?.trim()
@@ -658,7 +669,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [kind, runtimeTitle, thread.id])
 
     useEffect(() => {
-      if (kind !== 'copilot') {
+      if (kind !== 'agent') {
         return
       }
       const normalizedLastUserMessage = normalizeTrackedUserMessage(lastUserMessage ?? '')
@@ -677,10 +688,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       async (mode: LaunchMode, retriedFromMissingSession = false): Promise<boolean> => {
         const term = terminalRef.current
         const container = containerRef.current
-        const status = copilotStatusRef.current
-        const isCopilotTerminal = kindRef.current === 'copilot'
+        const status = agentStatusRef.current
+        const isAgentTerminal = kindRef.current === 'agent'
 
-        if (!term || !container || (isCopilotTerminal && !status?.available)) {
+        if (!term || !container || (isAgentTerminal && !status?.available)) {
           return false
         }
         if (terminalIdRef.current) {
@@ -711,20 +722,21 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
 
         const result = await window.api.terminal.create({
-          kind: isCopilotTerminal ? 'copilot' : 'shell',
+          kind: isAgentTerminal ? 'agent' : 'shell',
+          agentProviderId: isAgentTerminal ? agentProviderRef.current.id : undefined,
           threadId: currentThread.id,
           threadMode: currentThread.mode,
           branchName: currentThread.branchName,
           cols: term.cols,
           rows: term.rows,
           cwd: currentThread.cwd,
-          args: isCopilotTerminal
-            ? buildLaunchArgs(
-                sessionNameRef.current,
-                resumeSessionIdRef.current,
-                currentSettings.parsedGlobalFlags,
-                mode
-              )
+          agentLaunch: isAgentTerminal
+            ? {
+                mode,
+                sessionName: sessionNameRef.current,
+                resumeSessionId: resumeSessionIdRef.current,
+                globalFlags: currentSettings.parsedGlobalFlags
+              }
             : undefined
         })
 
@@ -791,7 +803,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         return
       }
       const mode: LaunchMode =
-        kindRef.current === 'copilot' && resumeSessionIdRef.current ? 'resume' : 'new'
+        kindRef.current === 'agent' && resumeSessionIdRef.current ? 'resume' : 'new'
       await launchInternal(mode)
     }, [launchInternal])
 
@@ -892,7 +904,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           launchAttemptRef.current.buffer += payload.data
         }
         let styled: string
-        if (kindRef.current !== 'copilot') {
+        if (
+          kindRef.current !== 'agent' ||
+          !agentProviderRef.current.capabilities.usesCopilotTerminalStyling
+        ) {
           styled = payload.data
         } else {
           styled = styleTerminalOutput(payload.data, pendingStyledOutputRef.current)
@@ -914,18 +929,19 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
       })
 
-        const handleExit = async (code: number): Promise<void> => {
-          const attempt = launchAttemptRef.current
-          terminalIdRef.current = null
-          launchAttemptRef.current = null
+      const handleExit = async (code: number): Promise<void> => {
+        const attempt = launchAttemptRef.current
+        terminalIdRef.current = null
+        launchAttemptRef.current = null
 
-          if (
-            kindRef.current === 'copilot' &&
-            attempt &&
-            attempt.mode === 'resume' &&
-            !attempt.retriedFromMissingSession &&
+        if (
+          kindRef.current === 'agent' &&
+          agentProviderRef.current.capabilities.canRetryMissingResumeSession &&
+          attempt &&
+          attempt.mode === 'resume' &&
+          !attempt.retriedFromMissingSession &&
           code === 1 &&
-          isMissingNamedSessionError(attempt.buffer)
+          isMissingResumeSessionError(attempt.buffer)
         ) {
           const ok = await launchInternal('new', true)
           if (ok) return
@@ -955,13 +971,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         void handleExit(payload.exitCode)
       })
 
-        const sessionStartCleanup = window.api.terminal.onSessionStart((payload) => {
-          if (kindRef.current !== 'copilot') {
-            return
-          }
-          if (payload.terminalId !== terminalIdRef.current) {
-            return
-          }
+      const sessionStartCleanup = window.api.terminal.onSessionStart((payload) => {
+        if (kindRef.current !== 'agent') {
+          return
+        }
+        if (payload.terminalId !== terminalIdRef.current) {
+          return
+        }
 
         resumeSessionIdRef.current = payload.sessionId
         if (payload.source === 'new') {
@@ -988,13 +1004,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           })
       })
 
-        const userPromptCleanup = window.api.terminal.onUserPrompt((payload) => {
-          if (kindRef.current !== 'copilot') {
-            return
-          }
-          if (payload.terminalId !== terminalIdRef.current) {
-            return
-          }
+      const userPromptCleanup = window.api.terminal.onUserPrompt((payload) => {
+        if (kindRef.current !== 'agent') {
+          return
+        }
+        if (payload.terminalId !== terminalIdRef.current) {
+          return
+        }
 
         const prompt = normalizeTrackedUserMessage(payload.prompt)
         setLastUserMessage((current) => (current === prompt ? current : prompt))
@@ -1010,7 +1026,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const forwardTerminalInput = (data: string, trackedData: string | null = data): void => {
         const activeId = terminalIdRef.current
         if (!activeId || data.length === 0) return
-        if (kindRef.current === 'copilot' && trackedData !== null && trackedData.length > 0) {
+        if (kindRef.current === 'agent' && trackedData !== null && trackedData.length > 0) {
           trackTerminalInput(trackedData)
         }
         window.api.terminal.input(activeId, data)
@@ -1024,7 +1040,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         term.paste(text)
       }
       const pasteClipboardImage = (): void => {
-        if (kindRef.current !== 'copilot') {
+        if (
+          kindRef.current !== 'agent' ||
+          !agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut
+        ) {
           return
         }
         focusTerminalInput(term)
@@ -1032,7 +1051,9 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         forwardTerminalInput('\x1bv', null)
       }
       const clipboardHasImage = (): boolean =>
-        kindRef.current === 'copilot' && window.api.terminal.hasClipboardImage()
+        kindRef.current === 'agent' &&
+        agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut &&
+        window.api.terminal.hasClipboardImage()
       const pasteClipboard = (): void => {
         if (clipboardHasImage()) {
           pasteClipboardImage()
@@ -1043,7 +1064,11 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const pasteEventHasImage = (event: ClipboardEvent): boolean =>
         Array.from(event.clipboardData?.items ?? []).some((item) => item.type.startsWith('image/'))
       const handlePaste = (event: ClipboardEvent): void => {
-        if (kindRef.current === 'copilot' && pasteEventHasImage(event)) {
+        if (
+          kindRef.current === 'agent' &&
+          agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut &&
+          pasteEventHasImage(event)
+        ) {
           event.preventDefault()
           event.stopPropagation()
           pasteClipboardImage()
@@ -1074,8 +1099,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
       window.addEventListener('focus', handleWindowFocus)
 
-      // Translate keys Copilot CLI doesn't recognise on raw xterm.js into
-      // sequences it does, and let Ctrl-C copy when a selection exists.
+      // Translate provider-specific keys and let Ctrl-C copy when a selection exists.
       term.attachCustomKeyEventHandler((e: KeyboardEvent): boolean => {
         if (e.type !== 'keydown') return true
         const id = terminalIdRef.current
@@ -1106,12 +1130,16 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           return cancelHandledKey()
         }
 
-        if (kindRef.current !== 'copilot') {
+        if (kindRef.current !== 'agent') {
           return true
         }
 
         // Shift-Enter: backslash+CR is Copilot's documented multiline trick
-        if (onlyShift && e.key === 'Enter') {
+        if (
+          agentProviderRef.current.capabilities.usesBackslashEnterForMultiline &&
+          onlyShift &&
+          e.key === 'Enter'
+        ) {
           trackPromptLineBreak()
           forwardTerminalInput('\\\r', null)
           return cancelHandledKey()
@@ -1159,12 +1187,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           void window.api.terminal.kill(terminalIdRef.current)
           terminalIdRef.current = null
           launchAttemptRef.current = null
-        }
-        pendingStyledOutputRef.current.current = ''
-        pendingStyledOutputRef.current.insideToolBlock = false
-        trackedUserInputRef.current = {
-          draft: '',
-          dirty: false
         }
         term.dispose()
       }

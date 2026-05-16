@@ -8,11 +8,13 @@ import {
   useState
 } from 'react'
 import type {
+  AgentProviderId,
   AppSettingsSnapshot,
   TerminalKind,
   TerminalStatus,
   ThreadSnapshot
 } from '../../../shared/app-types'
+import { DEFAULT_AGENT_PROVIDER_ID } from '../../../shared/agent-providers'
 import ThreadTerminal, {
   type ThreadSessionState,
   type ThreadTerminalHandle
@@ -29,10 +31,11 @@ export type TerminalSessionsHandle = {
 
 type TerminalSessionsProps = {
   kind: TerminalKind
+  agentProviderId?: AgentProviderId
   threads: ThreadSnapshot[]
   selectedThreadId: string | null
   settings: AppSettingsSnapshot
-  copilotStatus: TerminalStatus | null
+  agentStatus: TerminalStatus | null
   onSessionsChange: (sessions: SessionMap) => void
   onRefresh: () => Promise<void>
 }
@@ -44,7 +47,16 @@ type LiveEntry = {
 
 const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProps>(
   function TerminalSessions(
-    { kind, threads, selectedThreadId, settings, copilotStatus, onSessionsChange, onRefresh },
+    {
+      kind,
+      agentProviderId = DEFAULT_AGENT_PROVIDER_ID,
+      threads,
+      selectedThreadId,
+      settings,
+      agentStatus,
+      onSessionsChange,
+      onRefresh
+    },
     ref
   ) {
     const [launchKeys, setLaunchKeys] = useState<Map<string, number>>(new Map())
@@ -125,7 +137,8 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
       >
         {liveEntries.map((entry) => (
           <ThreadTerminal
-            copilotStatus={copilotStatus}
+            agentProviderId={agentProviderId}
+            agentStatus={agentStatus}
             kind={kind}
             key={entry.thread.id}
             launchKey={entry.launchKey}

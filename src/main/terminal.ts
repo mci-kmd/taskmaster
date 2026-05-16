@@ -12,12 +12,15 @@ import {
 } from 'electron'
 import * as pty from 'node-pty'
 import type {
+  AgentLaunchRequest,
+  AgentProviderId,
   TerminalCreateRequest,
   TerminalKind,
   TerminalSessionStartEvent,
   TerminalStatus,
   TerminalUserPromptEvent
 } from '../shared/app-types'
+import { DEFAULT_AGENT_PROVIDER_ID, getAgentProviderDescriptor } from '../shared/agent-providers'
 
 type TerminalSession = {
   id: string
@@ -25,6 +28,7 @@ type TerminalSession = {
   ownerId: number
   ptyProcess: pty.IPty
   kind: TerminalKind
+  agentProviderId?: AgentProviderId
   threadId?: string
   launchConfirmationTimer: NodeJS.Timeout | null
   hookPollTimer: NodeJS.Timeout | null
@@ -40,6 +44,27 @@ type TerminalCommand = {
 
 type TerminalHooks = {
   onThreadStart?: (threadId: string) => void
+}
+
+type AgentLaunchContext = {
+  cwd: string
+  terminalId: string
+  threadId?: string
+  launch?: AgentLaunchRequest
+  rawArgs?: string[]
+}
+
+type AgentLaunchPreparation = {
+  command: TerminalCommand
+  env: NodeJS.ProcessEnv
+  sessionStartReader: HookFileReaderState | null
+  userPromptReader: HookFileReaderState | null
+}
+
+type AgentProvider = {
+  id: AgentProviderId
+  getStatus: () => TerminalStatus
+  prepareLaunch: (commandPath: string, context: AgentLaunchContext) => AgentLaunchPreparation
 }
 
 type HookFileReaderState = {
@@ -74,6 +99,18 @@ const TASKMASTER_SESSION_START_HOOK_COMMAND =
   '$file=$env:TASKMASTER_COPILOT_SESSION_START_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
 const TASKMASTER_USER_PROMPT_HOOK_COMMAND =
   '$file=$env:TASKMASTER_COPILOT_USER_PROMPT_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
+
+function buildCopilotArgs(launch?: AgentLaunchRequest, rawArgs: string[] = []): string[] {
+  if (!launch) {
+    return rawArgs
+  }
+
+  const launchFlag =
+    launch.mode === 'resume' && launch.resumeSessionId
+      ? `--resume=${launch.resumeSessionId}`
+      : `--name=${launch.sessionName}`
+  return [launchFlag, ...launch.globalFlags]
+}
 
 function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
@@ -194,6 +231,7 @@ function emitSessionStart(session: TerminalSession, payload: HookSessionStartPay
 
   ownerContents.send('terminal:session-start', {
     terminalId: session.id,
+    providerId: session.agentProviderId,
     sessionId: payload.sessionId,
     source: payload.source
   } satisfies TerminalSessionStartEvent)
@@ -207,6 +245,7 @@ function emitUserPrompt(session: TerminalSession, payload: HookUserPromptPayload
 
   ownerContents.send('terminal:user-prompt', {
     terminalId: session.id,
+    providerId: session.agentProviderId,
     sessionId: payload.sessionId,
     prompt: payload.prompt
   } satisfies TerminalUserPromptEvent)
@@ -249,24 +288,6 @@ function stopHookPolling(session: TerminalSession): void {
   }
 }
 
-function resolveCopilotPath(): string | null {
-  const result = spawnSync('where.exe', ['copilot'], {
-    encoding: 'utf8',
-    windowsHide: true
-  })
-
-  if (result.status !== 0) {
-    return null
-  }
-
-  return (
-    result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean) ?? null
-  )
-}
-
 export function resolveCommandOnPath(commandName: string): string | null {
   const result = spawnSync('where.exe', [commandName], {
     encoding: 'utf8',
@@ -294,24 +315,42 @@ export function resolveCommandOnPath(commandName: string): string | null {
   return executableMatch ?? matches[0] ?? null
 }
 
-function getCopilotStatus(): TerminalStatus {
-  const commandPath = resolveCopilotPath()
+function getAgentStatus(provider: AgentProvider): TerminalStatus {
+  return provider.getStatus()
+}
+
+function getAgentProvider(providerId?: AgentProviderId): AgentProvider {
+  return agentProviders[providerId ?? DEFAULT_AGENT_PROVIDER_ID] ?? agentProviders.copilot
+}
+
+function createAgentStatus(
+  providerId: AgentProviderId,
+  commandPath: string | null,
+  messages: {
+    unavailable: string
+    available: string
+  }
+): TerminalStatus {
+  const descriptor = getAgentProviderDescriptor(providerId)
   const defaultCwd = getDefaultCwd()
 
   if (!commandPath) {
     return {
       available: false,
+      providerId,
+      label: descriptor.label,
       defaultCwd,
-      message: 'Copilot CLI was not found on PATH. Install it and run `copilot login` first.'
+      message: messages.unavailable
     }
   }
 
   return {
     available: true,
+    providerId,
+    label: descriptor.label,
     commandPath,
     defaultCwd,
-    message:
-      'Copilot CLI found. If interactive startup fails, run `copilot login` in a shell first.'
+    message: messages.available
   }
 }
 
@@ -319,8 +358,12 @@ export function quoteCmdArgument(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
-function buildCopilotCommand(commandPath: string, args: string[] = []): TerminalCommand {
-  const displayCommand = ['copilot', ...args].join(' ').trim()
+function buildCommand(
+  commandPath: string,
+  displayName: string,
+  args: string[] = []
+): TerminalCommand {
+  const displayCommand = [displayName, ...args].join(' ').trim()
 
   if (/\.(cmd|bat)$/i.test(commandPath)) {
     const command = [quoteCmdArgument(commandPath), ...args.map(quoteCmdArgument)].join(' ')
@@ -335,6 +378,56 @@ function buildCopilotCommand(commandPath: string, args: string[] = []): Terminal
     file: commandPath,
     args,
     displayCommand
+  }
+}
+
+function prepareCopilotLaunch(
+  commandPath: string,
+  context: AgentLaunchContext
+): AgentLaunchPreparation {
+  ensureTaskmasterHookConfig(context.cwd)
+
+  const hookEventsDir = getTaskmasterHookEventsDir()
+  const sessionStartReader = context.threadId
+    ? createHookFileReader(join(hookEventsDir, `${context.terminalId}-session-start.jsonl`))
+    : null
+  const userPromptReader = context.threadId
+    ? createHookFileReader(join(hookEventsDir, `${context.terminalId}-user-prompt.jsonl`))
+    : null
+
+  return {
+    command: buildCommand(
+      commandPath,
+      'copilot',
+      buildCopilotArgs(context.launch, context.rawArgs)
+    ),
+    env: {
+      ...(sessionStartReader
+        ? {
+            [TASKMASTER_SESSION_START_FILE_ENV]: sessionStartReader.filePath
+          }
+        : {}),
+      ...(userPromptReader
+        ? {
+            [TASKMASTER_USER_PROMPT_FILE_ENV]: userPromptReader.filePath
+          }
+        : {})
+    },
+    sessionStartReader,
+    userPromptReader
+  }
+}
+
+const agentProviders: Record<AgentProviderId, AgentProvider> = {
+  copilot: {
+    id: 'copilot',
+    getStatus: () =>
+      createAgentStatus('copilot', resolveCommandOnPath('copilot'), {
+        unavailable: 'Copilot CLI was not found on PATH. Install it and run `copilot login` first.',
+        available:
+          'Copilot CLI found. If interactive startup fails, run `copilot login` in a shell first.'
+      }),
+    prepareLaunch: prepareCopilotLaunch
   }
 }
 
@@ -536,10 +629,12 @@ function createSession(
 ):
   | { ok: true; terminalId: string; cwd: string; launchedCommand: string }
   | { ok: false; error: string } {
-  const kind = request.kind ?? 'copilot'
-  const status = kind === 'copilot' ? getCopilotStatus() : null
-  if (kind === 'copilot' && (!status?.available || !status.commandPath)) {
-    return { ok: false, error: status?.message ?? 'Copilot CLI unavailable.' }
+  const kind = request.kind ?? 'agent'
+  const provider = kind === 'agent' ? getAgentProvider(request.agentProviderId) : null
+  const status = provider ? getAgentStatus(provider) : null
+  if (provider && (!status?.available || !status.commandPath)) {
+    const descriptor = getAgentProviderDescriptor(provider.id)
+    return { ok: false, error: status?.message ?? `${descriptor.label} CLI unavailable.` }
   }
 
   attachOwnerCleanup(event.sender)
@@ -549,25 +644,24 @@ function createSession(
   if (!branchCheck.ok) {
     return branchCheck
   }
-  const command =
-    kind === 'copilot' && status?.commandPath
-      ? buildCopilotCommand(status.commandPath, request.args)
-      : buildShellCommand()
   const terminalId = randomUUID()
-  if (kind === 'copilot') {
-    ensureTaskmasterHookConfig(cwd)
-  }
-  const hookEventsDir = kind === 'copilot' ? getTaskmasterHookEventsDir() : null
-  const sessionStartReader =
-    kind === 'copilot' && request.threadId && hookEventsDir
-      ? createHookFileReader(join(hookEventsDir, `${terminalId}-session-start.jsonl`))
-      : null
-  const userPromptReader =
-    kind === 'copilot' && request.threadId && hookEventsDir
-      ? createHookFileReader(join(hookEventsDir, `${terminalId}-user-prompt.jsonl`))
-      : null
+  const launchPreparation =
+    provider && status?.commandPath
+      ? provider.prepareLaunch(status.commandPath, {
+          cwd,
+          terminalId,
+          threadId: request.threadId,
+          launch: request.agentLaunch,
+          rawArgs: request.args
+        })
+      : {
+          command: buildShellCommand(),
+          env: {},
+          sessionStartReader: null,
+          userPromptReader: null
+        }
 
-  const ptyProcess = pty.spawn(command.file, command.args, {
+  const ptyProcess = pty.spawn(launchPreparation.command.file, launchPreparation.command.args, {
     name: 'xterm-256color',
     cols: Math.max(request.cols, 40),
     rows: Math.max(request.rows, 12),
@@ -575,16 +669,7 @@ function createSession(
     env: {
       ...process.env,
       TERM: 'xterm-256color',
-      ...(sessionStartReader
-        ? {
-            [TASKMASTER_SESSION_START_FILE_ENV]: sessionStartReader.filePath
-          }
-        : {}),
-      ...(userPromptReader
-        ? {
-            [TASKMASTER_USER_PROMPT_FILE_ENV]: userPromptReader.filePath
-          }
-        : {})
+      ...launchPreparation.env
     },
     useConpty: true
   })
@@ -595,16 +680,17 @@ function createSession(
     ownerId: event.sender.id,
     ptyProcess,
     kind,
+    agentProviderId: provider?.id,
     threadId: request.threadId,
     launchConfirmationTimer: null,
     hookPollTimer: null,
-    sessionStartReader,
-    userPromptReader
+    sessionStartReader: launchPreparation.sessionStartReader,
+    userPromptReader: launchPreparation.userPromptReader
   }
 
   sessions.set(terminalId, session)
   startHookPolling(session)
-  if (kind === 'copilot' && request.threadId) {
+  if (provider && request.threadId) {
     session.launchConfirmationTimer = setTimeout(() => {
       if (!sessions.has(session.id) || !session.threadId) {
         return
@@ -634,14 +720,14 @@ function createSession(
     ok: true,
     terminalId,
     cwd,
-    launchedCommand: command.displayCommand
+    launchedCommand: launchPreparation.command.displayCommand
   }
 }
 
 export function getRunningThreadIds(): Set<string> {
   return new Set(
     [...sessions.values()]
-      .filter((session) => session.kind === 'copilot')
+      .filter((session) => session.kind === 'agent')
       .map((session) => session.threadId)
       .filter((threadId): threadId is string => Boolean(threadId))
   )
@@ -662,7 +748,9 @@ export function killSessionsForThread(threadId: string): void {
 export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
   terminalHooks = hooks
 
-  ipcMain.handle('terminal:status', () => getCopilotStatus())
+  ipcMain.handle('terminal:status', (_event, providerId?: AgentProviderId) => {
+    return getAgentStatus(getAgentProvider(providerId))
+  })
 
   ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => {
     return createSession(event, request)
