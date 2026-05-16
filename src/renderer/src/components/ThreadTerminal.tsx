@@ -253,7 +253,33 @@ function applyVisibleStyle(
       ? rawContent.length
       : visible.rawIndexByVisibleIndex[boundedStart]
 
-  return `${rawContent.slice(0, rawStart)}${prefix}${rawContent.slice(rawStart)}${suffix}`
+  if (rawStart >= rawContent.length) {
+    return rawContent
+  }
+
+  let styled = `${rawContent.slice(0, rawStart)}${prefix}`
+  for (let index = rawStart; index < rawContent.length; ) {
+    const nextEscape = rawContent.indexOf('\x1b', index)
+    if (nextEscape === -1) {
+      styled += rawContent.slice(index)
+      break
+    }
+
+    styled += rawContent.slice(index, nextEscape)
+    const escape = readEscapeSequence(rawContent, nextEscape)
+    if (!escape) {
+      styled += rawContent.slice(nextEscape)
+      break
+    }
+
+    styled += escape.sequence
+    if (escape.isSgr) {
+      styled += prefix
+    }
+    index = escape.end
+  }
+
+  return `${styled}${suffix}`
 }
 
 function styleTerminalLine(rawLine: string, state: StyledOutputState): string {
