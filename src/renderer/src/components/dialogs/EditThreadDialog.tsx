@@ -27,7 +27,7 @@ export default function EditThreadDialog({
     <Modal
       description={
         thread
-          ? 'Set an optional title prefix. Copilot keeps generating the rest of the title.'
+          ? 'Set an optional title prefix. The agent keeps generating the rest of the title when supported.'
           : 'Pick a thread in the sidebar first.'
       }
       onClose={onClose}
@@ -113,7 +113,7 @@ function EditThreadForm({
       }}
     >
       <Field
-        hint="Shown before the live Copilot title. Leave blank to use the Copilot title or branch name on its own."
+        hint="Shown before the live agent title. Leave blank to use the agent title or branch name on its own."
         label="Title prefix"
       >
         <TextInput

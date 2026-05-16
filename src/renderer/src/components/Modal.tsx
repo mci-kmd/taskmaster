@@ -48,7 +48,7 @@ export default function Modal({
   return (
     <div
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-start justify-center px-6 pt-[14vh]"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
       role="dialog"
     >
       <div
@@ -58,9 +58,9 @@ export default function Modal({
       />
 
       <div
-        className={`tm-pop-in relative w-full ${widths[width]} overflow-hidden rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-[var(--shadow-pop)]`}
+        className={`tm-pop-in relative flex max-h-[calc(100dvh-2rem)] w-full ${widths[width]} min-h-0 flex-col overflow-hidden rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-[var(--shadow-pop)] sm:max-h-[calc(100dvh-3rem)]`}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-[var(--color-border)] px-5 py-4">
+        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--color-border)] px-5 py-4">
           <div className="min-w-0">
             <h2 className="text-[15px] font-medium tracking-tight text-[var(--color-fg)]">
               {title}
@@ -82,10 +82,10 @@ export default function Modal({
           </button>
         </header>
 
-        <div className="px-5 py-5">{children}</div>
+        <div className="min-h-0 overflow-y-auto px-5 py-5">{children}</div>
 
         {footer ? (
-          <footer className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-3">
+          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-5 py-3">
             {footer}
           </footer>
         ) : null}

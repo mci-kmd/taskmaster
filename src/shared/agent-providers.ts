@@ -31,6 +31,19 @@ export const AGENT_PROVIDERS: readonly AgentProviderDescriptor[] = [
       supportsClipboardImagePasteShortcut: true,
       usesBackslashEnterForMultiline: true
     }
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    cliName: 'codex',
+    capabilities: {
+      tracksSessionStart: true,
+      tracksUserPrompt: true,
+      canRetryMissingResumeSession: true,
+      usesCopilotTerminalStyling: false,
+      supportsClipboardImagePasteShortcut: false,
+      usesBackslashEnterForMultiline: false
+    }
   }
 ]
 

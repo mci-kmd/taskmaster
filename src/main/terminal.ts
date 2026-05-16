@@ -1,7 +1,17 @@
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'fs'
 import { spawnSync } from 'child_process'
-import { dirname, isAbsolute, join, resolve } from 'path'
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'path'
 import {
   app,
   ipcMain,
@@ -34,6 +44,7 @@ type TerminalSession = {
   hookPollTimer: NodeJS.Timeout | null
   sessionStartReader: HookFileReaderState | null
   userPromptReader: HookFileReaderState | null
+  codexSessionReader: CodexSessionReaderState | null
 }
 
 type TerminalCommand = {
@@ -59,6 +70,7 @@ type AgentLaunchPreparation = {
   env: NodeJS.ProcessEnv
   sessionStartReader: HookFileReaderState | null
   userPromptReader: HookFileReaderState | null
+  codexSessionReader: CodexSessionReaderState | null
 }
 
 type AgentProvider = {
@@ -73,6 +85,18 @@ type HookFileReaderState = {
   remainder: string
 }
 
+type CodexSessionReaderState = {
+  cwd: string
+  launchStartedAt: number
+  mode: AgentLaunchRequest['mode']
+  resumeSessionId: string | null
+  sessionId: string | null
+  filePath: string | null
+  offset: number
+  remainder: string
+  emittedSessionStart: boolean
+}
+
 type HookSessionStartPayload = Omit<TerminalSessionStartEvent, 'terminalId'> & {
   cwd: string
   timestamp: number
@@ -82,6 +106,16 @@ type HookSessionStartPayload = Omit<TerminalSessionStartEvent, 'terminalId'> & {
 type HookUserPromptPayload = Omit<TerminalUserPromptEvent, 'terminalId'> & {
   cwd: string
   timestamp: number
+}
+
+type CodexSessionMetaPayload = {
+  id?: unknown
+  cwd?: unknown
+}
+
+type CodexTranscriptEntry = {
+  type?: unknown
+  payload?: unknown
 }
 
 const sessions = new Map<string, TerminalSession>()
@@ -110,6 +144,23 @@ function buildCopilotArgs(launch?: AgentLaunchRequest, rawArgs: string[] = []): 
       ? `--resume=${launch.resumeSessionId}`
       : `--name=${launch.sessionName}`
   return [launchFlag, ...launch.globalFlags]
+}
+
+function buildCodexArgs(
+  cwd: string,
+  launch?: AgentLaunchRequest,
+  rawArgs: string[] = []
+): string[] {
+  if (!launch) {
+    return rawArgs
+  }
+
+  const sharedArgs = ['--cd', cwd, '--no-alt-screen', ...launch.globalFlags]
+  if (launch.mode === 'resume' && launch.resumeSessionId) {
+    return ['resume', ...sharedArgs, launch.resumeSessionId]
+  }
+
+  return sharedArgs
 }
 
 function getDefaultCwd(): string {
@@ -223,6 +274,202 @@ function readHookFile<T>(reader: HookFileReaderState, onPayload: (payload: T) =>
   }
 }
 
+function getCodexSessionsDir(): string {
+  return join(process.env.CODEX_HOME || join(app.getPath('home'), '.codex'), 'sessions')
+}
+
+function parseCodexTranscriptEntry(line: string): CodexTranscriptEntry | null {
+  try {
+    return JSON.parse(line) as CodexTranscriptEntry
+  } catch {
+    return null
+  }
+}
+
+function getCodexSessionMeta(
+  filePath: string
+): (CodexSessionMetaPayload & { filePath: string }) | null {
+  try {
+    const firstLine = readFileSync(filePath, 'utf8').split(/\r?\n/u)[0]?.trim()
+    if (!firstLine) {
+      return null
+    }
+
+    const entry = parseCodexTranscriptEntry(firstLine)
+    if (!entry || entry.type !== 'session_meta' || typeof entry.payload !== 'object') {
+      return null
+    }
+
+    return {
+      ...(entry.payload as CodexSessionMetaPayload),
+      filePath
+    }
+  } catch {
+    return null
+  }
+}
+
+function listCodexSessionFiles(dir = getCodexSessionsDir()): string[] {
+  if (!existsSync(dir)) {
+    return []
+  }
+
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return []
+  }
+
+  const files: string[] = []
+  for (const entry of entries) {
+    const entryPath = join(dir, entry)
+    let stats
+    try {
+      stats = statSync(entryPath)
+    } catch {
+      continue
+    }
+
+    if (stats.isDirectory()) {
+      files.push(...listCodexSessionFiles(entryPath))
+    } else if (stats.isFile() && entryPath.endsWith('.jsonl')) {
+      files.push(entryPath)
+    }
+  }
+
+  return files
+}
+
+function findCodexSessionFile(reader: CodexSessionReaderState): string | null {
+  const candidates = listCodexSessionFiles()
+    .map((filePath) => {
+      const meta = getCodexSessionMeta(filePath)
+      if (!meta || typeof meta.id !== 'string' || typeof meta.cwd !== 'string') {
+        return null
+      }
+      if (meta.cwd !== reader.cwd) {
+        return null
+      }
+      if (reader.resumeSessionId && meta.id !== reader.resumeSessionId) {
+        return null
+      }
+
+      let stats
+      try {
+        stats = statSync(filePath)
+      } catch {
+        return null
+      }
+      const isRecentEnough =
+        reader.resumeSessionId !== null || stats.mtimeMs >= reader.launchStartedAt - 2_000
+      return isRecentEnough ? { filePath, id: meta.id, mtimeMs: stats.mtimeMs } : null
+    })
+    .filter(
+      (candidate): candidate is { filePath: string; id: string; mtimeMs: number } =>
+        candidate !== null
+    )
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+
+  const match = candidates[0]
+  if (!match) {
+    return null
+  }
+
+  reader.sessionId = match.id
+  return match.filePath
+}
+
+function getCodexUserPrompt(entry: CodexTranscriptEntry): string | null {
+  if (typeof entry.payload !== 'object' || entry.payload === null) {
+    return null
+  }
+
+  const payload = entry.payload as {
+    type?: unknown
+    message?: unknown
+  }
+
+  if (entry.type === 'event_msg' && payload.type === 'user_message') {
+    return typeof payload.message === 'string' ? payload.message : null
+  }
+
+  return null
+}
+
+function readCodexSessionFile(reader: CodexSessionReaderState, session: TerminalSession): void {
+  if (!reader.filePath) {
+    reader.filePath = findCodexSessionFile(reader)
+    if (!reader.filePath || !reader.sessionId) {
+      return
+    }
+
+    let stats
+    try {
+      stats = statSync(reader.filePath)
+    } catch {
+      reader.filePath = null
+      return
+    }
+    reader.offset = reader.mode === 'resume' ? stats.size : 0
+  }
+
+  if (!reader.emittedSessionStart && reader.sessionId) {
+    reader.emittedSessionStart = true
+    emitSessionStart(session, {
+      providerId: 'codex',
+      cwd: reader.cwd,
+      sessionId: reader.sessionId,
+      source: reader.mode,
+      timestamp: Date.now()
+    })
+  }
+
+  if (!existsSync(reader.filePath)) {
+    return
+  }
+
+  const buffer = readFileSync(reader.filePath)
+  if (buffer.length < reader.offset) {
+    reader.offset = 0
+    reader.remainder = ''
+  }
+  if (buffer.length === reader.offset) {
+    return
+  }
+
+  const chunk = buffer.subarray(reader.offset).toString('utf8')
+  reader.offset = buffer.length
+  const text = reader.remainder + chunk
+  const lines = text.split(/\r?\n/u)
+  reader.remainder = lines.pop() ?? ''
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || !reader.sessionId) {
+      continue
+    }
+
+    const entry = parseCodexTranscriptEntry(trimmed)
+    if (!entry) {
+      continue
+    }
+
+    const prompt = getCodexUserPrompt(entry)
+    if (!prompt) {
+      continue
+    }
+
+    emitUserPrompt(session, {
+      providerId: 'codex',
+      cwd: reader.cwd,
+      sessionId: reader.sessionId,
+      prompt,
+      timestamp: Date.now()
+    })
+  }
+}
+
 function emitSessionStart(session: TerminalSession, payload: HookSessionStartPayload): void {
   const ownerContents = webContents.fromId(session.ownerId)
   if (!ownerContents || ownerContents.isDestroyed()) {
@@ -252,7 +499,7 @@ function emitUserPrompt(session: TerminalSession, payload: HookUserPromptPayload
 }
 
 function startHookPolling(session: TerminalSession): void {
-  if (!session.sessionStartReader && !session.userPromptReader) {
+  if (!session.sessionStartReader && !session.userPromptReader && !session.codexSessionReader) {
     return
   }
 
@@ -266,6 +513,9 @@ function startHookPolling(session: TerminalSession): void {
       readHookFile<HookUserPromptPayload>(session.userPromptReader, (payload) =>
         emitUserPrompt(session, payload)
       )
+    }
+    if (session.codexSessionReader) {
+      readCodexSessionFile(session.codexSessionReader, session)
     }
   }, HOOK_POLL_MS)
 }
@@ -289,30 +539,67 @@ function stopHookPolling(session: TerminalSession): void {
 }
 
 export function resolveCommandOnPath(commandName: string): string | null {
-  const result = spawnSync('where.exe', [commandName], {
-    encoding: 'utf8',
-    windowsHide: true
-  })
-
-  if (result.status !== 0) {
-    return null
+  if (commandName.includes('/') || commandName.includes('\\')) {
+    return isExecutableFile(commandName) ? commandName : null
   }
 
-  const matches = result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+  if (process.platform === 'win32') {
+    const result = spawnSync('where.exe', [commandName], {
+      encoding: 'utf8',
+      windowsHide: true
+    })
 
-  if (matches.length === 0) {
-    return null
+    if (result.status !== 0) {
+      return null
+    }
+
+    const matches = result.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    if (matches.length === 0) {
+      return null
+    }
+
+    const executableMatch = matches.find((match) => /\.(exe|cmd|bat|com)$/i.test(match))
+    return executableMatch ?? matches[0] ?? null
   }
 
-  if (process.platform !== 'win32') {
-    return matches[0] ?? null
+  const fallbackPathEntries =
+    process.platform === 'darwin'
+      ? ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+      : ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+
+  for (const pathEntry of [
+    ...new Set([...(process.env.PATH ?? '').split(delimiter), ...fallbackPathEntries])
+  ]) {
+    if (!pathEntry) {
+      continue
+    }
+
+    const candidate = join(pathEntry, commandName)
+    if (isExecutableFile(candidate)) {
+      return candidate
+    }
   }
 
-  const executableMatch = matches.find((match) => /\.(exe|cmd|bat|com)$/i.test(match))
-  return executableMatch ?? matches[0] ?? null
+  return null
+}
+
+function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) {
+      return false
+    }
+    if (process.platform === 'win32') {
+      return true
+    }
+    accessSync(path, fsConstants.X_OK)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function getAgentStatus(provider: AgentProvider): TerminalStatus {
@@ -365,7 +652,7 @@ function buildCommand(
 ): TerminalCommand {
   const displayCommand = [displayName, ...args].join(' ').trim()
 
-  if (/\.(cmd|bat)$/i.test(commandPath)) {
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(commandPath)) {
     const command = [quoteCmdArgument(commandPath), ...args.map(quoteCmdArgument)].join(' ')
     return {
       file: process.env.ComSpec ?? process.env.COMSPEC ?? 'C:\\Windows\\System32\\cmd.exe',
@@ -414,7 +701,38 @@ function prepareCopilotLaunch(
         : {})
     },
     sessionStartReader,
-    userPromptReader
+    userPromptReader,
+    codexSessionReader: null
+  }
+}
+
+function prepareCodexLaunch(
+  commandPath: string,
+  context: AgentLaunchContext
+): AgentLaunchPreparation {
+  return {
+    command: buildCommand(
+      commandPath,
+      'codex',
+      buildCodexArgs(context.cwd, context.launch, context.rawArgs)
+    ),
+    env: {},
+    sessionStartReader: null,
+    userPromptReader: null,
+    codexSessionReader:
+      context.threadId && context.launch
+        ? {
+            cwd: context.cwd,
+            launchStartedAt: Date.now(),
+            mode: context.launch.mode,
+            resumeSessionId: context.launch.resumeSessionId,
+            sessionId: null,
+            filePath: null,
+            offset: 0,
+            remainder: '',
+            emittedSessionStart: false
+          }
+        : null
   }
 }
 
@@ -428,10 +746,37 @@ const agentProviders: Record<AgentProviderId, AgentProvider> = {
           'Copilot CLI found. If interactive startup fails, run `copilot login` in a shell first.'
       }),
     prepareLaunch: prepareCopilotLaunch
+  },
+  codex: {
+    id: 'codex',
+    getStatus: () =>
+      createAgentStatus('codex', resolveCommandOnPath('codex'), {
+        unavailable: 'Codex CLI was not found on PATH. Install it and run `codex login` first.',
+        available:
+          'Codex CLI found. If interactive startup fails, run `codex login` in a shell first.'
+      }),
+    prepareLaunch: prepareCodexLaunch
   }
 }
 
 function buildShellCommand(): TerminalCommand {
+  if (process.platform !== 'win32') {
+    const configuredShell = process.env.SHELL
+    if (configuredShell && isExecutableFile(configuredShell)) {
+      return {
+        file: configuredShell,
+        args: [],
+        displayCommand: basename(configuredShell)
+      }
+    }
+
+    return {
+      file: '/bin/sh',
+      args: [],
+      displayCommand: 'sh'
+    }
+  }
+
   const pwshPath = resolveCommandOnPath('pwsh')
   if (pwshPath) {
     return {
@@ -463,6 +808,16 @@ export function buildScriptCommand(script: string): {
   args: string[]
   displayCommand: string
 } {
+  if (process.platform !== 'win32') {
+    const shellPath =
+      process.env.SHELL && isExecutableFile(process.env.SHELL) ? process.env.SHELL : '/bin/sh'
+    return {
+      file: shellPath,
+      args: ['-lc', script],
+      displayCommand: `${basename(shellPath)} -lc <script>`
+    }
+  }
+
   const shellCommand = buildShellCommand()
   const shellPath = shellCommand.file.toLowerCase()
   if (shellPath.endsWith('pwsh.exe') || shellPath.endsWith('powershell.exe')) {
@@ -658,7 +1013,8 @@ function createSession(
           command: buildShellCommand(),
           env: {},
           sessionStartReader: null,
-          userPromptReader: null
+          userPromptReader: null,
+          codexSessionReader: null
         }
 
   const ptyProcess = pty.spawn(launchPreparation.command.file, launchPreparation.command.args, {
@@ -671,7 +1027,7 @@ function createSession(
       TERM: 'xterm-256color',
       ...launchPreparation.env
     },
-    useConpty: true
+    useConpty: process.platform === 'win32'
   })
 
   const session: TerminalSession = {
@@ -685,7 +1041,8 @@ function createSession(
     launchConfirmationTimer: null,
     hookPollTimer: null,
     sessionStartReader: launchPreparation.sessionStartReader,
-    userPromptReader: launchPreparation.userPromptReader
+    userPromptReader: launchPreparation.userPromptReader,
+    codexSessionReader: launchPreparation.codexSessionReader
   }
 
   sessions.set(terminalId, session)
@@ -740,6 +1097,7 @@ export function killSessionsForThread(threadId: string): void {
     }
 
     clearLaunchConfirmation(session)
+    stopHookPolling(session)
     sessions.delete(session.id)
     session.ptyProcess.kill()
   }
@@ -790,6 +1148,7 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
   app.on('before-quit', () => {
     for (const session of sessions.values()) {
       clearLaunchConfirmation(session)
+      stopHookPolling(session)
       session.ptyProcess.kill()
     }
 

@@ -1,5 +1,5 @@
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
-export type AgentProviderId = 'copilot'
+export type AgentProviderId = 'copilot' | 'codex'
 export type TerminalKind = 'agent' | 'shell'
 export type ProjectTaskTag = string
 
@@ -98,6 +98,7 @@ export interface TerminalApi {
 }
 
 export interface PersistedSettings {
+  agentProviderId: AgentProviderId
   globalFlagsInput: string
   terminalFontFamilyInput: string
   taskTagsInput: string
@@ -131,7 +132,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 9
+  version: 10
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -327,6 +328,7 @@ export interface CreateThreadInput {
 }
 
 export interface UpdateSettingsInput {
+  agentProviderId: AgentProviderId
   globalFlagsInput: string
   terminalFontFamilyInput: string
   taskTagsInput: string

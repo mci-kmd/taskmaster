@@ -451,7 +451,9 @@ function styleTerminalOutput(incoming: string, state: StyledOutputState): string
 }
 
 function isMissingResumeSessionError(output: string): boolean {
-  return /No session, task, or name matched/i.test(output)
+  return /No session, task, or name matched|No conversation\/session|session .*not found|No sessions? found/i.test(
+    output
+  )
 }
 
 function normalizeTrackedUserMessage(value: string): string | null {
@@ -585,6 +587,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const settingsRef = useRef(settings)
     const agentStatusRef = useRef(agentStatus)
     const agentProviderRef = useRef(agentProvider)
+    const latestAgentProviderRef = useRef(agentProvider)
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
     const visibleRef = useRef(visible)
@@ -651,7 +654,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [agentStatus])
 
     useEffect(() => {
-      agentProviderRef.current = agentProvider
+      latestAgentProviderRef.current = agentProvider
+      if (!terminalIdRef.current) {
+        agentProviderRef.current = agentProvider
+      }
     }, [agentProvider])
 
     useEffect(() => {
@@ -741,6 +747,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         const currentThread = threadRef.current
         const currentSettings = settingsRef.current
+        const launchAgentProvider = latestAgentProviderRef.current
+        agentProviderRef.current = launchAgentProvider
         if (!currentThread || !currentSettings) {
           setPhase('error')
           setErrorMessage('Missing thread or settings.')
@@ -749,7 +757,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         const result = await window.api.terminal.create({
           kind: isAgentTerminal ? 'agent' : 'shell',
-          agentProviderId: isAgentTerminal ? agentProviderRef.current.id : undefined,
+          agentProviderId: isAgentTerminal ? launchAgentProvider.id : undefined,
           threadId: currentThread.id,
           threadMode: currentThread.mode,
           branchName: currentThread.branchName,
@@ -846,6 +854,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       await window.api.terminal.kill(id)
       terminalIdRef.current = null
       launchAttemptRef.current = null
+      agentProviderRef.current = latestAgentProviderRef.current
       pendingStyledOutputRef.current.current = ''
       pendingStyledOutputRef.current.insideToolBlock = false
       trackedUserInputRef.current = {
@@ -959,6 +968,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         const attempt = launchAttemptRef.current
         terminalIdRef.current = null
         launchAttemptRef.current = null
+        agentProviderRef.current = latestAgentProviderRef.current
 
         if (
           kindRef.current === 'agent' &&

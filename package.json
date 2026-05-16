@@ -1,7 +1,7 @@
 {
   "name": "taskmaster",
   "version": "1.0.0",
-  "description": "A personal Electron desktop app for orchestrating embedded Copilot CLI threads",
+  "description": "A personal Electron desktop app for orchestrating embedded LLM CLI threads",
   "main": "./out/main/index.js",
   "author": "",
   "homepage": ".",

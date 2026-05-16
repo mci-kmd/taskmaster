@@ -35,9 +35,9 @@ export default function EmptyState({
         <p className="mt-2 max-w-sm text-[13.5px] leading-6 text-[var(--color-fg-muted)]">
           {hasRepositories
             ? hasRepository
-              ? 'Pick a thread on the left, or spin up a new one to launch Copilot.'
+              ? 'Pick a thread on the left, or spin up a new one to launch the agent.'
               : 'Select a repository in the sidebar to view its threads.'
-            : 'Add a git repository to start orchestrating Copilot threads.'}
+            : 'Add a git repository to start orchestrating agent threads.'}
         </p>
 
         <div className="mt-6 flex items-center gap-2">
@@ -67,7 +67,7 @@ export default function EmptyState({
 
         <div className="mt-10 flex items-center gap-3 text-[11.5px] uppercase tracking-[0.16em] text-[var(--color-fg-faint)]">
           <span className="h-px w-8 bg-[var(--color-border)]" />
-          <span>Embedded Copilot CLI</span>
+          <span>Embedded agent CLI</span>
           <span className="h-px w-8 bg-[var(--color-border)]" />
         </div>
       </div>
