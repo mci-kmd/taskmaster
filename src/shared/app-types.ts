@@ -1,6 +1,16 @@
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
-export type TerminalKind = 'copilot' | 'shell'
+export type AgentProviderId = 'copilot' | 'codex'
+export type TerminalKind = 'agent' | 'shell'
 export type ProjectTaskTag = string
+
+export type AgentLaunchMode = 'new' | 'resume'
+
+export interface AgentLaunchRequest {
+  mode: AgentLaunchMode
+  sessionName: string
+  resumeSessionId: string | null
+  globalFlags: string[]
+}
 
 export interface PersistedProjectTask {
   id: string
@@ -14,7 +24,10 @@ export interface TerminalCreateRequest {
   cols: number
   rows: number
   kind?: TerminalKind
+  agentProviderId?: AgentProviderId
+  agentLaunch?: AgentLaunchRequest
   cwd?: string
+  /** @deprecated Agent arguments are now built by the selected provider. */
   args?: string[]
   threadId?: string
   threadMode?: ThreadMode
@@ -23,6 +36,8 @@ export interface TerminalCreateRequest {
 
 export interface TerminalStatus {
   available: boolean
+  providerId?: AgentProviderId
+  label?: string
   commandPath?: string
   defaultCwd: string
   message: string
@@ -56,18 +71,20 @@ export type TerminalSessionStartSource = 'startup' | 'resume' | 'new'
 
 export interface TerminalSessionStartEvent {
   terminalId: string
+  providerId?: AgentProviderId
   sessionId: string
   source: TerminalSessionStartSource
 }
 
 export interface TerminalUserPromptEvent {
   terminalId: string
+  providerId?: AgentProviderId
   sessionId: string
   prompt: string
 }
 
 export interface TerminalApi {
-  getStatus: () => Promise<TerminalStatus>
+  getStatus: (providerId?: AgentProviderId) => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
   kill: (terminalId: string) => Promise<boolean>
   hasClipboardImage: () => boolean
@@ -81,6 +98,7 @@ export interface TerminalApi {
 }
 
 export interface PersistedSettings {
+  agentProviderId: AgentProviderId
   globalFlagsInput: string
   terminalFontFamilyInput: string
   taskTagsInput: string
@@ -114,7 +132,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 9
+  version: 10
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -310,6 +328,7 @@ export interface CreateThreadInput {
 }
 
 export interface UpdateSettingsInput {
+  agentProviderId: AgentProviderId
   globalFlagsInput: string
   terminalFontFamilyInput: string
   taskTagsInput: string

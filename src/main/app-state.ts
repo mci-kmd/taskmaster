@@ -76,6 +76,7 @@ import {
   parseTaskTagsInput
 } from '../shared/task-tags'
 import { normalizeCopilotTitle } from '../shared/thread-title'
+import { DEFAULT_AGENT_PROVIDER_ID, getAgentProviderDescriptor } from '../shared/agent-providers'
 import {
   buildScriptCommand,
   getRunningThreadIds,
@@ -85,7 +86,7 @@ import {
 } from './terminal'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 9 as const
+const STATE_VERSION = 10 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -134,6 +135,11 @@ type LegacyThreadV1 = Omit<
   'customTitle' | 'latestCopilotTitle' | 'lastUserMessage' | 'resumeSessionId'
 > & {
   title: string
+}
+type LegacySettingsV9 = Omit<PersistedAppState['settings'], 'agentProviderId'>
+type LegacyAppStateV9 = Omit<PersistedAppState, 'version' | 'settings'> & {
+  version: 9
+  settings: LegacySettingsV9
 }
 type LegacyRepositoryV8 = Omit<PersistedRepository, 'postWorktreeRemoveCommand'>
 type LegacyRepositoryV7 = Omit<PersistedRepository, 'postWorktreeRemoveCommand' | 'tasks'>
@@ -304,9 +310,22 @@ function normalizeTerminalFontFamilyInput(value: string | null | undefined): str
   return value?.trim() ?? ''
 }
 
+function normalizeAgentProviderId(
+  value: unknown
+): PersistedAppState['settings']['agentProviderId'] {
+  if (typeof value !== 'string') {
+    return DEFAULT_AGENT_PROVIDER_ID
+  }
+
+  return getAgentProviderDescriptor(value as PersistedAppState['settings']['agentProviderId']).id
+}
+
 function normalizePersistedSettings(
   settings: PersistedAppState['settings']
 ): PersistedAppState['settings'] {
+  const agentProviderId = normalizeAgentProviderId(
+    (settings as { agentProviderId?: unknown }).agentProviderId
+  )
   const terminalFontFamilyInput = normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput)
   const currentTaskTagsInput =
     typeof (settings as { taskTagsInput?: unknown }).taskTagsInput === 'string'
@@ -317,11 +336,13 @@ function normalizePersistedSettings(
       ? DEFAULT_TASK_TAGS_INPUT
       : normalizeTaskTagsInput(currentTaskTagsInput)
 
-  return terminalFontFamilyInput === settings.terminalFontFamilyInput &&
+  return agentProviderId === (settings as { agentProviderId?: unknown }).agentProviderId &&
+    terminalFontFamilyInput === settings.terminalFontFamilyInput &&
     taskTagsInput === currentTaskTagsInput
     ? settings
     : {
         ...settings,
+        agentProviderId,
         terminalFontFamilyInput,
         taskTagsInput
       }
@@ -366,6 +387,7 @@ function migrateState(
   parsed:
     | PersistedAppState
     | LegacyAppStateV8
+    | LegacyAppStateV9
     | LegacyAppStateV7
     | LegacyAppStateV6
     | LegacyAppStateV5
@@ -376,6 +398,17 @@ function migrateState(
 ): PersistedAppState {
   if (parsed.version === STATE_VERSION) {
     return normalizePersistedState(parsed)
+  }
+
+  if (parsed.version === 9) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      settings: {
+        ...parsed.settings,
+        agentProviderId: DEFAULT_AGENT_PROVIDER_ID
+      }
+    })
   }
 
   if (parsed.version === 8) {
@@ -513,6 +546,7 @@ function createDefaultState(): PersistedAppState {
   return {
     version: STATE_VERSION,
     settings: {
+      agentProviderId: DEFAULT_AGENT_PROVIDER_ID,
       globalFlagsInput: '',
       terminalFontFamilyInput: '',
       taskTagsInput: DEFAULT_TASK_TAGS_INPUT
@@ -607,8 +641,8 @@ function parseGlobalFlags(input: string): string[] {
   return tokens
 }
 
-function sameWindowsPath(left: string, right: string): boolean {
-  return left.toLowerCase() === right.toLowerCase()
+function sameNativePath(left: string, right: string): boolean {
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
 function isPathInsideRepository(repositoryPath: string, candidatePath: string): boolean {
@@ -2610,9 +2644,7 @@ async function addRepository(): Promise<MutationResult> {
   }
 
   const state = ensureState()
-  const existing = state.repositories.find((repository) =>
-    sameWindowsPath(repository.path, gitRoot)
-  )
+  const existing = state.repositories.find((repository) => sameNativePath(repository.path, gitRoot))
   if (existing) {
     updateSelection(existing.id, null)
     saveState()
@@ -2712,6 +2744,7 @@ async function closeThread(threadId: string): Promise<MutationResult> {
 
 function updateSettings(input: UpdateSettingsInput): MutationResult {
   const state = ensureState()
+  state.settings.agentProviderId = normalizeAgentProviderId(input.agentProviderId)
   state.settings.globalFlagsInput = input.globalFlagsInput.trim()
   state.settings.terminalFontFamilyInput = normalizeTerminalFontFamilyInput(
     input.terminalFontFamilyInput

@@ -30,6 +30,7 @@ import {
   WorktreeIcon
 } from './Icons'
 import { composeThreadTitle } from '../lib/title'
+import { getAgentProviderDescriptor } from '../../../shared/agent-providers'
 
 type WorkspaceProps = {
   threads: ThreadSnapshot[]
@@ -77,28 +78,29 @@ const IDLE_STATE: ThreadSessionState = {
 
 const ACTIVE_BRANCH_STATUS_POLL_MS = 4_000
 const IDLE_BRANCH_STATUS_POLL_MS = 15_000
-const THREAD_VIEW_OPTIONS: Array<{
+function buildThreadViewOptions(agentLabel: string): Array<{
   value: ThreadWorkspaceViewId
   label: string
   description: string
-}> = [
-  {
-    value: 'copilot',
-    label: 'Copilot',
-    description: 'Copilot session and recent prompt'
-  },
-  {
-    value: 'terminal',
-    label: 'Terminal',
-    description: 'Plain shell in the thread working directory'
-  },
-  {
-    value: 'diff',
-    label: 'Diff',
-    description: 'Changed files and patches for this thread'
-  }
-]
-const THREAD_VIEW_CONTROL_WIDTH_PX = THREAD_VIEW_OPTIONS.length * 88
+}> {
+  return [
+    {
+      value: 'copilot',
+      label: agentLabel,
+      description: `${agentLabel} session and recent prompt`
+    },
+    {
+      value: 'terminal',
+      label: 'Terminal',
+      description: 'Plain shell in the thread working directory'
+    },
+    {
+      value: 'diff',
+      label: 'Diff',
+      description: 'Changed files and patches for this thread'
+    }
+  ]
+}
 
 function formatBranchStatusTokens(status: BranchStatusSnapshot): string[] {
   const tokens: string[] = []
@@ -248,7 +250,7 @@ export default function Workspace({
 }: WorkspaceProps): React.JSX.Element {
   const copilotSessionsRef = useRef<TerminalSessionsHandle | null>(null)
   const terminalSessionsRef = useRef<TerminalSessionsHandle | null>(null)
-  const [copilotStatus, setCopilotStatus] = useState<TerminalStatus | null>(null)
+  const [agentStatus, setAgentStatus] = useState<TerminalStatus | null>(null)
   const [copilotSessions, setCopilotSessions] = useState<SessionMap>(new Map())
   const [terminalSessions, setTerminalSessions] = useState<SessionMap>(new Map())
   const [threadViewSelections, setThreadViewSelections] = useState<
@@ -263,17 +265,23 @@ export default function Workspace({
   })
   const autoLaunchedRef = useRef<Set<string>>(new Set())
   const branchStatusPollMsRef = useRef(IDLE_BRANCH_STATUS_POLL_MS)
+  const agentProvider = getAgentProviderDescriptor(settings.agentProviderId)
+  const threadViewOptions = useMemo(
+    () => buildThreadViewOptions(agentProvider.label),
+    [agentProvider.label]
+  )
+  const threadViewControlWidthPx = threadViewOptions.length * 88
 
   useEffect(() => {
     let cancelled = false
-    void window.api.terminal.getStatus().then((status) => {
+    void window.api.terminal.getStatus(settings.agentProviderId).then((status) => {
       if (cancelled) return
-      setCopilotStatus(status)
+      setAgentStatus(status)
     })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [settings.agentProviderId])
 
   const handleCopilotSessionsChange = useCallback(
     (next: SessionMap): void => {
@@ -304,9 +312,11 @@ export default function Workspace({
       : selectedView === 'copilot'
         ? selectedCopilotSession
         : IDLE_STATE
+  const activeAgentStatus =
+    agentStatus?.providerId === settings.agentProviderId ? agentStatus : null
   const isRunning = activeSession.phase === 'running'
   const copilotRunning = selectedCopilotSession.phase === 'running'
-  const cliAvailable = copilotStatus?.available ?? false
+  const cliAvailable = activeAgentStatus?.available ?? false
   const hasThread = Boolean(selectedThread)
   const hasRunCommand = Boolean(selectedRepository?.runCommand)
   const runCommandRunning = selectedThread?.isRunCommandRunning ?? false
@@ -555,11 +565,11 @@ export default function Workspace({
                 <CodeIcon width={13} height={13} />
               </Button>
 
-              <div style={{ width: THREAD_VIEW_CONTROL_WIDTH_PX }}>
+              <div style={{ width: threadViewControlWidthPx }}>
                 <SegmentedControl<ThreadWorkspaceViewId>
                   ariaLabel="Thread view"
                   onChange={handleSelectView}
-                  options={THREAD_VIEW_OPTIONS}
+                  options={threadViewOptions}
                   value={selectedView}
                 />
               </div>
@@ -593,8 +603,9 @@ export default function Workspace({
 
             <div className="relative min-h-0 flex-1">
               <TerminalSessions
-                copilotStatus={copilotStatus}
-                kind="copilot"
+                agentProviderId={settings.agentProviderId}
+                agentStatus={activeAgentStatus}
+                kind="agent"
                 onRefresh={onRefresh}
                 onSessionsChange={handleCopilotSessionsChange}
                 ref={copilotSessionsRef}
@@ -604,7 +615,7 @@ export default function Workspace({
               />
 
               <TerminalSessions
-                copilotStatus={copilotStatus}
+                agentStatus={activeAgentStatus}
                 kind="shell"
                 onRefresh={onRefresh}
                 onSessionsChange={handleTerminalSessionsChange}
@@ -617,7 +628,8 @@ export default function Workspace({
               {selectedThread && selectedView === 'copilot' && !copilotRunning ? (
                 <div className="absolute inset-0">
                   <LaunchPanel
-                    copilotStatus={copilotStatus}
+                    copilotStatus={activeAgentStatus}
+                    provider={agentProvider}
                     onLaunch={handleLaunchCopilot}
                     session={selectedCopilotSession}
                     thread={selectedThread}

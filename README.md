@@ -1,14 +1,14 @@
 # taskmaster
 
-A personal Windows-only Electron app for running Copilot CLI inside the app and organizing repo-scoped threads.
+A personal Electron app for running an embedded LLM CLI inside the app and organizing repo-scoped threads.
 
 ## Current features
 
 - Add git repositories from a folder picker
 - Create persisted threads in active-branch mode or owned-worktree mode
-- Launch Copilot CLI inside the embedded terminal per selected thread
-- Resume prior Copilot sessions by persisted thread session name
-- Configure global Copilot flags for all thread launches
+- Launch Copilot CLI or Codex CLI inside the embedded terminal per selected thread
+- Resume prior agent sessions by persisted session ID or name
+- Configure the active provider and global provider flags for all thread launches
 - Remove owned worktrees and branches when closing a worktree-backed thread
 
 ## Stack
@@ -21,8 +21,9 @@ A personal Windows-only Electron app for running Copilot CLI inside the app and 
 ## Prerequisites
 
 - Bun
-- Git for Windows
-- GitHub Copilot CLI installed and already signed in
+- Git
+- GitHub Copilot CLI or Codex CLI installed and already signed in
+- Linux: native build tools for `node-pty` (`sudo apt-get install build-essential python3` on Ubuntu/Debian)
 
 ## Install
 
@@ -43,12 +44,21 @@ The project uses Bun-native package hardening:
 bun run dev
 ```
 
+If Electron or `node-pty` did not install its native binaries on Linux:
+
+```bash
+node node_modules/electron/install.js
+bun run rebuild:native
+```
+
 ### Build
 
 ```bash
 bun run build
 
 bun run build:win
+
+bun run build:linux
 ```
 
 Renderer dev server runs on port `5175`.
@@ -56,5 +66,5 @@ Renderer dev server runs on port `5175`.
 ## Notes
 
 - Worktree-backed threads prompt before deletion if the worktree is dirty.
-- Normal install/dev/build flows do not require Python.
-- `node-pty` is still a native dependency, but the current Windows setup uses its shipped prebuilt binaries instead of forcing a local rebuild.
+- Normal install/dev/build flows do not require Python on platforms where native binaries are shipped.
+- `node-pty` is still a native dependency; Linux may require a local rebuild with the native build tools above.

@@ -1,4 +1,5 @@
 import type { TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
+import type { AgentProviderDescriptor } from '../../../shared/agent-providers'
 import type { SessionPhase, ThreadSessionState } from './ThreadTerminal'
 import Button from './ui/Button'
 import { PlayIcon, RefreshIcon, SparkIcon } from './Icons'
@@ -8,6 +9,7 @@ type LaunchPanelProps = {
   thread: ThreadSnapshot
   session: ThreadSessionState
   copilotStatus: TerminalStatus | null
+  provider: AgentProviderDescriptor
   onLaunch: () => void
 }
 
@@ -22,6 +24,7 @@ function pickVisual(
   thread: ThreadSnapshot,
   session: ThreadSessionState,
   copilotStatus: TerminalStatus | null,
+  provider: AgentProviderDescriptor,
   onLaunch: () => void
 ): Visual {
   const phase: SessionPhase = session.phase
@@ -30,8 +33,8 @@ function pickVisual(
   if (!copilotStatus) {
     return {
       tone: 'progress',
-      title: 'Resolving Copilot CLI…',
-      detail: <span>Looking for the Copilot CLI on your PATH.</span>,
+      title: `Resolving ${provider.label} CLI…`,
+      detail: <span>Looking for the {provider.label} CLI on your PATH.</span>,
       action: null
     }
   }
@@ -42,7 +45,8 @@ function pickVisual(
       title: thread.hasLaunched ? 'Resuming session…' : 'Starting session…',
       detail: (
         <span>
-          {thread.hasLaunched ? 'Reattaching to ' : 'Spawning '}Copilot CLI in{' '}
+          {thread.hasLaunched ? 'Reattaching to ' : 'Spawning '}
+          {provider.label} CLI in{' '}
           <span className="font-mono text-[var(--color-fg)]">{thread.cwd}</span>
         </span>
       ),
@@ -72,9 +76,14 @@ function pickVisual(
     return {
       tone: 'stopped',
       title: `Session ended${session.exitCode !== null ? ` (code ${session.exitCode})` : ''}`,
-      detail: <span>Restart the Copilot session for this thread to continue.</span>,
+      detail: <span>Restart the {provider.label} session for this thread to continue.</span>,
       action: (
-        <Button onClick={onLaunch} size="md" title="Restart Copilot session" variant="primary">
+        <Button
+          onClick={onLaunch}
+          size="md"
+          title={`Restart ${provider.label} session`}
+          variant="primary"
+        >
           <PlayIcon width={11} height={11} />
           Restart
         </Button>
@@ -85,10 +94,10 @@ function pickVisual(
   if (!cliAvailable) {
     return {
       tone: 'error',
-      title: 'Copilot CLI unavailable',
+      title: `${provider.label} CLI unavailable`,
       detail: (
         <span>
-          {copilotStatus.message ?? 'Install GitHub Copilot CLI and ensure it is signed in.'}
+          {copilotStatus.message ?? `Install ${provider.label} CLI and ensure it is signed in.`}
         </span>
       ),
       action: null
@@ -100,11 +109,17 @@ function pickVisual(
     title: thread.hasLaunched ? 'Ready to resume' : 'Ready to launch',
     detail: (
       <span>
-        Launch Copilot CLI in <span className="font-mono text-[var(--color-fg)]">{thread.cwd}</span>
+        Launch {provider.label} CLI in{' '}
+        <span className="font-mono text-[var(--color-fg)]">{thread.cwd}</span>
       </span>
     ),
     action: (
-      <Button onClick={onLaunch} size="md" title="Launch Copilot session" variant="primary">
+      <Button
+        onClick={onLaunch}
+        size="md"
+        title={`Launch ${provider.label} session`}
+        variant="primary"
+      >
         <PlayIcon width={11} height={11} />
         {thread.hasLaunched ? 'Resume session' : 'Launch session'}
       </Button>
@@ -123,9 +138,10 @@ export default function LaunchPanel({
   thread,
   session,
   copilotStatus,
+  provider,
   onLaunch
 }: LaunchPanelProps): React.JSX.Element {
-  const visual = pickVisual(thread, session, copilotStatus, onLaunch)
+  const visual = pickVisual(thread, session, copilotStatus, provider, onLaunch)
   const isProgress = visual.tone === 'progress'
   const isResumeOnly = visual.tone === 'idle' && thread.hasLaunched
   const composedTitle = composeThreadTitle(thread, session.runtimeTitle)

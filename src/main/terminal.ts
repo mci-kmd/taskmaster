@@ -1,7 +1,17 @@
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs'
+import {
+  accessSync,
+  constants as fsConstants,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'fs'
 import { spawnSync } from 'child_process'
-import { dirname, isAbsolute, join, resolve } from 'path'
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'path'
 import {
   app,
   ipcMain,
@@ -12,12 +22,15 @@ import {
 } from 'electron'
 import * as pty from 'node-pty'
 import type {
+  AgentLaunchRequest,
+  AgentProviderId,
   TerminalCreateRequest,
   TerminalKind,
   TerminalSessionStartEvent,
   TerminalStatus,
   TerminalUserPromptEvent
 } from '../shared/app-types'
+import { DEFAULT_AGENT_PROVIDER_ID, getAgentProviderDescriptor } from '../shared/agent-providers'
 
 type TerminalSession = {
   id: string
@@ -25,11 +38,13 @@ type TerminalSession = {
   ownerId: number
   ptyProcess: pty.IPty
   kind: TerminalKind
+  agentProviderId?: AgentProviderId
   threadId?: string
   launchConfirmationTimer: NodeJS.Timeout | null
   hookPollTimer: NodeJS.Timeout | null
   sessionStartReader: HookFileReaderState | null
   userPromptReader: HookFileReaderState | null
+  codexSessionReader: CodexSessionReaderState | null
 }
 
 type TerminalCommand = {
@@ -42,10 +57,44 @@ type TerminalHooks = {
   onThreadStart?: (threadId: string) => void
 }
 
+type AgentLaunchContext = {
+  cwd: string
+  terminalId: string
+  threadId?: string
+  launch?: AgentLaunchRequest
+  rawArgs?: string[]
+}
+
+type AgentLaunchPreparation = {
+  command: TerminalCommand
+  env: NodeJS.ProcessEnv
+  sessionStartReader: HookFileReaderState | null
+  userPromptReader: HookFileReaderState | null
+  codexSessionReader: CodexSessionReaderState | null
+}
+
+type AgentProvider = {
+  id: AgentProviderId
+  getStatus: () => TerminalStatus
+  prepareLaunch: (commandPath: string, context: AgentLaunchContext) => AgentLaunchPreparation
+}
+
 type HookFileReaderState = {
   filePath: string
   offset: number
   remainder: string
+}
+
+type CodexSessionReaderState = {
+  cwd: string
+  launchStartedAt: number
+  mode: AgentLaunchRequest['mode']
+  resumeSessionId: string | null
+  sessionId: string | null
+  filePath: string | null
+  offset: number
+  remainder: string
+  emittedSessionStart: boolean
 }
 
 type HookSessionStartPayload = Omit<TerminalSessionStartEvent, 'terminalId'> & {
@@ -57,6 +106,16 @@ type HookSessionStartPayload = Omit<TerminalSessionStartEvent, 'terminalId'> & {
 type HookUserPromptPayload = Omit<TerminalUserPromptEvent, 'terminalId'> & {
   cwd: string
   timestamp: number
+}
+
+type CodexSessionMetaPayload = {
+  id?: unknown
+  cwd?: unknown
+}
+
+type CodexTranscriptEntry = {
+  type?: unknown
+  payload?: unknown
 }
 
 const sessions = new Map<string, TerminalSession>()
@@ -74,6 +133,35 @@ const TASKMASTER_SESSION_START_HOOK_COMMAND =
   '$file=$env:TASKMASTER_COPILOT_SESSION_START_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
 const TASKMASTER_USER_PROMPT_HOOK_COMMAND =
   '$file=$env:TASKMASTER_COPILOT_USER_PROMPT_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
+
+function buildCopilotArgs(launch?: AgentLaunchRequest, rawArgs: string[] = []): string[] {
+  if (!launch) {
+    return rawArgs
+  }
+
+  const launchFlag =
+    launch.mode === 'resume' && launch.resumeSessionId
+      ? `--resume=${launch.resumeSessionId}`
+      : `--name=${launch.sessionName}`
+  return [launchFlag, ...launch.globalFlags]
+}
+
+function buildCodexArgs(
+  cwd: string,
+  launch?: AgentLaunchRequest,
+  rawArgs: string[] = []
+): string[] {
+  if (!launch) {
+    return rawArgs
+  }
+
+  const sharedArgs = ['--cd', cwd, '--no-alt-screen', ...launch.globalFlags]
+  if (launch.mode === 'resume' && launch.resumeSessionId) {
+    return ['resume', ...sharedArgs, launch.resumeSessionId]
+  }
+
+  return sharedArgs
+}
 
 function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
@@ -186,6 +274,202 @@ function readHookFile<T>(reader: HookFileReaderState, onPayload: (payload: T) =>
   }
 }
 
+function getCodexSessionsDir(): string {
+  return join(process.env.CODEX_HOME || join(app.getPath('home'), '.codex'), 'sessions')
+}
+
+function parseCodexTranscriptEntry(line: string): CodexTranscriptEntry | null {
+  try {
+    return JSON.parse(line) as CodexTranscriptEntry
+  } catch {
+    return null
+  }
+}
+
+function getCodexSessionMeta(
+  filePath: string
+): (CodexSessionMetaPayload & { filePath: string }) | null {
+  try {
+    const firstLine = readFileSync(filePath, 'utf8').split(/\r?\n/u)[0]?.trim()
+    if (!firstLine) {
+      return null
+    }
+
+    const entry = parseCodexTranscriptEntry(firstLine)
+    if (!entry || entry.type !== 'session_meta' || typeof entry.payload !== 'object') {
+      return null
+    }
+
+    return {
+      ...(entry.payload as CodexSessionMetaPayload),
+      filePath
+    }
+  } catch {
+    return null
+  }
+}
+
+function listCodexSessionFiles(dir = getCodexSessionsDir()): string[] {
+  if (!existsSync(dir)) {
+    return []
+  }
+
+  let entries: string[]
+  try {
+    entries = readdirSync(dir)
+  } catch {
+    return []
+  }
+
+  const files: string[] = []
+  for (const entry of entries) {
+    const entryPath = join(dir, entry)
+    let stats
+    try {
+      stats = statSync(entryPath)
+    } catch {
+      continue
+    }
+
+    if (stats.isDirectory()) {
+      files.push(...listCodexSessionFiles(entryPath))
+    } else if (stats.isFile() && entryPath.endsWith('.jsonl')) {
+      files.push(entryPath)
+    }
+  }
+
+  return files
+}
+
+function findCodexSessionFile(reader: CodexSessionReaderState): string | null {
+  const candidates = listCodexSessionFiles()
+    .map((filePath) => {
+      const meta = getCodexSessionMeta(filePath)
+      if (!meta || typeof meta.id !== 'string' || typeof meta.cwd !== 'string') {
+        return null
+      }
+      if (meta.cwd !== reader.cwd) {
+        return null
+      }
+      if (reader.resumeSessionId && meta.id !== reader.resumeSessionId) {
+        return null
+      }
+
+      let stats
+      try {
+        stats = statSync(filePath)
+      } catch {
+        return null
+      }
+      const isRecentEnough =
+        reader.resumeSessionId !== null || stats.mtimeMs >= reader.launchStartedAt - 2_000
+      return isRecentEnough ? { filePath, id: meta.id, mtimeMs: stats.mtimeMs } : null
+    })
+    .filter(
+      (candidate): candidate is { filePath: string; id: string; mtimeMs: number } =>
+        candidate !== null
+    )
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+
+  const match = candidates[0]
+  if (!match) {
+    return null
+  }
+
+  reader.sessionId = match.id
+  return match.filePath
+}
+
+function getCodexUserPrompt(entry: CodexTranscriptEntry): string | null {
+  if (typeof entry.payload !== 'object' || entry.payload === null) {
+    return null
+  }
+
+  const payload = entry.payload as {
+    type?: unknown
+    message?: unknown
+  }
+
+  if (entry.type === 'event_msg' && payload.type === 'user_message') {
+    return typeof payload.message === 'string' ? payload.message : null
+  }
+
+  return null
+}
+
+function readCodexSessionFile(reader: CodexSessionReaderState, session: TerminalSession): void {
+  if (!reader.filePath) {
+    reader.filePath = findCodexSessionFile(reader)
+    if (!reader.filePath || !reader.sessionId) {
+      return
+    }
+
+    let stats
+    try {
+      stats = statSync(reader.filePath)
+    } catch {
+      reader.filePath = null
+      return
+    }
+    reader.offset = reader.mode === 'resume' ? stats.size : 0
+  }
+
+  if (!reader.emittedSessionStart && reader.sessionId) {
+    reader.emittedSessionStart = true
+    emitSessionStart(session, {
+      providerId: 'codex',
+      cwd: reader.cwd,
+      sessionId: reader.sessionId,
+      source: reader.mode,
+      timestamp: Date.now()
+    })
+  }
+
+  if (!existsSync(reader.filePath)) {
+    return
+  }
+
+  const buffer = readFileSync(reader.filePath)
+  if (buffer.length < reader.offset) {
+    reader.offset = 0
+    reader.remainder = ''
+  }
+  if (buffer.length === reader.offset) {
+    return
+  }
+
+  const chunk = buffer.subarray(reader.offset).toString('utf8')
+  reader.offset = buffer.length
+  const text = reader.remainder + chunk
+  const lines = text.split(/\r?\n/u)
+  reader.remainder = lines.pop() ?? ''
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed || !reader.sessionId) {
+      continue
+    }
+
+    const entry = parseCodexTranscriptEntry(trimmed)
+    if (!entry) {
+      continue
+    }
+
+    const prompt = getCodexUserPrompt(entry)
+    if (!prompt) {
+      continue
+    }
+
+    emitUserPrompt(session, {
+      providerId: 'codex',
+      cwd: reader.cwd,
+      sessionId: reader.sessionId,
+      prompt,
+      timestamp: Date.now()
+    })
+  }
+}
+
 function emitSessionStart(session: TerminalSession, payload: HookSessionStartPayload): void {
   const ownerContents = webContents.fromId(session.ownerId)
   if (!ownerContents || ownerContents.isDestroyed()) {
@@ -194,6 +478,7 @@ function emitSessionStart(session: TerminalSession, payload: HookSessionStartPay
 
   ownerContents.send('terminal:session-start', {
     terminalId: session.id,
+    providerId: session.agentProviderId,
     sessionId: payload.sessionId,
     source: payload.source
   } satisfies TerminalSessionStartEvent)
@@ -207,13 +492,14 @@ function emitUserPrompt(session: TerminalSession, payload: HookUserPromptPayload
 
   ownerContents.send('terminal:user-prompt', {
     terminalId: session.id,
+    providerId: session.agentProviderId,
     sessionId: payload.sessionId,
     prompt: payload.prompt
   } satisfies TerminalUserPromptEvent)
 }
 
 function startHookPolling(session: TerminalSession): void {
-  if (!session.sessionStartReader && !session.userPromptReader) {
+  if (!session.sessionStartReader && !session.userPromptReader && !session.codexSessionReader) {
     return
   }
 
@@ -227,6 +513,9 @@ function startHookPolling(session: TerminalSession): void {
       readHookFile<HookUserPromptPayload>(session.userPromptReader, (payload) =>
         emitUserPrompt(session, payload)
       )
+    }
+    if (session.codexSessionReader) {
+      readCodexSessionFile(session.codexSessionReader, session)
     }
   }, HOOK_POLL_MS)
 }
@@ -249,69 +538,106 @@ function stopHookPolling(session: TerminalSession): void {
   }
 }
 
-function resolveCopilotPath(): string | null {
-  const result = spawnSync('where.exe', ['copilot'], {
-    encoding: 'utf8',
-    windowsHide: true
-  })
-
-  if (result.status !== 0) {
-    return null
+export function resolveCommandOnPath(commandName: string): string | null {
+  if (commandName.includes('/') || commandName.includes('\\')) {
+    return isExecutableFile(commandName) ? commandName : null
   }
 
-  return (
-    result.stdout
+  if (process.platform === 'win32') {
+    const result = spawnSync('where.exe', [commandName], {
+      encoding: 'utf8',
+      windowsHide: true
+    })
+
+    if (result.status !== 0) {
+      return null
+    }
+
+    const matches = result.stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .find(Boolean) ?? null
-  )
+      .filter(Boolean)
+
+    if (matches.length === 0) {
+      return null
+    }
+
+    const executableMatch = matches.find((match) => /\.(exe|cmd|bat|com)$/i.test(match))
+    return executableMatch ?? matches[0] ?? null
+  }
+
+  const fallbackPathEntries =
+    process.platform === 'darwin'
+      ? ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+      : ['/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+
+  for (const pathEntry of [
+    ...new Set([...(process.env.PATH ?? '').split(delimiter), ...fallbackPathEntries])
+  ]) {
+    if (!pathEntry) {
+      continue
+    }
+
+    const candidate = join(pathEntry, commandName)
+    if (isExecutableFile(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
 }
 
-export function resolveCommandOnPath(commandName: string): string | null {
-  const result = spawnSync('where.exe', [commandName], {
-    encoding: 'utf8',
-    windowsHide: true
-  })
-
-  if (result.status !== 0) {
-    return null
+function isExecutableFile(path: string): boolean {
+  try {
+    if (!statSync(path).isFile()) {
+      return false
+    }
+    if (process.platform === 'win32') {
+      return true
+    }
+    accessSync(path, fsConstants.X_OK)
+    return true
+  } catch {
+    return false
   }
-
-  const matches = result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-
-  if (matches.length === 0) {
-    return null
-  }
-
-  if (process.platform !== 'win32') {
-    return matches[0] ?? null
-  }
-
-  const executableMatch = matches.find((match) => /\.(exe|cmd|bat|com)$/i.test(match))
-  return executableMatch ?? matches[0] ?? null
 }
 
-function getCopilotStatus(): TerminalStatus {
-  const commandPath = resolveCopilotPath()
+function getAgentStatus(provider: AgentProvider): TerminalStatus {
+  return provider.getStatus()
+}
+
+function getAgentProvider(providerId?: AgentProviderId): AgentProvider {
+  return agentProviders[providerId ?? DEFAULT_AGENT_PROVIDER_ID] ?? agentProviders.copilot
+}
+
+function createAgentStatus(
+  providerId: AgentProviderId,
+  commandPath: string | null,
+  messages: {
+    unavailable: string
+    available: string
+  }
+): TerminalStatus {
+  const descriptor = getAgentProviderDescriptor(providerId)
   const defaultCwd = getDefaultCwd()
 
   if (!commandPath) {
     return {
       available: false,
+      providerId,
+      label: descriptor.label,
       defaultCwd,
-      message: 'Copilot CLI was not found on PATH. Install it and run `copilot login` first.'
+      message: messages.unavailable
     }
   }
 
   return {
     available: true,
+    providerId,
+    label: descriptor.label,
     commandPath,
     defaultCwd,
-    message:
-      'Copilot CLI found. If interactive startup fails, run `copilot login` in a shell first.'
+    message: messages.available
   }
 }
 
@@ -319,10 +645,14 @@ export function quoteCmdArgument(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
-function buildCopilotCommand(commandPath: string, args: string[] = []): TerminalCommand {
-  const displayCommand = ['copilot', ...args].join(' ').trim()
+function buildCommand(
+  commandPath: string,
+  displayName: string,
+  args: string[] = []
+): TerminalCommand {
+  const displayCommand = [displayName, ...args].join(' ').trim()
 
-  if (/\.(cmd|bat)$/i.test(commandPath)) {
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(commandPath)) {
     const command = [quoteCmdArgument(commandPath), ...args.map(quoteCmdArgument)].join(' ')
     return {
       file: process.env.ComSpec ?? process.env.COMSPEC ?? 'C:\\Windows\\System32\\cmd.exe',
@@ -338,7 +668,115 @@ function buildCopilotCommand(commandPath: string, args: string[] = []): Terminal
   }
 }
 
+function prepareCopilotLaunch(
+  commandPath: string,
+  context: AgentLaunchContext
+): AgentLaunchPreparation {
+  ensureTaskmasterHookConfig(context.cwd)
+
+  const hookEventsDir = getTaskmasterHookEventsDir()
+  const sessionStartReader = context.threadId
+    ? createHookFileReader(join(hookEventsDir, `${context.terminalId}-session-start.jsonl`))
+    : null
+  const userPromptReader = context.threadId
+    ? createHookFileReader(join(hookEventsDir, `${context.terminalId}-user-prompt.jsonl`))
+    : null
+
+  return {
+    command: buildCommand(
+      commandPath,
+      'copilot',
+      buildCopilotArgs(context.launch, context.rawArgs)
+    ),
+    env: {
+      ...(sessionStartReader
+        ? {
+            [TASKMASTER_SESSION_START_FILE_ENV]: sessionStartReader.filePath
+          }
+        : {}),
+      ...(userPromptReader
+        ? {
+            [TASKMASTER_USER_PROMPT_FILE_ENV]: userPromptReader.filePath
+          }
+        : {})
+    },
+    sessionStartReader,
+    userPromptReader,
+    codexSessionReader: null
+  }
+}
+
+function prepareCodexLaunch(
+  commandPath: string,
+  context: AgentLaunchContext
+): AgentLaunchPreparation {
+  return {
+    command: buildCommand(
+      commandPath,
+      'codex',
+      buildCodexArgs(context.cwd, context.launch, context.rawArgs)
+    ),
+    env: {},
+    sessionStartReader: null,
+    userPromptReader: null,
+    codexSessionReader:
+      context.threadId && context.launch
+        ? {
+            cwd: context.cwd,
+            launchStartedAt: Date.now(),
+            mode: context.launch.mode,
+            resumeSessionId: context.launch.resumeSessionId,
+            sessionId: null,
+            filePath: null,
+            offset: 0,
+            remainder: '',
+            emittedSessionStart: false
+          }
+        : null
+  }
+}
+
+const agentProviders: Record<AgentProviderId, AgentProvider> = {
+  copilot: {
+    id: 'copilot',
+    getStatus: () =>
+      createAgentStatus('copilot', resolveCommandOnPath('copilot'), {
+        unavailable: 'Copilot CLI was not found on PATH. Install it and run `copilot login` first.',
+        available:
+          'Copilot CLI found. If interactive startup fails, run `copilot login` in a shell first.'
+      }),
+    prepareLaunch: prepareCopilotLaunch
+  },
+  codex: {
+    id: 'codex',
+    getStatus: () =>
+      createAgentStatus('codex', resolveCommandOnPath('codex'), {
+        unavailable: 'Codex CLI was not found on PATH. Install it and run `codex login` first.',
+        available:
+          'Codex CLI found. If interactive startup fails, run `codex login` in a shell first.'
+      }),
+    prepareLaunch: prepareCodexLaunch
+  }
+}
+
 function buildShellCommand(): TerminalCommand {
+  if (process.platform !== 'win32') {
+    const configuredShell = process.env.SHELL
+    if (configuredShell && isExecutableFile(configuredShell)) {
+      return {
+        file: configuredShell,
+        args: [],
+        displayCommand: basename(configuredShell)
+      }
+    }
+
+    return {
+      file: '/bin/sh',
+      args: [],
+      displayCommand: 'sh'
+    }
+  }
+
   const pwshPath = resolveCommandOnPath('pwsh')
   if (pwshPath) {
     return {
@@ -370,6 +808,16 @@ export function buildScriptCommand(script: string): {
   args: string[]
   displayCommand: string
 } {
+  if (process.platform !== 'win32') {
+    const shellPath =
+      process.env.SHELL && isExecutableFile(process.env.SHELL) ? process.env.SHELL : '/bin/sh'
+    return {
+      file: shellPath,
+      args: ['-lc', script],
+      displayCommand: `${basename(shellPath)} -lc <script>`
+    }
+  }
+
   const shellCommand = buildShellCommand()
   const shellPath = shellCommand.file.toLowerCase()
   if (shellPath.endsWith('pwsh.exe') || shellPath.endsWith('powershell.exe')) {
@@ -536,10 +984,12 @@ function createSession(
 ):
   | { ok: true; terminalId: string; cwd: string; launchedCommand: string }
   | { ok: false; error: string } {
-  const kind = request.kind ?? 'copilot'
-  const status = kind === 'copilot' ? getCopilotStatus() : null
-  if (kind === 'copilot' && (!status?.available || !status.commandPath)) {
-    return { ok: false, error: status?.message ?? 'Copilot CLI unavailable.' }
+  const kind = request.kind ?? 'agent'
+  const provider = kind === 'agent' ? getAgentProvider(request.agentProviderId) : null
+  const status = provider ? getAgentStatus(provider) : null
+  if (provider && (!status?.available || !status.commandPath)) {
+    const descriptor = getAgentProviderDescriptor(provider.id)
+    return { ok: false, error: status?.message ?? `${descriptor.label} CLI unavailable.` }
   }
 
   attachOwnerCleanup(event.sender)
@@ -549,25 +999,25 @@ function createSession(
   if (!branchCheck.ok) {
     return branchCheck
   }
-  const command =
-    kind === 'copilot' && status?.commandPath
-      ? buildCopilotCommand(status.commandPath, request.args)
-      : buildShellCommand()
   const terminalId = randomUUID()
-  if (kind === 'copilot') {
-    ensureTaskmasterHookConfig(cwd)
-  }
-  const hookEventsDir = kind === 'copilot' ? getTaskmasterHookEventsDir() : null
-  const sessionStartReader =
-    kind === 'copilot' && request.threadId && hookEventsDir
-      ? createHookFileReader(join(hookEventsDir, `${terminalId}-session-start.jsonl`))
-      : null
-  const userPromptReader =
-    kind === 'copilot' && request.threadId && hookEventsDir
-      ? createHookFileReader(join(hookEventsDir, `${terminalId}-user-prompt.jsonl`))
-      : null
+  const launchPreparation =
+    provider && status?.commandPath
+      ? provider.prepareLaunch(status.commandPath, {
+          cwd,
+          terminalId,
+          threadId: request.threadId,
+          launch: request.agentLaunch,
+          rawArgs: request.args
+        })
+      : {
+          command: buildShellCommand(),
+          env: {},
+          sessionStartReader: null,
+          userPromptReader: null,
+          codexSessionReader: null
+        }
 
-  const ptyProcess = pty.spawn(command.file, command.args, {
+  const ptyProcess = pty.spawn(launchPreparation.command.file, launchPreparation.command.args, {
     name: 'xterm-256color',
     cols: Math.max(request.cols, 40),
     rows: Math.max(request.rows, 12),
@@ -575,18 +1025,9 @@ function createSession(
     env: {
       ...process.env,
       TERM: 'xterm-256color',
-      ...(sessionStartReader
-        ? {
-            [TASKMASTER_SESSION_START_FILE_ENV]: sessionStartReader.filePath
-          }
-        : {}),
-      ...(userPromptReader
-        ? {
-            [TASKMASTER_USER_PROMPT_FILE_ENV]: userPromptReader.filePath
-          }
-        : {})
+      ...launchPreparation.env
     },
-    useConpty: true
+    useConpty: process.platform === 'win32'
   })
 
   const session: TerminalSession = {
@@ -595,16 +1036,18 @@ function createSession(
     ownerId: event.sender.id,
     ptyProcess,
     kind,
+    agentProviderId: provider?.id,
     threadId: request.threadId,
     launchConfirmationTimer: null,
     hookPollTimer: null,
-    sessionStartReader,
-    userPromptReader
+    sessionStartReader: launchPreparation.sessionStartReader,
+    userPromptReader: launchPreparation.userPromptReader,
+    codexSessionReader: launchPreparation.codexSessionReader
   }
 
   sessions.set(terminalId, session)
   startHookPolling(session)
-  if (kind === 'copilot' && request.threadId) {
+  if (provider && request.threadId) {
     session.launchConfirmationTimer = setTimeout(() => {
       if (!sessions.has(session.id) || !session.threadId) {
         return
@@ -634,14 +1077,14 @@ function createSession(
     ok: true,
     terminalId,
     cwd,
-    launchedCommand: command.displayCommand
+    launchedCommand: launchPreparation.command.displayCommand
   }
 }
 
 export function getRunningThreadIds(): Set<string> {
   return new Set(
     [...sessions.values()]
-      .filter((session) => session.kind === 'copilot')
+      .filter((session) => session.kind === 'agent')
       .map((session) => session.threadId)
       .filter((threadId): threadId is string => Boolean(threadId))
   )
@@ -654,6 +1097,7 @@ export function killSessionsForThread(threadId: string): void {
     }
 
     clearLaunchConfirmation(session)
+    stopHookPolling(session)
     sessions.delete(session.id)
     session.ptyProcess.kill()
   }
@@ -662,7 +1106,9 @@ export function killSessionsForThread(threadId: string): void {
 export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
   terminalHooks = hooks
 
-  ipcMain.handle('terminal:status', () => getCopilotStatus())
+  ipcMain.handle('terminal:status', (_event, providerId?: AgentProviderId) => {
+    return getAgentStatus(getAgentProvider(providerId))
+  })
 
   ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => {
     return createSession(event, request)
@@ -702,6 +1148,7 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
   app.on('before-quit', () => {
     for (const session of sessions.values()) {
       clearLaunchConfirmation(session)
+      stopHookPolling(session)
       session.ptyProcess.kill()
     }
 

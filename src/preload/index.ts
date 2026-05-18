@@ -1,6 +1,7 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AgentProviderId,
   BranchStatusRequest,
   CreateThreadInput,
   CreateRepositoryTaskInput,
@@ -97,7 +98,7 @@ const api = {
     }
   },
   terminal: {
-    getStatus: () => ipcRenderer.invoke('terminal:status'),
+    getStatus: (providerId?: AgentProviderId) => ipcRenderer.invoke('terminal:status', providerId),
     create: (request: TerminalCreateRequest) => ipcRenderer.invoke('terminal:create', request),
     kill: (terminalId: string) => ipcRenderer.invoke('terminal:kill', terminalId),
     hasClipboardImage: () => !clipboard.readImage().isEmpty(),

@@ -137,7 +137,7 @@ function NewThreadForm({
             {
               value: 'active-branch',
               label: 'Active branch',
-              description: 'Run Copilot on the repo as it is currently checked out'
+              description: 'Run the agent on the repo as it is currently checked out'
             },
             {
               value: 'new-branch',
