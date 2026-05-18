@@ -274,14 +274,16 @@ export default function Workspace({
 
   useEffect(() => {
     let cancelled = false
-    void window.api.terminal.getStatus(settings.agentProviderId).then((status) => {
-      if (cancelled) return
-      setAgentStatus(status)
-    })
+    void window.api.terminal
+      .getStatus(settings.agentProviderId, selectedRepository?.backend)
+      .then((status) => {
+        if (cancelled) return
+        setAgentStatus(status)
+      })
     return () => {
       cancelled = true
     }
-  }, [settings.agentProviderId])
+  }, [settings.agentProviderId, selectedRepository?.backend])
 
   const handleCopilotSessionsChange = useCallback(
     (next: SessionMap): void => {

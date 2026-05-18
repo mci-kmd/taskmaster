@@ -9,6 +9,7 @@ import type {
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
+  RepositoryBackend,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
   ThreadDiffPatchRequest,
@@ -98,10 +99,13 @@ const api = {
     }
   },
   terminal: {
-    getStatus: (providerId?: AgentProviderId) => ipcRenderer.invoke('terminal:status', providerId),
+    getStatus: (providerId?: AgentProviderId, backend?: RepositoryBackend) =>
+      ipcRenderer.invoke('terminal:status', providerId, backend),
     create: (request: TerminalCreateRequest) => ipcRenderer.invoke('terminal:create', request),
     kill: (terminalId: string) => ipcRenderer.invoke('terminal:kill', terminalId),
     hasClipboardImage: () => !clipboard.readImage().isEmpty(),
+    saveClipboardImage: (terminalId: string) =>
+      ipcRenderer.invoke('terminal:save-clipboard-image', terminalId),
     readClipboardText: () => clipboard.readText(),
     input: (terminalId: string, data: string) =>
       ipcRenderer.send('terminal:input', { terminalId, data }),

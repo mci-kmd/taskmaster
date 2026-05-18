@@ -1,12 +1,6 @@
 import { randomUUID } from 'crypto'
 import { pathToFileURL } from 'url'
-import simpleGit, {
-  type DiffResult,
-  type DiffResultTextFile,
-  type FileStatusResult,
-  type SimpleGit,
-  type StatusResult
-} from 'simple-git'
+import type { DiffResultTextFile } from 'simple-git'
 import {
   existsSync,
   mkdirSync,
@@ -17,7 +11,7 @@ import {
   unlinkSync,
   writeFileSync
 } from 'fs'
-import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'path'
+import { dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'path'
 import { spawn, spawnSync, type ChildProcess } from 'child_process'
 import {
   app,
@@ -33,6 +27,7 @@ import {
   type BranchStatusSnapshot,
   type CompleteRepositoryTaskInput,
   type ProjectTaskTag,
+  type RepositoryBackend,
   type OpenThreadWorkingDirectoryResult,
   type OpenThreadWorkspaceInVscodeResult,
   type PickRepositoryFaviconResult,
@@ -84,9 +79,29 @@ import {
   quoteCmdArgument,
   resolveCommandOnPath
 } from './terminal'
+import {
+  backendPathExists,
+  buildNativeCommand,
+  createNativeBackend,
+  getBasename,
+  getDirname,
+  getRepositoryExecutionPath,
+  isPathInsideRoot,
+  isSameRepositoryPath,
+  joinPath,
+  mkdirBackend,
+  normalizePath,
+  normalizeRepositoryBackend,
+  parseWslUncPath,
+  pathForDisplay,
+  resolvePath,
+  spawnBackendCommand,
+  spawnSyncBackendCommand,
+  toUiPath
+} from './repository-backend'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 10 as const
+const STATE_VERSION = 11 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -137,15 +152,24 @@ type LegacyThreadV1 = Omit<
   title: string
 }
 type LegacySettingsV9 = Omit<PersistedAppState['settings'], 'agentProviderId'>
-type LegacyAppStateV9 = Omit<PersistedAppState, 'version' | 'settings'> & {
+type LegacyRepositoryV10 = Omit<PersistedRepository, 'backend'>
+type LegacyAppStateV10 = Omit<PersistedAppState, 'version' | 'repositories'> & {
+  version: 10
+  repositories: LegacyRepositoryV10[]
+}
+type LegacyAppStateV9 = Omit<PersistedAppState, 'version' | 'settings' | 'repositories'> & {
   version: 9
   settings: LegacySettingsV9
+  repositories: LegacyRepositoryV10[]
 }
-type LegacyRepositoryV8 = Omit<PersistedRepository, 'postWorktreeRemoveCommand'>
-type LegacyRepositoryV7 = Omit<PersistedRepository, 'postWorktreeRemoveCommand' | 'tasks'>
+type LegacyRepositoryV8 = Omit<PersistedRepository, 'backend' | 'postWorktreeRemoveCommand'>
+type LegacyRepositoryV7 = Omit<
+  PersistedRepository,
+  'backend' | 'postWorktreeRemoveCommand' | 'tasks'
+>
 type LegacyRepositoryV6 = Omit<
   PersistedRepository,
-  'postWorktreeRemoveCommand' | 'runCommand' | 'tasks'
+  'backend' | 'postWorktreeRemoveCommand' | 'runCommand' | 'tasks'
 >
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 1
@@ -159,7 +183,7 @@ type LegacyThreadV2 = Omit<
 >
 type LegacyRepositoryV3 = Omit<
   PersistedRepository,
-  'postWorktreeRemoveCommand' | 'faviconPath' | 'runCommand' | 'tasks'
+  'backend' | 'postWorktreeRemoveCommand' | 'faviconPath' | 'runCommand' | 'tasks'
 >
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
@@ -202,6 +226,16 @@ type RepositoryGitState = {
 
 type DiffProjectInfo = {
   rootPath: string
+}
+type GitFileStatus = {
+  path: string
+  from?: string
+  index: string
+  working_dir: string
+}
+type GitStatus = {
+  files: GitFileStatus[]
+  renamed: Array<{ from: string; to: string }>
 }
 
 type RelativePathResult = { ok: true; path: string } | { ok: false; error: string }
@@ -287,12 +321,30 @@ function normalizeRepositoryScript(value: string | null | undefined): string | n
   return normalized.length > 0 ? normalized : null
 }
 
+function sameRepositoryBackend(
+  left: RepositoryBackend,
+  right: RepositoryBackend | undefined
+): boolean {
+  if (!right || left.kind !== right.kind) {
+    return false
+  }
+
+  return left.kind === 'native'
+    ? true
+    : right.kind === 'wsl' &&
+        left.distro === right.distro &&
+        left.windowsPath === right.windowsPath &&
+        left.linuxPath === right.linuxPath
+}
+
 function normalizePersistedRepository(repository: PersistedRepository): PersistedRepository {
+  const backend = normalizeRepositoryBackend((repository as { backend?: unknown }).backend)
   const runCommand = normalizeRunCommand(repository.runCommand)
   const postWorktreeRemoveCommand = normalizeRepositoryScript(repository.postWorktreeRemoveCommand)
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const tasks = currentTasks.map((task) => normalizePersistedTask(task))
-  return runCommand === repository.runCommand &&
+  return sameRepositoryBackend(backend, repository.backend) &&
+    runCommand === repository.runCommand &&
     postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
@@ -300,6 +352,7 @@ function normalizePersistedRepository(repository: PersistedRepository): Persiste
     ? repository
     : {
         ...repository,
+        backend,
         runCommand,
         postWorktreeRemoveCommand,
         tasks
@@ -386,6 +439,7 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 function migrateState(
   parsed:
     | PersistedAppState
+    | LegacyAppStateV10
     | LegacyAppStateV8
     | LegacyAppStateV9
     | LegacyAppStateV7
@@ -400,6 +454,17 @@ function migrateState(
     return normalizePersistedState(parsed)
   }
 
+  if (parsed.version === 10) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        backend: createNativeBackend()
+      }))
+    })
+  }
+
   if (parsed.version === 9) {
     return normalizePersistedState({
       ...parsed,
@@ -407,7 +472,11 @@ function migrateState(
       settings: {
         ...parsed.settings,
         agentProviderId: DEFAULT_AGENT_PROVIDER_ID
-      }
+      },
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        backend: createNativeBackend()
+      }))
     })
   }
 
@@ -417,6 +486,7 @@ function migrateState(
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
+        backend: createNativeBackend(),
         postWorktreeRemoveCommand: null
       }))
     })
@@ -428,6 +498,7 @@ function migrateState(
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
+        backend: createNativeBackend(),
         postWorktreeRemoveCommand: null,
         tasks: []
       }))
@@ -440,6 +511,7 @@ function migrateState(
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
+        backend: createNativeBackend(),
         runCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
@@ -457,6 +529,7 @@ function migrateState(
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
+        backend: createNativeBackend(),
         runCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
@@ -471,6 +544,7 @@ function migrateState(
 
   const migratedRepositories = parsed.repositories.map((repository) => ({
     ...repository,
+    backend: createNativeBackend(),
     faviconPath: null,
     runCommand: null,
     postWorktreeRemoveCommand: null,
@@ -483,6 +557,7 @@ function migrateState(
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
+        backend: createNativeBackend(),
         runCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
@@ -573,6 +648,9 @@ function ensureState(): PersistedAppState {
 
   const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as
     | PersistedAppState
+    | LegacyAppStateV10
+    | LegacyAppStateV9
+    | LegacyAppStateV8
     | LegacyAppStateV7
     | LegacyAppStateV6
     | LegacyAppStateV5
@@ -641,13 +719,27 @@ function parseGlobalFlags(input: string): string[] {
   return tokens
 }
 
-function sameNativePath(left: string, right: string): boolean {
-  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
+function getThreadExecutionCwd(
+  thread: Pick<PersistedThread, 'mode' | 'worktreePath'>,
+  repository: Pick<PersistedRepository, 'path' | 'backend'>
+): string {
+  const repositoryPath = getRepositoryExecutionPath(repository)
+  return thread.mode === 'worktree' ? (thread.worktreePath ?? repositoryPath) : repositoryPath
 }
 
-function isPathInsideRepository(repositoryPath: string, candidatePath: string): boolean {
-  const relativePath = relative(repositoryPath, candidatePath)
-  return relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))
+function getThreadUiCwd(
+  thread: Pick<PersistedThread, 'mode' | 'worktreePath'>,
+  repository: Pick<PersistedRepository, 'path' | 'backend'>
+): string {
+  return pathForDisplay(getThreadExecutionCwd(thread, repository), repository.backend)
+}
+
+function isPathInsideRepository(
+  repositoryPath: string,
+  candidatePath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): boolean {
+  return isPathInsideRoot(backend, repositoryPath, candidatePath)
 }
 
 function resolveRepositoryAssetPath(
@@ -782,13 +874,18 @@ function validateRepositoryPostWorktreeRemoveCommandInput(input: string | null):
   }
 }
 
-function runGit(cwd: string, args: string[]): string {
-  const result = spawnSync('git', ['-C', cwd, ...args], {
-    encoding: 'utf8',
-    windowsHide: true
-  })
+function runGit(
+  cwd: string,
+  args: string[],
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  const result = spawnSyncBackendCommand(
+    backend,
+    buildNativeCommand('git', ['-C', cwd, ...args], `git ${args.join(' ')}`),
+    { cwd }
+  )
 
-  if (result.status !== 0) {
+  if (!result.ok) {
     const message = result.stderr.trim() || result.stdout.trim() || `git ${args.join(' ')} failed`
     throw new Error(message)
   }
@@ -796,14 +893,19 @@ function runGit(cwd: string, args: string[]): string {
   return result.stdout.trim()
 }
 
-function tryGit(cwd: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
-  const result = spawnSync('git', ['-C', cwd, ...args], {
-    encoding: 'utf8',
-    windowsHide: true
-  })
+function tryGit(
+  cwd: string,
+  args: string[],
+  backend: RepositoryBackend = createNativeBackend()
+): { ok: boolean; stdout: string; stderr: string } {
+  const result = spawnSyncBackendCommand(
+    backend,
+    buildNativeCommand('git', ['-C', cwd, ...args], `git ${args.join(' ')}`),
+    { cwd }
+  )
 
   return {
-    ok: result.status === 0,
+    ok: result.ok,
     stdout: result.stdout.trim(),
     stderr: result.stderr.trim()
   }
@@ -811,11 +913,12 @@ function tryGit(cwd: string, args: string[]): { ok: boolean; stdout: string; std
 
 function tryGitAsync(
   cwd: string,
-  args: string[]
+  args: string[],
+  backend: RepositoryBackend = createNativeBackend()
 ): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn('git', ['-C', cwd, ...args], {
-      windowsHide: true,
+    const child = spawnBackendCommand(backend, buildNativeCommand('git', ['-C', cwd, ...args]), {
+      cwd,
       stdio: ['ignore', 'pipe', 'pipe']
     })
     let stdout = ''
@@ -842,7 +945,7 @@ function tryGitAsync(
     child.on('error', (error) => {
       finish({
         ok: false,
-        stdout: stdout.trim(),
+        stdout,
         stderr: error.message
       })
     })
@@ -850,47 +953,52 @@ function tryGitAsync(
     child.on('close', (code) => {
       finish({
         ok: code === 0,
-        stdout: stdout.trim(),
+        stdout,
         stderr: stderr.trim()
       })
     })
   })
 }
 
-function getGitClient(cwd: string): SimpleGit {
-  return simpleGit(cwd)
-}
-
-function resolveGitRoot(path: string): string | null {
-  const result = tryGit(path, ['rev-parse', '--show-toplevel'])
+function resolveGitRoot(
+  path: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string | null {
+  const result = tryGit(path, ['rev-parse', '--show-toplevel'], backend)
   return result.ok ? result.stdout : null
 }
 
-function getCurrentBranchLabel(repoPath: string): string {
-  const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+function getCurrentBranchLabel(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
   if (!branchResult.ok) {
     return 'Unavailable'
   }
 
   if (branchResult.stdout === 'HEAD') {
-    const headResult = tryGit(repoPath, ['rev-parse', '--short', 'HEAD'])
+    const headResult = tryGit(repoPath, ['rev-parse', '--short', 'HEAD'], backend)
     return headResult.ok ? `HEAD (${headResult.stdout})` : 'HEAD'
   }
 
   return branchResult.stdout
 }
 
-function getPrimaryBranch(repoPath: string): string | null {
-  const symref = tryGit(repoPath, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])
+function getPrimaryBranch(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string | null {
+  const symref = tryGit(repoPath, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], backend)
   if (symref.ok && symref.stdout) {
     const candidate = symref.stdout.replace(/^origin\//, '')
-    if (candidate && branchExists(repoPath, candidate)) {
+    if (candidate && branchExists(repoPath, candidate, backend)) {
       return candidate
     }
   }
 
   for (const candidate of ['main', 'master']) {
-    if (branchExists(repoPath, candidate)) {
+    if (branchExists(repoPath, candidate, backend)) {
       return candidate
     }
   }
@@ -898,8 +1006,11 @@ function getPrimaryBranch(repoPath: string): string | null {
   return null
 }
 
-function hasUncommittedChanges(repoPath: string): boolean {
-  const result = tryGit(repoPath, ['status', '--porcelain', '--untracked-files=no'])
+function hasUncommittedChanges(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): boolean {
+  const result = tryGit(repoPath, ['status', '--porcelain', '--untracked-files=no'], backend)
   return result.ok && result.stdout.length > 0
 }
 
@@ -944,46 +1055,63 @@ function computeDeterministicBranchPort(repositoryPath: string, branchName: stri
 
 function applyThreadBranchTokens(
   command: string,
-  repository: Pick<PersistedRepository, 'path'>,
+  repository: Pick<PersistedRepository, 'path' | 'backend'>,
   thread: Pick<PersistedThread, 'branchName'>
 ): string {
+  const repositoryPath = getRepositoryExecutionPath(repository)
   return command
     .split(BRANCH_PORT_TOKEN)
-    .join(computeDeterministicBranchPort(repository.path, thread.branchName))
+    .join(computeDeterministicBranchPort(repositoryPath, thread.branchName))
     .split(BRANCH_NAME_SAFE_TOKEN)
     .join(sanitizeBranchTokenValue(thread.branchName))
     .split(BRANCH_NAME_TOKEN)
     .join(thread.branchName)
 }
 
-function deriveWorktreePath(repoPath: string, branchName: string): string {
-  const repoParent = dirname(repoPath)
-  const repoName = basename(repoPath)
-  const worktreesDir = join(repoParent, `${repoName}${WORKTREES_DIR_SUFFIX}`)
+function deriveWorktreePath(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  const repoParent = getDirname(repoPath, backend)
+  const repoName = getBasename(repoPath, backend)
+  const worktreesDir = joinPath(backend, repoParent, `${repoName}${WORKTREES_DIR_SUFFIX}`)
   const baseName = sanitizeWorktreeName(branchName)
 
-  let candidate = join(worktreesDir, baseName)
+  let candidate = joinPath(backend, worktreesDir, baseName)
   let suffix = 2
 
-  while (existsSync(candidate)) {
-    candidate = join(worktreesDir, `${baseName}-${suffix}`)
+  while (backendPathExists(backend, candidate)) {
+    candidate = joinPath(backend, worktreesDir, `${baseName}-${suffix}`)
     suffix += 1
   }
 
   return candidate
 }
 
-function branchExists(repoPath: string, branchName: string): boolean {
-  return tryGit(repoPath, ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`]).ok
+function branchExists(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): boolean {
+  return tryGit(repoPath, ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`], backend)
+    .ok
 }
 
-function remoteBranchExists(repoPath: string, branchName: string): boolean {
-  const result = tryGit(repoPath, ['branch', '--remotes', '--list', `*/${branchName}`])
+function remoteBranchExists(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): boolean {
+  const result = tryGit(repoPath, ['branch', '--remotes', '--list', `*/${branchName}`], backend)
   return result.ok && result.stdout.length > 0
 }
 
-function getCurrentBranchName(repoPath: string): string | null {
-  const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+function getCurrentBranchName(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string | null {
+  const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
   if (!branchResult.ok || branchResult.stdout === 'HEAD') {
     return null
   }
@@ -991,17 +1119,25 @@ function getCurrentBranchName(repoPath: string): string | null {
   return branchResult.stdout
 }
 
-function getPrimaryBranchCheckoutTarget(repoPath: string, branchName: string): string | null {
-  const primaryBranch = getPrimaryBranch(repoPath)
+function getPrimaryBranchCheckoutTarget(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string | null {
+  const primaryBranch = getPrimaryBranch(repoPath, backend)
   return primaryBranch && primaryBranch !== branchName ? primaryBranch : null
 }
 
-function getProtectedBranchDeletionError(repoPath: string, branchName: string): string | null {
+function getProtectedBranchDeletionError(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string | null {
   if (branchName === 'main') {
     return 'The main branch cannot be deleted.'
   }
 
-  const primaryBranch = getPrimaryBranch(repoPath)
+  const primaryBranch = getPrimaryBranch(repoPath, backend)
   if (primaryBranch === branchName) {
     return `The repository primary branch "${branchName}" cannot be deleted.`
   }
@@ -1009,28 +1145,26 @@ function getProtectedBranchDeletionError(repoPath: string, branchName: string): 
   return null
 }
 
-function createWorktree(repoPath: string, branchName: string, baseRef: string): string {
-  if (branchExists(repoPath, branchName)) {
+function createWorktree(
+  repoPath: string,
+  branchName: string,
+  baseRef: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  if (branchExists(repoPath, branchName, backend)) {
     throw new Error(`Branch "${branchName}" already exists.`)
   }
 
-  const worktreePath = deriveWorktreePath(repoPath, branchName)
+  const worktreePath = deriveWorktreePath(repoPath, branchName, backend)
   // Ensure the <repo>.worktrees container exists; git won't create
   // intermediate parents.
-  mkdirSync(dirname(worktreePath), { recursive: true })
-  runGit(repoPath, ['worktree', 'add', '-b', branchName, worktreePath, baseRef])
+  mkdirBackend(backend, getDirname(worktreePath, backend))
+  runGit(repoPath, ['worktree', 'add', '-b', branchName, worktreePath, baseRef], backend)
   return worktreePath
 }
 
-function isDirtyGitPath(path: string): boolean {
-  return runGit(path, ['status', '--porcelain', '--untracked-files=all']).length > 0
-}
-
-function getThreadCwd(
-  thread: Pick<PersistedThread, 'mode' | 'worktreePath'>,
-  repositoryPath: string
-): string {
-  return thread.mode === 'worktree' ? (thread.worktreePath ?? repositoryPath) : repositoryPath
+function isDirtyGitPath(path: string, backend: RepositoryBackend = createNativeBackend()): boolean {
+  return runGit(path, ['status', '--porcelain', '--untracked-files=all'], backend).length > 0
 }
 
 function resolveThreadGitContext(threadId: string): ThreadGitContext {
@@ -1048,7 +1182,7 @@ function resolveThreadGitContext(threadId: string): ThreadGitContext {
     ok: true,
     thread,
     repository,
-    cwd: getThreadCwd(thread, repository.path)
+    cwd: getThreadExecutionCwd(thread, repository)
   }
 }
 
@@ -1060,8 +1194,9 @@ async function openThreadWorkingDirectory(
     return { ok: false, error: context.error }
   }
 
-  const { cwd } = context
-  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+  const executionCwd = context.cwd
+  const cwd = toUiPath(context.repository.backend, executionCwd)
+  if (!backendPathExists(context.repository.backend, executionCwd, 'directory')) {
     return { ok: false, error: `Working directory not found: ${cwd}` }
   }
 
@@ -1070,7 +1205,10 @@ async function openThreadWorkingDirectory(
 }
 
 function buildVscodeWorkspaceUri(cwd: string): string {
-  return `vscode://file${pathToFileURL(cwd).pathname}`
+  const fileUrl = pathToFileURL(cwd)
+  return fileUrl.host
+    ? `vscode://file//${fileUrl.host}${fileUrl.pathname}`
+    : `vscode://file${fileUrl.pathname}`
 }
 
 function buildVscodeLaunchCommand(
@@ -1092,7 +1230,7 @@ function buildVscodeLaunchCommand(
 
 function spawnDetachedProcess(
   command: { file: string; args: string[] },
-  cwd: string
+  cwd?: string
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(command.file, command.args, {
@@ -1122,12 +1260,31 @@ async function openThreadWorkspaceInVscode(
     return { ok: false, error: context.error }
   }
 
-  const { cwd } = context
-  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+  const executionCwd = context.cwd
+  const cwd = toUiPath(context.repository.backend, executionCwd)
+  if (!backendPathExists(context.repository.backend, executionCwd, 'directory')) {
     return { ok: false, error: `Working directory not found: ${cwd}` }
   }
 
   try {
+    if (context.repository.backend.kind === 'wsl') {
+      try {
+        await shell.openExternal(buildVscodeWorkspaceUri(cwd))
+        return { ok: true }
+      } catch {
+        // Fall back to the VS Code CLI below.
+      }
+
+      const codePath = resolveCommandOnPath('code')
+      if (!codePath) {
+        return { ok: false, error: 'VS Code is unavailable: code CLI was not found on PATH.' }
+      }
+
+      const command = buildVscodeLaunchCommand(codePath, cwd)
+      await spawnDetachedProcess(command, app.getPath('home'))
+      return { ok: true }
+    }
+
     await shell.openExternal(buildVscodeWorkspaceUri(cwd))
     return { ok: true }
   } catch (uriError) {
@@ -1314,17 +1471,18 @@ function startThreadRun(threadId: string): MutationResult {
     return failureResult('No run command configured for this project.')
   }
 
-  if (!existsSync(context.cwd) || !statSync(context.cwd).isDirectory()) {
-    return failureResult(`Working directory not found: ${context.cwd}`)
+  if (!backendPathExists(context.repository.backend, context.cwd, 'directory')) {
+    return failureResult(
+      `Working directory not found: ${pathForDisplay(context.cwd, context.repository.backend)}`
+    )
   }
 
   const resolvedRunCommand = applyThreadBranchTokens(runCommand, context.repository, context.thread)
-  const command = buildScriptCommand(resolvedRunCommand)
+  const command = buildScriptCommand(resolvedRunCommand, context.repository.backend)
 
   try {
-    const child = spawn(command.file, command.args, {
+    const child = spawnBackendCommand(context.repository.backend, command, {
       cwd: context.cwd,
-      windowsHide: true,
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe']
     })
@@ -1340,8 +1498,8 @@ function startThreadRun(threadId: string): MutationResult {
     }
 
     threadRunSessions.set(threadId, session)
-    child.stdout.on('data', (chunk) => appendThreadRunOutput(session, chunk))
-    child.stderr.on('data', (chunk) => appendThreadRunOutput(session, chunk))
+    child.stdout?.on('data', (chunk) => appendThreadRunOutput(session, chunk))
+    child.stderr?.on('data', (chunk) => appendThreadRunOutput(session, chunk))
     child.once('error', (error) => finalizeThreadRun(threadId, { error }))
     child.once('exit', (exitCode) => finalizeThreadRun(threadId, { exitCode }))
 
@@ -1362,33 +1520,38 @@ function stopThreadRun(threadId: string): MutationResult {
   return successResult()
 }
 
-function removeWorktree(thread: PersistedThread, repositoryPath: string, force: boolean): void {
-  const protectedBranchError = getProtectedBranchDeletionError(repositoryPath, thread.branchName)
+function removeWorktree(
+  thread: PersistedThread,
+  repositoryPath: string,
+  backend: RepositoryBackend,
+  force: boolean
+): void {
+  const protectedBranchError = getProtectedBranchDeletionError(
+    repositoryPath,
+    thread.branchName,
+    backend
+  )
   if (protectedBranchError) {
     throw new Error(protectedBranchError)
   }
 
-  if (
-    thread.worktreePath &&
-    existsSync(thread.worktreePath) &&
-    statSync(thread.worktreePath).isDirectory()
-  ) {
+  if (thread.worktreePath && backendPathExists(backend, thread.worktreePath, 'directory')) {
     const args = ['worktree', 'remove']
     if (force) {
       args.push('--force')
     }
 
     args.push(thread.worktreePath)
-    runGit(repositoryPath, args)
+    runGit(repositoryPath, args, backend)
   }
 
-  if (branchExists(repositoryPath, thread.branchName)) {
-    runGit(repositoryPath, ['branch', '-D', thread.branchName])
+  if (branchExists(repositoryPath, thread.branchName, backend)) {
+    runGit(repositoryPath, ['branch', '-D', thread.branchName], backend)
   }
 }
 
 function runPostWorktreeRemoveCommand(
-  repository: Pick<PersistedRepository, 'path' | 'postWorktreeRemoveCommand'>,
+  repository: Pick<PersistedRepository, 'path' | 'backend' | 'postWorktreeRemoveCommand'>,
   thread: Pick<PersistedThread, 'branchName'>
 ): void {
   const script = normalizeRepositoryScript(repository.postWorktreeRemoveCommand)
@@ -1397,18 +1560,18 @@ function runPostWorktreeRemoveCommand(
   }
 
   const resolvedScript = applyThreadBranchTokens(script, repository, thread)
-  const command = buildScriptCommand(resolvedScript)
-  const result = spawnSync(command.file, command.args, {
-    cwd: repository.path,
-    encoding: 'utf8',
-    windowsHide: true
+  const command = buildScriptCommand(resolvedScript, repository.backend)
+  const repositoryPath = getRepositoryExecutionPath(repository)
+  const result = spawnSyncBackendCommand(repository.backend, command, {
+    cwd: repositoryPath,
+    encoding: 'utf8'
   })
 
   if (result.error) {
     throw result.error
   }
 
-  if (result.status !== 0) {
+  if (!result.ok) {
     const detail =
       result.stderr.trim() ||
       result.stdout.trim() ||
@@ -1419,11 +1582,12 @@ function runPostWorktreeRemoveCommand(
 
 async function maybeRemoveLocalBranchForNewBranchThread(
   thread: PersistedThread,
-  repositoryPath: string
+  repositoryPath: string,
+  backend: RepositoryBackend
 ): Promise<MutationResult | null> {
   if (
-    !branchExists(repositoryPath, thread.branchName) ||
-    remoteBranchExists(repositoryPath, thread.branchName)
+    !branchExists(repositoryPath, thread.branchName, backend) ||
+    remoteBranchExists(repositoryPath, thread.branchName, backend)
   ) {
     return null
   }
@@ -1443,18 +1607,22 @@ async function maybeRemoveLocalBranchForNewBranchThread(
     return failureResult('Thread close cancelled.', true)
   }
 
-  if (confirmation.response === 1 || !branchExists(repositoryPath, thread.branchName)) {
+  if (confirmation.response === 1 || !branchExists(repositoryPath, thread.branchName, backend)) {
     return null
   }
 
-  const protectedBranchError = getProtectedBranchDeletionError(repositoryPath, thread.branchName)
+  const protectedBranchError = getProtectedBranchDeletionError(
+    repositoryPath,
+    thread.branchName,
+    backend
+  )
   if (protectedBranchError) {
     return failureResult(protectedBranchError)
   }
 
-  const currentBranchName = getCurrentBranchName(repositoryPath)
+  const currentBranchName = getCurrentBranchName(repositoryPath, backend)
   if (currentBranchName === thread.branchName) {
-    if (isDirtyGitPath(repositoryPath)) {
+    if (isDirtyGitPath(repositoryPath, backend)) {
       const dirtyConfirmation = await dialog.showMessageBox({
         type: 'warning',
         buttons: ['Cancel thread removal', 'Continue without removing branch'],
@@ -1473,7 +1641,11 @@ async function maybeRemoveLocalBranchForNewBranchThread(
       return null
     }
 
-    const checkoutTarget = getPrimaryBranchCheckoutTarget(repositoryPath, thread.branchName)
+    const checkoutTarget = getPrimaryBranchCheckoutTarget(
+      repositoryPath,
+      thread.branchName,
+      backend
+    )
     if (!checkoutTarget) {
       return failureResult(
         `Can't delete "${thread.branchName}" because the repository primary branch could not be determined.`
@@ -1481,18 +1653,18 @@ async function maybeRemoveLocalBranchForNewBranchThread(
     }
 
     try {
-      runGit(repositoryPath, ['checkout', checkoutTarget])
+      runGit(repositoryPath, ['checkout', checkoutTarget], backend)
     } catch (error) {
       return failureResult(error instanceof Error ? error.message : String(error))
     }
   }
 
-  if (!branchExists(repositoryPath, thread.branchName)) {
+  if (!branchExists(repositoryPath, thread.branchName, backend)) {
     return null
   }
 
   try {
-    runGit(repositoryPath, ['branch', '-D', thread.branchName])
+    runGit(repositoryPath, ['branch', '-D', thread.branchName], backend)
   } catch (error) {
     return failureResult(error instanceof Error ? error.message : String(error))
   }
@@ -1500,10 +1672,11 @@ async function maybeRemoveLocalBranchForNewBranchThread(
   return null
 }
 
-function readRepositoryGitState(repositoryPath: string): RepositoryGitState {
+function readRepositoryGitState(repository: PersistedRepository): RepositoryGitState {
+  const repositoryPath = getRepositoryExecutionPath(repository)
   return {
-    currentBranch: getCurrentBranchLabel(repositoryPath),
-    primaryBranch: getPrimaryBranch(repositoryPath)
+    currentBranch: getCurrentBranchLabel(repositoryPath, repository.backend),
+    primaryBranch: getPrimaryBranch(repositoryPath, repository.backend)
   }
 }
 
@@ -1518,7 +1691,7 @@ function getRepositoryGitState(
     }
   }
 
-  const next = readRepositoryGitState(repository.path)
+  const next = readRepositoryGitState(repository)
   repositoryGitStateCache.set(repository.id, next)
   return next
 }
@@ -1583,12 +1756,15 @@ function parseBranchStatus(stdout: string): BranchStatusSnapshot {
   return status
 }
 
-function hasHeadCommit(cwd: string): boolean {
-  return tryGit(cwd, ['rev-parse', '--verify', 'HEAD']).ok
+function hasHeadCommit(cwd: string, backend: RepositoryBackend = createNativeBackend()): boolean {
+  return tryGit(cwd, ['rev-parse', '--verify', 'HEAD'], backend).ok
 }
 
-function getWorkingTreeDiffBase(cwd: string): string {
-  return hasHeadCommit(cwd) ? 'HEAD' : EMPTY_TREE_HASH
+function getWorkingTreeDiffBase(
+  cwd: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  return hasHeadCommit(cwd, backend) ? 'HEAD' : EMPTY_TREE_HASH
 }
 
 function isWorkingTreeRef(ref: string | null | undefined): boolean {
@@ -1625,9 +1801,10 @@ function buildCommitOption(commit: ParsedCommitLine, labelPrefix?: string): Thre
 async function readCommitOption(
   cwd: string,
   ref: string,
+  backend: RepositoryBackend,
   labelPrefix?: string
 ): Promise<ThreadDiffRangeOption> {
-  const result = await tryGitAsync(cwd, ['show', '-s', '--format=%H%x1f%h%x1f%s', ref])
+  const result = await tryGitAsync(cwd, ['show', '-s', '--format=%H%x1f%h%x1f%s', ref], backend)
   if (!result.ok) {
     throw new Error(result.stderr || `Unable to read commit ${ref}.`)
   }
@@ -1640,7 +1817,7 @@ async function readCommitOption(
   return buildCommitOption(commit, labelPrefix)
 }
 
-function buildUntrackedDiffFiles(status: StatusResult): ThreadDiffFileSummary[] {
+function buildUntrackedDiffFiles(status: GitStatus): ThreadDiffFileSummary[] {
   return status.files
     .filter((file) => resolveWorkingTreeFileStatus(file, new Map()) === 'untracked')
     .map((file) => ({
@@ -1665,10 +1842,10 @@ function normalizeDiffStatPath(path: string): string {
   return arrowIndex >= 0 ? path.slice(arrowIndex + 4) : path
 }
 
-function buildDiffStatMap(result: DiffResult): Map<string, DiffResultTextFile> {
+function buildDiffStatMap(files: DiffResultTextFile[]): Map<string, DiffResultTextFile> {
   const stats = new Map<string, DiffResultTextFile>()
 
-  for (const file of result.files) {
+  for (const file of files) {
     if (file.binary) {
       continue
     }
@@ -1756,8 +1933,90 @@ function parseNameStatusOutput(
   )
 }
 
+function parseGitStatus(stdout: string): GitStatus {
+  const files: GitFileStatus[] = []
+  const renamed: Array<{ from: string; to: string }> = []
+  const tokens = stdout.split('\0')
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const entry = tokens[index]
+    if (!entry) {
+      continue
+    }
+
+    const status = entry.slice(0, 2)
+    const path = entry.slice(3)
+    if (!path) {
+      continue
+    }
+
+    const file: GitFileStatus = {
+      path,
+      index: status[0] ?? ' ',
+      working_dir: status[1] ?? ' '
+    }
+
+    if (file.index === 'R' || file.index === 'C') {
+      const from = tokens[++index] ?? ''
+      if (from) {
+        file.from = from
+        renamed.push({ from, to: path })
+      }
+    }
+
+    files.push(file)
+  }
+
+  return { files, renamed }
+}
+
+function parseDiffNumstat(stdout: string): DiffResultTextFile[] {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [insertions = '', deletions = '', file = ''] = line.split('\t')
+      return {
+        file,
+        insertions: Number.isFinite(Number(insertions)) ? Number(insertions) : 0,
+        deletions: Number.isFinite(Number(deletions)) ? Number(deletions) : 0,
+        binary: insertions === '-' || deletions === '-'
+      } as DiffResultTextFile
+    })
+}
+
+async function getGitStatus(
+  cwd: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<GitStatus> {
+  const result = await tryGitAsync(
+    cwd,
+    ['status', '--porcelain', '-z', '--untracked-files=all'],
+    backend
+  )
+  if (!result.ok) {
+    throw new Error(result.stderr || 'Unable to read git status.')
+  }
+
+  return parseGitStatus(result.stdout)
+}
+
+async function getGitDiffStat(
+  cwd: string,
+  args: string[],
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<DiffResultTextFile[]> {
+  const result = await tryGitAsync(cwd, ['diff', '--numstat', '--find-renames', ...args], backend)
+  if (!result.ok) {
+    throw new Error(result.stderr || 'Unable to read git diff summary.')
+  }
+
+  return parseDiffNumstat(result.stdout)
+}
+
 function resolveWorkingTreeFileStatus(
-  file: FileStatusResult,
+  file: GitFileStatus,
   renamedByPath: Map<string, string>
 ): ThreadDiffFileStatus {
   if (file.index === 'U' || file.working_dir === 'U') {
@@ -1792,7 +2051,7 @@ function resolveWorkingTreeFileStatus(
 }
 
 function buildWorkingTreeDiffFiles(
-  status: StatusResult,
+  status: GitStatus,
   stats: Map<string, DiffResultTextFile>
 ): ThreadDiffFileSummary[] {
   const renamedByPath = new Map(status.renamed.map((entry) => [entry.to, entry.from]))
@@ -1819,13 +2078,31 @@ function normalizeDiffProjectPath(path: string): string {
   return path.replaceAll('\\', '/')
 }
 
-function directoryContainsProjectMarker(path: string): boolean {
-  if (!existsSync(path)) {
+function directoryContainsProjectMarker(path: string, backend: RepositoryBackend): boolean {
+  if (!backendPathExists(backend, path, 'directory')) {
     return false
   }
 
-  if (existsSync(join(path, 'package.json'))) {
+  if (backendPathExists(backend, joinPath(backend, path, 'package.json'), 'file')) {
     return true
+  }
+
+  if (backend.kind === 'wsl') {
+    const result = spawnSyncBackendCommand(
+      backend,
+      buildNativeCommand('find', [
+        path,
+        '-maxdepth',
+        '1',
+        '-type',
+        'f',
+        '-name',
+        '*.csproj',
+        '-print',
+        '-quit'
+      ])
+    )
+    return result.ok && result.stdout.length > 0
   }
 
   return readdirSync(path, { withFileTypes: true }).some(
@@ -1835,18 +2112,19 @@ function directoryContainsProjectMarker(path: string): boolean {
 
 function findDiffProjectForPath(
   cwd: string,
-  relativePath: string,
+  fileRelativePath: string,
+  backend: RepositoryBackend,
   cache: Map<string, DiffProjectInfo | null>
 ): DiffProjectInfo | null {
-  const normalizedCwd = normalize(cwd)
-  let currentDirectory = dirname(resolve(cwd, relativePath))
+  const normalizedCwd = normalizePath(backend, cwd)
+  let currentDirectory = getDirname(resolvePath(backend, cwd, fileRelativePath), backend)
   const visitedDirectories: string[] = []
 
   while (true) {
-    const normalizedDirectory = normalize(currentDirectory)
+    const normalizedDirectory = normalizePath(backend, currentDirectory)
     if (
       normalizedDirectory !== normalizedCwd &&
-      !isPathInsideRepository(cwd, normalizedDirectory)
+      !isPathInsideRepository(cwd, normalizedDirectory, backend)
     ) {
       break
     }
@@ -1860,9 +2138,15 @@ function findDiffProjectForPath(
     }
 
     visitedDirectories.push(normalizedDirectory)
-    if (directoryContainsProjectMarker(normalizedDirectory)) {
+    if (directoryContainsProjectMarker(normalizedDirectory, backend)) {
+      const projectRootPath =
+        normalizedDirectory === normalizedCwd
+          ? ''
+          : backend.kind === 'wsl'
+            ? normalizedDirectory.slice(normalizedCwd.length + 1)
+            : relative(cwd, normalizedDirectory)
       const project = {
-        rootPath: normalizeDiffProjectPath(relative(cwd, normalizedDirectory))
+        rootPath: normalizeDiffProjectPath(projectRootPath)
       }
       for (const directory of visitedDirectories) {
         cache.set(directory, project)
@@ -1874,7 +2158,7 @@ function findDiffProjectForPath(
       break
     }
 
-    const parentDirectory = dirname(normalizedDirectory)
+    const parentDirectory = getDirname(normalizedDirectory, backend)
     if (parentDirectory === normalizedDirectory) {
       break
     }
@@ -1891,16 +2175,17 @@ function findDiffProjectForPath(
 
 function annotateDiffFilesWithProjects(
   cwd: string,
+  backend: RepositoryBackend,
   files: ThreadDiffFileSummary[]
 ): ThreadDiffFileSummary[] {
   const projectCache = new Map<string, DiffProjectInfo | null>()
 
   return files.map((file) => {
-    const project = findDiffProjectForPath(cwd, file.path, projectCache)
+    const project = findDiffProjectForPath(cwd, file.path, backend, projectCache)
     const previousProject =
       file.previousPath === null
         ? null
-        : findDiffProjectForPath(cwd, file.previousPath, projectCache)
+        : findDiffProjectForPath(cwd, file.previousPath, backend, projectCache)
 
     return {
       ...file,
@@ -1917,24 +2202,25 @@ async function getThreadDiffRangeOptions(threadId: string): Promise<ThreadDiffRa
   }
 
   const { cwd } = context
-  if (!hasHeadCommit(cwd)) {
+  const { backend } = context.repository
+  if (!hasHeadCommit(cwd, backend)) {
     return { ok: false, error: 'No commits exist on this branch yet.' }
   }
 
   try {
-    const currentBranch = getCurrentBranchName(cwd)
-    const primaryBranch = getPrimaryBranch(cwd)
+    const currentBranch = getCurrentBranchName(cwd, backend)
+    const primaryBranch = getPrimaryBranch(cwd, backend)
 
     let defaultBaseRef = ''
     if (currentBranch && primaryBranch && currentBranch !== primaryBranch) {
-      const mergeBase = tryGit(cwd, ['merge-base', primaryBranch, 'HEAD'])
+      const mergeBase = tryGit(cwd, ['merge-base', primaryBranch, 'HEAD'], backend)
       if (mergeBase.ok && mergeBase.stdout) {
         defaultBaseRef = mergeBase.stdout
       }
     }
 
     if (!defaultBaseRef) {
-      const rootCommit = tryGit(cwd, ['rev-list', '--max-parents=0', 'HEAD'])
+      const rootCommit = tryGit(cwd, ['rev-list', '--max-parents=0', 'HEAD'], backend)
       defaultBaseRef = rootCommit.stdout.split(/\r?\n/)[0] ?? ''
     }
 
@@ -1942,13 +2228,12 @@ async function getThreadDiffRangeOptions(threadId: string): Promise<ThreadDiffRa
       return { ok: false, error: 'Unable to determine a branch base commit.' }
     }
 
-    const baseOption = await readCommitOption(cwd, defaultBaseRef, 'Branch base')
-    const history = await tryGitAsync(cwd, [
-      'log',
-      '--reverse',
-      '--format=%H%x1f%h%x1f%s',
-      `${defaultBaseRef}..HEAD`
-    ])
+    const baseOption = await readCommitOption(cwd, defaultBaseRef, backend, 'Branch base')
+    const history = await tryGitAsync(
+      cwd,
+      ['log', '--reverse', '--format=%H%x1f%h%x1f%s', `${defaultBaseRef}..HEAD`],
+      backend
+    )
     if (!history.ok) {
       return { ok: false, error: history.stderr || 'Unable to read current branch history.' }
     }
@@ -1980,16 +2265,20 @@ async function getThreadDiffRangeOptions(threadId: string): Promise<ThreadDiffRa
 }
 
 async function getRangeToWorkingTreeDiffFiles(
-  git: SimpleGit,
+  cwd: string,
+  backend: RepositoryBackend,
   baseRef: string
 ): Promise<ThreadDiffFileSummary[]> {
   const [nameStatus, diffSummary, status] = await Promise.all([
-    git.raw(['diff', '--name-status', '-z', '--find-renames', baseRef]),
-    git.diffSummary([baseRef]),
-    git.status()
+    tryGitAsync(cwd, ['diff', '--name-status', '-z', '--find-renames', baseRef], backend),
+    getGitDiffStat(cwd, [baseRef], backend),
+    getGitStatus(cwd, backend)
   ])
+  if (!nameStatus.ok) {
+    throw new Error(nameStatus.stderr || 'Unable to read git diff.')
+  }
 
-  const trackedFiles = parseNameStatusOutput(nameStatus, buildDiffStatMap(diffSummary))
+  const trackedFiles = parseNameStatusOutput(nameStatus.stdout, buildDiffStatMap(diffSummary))
   const trackedByPath = new Set(trackedFiles.map((file) => file.path))
   const untrackedFiles = buildUntrackedDiffFiles(status).filter(
     (file) => !trackedByPath.has(file.path)
@@ -2007,7 +2296,7 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
   }
 
   const { cwd } = context
-  const git = getGitClient(cwd)
+  const { backend } = context.repository
 
   try {
     if (input.mode === 'range') {
@@ -2030,16 +2319,24 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
             headRef,
             files: annotateDiffFilesWithProjects(
               cwd,
-              await getRangeToWorkingTreeDiffFiles(git, baseRef)
+              backend,
+              await getRangeToWorkingTreeDiffFiles(cwd, backend, baseRef)
             )
           }
         }
       }
 
       const [nameStatus, diffSummary] = await Promise.all([
-        git.raw(['diff', '--name-status', '-z', '--find-renames', baseRef, headRef]),
-        git.diffSummary([baseRef, headRef])
+        tryGitAsync(
+          cwd,
+          ['diff', '--name-status', '-z', '--find-renames', baseRef, headRef],
+          backend
+        ),
+        getGitDiffStat(cwd, [baseRef, headRef], backend)
       ])
+      if (!nameStatus.ok) {
+        throw new Error(nameStatus.stderr || 'Unable to read git diff.')
+      }
 
       return {
         ok: true,
@@ -2049,14 +2346,18 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
           headRef,
           files: annotateDiffFilesWithProjects(
             cwd,
-            parseNameStatusOutput(nameStatus, buildDiffStatMap(diffSummary))
+            backend,
+            parseNameStatusOutput(nameStatus.stdout, buildDiffStatMap(diffSummary))
           )
         }
       }
     }
 
-    const diffBase = getWorkingTreeDiffBase(cwd)
-    const [status, diffSummary] = await Promise.all([git.status(), git.diffSummary([diffBase])])
+    const diffBase = getWorkingTreeDiffBase(cwd, backend)
+    const [status, diffSummary] = await Promise.all([
+      getGitStatus(cwd, backend),
+      getGitDiffStat(cwd, [diffBase], backend)
+    ])
 
     return {
       ok: true,
@@ -2066,6 +2367,7 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
         headRef: null,
         files: annotateDiffFilesWithProjects(
           cwd,
+          backend,
           buildWorkingTreeDiffFiles(status, buildDiffStatMap(diffSummary))
         )
       }
@@ -2075,9 +2377,17 @@ async function getThreadDiffSummary(input: ThreadDiffQuery): Promise<ThreadDiffS
   }
 }
 
-async function buildUntrackedFilePatch(cwd: string, path: string): Promise<ThreadDiffPatchResult> {
-  const nullPath = process.platform === 'win32' ? 'NUL' : '/dev/null'
-  const result = await tryGitAsync(cwd, ['diff', '--no-index', '--binary', '--', nullPath, path])
+async function buildUntrackedFilePatch(
+  cwd: string,
+  path: string,
+  backend: RepositoryBackend
+): Promise<ThreadDiffPatchResult> {
+  const nullPath = backend.kind === 'wsl' || process.platform !== 'win32' ? '/dev/null' : 'NUL'
+  const result = await tryGitAsync(
+    cwd,
+    ['diff', '--no-index', '--binary', '--', nullPath, path],
+    backend
+  )
   if (result.stdout.trim().length > 0) {
     return { ok: true, patch: result.stdout, isBinary: false }
   }
@@ -2095,21 +2405,21 @@ async function getThreadDiffPatch(input: ThreadDiffPatchRequest): Promise<Thread
   }
 
   const { cwd } = context
+  const { backend } = context.repository
   const trimmedPath = input.path.trim()
   if (!trimmedPath) {
     return { ok: false, error: 'Diff path is required.' }
   }
 
-  const resolvedPath = resolve(cwd, trimmedPath)
-  if (!isPathInsideRepository(cwd, resolvedPath)) {
+  const resolvedPath = resolvePath(backend, cwd, trimmedPath)
+  if (!isPathInsideRepository(cwd, resolvedPath, backend)) {
     return { ok: false, error: 'Diff path must stay inside the thread working directory.' }
   }
 
   if (input.status === 'untracked') {
-    return buildUntrackedFilePatch(cwd, trimmedPath)
+    return buildUntrackedFilePatch(cwd, trimmedPath, backend)
   }
 
-  const git = getGitClient(cwd)
   const previousPath = input.previousPath?.trim() ?? ''
   const pathspec =
     previousPath && previousPath !== trimmedPath ? [previousPath, trimmedPath] : [trimmedPath]
@@ -2127,46 +2437,56 @@ async function getThreadDiffPatch(input: ThreadDiffPatchRequest): Promise<Thread
     const patch =
       input.mode === 'range'
         ? isWorkingTreeRef(headRef)
-          ? await git.raw([
+          ? await tryGitAsync(
+              cwd,
+              ['diff', '--patch', '--binary', '--find-renames', baseRef, '--', ...pathspec],
+              backend
+            )
+          : await tryGitAsync(
+              cwd,
+              [
+                'diff',
+                '--patch',
+                '--binary',
+                '--find-renames',
+                baseRef,
+                headRef,
+                '--',
+                ...pathspec
+              ],
+              backend
+            )
+        : await tryGitAsync(
+            cwd,
+            [
               'diff',
               '--patch',
               '--binary',
               '--find-renames',
-              baseRef,
+              getWorkingTreeDiffBase(cwd, backend),
               '--',
               ...pathspec
-            ])
-          : await git.raw([
-              'diff',
-              '--patch',
-              '--binary',
-              '--find-renames',
-              baseRef,
-              headRef,
-              '--',
-              ...pathspec
-            ])
-        : await git.raw([
-            'diff',
-            '--patch',
-            '--binary',
-            '--find-renames',
-            getWorkingTreeDiffBase(cwd),
-            '--',
-            ...pathspec
-          ])
+            ],
+            backend
+          )
+
+    if (!patch.ok) {
+      return { ok: false, error: patch.stderr || 'Unable to build diff patch.' }
+    }
 
     return {
       ok: true,
-      patch,
-      isBinary: patch.includes('GIT binary patch') || patch.includes('Binary files')
+      patch: patch.stdout,
+      isBinary: patch.stdout.includes('GIT binary patch') || patch.stdout.includes('Binary files')
     }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
-function resolveBranchStatusCwd(input: BranchStatusRequest): string | null {
+function resolveBranchStatusContext(
+  input: BranchStatusRequest
+): { cwd: string; backend: RepositoryBackend } | null {
   const state = ensureState()
 
   if (input.threadId) {
@@ -2180,23 +2500,26 @@ function resolveBranchStatusCwd(input: BranchStatusRequest): string | null {
       return null
     }
 
-    return getThreadCwd(thread, repository.path)
+    return { cwd: getThreadExecutionCwd(thread, repository), backend: repository.backend }
   }
 
   if (!input.repositoryId) {
     return null
   }
 
-  return state.repositories.find((item) => item.id === input.repositoryId)?.path ?? null
+  const repository = state.repositories.find((item) => item.id === input.repositoryId)
+  return repository
+    ? { cwd: getRepositoryExecutionPath(repository), backend: repository.backend }
+    : null
 }
 
 async function getBranchStatus(input: BranchStatusRequest): Promise<BranchStatusSnapshot | null> {
-  const cwd = resolveBranchStatusCwd(input)
-  if (!cwd) {
+  const context = resolveBranchStatusContext(input)
+  if (!context) {
     return null
   }
 
-  const cacheKey = cwd.toLowerCase()
+  const cacheKey = `${context.backend.kind}:${context.cwd.toLowerCase()}`
   const cached = branchStatusCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
     return cached.value
@@ -2208,12 +2531,11 @@ async function getBranchStatus(input: BranchStatusRequest): Promise<BranchStatus
   }
 
   const request = (async (): Promise<BranchStatusSnapshot | null> => {
-    const result = await tryGitAsync(cwd, [
-      'status',
-      '--porcelain=v2',
-      '--branch',
-      '--untracked-files=all'
-    ])
+    const result = await tryGitAsync(
+      context.cwd,
+      ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
+      context.backend
+    )
     const value = result.ok ? parseBranchStatus(result.stdout) : null
 
     branchStatusCache.set(cacheKey, {
@@ -2236,7 +2558,9 @@ function buildThreadSnapshot(
 ): ThreadSnapshot {
   return {
     ...thread,
-    cwd: getThreadCwd(thread, repository.path),
+    cwd: getThreadUiCwd(thread, repository),
+    executionCwd: getThreadExecutionCwd(thread, repository),
+    backend: repository.backend,
     displayBranchName: thread.branchName,
     displayTitle: thread.customTitle ?? thread.branchName,
     isRunning: runningThreadIds.has(thread.id),
@@ -2354,13 +2678,14 @@ type BaseRefResolution = { ok: true; ref: string } | { ok: false; error: string 
 
 function resolveBaseRef(
   repoPath: string,
-  useCurrentBranch: boolean | undefined
+  useCurrentBranch: boolean | undefined,
+  backend: RepositoryBackend = createNativeBackend()
 ): BaseRefResolution {
   if (useCurrentBranch) {
     return { ok: true, ref: 'HEAD' }
   }
 
-  const primary = getPrimaryBranch(repoPath)
+  const primary = getPrimaryBranch(repoPath, backend)
   if (!primary) {
     return {
       ok: false,
@@ -2515,6 +2840,7 @@ function createThread(input: CreateThreadInput): MutationResult {
 
   const createdAt = nowIso()
   const customTitle = normalizeCustomTitle(input.title)
+  const repositoryPath = getRepositoryExecutionPath(repository)
 
   if (input.mode === 'worktree') {
     const branchName = input.branchName?.trim()
@@ -2522,14 +2848,23 @@ function createThread(input: CreateThreadInput): MutationResult {
       return failureResult('Branch name is required for worktree threads.')
     }
 
-    const baseResolution = resolveBaseRef(repository.path, input.useCurrentBranch)
+    const baseResolution = resolveBaseRef(
+      repositoryPath,
+      input.useCurrentBranch,
+      repository.backend
+    )
     if (!baseResolution.ok) {
       return failureResult(baseResolution.error)
     }
 
     let worktreePath: string
     try {
-      worktreePath = createWorktree(repository.path, branchName, baseResolution.ref)
+      worktreePath = createWorktree(
+        repositoryPath,
+        branchName,
+        baseResolution.ref,
+        repository.backend
+      )
     } catch (error) {
       return failureResult(error instanceof Error ? error.message : String(error))
     }
@@ -2562,23 +2897,27 @@ function createThread(input: CreateThreadInput): MutationResult {
       return failureResult('Branch name is required for new-branch threads.')
     }
 
-    if (branchExists(repository.path, branchName)) {
+    if (branchExists(repositoryPath, branchName, repository.backend)) {
       return failureResult(`Branch "${branchName}" already exists.`)
     }
 
-    if (hasUncommittedChanges(repository.path)) {
+    if (hasUncommittedChanges(repositoryPath, repository.backend)) {
       return failureResult(
         'Working tree has uncommitted changes. Commit or stash them before creating a new-branch thread.'
       )
     }
 
-    const baseResolution = resolveBaseRef(repository.path, input.useCurrentBranch)
+    const baseResolution = resolveBaseRef(
+      repositoryPath,
+      input.useCurrentBranch,
+      repository.backend
+    )
     if (!baseResolution.ok) {
       return failureResult(baseResolution.error)
     }
 
     try {
-      runGit(repository.path, ['checkout', '-b', branchName, baseResolution.ref])
+      runGit(repositoryPath, ['checkout', '-b', branchName, baseResolution.ref], repository.backend)
     } catch (error) {
       return failureResult(error instanceof Error ? error.message : String(error))
     }
@@ -2605,7 +2944,7 @@ function createThread(input: CreateThreadInput): MutationResult {
     return successResult()
   }
 
-  const currentBranch = getCurrentBranchLabel(repository.path)
+  const currentBranch = getCurrentBranchLabel(repositoryPath, repository.backend)
   const thread: PersistedThread = {
     id: randomUUID(),
     repositoryId: repository.id,
@@ -2638,13 +2977,31 @@ async function addRepository(): Promise<MutationResult> {
     return failureResult('Repository selection cancelled.', true)
   }
 
-  const gitRoot = resolveGitRoot(dialogResult.filePaths[0])
+  const selectedPath = dialogResult.filePaths[0]
+  const selectedWslBackend = process.platform === 'win32' ? parseWslUncPath(selectedPath) : null
+  const selectedExecutionPath =
+    selectedWslBackend?.kind === 'wsl' ? selectedWslBackend.linuxPath : selectedPath
+  const selectedBackend = selectedWslBackend ?? createNativeBackend()
+  const gitRoot = resolveGitRoot(selectedExecutionPath, selectedBackend)
   if (!gitRoot) {
     return failureResult('Selected folder is not inside a git repository.')
   }
 
+  const backend =
+    selectedBackend.kind === 'wsl'
+      ? {
+          kind: 'wsl' as const,
+          distro: selectedBackend.distro,
+          windowsPath: toUiPath(selectedBackend, gitRoot),
+          linuxPath: gitRoot
+        }
+      : selectedBackend
+  const repositoryPath = backend.kind === 'wsl' ? backend.windowsPath : gitRoot
+
   const state = ensureState()
-  const existing = state.repositories.find((repository) => sameNativePath(repository.path, gitRoot))
+  const existing = state.repositories.find((repository) =>
+    isSameRepositoryPath(repository.path, repository.backend, repositoryPath, backend)
+  )
   if (existing) {
     updateSelection(existing.id, null)
     saveState()
@@ -2653,8 +3010,9 @@ async function addRepository(): Promise<MutationResult> {
 
   const repository: PersistedRepository = {
     id: randomUUID(),
-    name: basename(gitRoot),
-    path: gitRoot,
+    name: getBasename(gitRoot, backend),
+    path: repositoryPath,
+    backend,
     faviconPath: null,
     runCommand: null,
     postWorktreeRemoveCommand: null,
@@ -2683,12 +3041,12 @@ async function closeThread(threadId: string): Promise<MutationResult> {
   killSessionsForThread(threadId)
   stopThreadRunSession(threadId)
   let postWorktreeRemoveError: string | null = null
+  const repositoryPath = getRepositoryExecutionPath(repository)
 
   if (thread.mode === 'worktree' && thread.worktreePath) {
-    const dirty =
-      existsSync(thread.worktreePath) && statSync(thread.worktreePath).isDirectory()
-        ? isDirtyGitPath(thread.worktreePath)
-        : false
+    const dirty = backendPathExists(repository.backend, thread.worktreePath, 'directory')
+      ? isDirtyGitPath(thread.worktreePath, repository.backend)
+      : false
 
     if (dirty) {
       const confirmation = await dialog.showMessageBox({
@@ -2707,7 +3065,7 @@ async function closeThread(threadId: string): Promise<MutationResult> {
     }
 
     try {
-      removeWorktree(thread, repository.path, dirty)
+      removeWorktree(thread, repositoryPath, repository.backend, dirty)
     } catch (error) {
       return failureResult(error instanceof Error ? error.message : String(error))
     }
@@ -2722,7 +3080,8 @@ async function closeThread(threadId: string): Promise<MutationResult> {
   if (thread.mode === 'new-branch') {
     const branchRemovalResult = await maybeRemoveLocalBranchForNewBranchThread(
       thread,
-      repository.path
+      repositoryPath,
+      repository.backend
     )
     if (branchRemovalResult) {
       return branchRemovalResult

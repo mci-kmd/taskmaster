@@ -3,6 +3,10 @@ export type AgentProviderId = 'copilot' | 'codex'
 export type TerminalKind = 'agent' | 'shell'
 export type ProjectTaskTag = string
 
+export type RepositoryBackend =
+  | { kind: 'native' }
+  | { kind: 'wsl'; distro: string; windowsPath: string; linuxPath: string }
+
 export type AgentLaunchMode = 'new' | 'resume'
 
 export interface AgentLaunchRequest {
@@ -27,6 +31,8 @@ export interface TerminalCreateRequest {
   agentProviderId?: AgentProviderId
   agentLaunch?: AgentLaunchRequest
   cwd?: string
+  executionCwd?: string
+  backend?: RepositoryBackend
   /** @deprecated Agent arguments are now built by the selected provider. */
   args?: string[]
   threadId?: string
@@ -57,6 +63,8 @@ export interface TerminalLaunchFailure {
 
 export type TerminalLaunchResult = TerminalLaunchSuccess | TerminalLaunchFailure
 
+export type TerminalClipboardImageResult = { ok: true; path: string } | { ok: false; error: string }
+
 export interface TerminalDataEvent {
   terminalId: string
   data: string
@@ -84,10 +92,11 @@ export interface TerminalUserPromptEvent {
 }
 
 export interface TerminalApi {
-  getStatus: (providerId?: AgentProviderId) => Promise<TerminalStatus>
+  getStatus: (providerId?: AgentProviderId, backend?: RepositoryBackend) => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
   kill: (terminalId: string) => Promise<boolean>
   hasClipboardImage: () => boolean
+  saveClipboardImage: (terminalId: string) => Promise<TerminalClipboardImageResult>
   readClipboardText: () => string
   input: (terminalId: string, data: string) => void
   resize: (terminalId: string, cols: number, rows: number) => void
@@ -108,6 +117,7 @@ export interface PersistedRepository {
   id: string
   name: string
   path: string
+  backend: RepositoryBackend
   faviconPath: string | null
   runCommand: string | null
   postWorktreeRemoveCommand: string | null
@@ -132,7 +142,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 10
+  version: 11
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -151,6 +161,8 @@ export interface AppSettingsSnapshot extends PersistedSettings {
 
 export interface ThreadSnapshot extends PersistedThread {
   cwd: string
+  executionCwd: string
+  backend: RepositoryBackend
   displayBranchName: string
   /** Fallback label when no live or persisted Copilot title is available. */
   displayTitle: string
