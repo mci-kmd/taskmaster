@@ -106,6 +106,7 @@ const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const RUN_OUTPUT_LIMIT = 24_000
+const ANSI_ESCAPE_PATTERN = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
 const BRANCH_NAME_TOKEN = '{BRANCH-NAME}'
 const BRANCH_NAME_SAFE_TOKEN = '{BRANCH-NAME-SAFE}'
 const BRANCH_PORT_TOKEN = '{BRANCH-PORT}'
@@ -1337,6 +1338,12 @@ function formatThreadRunFailureDetail(
   return sections.join('\n\n')
 }
 
+function sanitizeUserFacingMessage(value: string): string {
+  return value
+    .replace(ANSI_ESCAPE_PATTERN, '')
+    .replace(/[\u0000-\u0008\u000b-\u001a\u001c-\u001f\u007f]/g, '')
+}
+
 async function showThreadRunFailureDialog(
   title: string,
   message: string,
@@ -1351,9 +1358,9 @@ async function showThreadRunFailureDialog(
     type: 'error' as const,
     buttons: ['OK'],
     defaultId: 0,
-    title,
-    message,
-    detail,
+    title: sanitizeUserFacingMessage(title),
+    message: sanitizeUserFacingMessage(message),
+    detail: sanitizeUserFacingMessage(detail),
     noLink: true
   }
 
@@ -1548,6 +1555,18 @@ function removeWorktree(
   if (branchExists(repositoryPath, thread.branchName, backend)) {
     runGit(repositoryPath, ['branch', '-D', thread.branchName], backend)
   }
+}
+
+function shouldSkipWorktreeGitCleanup(
+  thread: Pick<PersistedThread, 'branchName' | 'worktreePath'>,
+  repositoryPath: string,
+  backend: RepositoryBackend
+): boolean {
+  return (
+    !thread.worktreePath ||
+    !backendPathExists(backend, thread.worktreePath, 'directory') ||
+    !branchExists(repositoryPath, thread.branchName, backend)
+  )
 }
 
 function runPostWorktreeRemoveCommand(
@@ -2655,7 +2674,7 @@ function failureResult(error: string, cancelled = false): MutationResult {
   return {
     ok: false,
     cancelled,
-    error,
+    error: sanitizeUserFacingMessage(error),
     snapshot: buildSnapshot()
   }
 }
@@ -3027,78 +3046,88 @@ async function addRepository(): Promise<MutationResult> {
 }
 
 async function closeThread(threadId: string): Promise<MutationResult> {
-  const state = ensureState()
-  const thread = state.threads.find((item) => item.id === threadId)
-  if (!thread) {
-    return failureResult('Thread not found.')
-  }
+  try {
+    const state = ensureState()
+    const thread = state.threads.find((item) => item.id === threadId)
+    if (!thread) {
+      return failureResult('Thread not found.')
+    }
 
-  const repository = state.repositories.find((item) => item.id === thread.repositoryId)
-  if (!repository) {
-    return failureResult('Owning repository not found.')
-  }
+    const repository = state.repositories.find((item) => item.id === thread.repositoryId)
+    if (!repository) {
+      return failureResult('Owning repository not found.')
+    }
 
-  killSessionsForThread(threadId)
-  stopThreadRunSession(threadId)
-  let postWorktreeRemoveError: string | null = null
-  const repositoryPath = getRepositoryExecutionPath(repository)
+    killSessionsForThread(threadId)
+    stopThreadRunSession(threadId)
+    let postWorktreeRemoveError: string | null = null
+    const repositoryPath = getRepositoryExecutionPath(repository)
 
-  if (thread.mode === 'worktree' && thread.worktreePath) {
-    const dirty = backendPathExists(repository.backend, thread.worktreePath, 'directory')
-      ? isDirtyGitPath(thread.worktreePath, repository.backend)
-      : false
+    if (thread.mode === 'worktree') {
+      const skipGitCleanup = shouldSkipWorktreeGitCleanup(
+        thread,
+        repositoryPath,
+        repository.backend
+      )
 
-    if (dirty) {
-      const confirmation = await dialog.showMessageBox({
-        type: 'warning',
-        buttons: ['Cancel', 'Delete anyway'],
-        defaultId: 0,
-        cancelId: 0,
-        title: 'Uncommitted changes',
-        message: `The worktree for "${thread.customTitle ?? thread.branchName}" has uncommitted changes.`,
-        detail: 'Delete anyway will remove the worktree and delete its branch.'
-      })
+      if (!skipGitCleanup && thread.worktreePath) {
+        const dirty = isDirtyGitPath(thread.worktreePath, repository.backend)
 
-      if (confirmation.response === 0) {
-        return failureResult('Thread close cancelled.', true)
+        if (dirty) {
+          const confirmation = await dialog.showMessageBox({
+            type: 'warning',
+            buttons: ['Cancel', 'Delete anyway'],
+            defaultId: 0,
+            cancelId: 0,
+            title: 'Uncommitted changes',
+            message: `The worktree for "${thread.customTitle ?? thread.branchName}" has uncommitted changes.`,
+            detail: 'Delete anyway will remove the worktree and delete its branch.'
+          })
+
+          if (confirmation.response === 0) {
+            return failureResult('Thread close cancelled.', true)
+          }
+        }
+
+        try {
+          removeWorktree(thread, repositoryPath, repository.backend, dirty)
+        } catch (error) {
+          return failureResult(error instanceof Error ? error.message : String(error))
+        }
+      }
+
+      try {
+        runPostWorktreeRemoveCommand(repository, thread)
+      } catch (error) {
+        postWorktreeRemoveError = error instanceof Error ? error.message : String(error)
       }
     }
 
-    try {
-      removeWorktree(thread, repositoryPath, repository.backend, dirty)
-    } catch (error) {
-      return failureResult(error instanceof Error ? error.message : String(error))
+    if (thread.mode === 'new-branch') {
+      const branchRemovalResult = await maybeRemoveLocalBranchForNewBranchThread(
+        thread,
+        repositoryPath,
+        repository.backend
+      )
+      if (branchRemovalResult) {
+        return branchRemovalResult
+      }
     }
 
-    try {
-      runPostWorktreeRemoveCommand(repository, thread)
-    } catch (error) {
-      postWorktreeRemoveError = error instanceof Error ? error.message : String(error)
+    state.threads = state.threads.filter((item) => item.id !== thread.id)
+
+    if (state.ui.selectedThreadId === thread.id) {
+      state.ui.selectedThreadId = null
+      state.ui.selectedRepositoryId = repository.id
     }
+
+    saveState()
+    return postWorktreeRemoveError
+      ? failureResult(`Thread closed, but post-remove script failed: ${postWorktreeRemoveError}`)
+      : successResult()
+  } catch (error) {
+    return failureResult(error instanceof Error ? error.message : String(error))
   }
-
-  if (thread.mode === 'new-branch') {
-    const branchRemovalResult = await maybeRemoveLocalBranchForNewBranchThread(
-      thread,
-      repositoryPath,
-      repository.backend
-    )
-    if (branchRemovalResult) {
-      return branchRemovalResult
-    }
-  }
-
-  state.threads = state.threads.filter((item) => item.id !== thread.id)
-
-  if (state.ui.selectedThreadId === thread.id) {
-    state.ui.selectedThreadId = null
-    state.ui.selectedRepositoryId = repository.id
-  }
-
-  saveState()
-  return postWorktreeRemoveError
-    ? failureResult(`Worktree removed, but post-remove script failed: ${postWorktreeRemoveError}`)
-    : successResult()
 }
 
 function updateSettings(input: UpdateSettingsInput): MutationResult {

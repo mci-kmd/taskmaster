@@ -507,8 +507,16 @@ export default function App(): React.JSX.Element {
   const handleCloseThread = useCallback(
     async (threadId: string): Promise<void> => {
       setBusyAction('close-thread')
-      await applyMutation(window.api.appState.closeThread(threadId), 'Thread closed.')
-      setBusyAction(null)
+      try {
+        await applyMutation(window.api.appState.closeThread(threadId), 'Thread closed.')
+      } catch (error) {
+        setFeedback({
+          tone: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      } finally {
+        setBusyAction(null)
+      }
     },
     [applyMutation]
   )
