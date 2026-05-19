@@ -101,7 +101,7 @@ import {
 } from './repository-backend'
 
 const STORE_FILENAME = 'taskmaster-state.json'
-const STATE_VERSION = 11 as const
+const STATE_VERSION = 12 as const
 const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -153,7 +153,12 @@ type LegacyThreadV1 = Omit<
   title: string
 }
 type LegacySettingsV9 = Omit<PersistedAppState['settings'], 'agentProviderId'>
-type LegacyRepositoryV10 = Omit<PersistedRepository, 'backend'>
+type LegacyRepositoryV11 = Omit<PersistedRepository, 'newWorktreeSetupCommand'>
+type LegacyAppStateV11 = Omit<PersistedAppState, 'version' | 'repositories'> & {
+  version: 11
+  repositories: LegacyRepositoryV11[]
+}
+type LegacyRepositoryV10 = Omit<PersistedRepository, 'backend' | 'newWorktreeSetupCommand'>
 type LegacyAppStateV10 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 10
   repositories: LegacyRepositoryV10[]
@@ -163,14 +168,17 @@ type LegacyAppStateV9 = Omit<PersistedAppState, 'version' | 'settings' | 'reposi
   settings: LegacySettingsV9
   repositories: LegacyRepositoryV10[]
 }
-type LegacyRepositoryV8 = Omit<PersistedRepository, 'backend' | 'postWorktreeRemoveCommand'>
+type LegacyRepositoryV8 = Omit<
+  PersistedRepository,
+  'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand'
+>
 type LegacyRepositoryV7 = Omit<
   PersistedRepository,
-  'backend' | 'postWorktreeRemoveCommand' | 'tasks'
+  'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand' | 'tasks'
 >
 type LegacyRepositoryV6 = Omit<
   PersistedRepository,
-  'backend' | 'postWorktreeRemoveCommand' | 'runCommand' | 'tasks'
+  'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand' | 'runCommand' | 'tasks'
 >
 type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 1
@@ -184,7 +192,7 @@ type LegacyThreadV2 = Omit<
 >
 type LegacyRepositoryV3 = Omit<
   PersistedRepository,
-  'backend' | 'postWorktreeRemoveCommand' | 'faviconPath' | 'runCommand' | 'tasks'
+  'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand' | 'faviconPath' | 'runCommand' | 'tasks'
 >
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
@@ -341,11 +349,19 @@ function sameRepositoryBackend(
 function normalizePersistedRepository(repository: PersistedRepository): PersistedRepository {
   const backend = normalizeRepositoryBackend((repository as { backend?: unknown }).backend)
   const runCommand = normalizeRunCommand(repository.runCommand)
+  const rawNewWorktreeSetupCommand = (repository as { newWorktreeSetupCommand?: unknown })
+    .newWorktreeSetupCommand
+  const newWorktreeSetupCommand = normalizeRepositoryScript(
+    typeof rawNewWorktreeSetupCommand === 'string' || rawNewWorktreeSetupCommand == null
+      ? rawNewWorktreeSetupCommand
+      : null
+  )
   const postWorktreeRemoveCommand = normalizeRepositoryScript(repository.postWorktreeRemoveCommand)
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const tasks = currentTasks.map((task) => normalizePersistedTask(task))
   return sameRepositoryBackend(backend, repository.backend) &&
     runCommand === repository.runCommand &&
+    newWorktreeSetupCommand === repository.newWorktreeSetupCommand &&
     postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
@@ -355,6 +371,7 @@ function normalizePersistedRepository(repository: PersistedRepository): Persiste
         ...repository,
         backend,
         runCommand,
+        newWorktreeSetupCommand,
         postWorktreeRemoveCommand,
         tasks
       }
@@ -440,6 +457,7 @@ function normalizePersistedState(state: PersistedAppState): PersistedAppState {
 function migrateState(
   parsed:
     | PersistedAppState
+    | LegacyAppStateV11
     | LegacyAppStateV10
     | LegacyAppStateV8
     | LegacyAppStateV9
@@ -455,13 +473,25 @@ function migrateState(
     return normalizePersistedState(parsed)
   }
 
+  if (parsed.version === 11) {
+    return normalizePersistedState({
+      ...parsed,
+      version: STATE_VERSION,
+      repositories: parsed.repositories.map((repository) => ({
+        ...repository,
+        newWorktreeSetupCommand: null
+      }))
+    })
+  }
+
   if (parsed.version === 10) {
     return normalizePersistedState({
       ...parsed,
       version: STATE_VERSION,
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
-        backend: createNativeBackend()
+        backend: createNativeBackend(),
+        newWorktreeSetupCommand: null
       }))
     })
   }
@@ -476,7 +506,8 @@ function migrateState(
       },
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
-        backend: createNativeBackend()
+        backend: createNativeBackend(),
+        newWorktreeSetupCommand: null
       }))
     })
   }
@@ -488,6 +519,7 @@ function migrateState(
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),
+        newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null
       }))
     })
@@ -500,6 +532,7 @@ function migrateState(
       repositories: parsed.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),
+        newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
       }))
@@ -514,6 +547,7 @@ function migrateState(
         ...repository,
         backend: createNativeBackend(),
         runCommand: null,
+        newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
       })),
@@ -532,6 +566,7 @@ function migrateState(
         ...repository,
         backend: createNativeBackend(),
         runCommand: null,
+        newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
       })),
@@ -548,6 +583,7 @@ function migrateState(
     backend: createNativeBackend(),
     faviconPath: null,
     runCommand: null,
+    newWorktreeSetupCommand: null,
     postWorktreeRemoveCommand: null,
     tasks: []
   }))
@@ -560,6 +596,7 @@ function migrateState(
         ...repository,
         backend: createNativeBackend(),
         runCommand: null,
+        newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
       }))
@@ -649,6 +686,7 @@ function ensureState(): PersistedAppState {
 
   const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as
     | PersistedAppState
+    | LegacyAppStateV11
     | LegacyAppStateV10
     | LegacyAppStateV9
     | LegacyAppStateV8
@@ -862,6 +900,16 @@ function validateRepositoryRunCommandInput(input: string | null): {
   return {
     ok: true,
     command: normalizeRunCommand(input)
+  }
+}
+
+function validateRepositoryNewWorktreeSetupCommandInput(input: string | null): {
+  ok: true
+  command: string | null
+} {
+  return {
+    ok: true,
+    command: normalizeRepositoryScript(input)
   }
 }
 
@@ -1088,6 +1136,32 @@ function deriveWorktreePath(
   }
 
   return candidate
+}
+
+function runThreadBranchScript(
+  script: string,
+  repository: Pick<PersistedRepository, 'path' | 'backend'>,
+  thread: Pick<PersistedThread, 'branchName'>,
+  cwd: string
+): void {
+  const resolvedScript = applyThreadBranchTokens(script, repository, thread)
+  const command = buildScriptCommand(resolvedScript, repository.backend)
+  const result = spawnSyncBackendCommand(repository.backend, command, {
+    cwd,
+    encoding: 'utf8'
+  })
+
+  if (result.error) {
+    throw result.error
+  }
+
+  if (!result.ok) {
+    const detail =
+      result.stderr.trim() ||
+      result.stdout.trim() ||
+      `Script exited with code ${result.status ?? 'unknown'}.`
+    throw new Error(detail)
+  }
 }
 
 function branchExists(
@@ -1528,7 +1602,7 @@ function stopThreadRun(threadId: string): MutationResult {
 }
 
 function removeWorktree(
-  thread: PersistedThread,
+  thread: Pick<PersistedThread, 'branchName' | 'worktreePath'>,
   repositoryPath: string,
   backend: RepositoryBackend,
   force: boolean
@@ -1578,25 +1652,29 @@ function runPostWorktreeRemoveCommand(
     return
   }
 
-  const resolvedScript = applyThreadBranchTokens(script, repository, thread)
-  const command = buildScriptCommand(resolvedScript, repository.backend)
-  const repositoryPath = getRepositoryExecutionPath(repository)
-  const result = spawnSyncBackendCommand(repository.backend, command, {
-    cwd: repositoryPath,
-    encoding: 'utf8'
-  })
+  runThreadBranchScript(script, repository, thread, getRepositoryExecutionPath(repository))
+}
 
-  if (result.error) {
-    throw result.error
+function runNewWorktreeSetupCommand(
+  repository: Pick<PersistedRepository, 'path' | 'backend' | 'newWorktreeSetupCommand'>,
+  thread: Pick<PersistedThread, 'branchName' | 'worktreePath'>
+): void {
+  const script = normalizeRepositoryScript(repository.newWorktreeSetupCommand)
+  if (!script) {
+    return
   }
 
-  if (!result.ok) {
-    const detail =
-      result.stderr.trim() ||
-      result.stdout.trim() ||
-      `Script exited with code ${result.status ?? 'unknown'}.`
-    throw new Error(detail)
+  if (!thread.worktreePath) {
+    throw new Error('Worktree path missing.')
   }
+
+  if (!backendPathExists(repository.backend, thread.worktreePath, 'directory')) {
+    throw new Error(
+      `Working directory not found: ${pathForDisplay(thread.worktreePath, repository.backend)}`
+    )
+  }
+
+  runThreadBranchScript(script, repository, thread, thread.worktreePath)
 }
 
 async function maybeRemoveLocalBranchForNewBranchThread(
@@ -2888,6 +2966,26 @@ function createThread(input: CreateThreadInput): MutationResult {
       return failureResult(error instanceof Error ? error.message : String(error))
     }
 
+    try {
+      runNewWorktreeSetupCommand(repository, { branchName, worktreePath })
+    } catch (error) {
+      const setupError = error instanceof Error ? error.message : String(error)
+      let cleanupError: string | null = null
+
+      try {
+        removeWorktree({ branchName, worktreePath }, repositoryPath, repository.backend, true)
+      } catch (cleanupFailure) {
+        cleanupError =
+          cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure)
+      }
+
+      return failureResult(
+        cleanupError
+          ? `New worktree setup script failed: ${setupError} Cleanup also failed: ${cleanupError}`
+          : `New worktree setup script failed: ${setupError}`
+      )
+    }
+
     const thread: PersistedThread = {
       id: randomUUID(),
       repositoryId: repository.id,
@@ -3034,6 +3132,7 @@ async function addRepository(): Promise<MutationResult> {
     backend,
     faviconPath: null,
     runCommand: null,
+    newWorktreeSetupCommand: null,
     postWorktreeRemoveCommand: null,
     addedAt: nowIso(),
     tasks: []
@@ -3158,6 +3257,13 @@ function updateRepository(input: UpdateRepositoryInput): MutationResult {
     return failureResult('Run command is invalid.')
   }
 
+  const newWorktreeSetupCommandValidation = validateRepositoryNewWorktreeSetupCommandInput(
+    input.newWorktreeSetupCommand
+  )
+  if (!newWorktreeSetupCommandValidation.ok) {
+    return failureResult('New worktree setup script is invalid.')
+  }
+
   const postWorktreeRemoveCommandValidation = validateRepositoryPostWorktreeRemoveCommandInput(
     input.postWorktreeRemoveCommand
   )
@@ -3168,6 +3274,7 @@ function updateRepository(input: UpdateRepositoryInput): MutationResult {
   if (
     repository.faviconPath === faviconValidation.path &&
     repository.runCommand === runCommandValidation.command &&
+    repository.newWorktreeSetupCommand === newWorktreeSetupCommandValidation.command &&
     repository.postWorktreeRemoveCommand === postWorktreeRemoveCommandValidation.command
   ) {
     return successResult()
@@ -3175,6 +3282,7 @@ function updateRepository(input: UpdateRepositoryInput): MutationResult {
 
   repository.faviconPath = faviconValidation.path
   repository.runCommand = runCommandValidation.command
+  repository.newWorktreeSetupCommand = newWorktreeSetupCommandValidation.command
   repository.postWorktreeRemoveCommand = postWorktreeRemoveCommandValidation.command
   saveState()
   return successResult()

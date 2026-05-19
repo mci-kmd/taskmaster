@@ -10,6 +10,7 @@ A personal Electron app for running an embedded LLM CLI inside the app and organ
 - Resume prior agent sessions by persisted session ID or name
 - Configure the active provider and global provider flags for all thread launches
 - Remove owned worktrees and branches when closing a worktree-backed thread
+- Configure optional setup and cleanup scripts for worktree-backed threads
 
 ## Stack
 
@@ -66,5 +67,6 @@ Renderer dev server runs on port `5175`.
 ## Notes
 
 - Worktree-backed threads prompt before deletion if the worktree is dirty.
+- Worktree-backed threads can run an optional setup script on creation and an optional cleanup script on close.
 - Normal install/dev/build flows do not require Python on platforms where native binaries are shipped.
 - `node-pty` is still a native dependency; Linux may require a local rebuild with the native build tools above.

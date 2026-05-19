@@ -14,6 +14,7 @@ type EditRepositoryDialogProps = {
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
+    newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
   }) => Promise<boolean>
 }
@@ -41,7 +42,7 @@ export default function EditRepositoryDialog({
       {repository ? (
         <EditRepositoryForm
           busy={busy}
-          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}`}
+          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}`}
           onBrowse={onBrowse}
           onCancel={onClose}
           onSubmit={async (input) => {
@@ -77,6 +78,7 @@ type EditRepositoryFormProps = {
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
+    newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
   }) => Promise<void>
 }
@@ -90,6 +92,9 @@ function EditRepositoryForm({
 }: EditRepositoryFormProps): React.JSX.Element {
   const [faviconDraft, setFaviconDraft] = useState(repository.faviconPath ?? '')
   const [runCommandDraft, setRunCommandDraft] = useState(repository.runCommand ?? '')
+  const [newWorktreeSetupCommandDraft, setNewWorktreeSetupCommandDraft] = useState(
+    repository.newWorktreeSetupCommand ?? ''
+  )
   const [postWorktreeRemoveCommandDraft, setPostWorktreeRemoveCommandDraft] = useState(
     repository.postWorktreeRemoveCommand ?? ''
   )
@@ -97,6 +102,7 @@ function EditRepositoryForm({
   const dirty =
     faviconDraft !== (repository.faviconPath ?? '') ||
     runCommandDraft !== (repository.runCommand ?? '') ||
+    newWorktreeSetupCommandDraft !== (repository.newWorktreeSetupCommand ?? '') ||
     postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '')
 
   return (
@@ -109,6 +115,7 @@ function EditRepositoryForm({
             repositoryId: repository.id,
             faviconPath: faviconDraft.trim() || null,
             runCommand: runCommandDraft.trim() || null,
+            newWorktreeSetupCommand: newWorktreeSetupCommandDraft.trim() || null,
             postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null
           })
         }
@@ -158,6 +165,20 @@ function EditRepositoryForm({
       </Field>
 
       <Field
+        hint="Optional. Runs in the new worktree after its branch and worktree are created. Supports the same tokens as the run command."
+        label="New worktree setup script"
+      >
+        <TextArea
+          className="min-w-0 w-full"
+          onChange={(event) => setNewWorktreeSetupCommandDraft(event.target.value)}
+          placeholder={'bun install\ncp .env.example .env'}
+          rows={4}
+          spellCheck={false}
+          value={newWorktreeSetupCommandDraft}
+        />
+      </Field>
+
+      <Field
         hint="Optional. Runs in the repository root after a worktree thread is removed and its branch is deleted. Supports the same tokens as the run command."
         label="Post-worktree-remove script"
       >
@@ -182,11 +203,13 @@ function EditRepositoryForm({
               busy ||
               (faviconDraft.length === 0 &&
                 runCommandDraft.length === 0 &&
+                newWorktreeSetupCommandDraft.length === 0 &&
                 postWorktreeRemoveCommandDraft.length === 0)
             }
             onClick={() => {
               setFaviconDraft('')
               setRunCommandDraft('')
+              setNewWorktreeSetupCommandDraft('')
               setPostWorktreeRemoveCommandDraft('')
             }}
             title="Clear project fields"

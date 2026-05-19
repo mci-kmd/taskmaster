@@ -120,6 +120,7 @@ export interface PersistedRepository {
   backend: RepositoryBackend
   faviconPath: string | null
   runCommand: string | null
+  newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
   addedAt: string
   tasks: PersistedProjectTask[]
@@ -142,7 +143,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 11
+  version: 12
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -350,6 +351,7 @@ export interface UpdateRepositoryInput {
   repositoryId: string
   faviconPath: string | null
   runCommand: string | null
+  newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
 }
 

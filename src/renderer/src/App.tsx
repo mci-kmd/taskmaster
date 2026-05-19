@@ -397,6 +397,7 @@ export default function App(): React.JSX.Element {
       repositoryId: string
       faviconPath: string | null
       runCommand: string | null
+      newWorktreeSetupCommand: string | null
       postWorktreeRemoveCommand: string | null
     }): Promise<boolean> => {
       setBusyAction('save-repository')
