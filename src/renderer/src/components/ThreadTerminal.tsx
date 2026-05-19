@@ -764,6 +764,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           cols: term.cols,
           rows: term.rows,
           cwd: currentThread.cwd,
+          executionCwd: currentThread.executionCwd,
+          backend: currentThread.backend,
           agentLaunch: isAgentTerminal
             ? {
                 mode,
@@ -1075,24 +1077,38 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         focusTerminalInput(term)
         term.paste(text)
       }
-      const pasteClipboardImage = (): void => {
-        if (
-          kindRef.current !== 'agent' ||
-          !agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut
-        ) {
+      const pasteClipboardImage = async (): Promise<void> => {
+        if (kindRef.current !== 'agent') {
           return
         }
+        const capabilities = agentProviderRef.current.capabilities
+        const activeTerminalId = terminalIdRef.current
+        if (activeTerminalId && capabilities.supportsClipboardImagePathPaste) {
+          const result = await window.api.terminal.saveClipboardImage(activeTerminalId)
+          if (result.ok) {
+            pasteTerminalText(` ${result.path} `)
+            return
+          }
+          pasteTerminalText(` [image paste failed: ${result.error}] `)
+          return
+        }
+
+        if (!capabilities.supportsClipboardImagePasteShortcut) {
+          return
+        }
+
         focusTerminalInput(term)
         markTrackedInputDirty()
         forwardTerminalInput('\x1bv', null)
       }
       const clipboardHasImage = (): boolean =>
         kindRef.current === 'agent' &&
-        agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut &&
+        (agentProviderRef.current.capabilities.supportsClipboardImagePathPaste ||
+          agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut) &&
         window.api.terminal.hasClipboardImage()
       const pasteClipboard = (): void => {
         if (clipboardHasImage()) {
-          pasteClipboardImage()
+          void pasteClipboardImage()
           return
         }
         pasteTerminalText(window.api.terminal.readClipboardText())
@@ -1102,12 +1118,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const handlePaste = (event: ClipboardEvent): void => {
         if (
           kindRef.current === 'agent' &&
-          agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut &&
+          (agentProviderRef.current.capabilities.supportsClipboardImagePathPaste ||
+            agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut) &&
           pasteEventHasImage(event)
         ) {
           event.preventDefault()
           event.stopPropagation()
-          pasteClipboardImage()
+          void pasteClipboardImage()
           return
         }
         const text = event.clipboardData?.getData('text/plain')

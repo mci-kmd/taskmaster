@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto'
 import {
   accessSync,
+  mkdirSync,
   constants as fsConstants,
   existsSync,
-  mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -14,6 +14,7 @@ import { spawnSync } from 'child_process'
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'path'
 import {
   app,
+  clipboard,
   ipcMain,
   webContents,
   type IpcMainEvent,
@@ -24,13 +25,23 @@ import * as pty from 'node-pty'
 import type {
   AgentLaunchRequest,
   AgentProviderId,
+  RepositoryBackend,
   TerminalCreateRequest,
   TerminalKind,
+  TerminalClipboardImageResult,
   TerminalSessionStartEvent,
   TerminalStatus,
   TerminalUserPromptEvent
 } from '../shared/app-types'
 import { DEFAULT_AGENT_PROVIDER_ID, getAgentProviderDescriptor } from '../shared/agent-providers'
+import {
+  buildBackendCommand,
+  buildNativeCommand,
+  createNativeBackend,
+  normalizeRepositoryBackend,
+  spawnSyncBackendCommand,
+  toUiPath
+} from './repository-backend'
 
 type TerminalSession = {
   id: string
@@ -38,6 +49,7 @@ type TerminalSession = {
   ownerId: number
   ptyProcess: pty.IPty
   kind: TerminalKind
+  backend: RepositoryBackend
   agentProviderId?: AgentProviderId
   threadId?: string
   launchConfirmationTimer: NodeJS.Timeout | null
@@ -59,6 +71,7 @@ type TerminalHooks = {
 
 type AgentLaunchContext = {
   cwd: string
+  backend: RepositoryBackend
   terminalId: string
   threadId?: string
   launch?: AgentLaunchRequest
@@ -75,7 +88,7 @@ type AgentLaunchPreparation = {
 
 type AgentProvider = {
   id: AgentProviderId
-  getStatus: () => TerminalStatus
+  getStatus: (backend?: RepositoryBackend) => TerminalStatus
   prepareLaunch: (commandPath: string, context: AgentLaunchContext) => AgentLaunchPreparation
 }
 
@@ -602,17 +615,40 @@ function isExecutableFile(path: string): boolean {
   }
 }
 
-function getAgentStatus(provider: AgentProvider): TerminalStatus {
-  return provider.getStatus()
+function getAgentStatus(provider: AgentProvider, backend?: RepositoryBackend): TerminalStatus {
+  return provider.getStatus(backend)
 }
 
 function getAgentProvider(providerId?: AgentProviderId): AgentProvider {
   return agentProviders[providerId ?? DEFAULT_AGENT_PROVIDER_ID] ?? agentProviders.copilot
 }
 
+function resolveCommandOnWslPath(commandName: string, backend: RepositoryBackend): string | null {
+  if (backend.kind !== 'wsl') {
+    return null
+  }
+
+  const result = spawnSyncBackendCommand(
+    backend,
+    buildNativeCommand('/bin/bash', [
+      '-c',
+      `type -P -a -- ${shellQuote(commandName)} | grep -v '^/mnt/' | head -n 1`
+    ])
+  )
+  return result.ok && result.stdout ? result.stdout.split(/\r?\n/)[0] : null
+}
+
+function resolveProviderCommand(commandName: string, backend?: RepositoryBackend): string | null {
+  const normalizedBackend = normalizeRepositoryBackend(backend)
+  return normalizedBackend.kind === 'wsl'
+    ? resolveCommandOnWslPath(commandName, normalizedBackend)
+    : resolveCommandOnPath(commandName)
+}
+
 function createAgentStatus(
   providerId: AgentProviderId,
   commandPath: string | null,
+  backend: RepositoryBackend,
   messages: {
     unavailable: string
     available: string
@@ -627,7 +663,10 @@ function createAgentStatus(
       providerId,
       label: descriptor.label,
       defaultCwd,
-      message: messages.unavailable
+      message:
+        backend.kind === 'wsl'
+          ? `${messages.unavailable} Checked inside WSL distro "${backend.distro}".`
+          : messages.unavailable
     }
   }
 
@@ -637,12 +676,19 @@ function createAgentStatus(
     label: descriptor.label,
     commandPath,
     defaultCwd,
-    message: messages.available
+    message:
+      backend.kind === 'wsl'
+        ? `${messages.available} Resolved inside WSL distro "${backend.distro}".`
+        : messages.available
   }
 }
 
 export function quoteCmdArgument(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
 }
 
 function buildCommand(
@@ -672,6 +718,20 @@ function prepareCopilotLaunch(
   commandPath: string,
   context: AgentLaunchContext
 ): AgentLaunchPreparation {
+  if (context.backend.kind === 'wsl') {
+    return {
+      command: buildCommand(
+        commandPath,
+        'copilot',
+        buildCopilotArgs(context.launch, context.rawArgs)
+      ),
+      env: {},
+      sessionStartReader: null,
+      userPromptReader: null,
+      codexSessionReader: null
+    }
+  }
+
   ensureTaskmasterHookConfig(context.cwd)
 
   const hookEventsDir = getTaskmasterHookEventsDir()
@@ -720,7 +780,7 @@ function prepareCodexLaunch(
     sessionStartReader: null,
     userPromptReader: null,
     codexSessionReader:
-      context.threadId && context.launch
+      context.backend.kind === 'native' && context.threadId && context.launch
         ? {
             cwd: context.cwd,
             launchStartedAt: Date.now(),
@@ -739,8 +799,8 @@ function prepareCodexLaunch(
 const agentProviders: Record<AgentProviderId, AgentProvider> = {
   copilot: {
     id: 'copilot',
-    getStatus: () =>
-      createAgentStatus('copilot', resolveCommandOnPath('copilot'), {
+    getStatus: (backend = createNativeBackend()) =>
+      createAgentStatus('copilot', resolveProviderCommand('copilot', backend), backend, {
         unavailable: 'Copilot CLI was not found on PATH. Install it and run `copilot login` first.',
         available:
           'Copilot CLI found. If interactive startup fails, run `copilot login` in a shell first.'
@@ -749,8 +809,8 @@ const agentProviders: Record<AgentProviderId, AgentProvider> = {
   },
   codex: {
     id: 'codex',
-    getStatus: () =>
-      createAgentStatus('codex', resolveCommandOnPath('codex'), {
+    getStatus: (backend = createNativeBackend()) =>
+      createAgentStatus('codex', resolveProviderCommand('codex', backend), backend, {
         unavailable: 'Codex CLI was not found on PATH. Install it and run `codex login` first.',
         available:
           'Codex CLI found. If interactive startup fails, run `codex login` in a shell first.'
@@ -759,7 +819,15 @@ const agentProviders: Record<AgentProviderId, AgentProvider> = {
   }
 }
 
-function buildShellCommand(): TerminalCommand {
+function buildShellCommand(backend: RepositoryBackend = createNativeBackend()): TerminalCommand {
+  if (backend.kind === 'wsl') {
+    return {
+      file: '/bin/sh',
+      args: [],
+      displayCommand: 'sh'
+    }
+  }
+
   if (process.platform !== 'win32') {
     const configuredShell = process.env.SHELL
     if (configuredShell && isExecutableFile(configuredShell)) {
@@ -803,11 +871,22 @@ function buildShellCommand(): TerminalCommand {
   }
 }
 
-export function buildScriptCommand(script: string): {
+export function buildScriptCommand(
+  script: string,
+  backend: RepositoryBackend = createNativeBackend()
+): {
   file: string
   args: string[]
   displayCommand: string
 } {
+  if (backend.kind === 'wsl') {
+    return {
+      file: '/bin/sh',
+      args: ['-lc', script],
+      displayCommand: 'sh -lc <script>'
+    }
+  }
+
   if (process.platform !== 'win32') {
     const shellPath =
       process.env.SHELL && isExecutableFile(process.env.SHELL) ? process.env.SHELL : '/bin/sh'
@@ -835,13 +914,16 @@ export function buildScriptCommand(script: string): {
   }
 }
 
-function runGit(cwd: string, args: string[]): string {
-  const result = spawnSync('git', ['-C', cwd, ...args], {
-    encoding: 'utf8',
-    windowsHide: true
+function runGit(
+  cwd: string,
+  args: string[],
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  const result = spawnSyncBackendCommand(backend, buildNativeCommand('git', ['-C', cwd, ...args]), {
+    cwd
   })
 
-  if (result.status !== 0) {
+  if (!result.ok) {
     const message = result.stderr.trim() || result.stdout.trim() || `git ${args.join(' ')} failed`
     throw new Error(message)
   }
@@ -849,52 +931,62 @@ function runGit(cwd: string, args: string[]): string {
   return result.stdout.trim()
 }
 
-function tryGit(cwd: string, args: string[]): { ok: boolean; stdout: string; stderr: string } {
-  const result = spawnSync('git', ['-C', cwd, ...args], {
-    encoding: 'utf8',
-    windowsHide: true
+function tryGit(
+  cwd: string,
+  args: string[],
+  backend: RepositoryBackend = createNativeBackend()
+): { ok: boolean; stdout: string; stderr: string } {
+  const result = spawnSyncBackendCommand(backend, buildNativeCommand('git', ['-C', cwd, ...args]), {
+    cwd
   })
 
   return {
-    ok: result.status === 0,
+    ok: result.ok,
     stdout: result.stdout.trim(),
     stderr: result.stderr.trim()
   }
 }
 
-function getCurrentBranchLabel(repoPath: string): string {
-  const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'])
+function getCurrentBranchLabel(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
   if (!branchResult.ok) {
     return 'Unavailable'
   }
 
   if (branchResult.stdout === 'HEAD') {
-    const headResult = tryGit(repoPath, ['rev-parse', '--short', 'HEAD'])
+    const headResult = tryGit(repoPath, ['rev-parse', '--short', 'HEAD'], backend)
     return headResult.ok ? `HEAD (${headResult.stdout})` : 'HEAD'
   }
 
   return branchResult.stdout
 }
 
-function hasUncommittedChanges(repoPath: string): boolean {
-  const result = tryGit(repoPath, ['status', '--porcelain', '--untracked-files=no'])
+function hasUncommittedChanges(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): boolean {
+  const result = tryGit(repoPath, ['status', '--porcelain', '--untracked-files=no'], backend)
   return result.ok && result.stdout.length > 0
 }
 
 function ensureThreadBranch(
   cwd: string,
-  request: TerminalCreateRequest
+  request: TerminalCreateRequest,
+  backend: RepositoryBackend
 ): { ok: true } | { ok: false; error: string } {
   if (!request.threadId || !request.branchName || request.threadMode === 'worktree') {
     return { ok: true }
   }
 
-  const currentBranch = getCurrentBranchLabel(cwd)
+  const currentBranch = getCurrentBranchLabel(cwd, backend)
   if (currentBranch === request.branchName) {
     return { ok: true }
   }
 
-  if (hasUncommittedChanges(cwd)) {
+  if (hasUncommittedChanges(cwd, backend)) {
     return {
       ok: false,
       error: `Thread targets "${request.branchName}" but the repo is still on "${currentBranch}" with uncommitted changes. Make sure the working branch is clean before starting this thread.`
@@ -902,7 +994,7 @@ function ensureThreadBranch(
   }
 
   try {
-    runGit(cwd, ['checkout', request.branchName])
+    runGit(cwd, ['checkout', request.branchName], backend)
   } catch (error) {
     return {
       ok: false,
@@ -985,8 +1077,9 @@ function createSession(
   | { ok: true; terminalId: string; cwd: string; launchedCommand: string }
   | { ok: false; error: string } {
   const kind = request.kind ?? 'agent'
+  const backend = normalizeRepositoryBackend(request.backend)
   const provider = kind === 'agent' ? getAgentProvider(request.agentProviderId) : null
-  const status = provider ? getAgentStatus(provider) : null
+  const status = provider ? getAgentStatus(provider, backend) : null
   if (provider && (!status?.available || !status.commandPath)) {
     const descriptor = getAgentProviderDescriptor(provider.id)
     return { ok: false, error: status?.message ?? `${descriptor.label} CLI unavailable.` }
@@ -994,8 +1087,11 @@ function createSession(
 
   attachOwnerCleanup(event.sender)
 
-  const cwd = normalizeCwd(request.cwd)
-  const branchCheck = ensureThreadBranch(cwd, request)
+  const cwd =
+    backend.kind === 'wsl'
+      ? (request.executionCwd ?? request.cwd ?? '/')
+      : normalizeCwd(request.cwd)
+  const branchCheck = ensureThreadBranch(cwd, request, backend)
   if (!branchCheck.ok) {
     return branchCheck
   }
@@ -1004,24 +1100,30 @@ function createSession(
     provider && status?.commandPath
       ? provider.prepareLaunch(status.commandPath, {
           cwd,
+          backend,
           terminalId,
           threadId: request.threadId,
           launch: request.agentLaunch,
           rawArgs: request.args
         })
       : {
-          command: buildShellCommand(),
+          command: buildShellCommand(backend),
           env: {},
           sessionStartReader: null,
           userPromptReader: null,
           codexSessionReader: null
         }
 
-  const ptyProcess = pty.spawn(launchPreparation.command.file, launchPreparation.command.args, {
+  const ptyCommand =
+    backend.kind === 'wsl'
+      ? buildBackendCommand(backend, launchPreparation.command, cwd)
+      : launchPreparation.command
+
+  const ptyProcess = pty.spawn(ptyCommand.file, ptyCommand.args, {
     name: 'xterm-256color',
     cols: Math.max(request.cols, 40),
     rows: Math.max(request.rows, 12),
-    cwd,
+    cwd: backend.kind === 'wsl' ? undefined : cwd,
     env: {
       ...process.env,
       TERM: 'xterm-256color',
@@ -1036,6 +1138,7 @@ function createSession(
     ownerId: event.sender.id,
     ptyProcess,
     kind,
+    backend,
     agentProviderId: provider?.id,
     threadId: request.threadId,
     launchConfirmationTimer: null,
@@ -1077,7 +1180,45 @@ function createSession(
     ok: true,
     terminalId,
     cwd,
-    launchedCommand: launchPreparation.command.displayCommand
+    launchedCommand: ptyCommand.displayCommand
+  }
+}
+
+function saveClipboardImageForSession(
+  event: IpcMainInvokeEvent,
+  terminalId: string
+): TerminalClipboardImageResult {
+  const session = getOwnedSession(event, terminalId)
+  if (!session) {
+    return { ok: false, error: 'Terminal session not found.' }
+  }
+
+  const image = clipboard.readImage()
+  if (image.isEmpty()) {
+    return { ok: false, error: 'No image is currently available on the Windows clipboard.' }
+  }
+
+  const filename = `clipboard-${Date.now()}-${randomUUID()}.png`
+  const directory =
+    session.backend.kind === 'wsl'
+      ? '/tmp/taskmaster-clipboard-images'
+      : join(app.getPath('temp'), 'taskmaster-clipboard-images')
+  const targetPath =
+    session.backend.kind === 'wsl' ? `${directory}/${filename}` : join(directory, filename)
+  const windowsDirectory =
+    session.backend.kind === 'wsl' ? toUiPath(session.backend, directory) : directory
+  const windowsPath =
+    session.backend.kind === 'wsl' ? toUiPath(session.backend, targetPath) : targetPath
+
+  try {
+    mkdirSync(windowsDirectory, { recursive: true })
+    writeFileSync(windowsPath, image.toPNG())
+    return { ok: true, path: targetPath }
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
@@ -1106,9 +1247,12 @@ export function killSessionsForThread(threadId: string): void {
 export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
   terminalHooks = hooks
 
-  ipcMain.handle('terminal:status', (_event, providerId?: AgentProviderId) => {
-    return getAgentStatus(getAgentProvider(providerId))
-  })
+  ipcMain.handle(
+    'terminal:status',
+    (_event, providerId?: AgentProviderId, backend?: RepositoryBackend) => {
+      return getAgentStatus(getAgentProvider(providerId), normalizeRepositoryBackend(backend))
+    }
+  )
 
   ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => {
     return createSession(event, request)
@@ -1122,6 +1266,10 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
 
     session.ptyProcess.kill()
     return true
+  })
+
+  ipcMain.handle('terminal:save-clipboard-image', (event, terminalId: string) => {
+    return saveClipboardImageForSession(event, terminalId)
   })
 
   ipcMain.on('terminal:input', (event, payload: { terminalId: string; data: string }) => {

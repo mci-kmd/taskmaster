@@ -6,6 +6,7 @@ export interface AgentProviderCapabilities {
   canRetryMissingResumeSession: boolean
   usesCopilotTerminalStyling: boolean
   supportsClipboardImagePasteShortcut: boolean
+  supportsClipboardImagePathPaste: boolean
   usesBackslashEnterForMultiline: boolean
 }
 
@@ -29,6 +30,7 @@ export const AGENT_PROVIDERS: readonly AgentProviderDescriptor[] = [
       canRetryMissingResumeSession: true,
       usesCopilotTerminalStyling: true,
       supportsClipboardImagePasteShortcut: true,
+      supportsClipboardImagePathPaste: false,
       usesBackslashEnterForMultiline: true
     }
   },
@@ -42,6 +44,7 @@ export const AGENT_PROVIDERS: readonly AgentProviderDescriptor[] = [
       canRetryMissingResumeSession: true,
       usesCopilotTerminalStyling: false,
       supportsClipboardImagePasteShortcut: false,
+      supportsClipboardImagePathPaste: true,
       usesBackslashEnterForMultiline: false
     }
   }
