@@ -7,5 +7,10 @@
   },
   "[json]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
-  }
+  },
+  "explorer.fileNesting.patterns": {
+    "*.ts": "${capture}.test.ts",
+  },
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
 }
