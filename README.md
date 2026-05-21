@@ -64,6 +64,25 @@ bun run build:linux
 
 Renderer dev server runs on port `5175`.
 
+## Architecture
+
+- `src/shared/contracts` is the source of truth for IPC channels and shared DTOs.
+- `src/main/ipc/typed-ipc.ts` is the only place that should call `ipcMain.handle`; main features register through that adapter.
+- `src/main/providers` contains provider-specific CLI behavior behind the `LlmProvider` seam.
+- `src/main/backends` contains backend-aware command and git helpers so native vs WSL behavior stays isolated.
+- `src/main/features` is where main-process feature logic now lives; persistence, project-task rules, branch-status parsing, and snapshot building have started moving out of `app-state.ts`.
+- `src/renderer/src/shared/api/client.ts` is the renderer bridge seam; renderer code should not use `window.api` directly.
+- `src/renderer/src/shared/hooks` owns renderer orchestration hooks like app snapshot loading and branch-status polling so `App.tsx` and workspace components stay smaller.
+
+## Testing and guardrails
+
+- `bun run test` runs Vitest coverage for provider specs, git/backend helpers, state-store logic, branch-status parsing, snapshot building, terminal input behavior, and IPC contracts.
+- `src/shared/contracts/architecture-guardrails.test.ts` enforces three core rules:
+  - no raw IPC channel literals outside `src/shared/contracts/ipc.ts`
+  - no direct `ipcMain.handle` outside `src/main/ipc/typed-ipc.ts`
+  - no direct renderer `window.api` usage outside the shared API client
+- Full validation for changes is `bun run lint && bun run test && bun run typecheck && bun run build`.
+
 ## Notes
 
 - Worktree-backed threads prompt before deletion if the worktree is dirty.

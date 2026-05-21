@@ -23,7 +23,6 @@ import {
 } from 'electron'
 import * as pty from 'node-pty'
 import type {
-  AgentLaunchRequest,
   AgentProviderId,
   RepositoryBackend,
   TerminalCreateRequest,
@@ -33,7 +32,8 @@ import type {
   TerminalStatus,
   TerminalUserPromptEvent
 } from '../shared/app-types'
-import { DEFAULT_AGENT_PROVIDER_ID, getAgentProviderDescriptor } from '../shared/agent-providers'
+import { getAgentProviderDescriptor } from '../shared/agent-providers'
+import { IPC_CHANNELS } from '../shared/contracts/ipc'
 import {
   buildBackendCommand,
   buildNativeCommand,
@@ -41,7 +41,17 @@ import {
   normalizeRepositoryBackend,
   spawnSyncBackendCommand,
   toUiPath
-} from './repository-backend'
+} from './backends/repository-backend'
+import { handleIpc } from './ipc/typed-ipc'
+import { runGit, tryGit } from './backends/git-client'
+import { getLlmCliProviderSpec } from './providers/cli-provider-specs'
+import {
+  createCliAgentProviders,
+  type AgentLaunchContext,
+  type AgentProvider,
+  type CodexSessionReaderState,
+  type HookFileReaderState
+} from './providers/cli-agent-providers'
 
 type TerminalSession = {
   id: string
@@ -67,47 +77,6 @@ type TerminalCommand = {
 
 type TerminalHooks = {
   onThreadStart?: (threadId: string) => void
-}
-
-type AgentLaunchContext = {
-  cwd: string
-  backend: RepositoryBackend
-  terminalId: string
-  threadId?: string
-  launch?: AgentLaunchRequest
-  rawArgs?: string[]
-}
-
-type AgentLaunchPreparation = {
-  command: TerminalCommand
-  env: NodeJS.ProcessEnv
-  sessionStartReader: HookFileReaderState | null
-  userPromptReader: HookFileReaderState | null
-  codexSessionReader: CodexSessionReaderState | null
-}
-
-type AgentProvider = {
-  id: AgentProviderId
-  getStatus: (backend?: RepositoryBackend) => TerminalStatus
-  prepareLaunch: (commandPath: string, context: AgentLaunchContext) => AgentLaunchPreparation
-}
-
-type HookFileReaderState = {
-  filePath: string
-  offset: number
-  remainder: string
-}
-
-type CodexSessionReaderState = {
-  cwd: string
-  launchStartedAt: number
-  mode: AgentLaunchRequest['mode']
-  resumeSessionId: string | null
-  sessionId: string | null
-  filePath: string | null
-  offset: number
-  remainder: string
-  emittedSessionStart: boolean
 }
 
 type HookSessionStartPayload = Omit<TerminalSessionStartEvent, 'terminalId'> & {
@@ -146,35 +115,6 @@ const TASKMASTER_SESSION_START_HOOK_COMMAND =
   '$file=$env:TASKMASTER_COPILOT_SESSION_START_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
 const TASKMASTER_USER_PROMPT_HOOK_COMMAND =
   '$file=$env:TASKMASTER_COPILOT_USER_PROMPT_FILE; if (![string]::IsNullOrWhiteSpace($file)) { $payload=[Console]::In.ReadToEnd(); if (-not [string]::IsNullOrWhiteSpace($payload)) { Add-Content -LiteralPath $file -Value $payload } }'
-
-function buildCopilotArgs(launch?: AgentLaunchRequest, rawArgs: string[] = []): string[] {
-  if (!launch) {
-    return rawArgs
-  }
-
-  const launchFlag =
-    launch.mode === 'resume' && launch.resumeSessionId
-      ? `--resume=${launch.resumeSessionId}`
-      : `--name=${launch.sessionName}`
-  return [launchFlag, ...launch.globalFlags]
-}
-
-function buildCodexArgs(
-  cwd: string,
-  launch?: AgentLaunchRequest,
-  rawArgs: string[] = []
-): string[] {
-  if (!launch) {
-    return rawArgs
-  }
-
-  const sharedArgs = ['--cd', cwd, '--no-alt-screen', ...launch.globalFlags]
-  if (launch.mode === 'resume' && launch.resumeSessionId) {
-    return ['resume', ...sharedArgs, launch.resumeSessionId]
-  }
-
-  return sharedArgs
-}
 
 function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
@@ -489,7 +429,7 @@ function emitSessionStart(session: TerminalSession, payload: HookSessionStartPay
     return
   }
 
-  ownerContents.send('terminal:session-start', {
+  ownerContents.send(IPC_CHANNELS.terminal.sessionStart, {
     terminalId: session.id,
     providerId: session.agentProviderId,
     sessionId: payload.sessionId,
@@ -503,7 +443,7 @@ function emitUserPrompt(session: TerminalSession, payload: HookUserPromptPayload
     return
   }
 
-  ownerContents.send('terminal:user-prompt', {
+  ownerContents.send(IPC_CHANNELS.terminal.userPrompt, {
     terminalId: session.id,
     providerId: session.agentProviderId,
     sessionId: payload.sessionId,
@@ -620,7 +560,7 @@ function getAgentStatus(provider: AgentProvider, backend?: RepositoryBackend): T
 }
 
 function getAgentProvider(providerId?: AgentProviderId): AgentProvider {
-  return agentProviders[providerId ?? DEFAULT_AGENT_PROVIDER_ID] ?? agentProviders.copilot
+  return agentProviders[getLlmCliProviderSpec(providerId).id]
 }
 
 function resolveCommandOnWslPath(commandName: string, backend: RepositoryBackend): string | null {
@@ -714,110 +654,40 @@ function buildCommand(
   }
 }
 
-function prepareCopilotLaunch(
-  commandPath: string,
-  context: AgentLaunchContext
-): AgentLaunchPreparation {
-  if (context.backend.kind === 'wsl') {
-    return {
-      command: buildCommand(
-        commandPath,
-        'copilot',
-        buildCopilotArgs(context.launch, context.rawArgs)
-      ),
-      env: {},
-      sessionStartReader: null,
-      userPromptReader: null,
-      codexSessionReader: null
-    }
-  }
-
-  ensureTaskmasterHookConfig(context.cwd)
-
-  const hookEventsDir = getTaskmasterHookEventsDir()
-  const sessionStartReader = context.threadId
-    ? createHookFileReader(join(hookEventsDir, `${context.terminalId}-session-start.jsonl`))
+function createCodexSessionReader(context: AgentLaunchContext): CodexSessionReaderState | null {
+  return context.backend.kind === 'native' && context.threadId && context.launch
+    ? {
+        cwd: context.cwd,
+        launchStartedAt: Date.now(),
+        mode: context.launch.mode,
+        resumeSessionId: context.launch.resumeSessionId,
+        sessionId: null,
+        filePath: null,
+        offset: 0,
+        remainder: '',
+        emittedSessionStart: false
+      }
     : null
-  const userPromptReader = context.threadId
-    ? createHookFileReader(join(hookEventsDir, `${context.terminalId}-user-prompt.jsonl`))
-    : null
+}
 
-  return {
-    command: buildCommand(
-      commandPath,
-      'copilot',
-      buildCopilotArgs(context.launch, context.rawArgs)
+const agentProviders = createCliAgentProviders({
+  createStatus: (providerId, backend, spec) =>
+    createAgentStatus(
+      providerId,
+      resolveProviderCommand(spec.cliName, backend),
+      backend,
+      spec.statusMessages
     ),
-    env: {
-      ...(sessionStartReader
-        ? {
-            [TASKMASTER_SESSION_START_FILE_ENV]: sessionStartReader.filePath
-          }
-        : {}),
-      ...(userPromptReader
-        ? {
-            [TASKMASTER_USER_PROMPT_FILE_ENV]: userPromptReader.filePath
-          }
-        : {})
-    },
-    sessionStartReader,
-    userPromptReader,
-    codexSessionReader: null
+  buildCommand,
+  ensureTaskmasterHookConfig,
+  getTaskmasterHookEventsDir,
+  createHookFileReader,
+  createCodexSessionReader,
+  hookFiles: {
+    sessionStartEnvName: TASKMASTER_SESSION_START_FILE_ENV,
+    userPromptEnvName: TASKMASTER_USER_PROMPT_FILE_ENV
   }
-}
-
-function prepareCodexLaunch(
-  commandPath: string,
-  context: AgentLaunchContext
-): AgentLaunchPreparation {
-  return {
-    command: buildCommand(
-      commandPath,
-      'codex',
-      buildCodexArgs(context.cwd, context.launch, context.rawArgs)
-    ),
-    env: {},
-    sessionStartReader: null,
-    userPromptReader: null,
-    codexSessionReader:
-      context.backend.kind === 'native' && context.threadId && context.launch
-        ? {
-            cwd: context.cwd,
-            launchStartedAt: Date.now(),
-            mode: context.launch.mode,
-            resumeSessionId: context.launch.resumeSessionId,
-            sessionId: null,
-            filePath: null,
-            offset: 0,
-            remainder: '',
-            emittedSessionStart: false
-          }
-        : null
-  }
-}
-
-const agentProviders: Record<AgentProviderId, AgentProvider> = {
-  copilot: {
-    id: 'copilot',
-    getStatus: (backend = createNativeBackend()) =>
-      createAgentStatus('copilot', resolveProviderCommand('copilot', backend), backend, {
-        unavailable: 'Copilot CLI was not found on PATH. Install it and run `copilot login` first.',
-        available:
-          'Copilot CLI found. If interactive startup fails, run `copilot login` in a shell first.'
-      }),
-    prepareLaunch: prepareCopilotLaunch
-  },
-  codex: {
-    id: 'codex',
-    getStatus: (backend = createNativeBackend()) =>
-      createAgentStatus('codex', resolveProviderCommand('codex', backend), backend, {
-        unavailable: 'Codex CLI was not found on PATH. Install it and run `codex login` first.',
-        available:
-          'Codex CLI found. If interactive startup fails, run `codex login` in a shell first.'
-      }),
-    prepareLaunch: prepareCodexLaunch
-  }
-}
+})
 
 function buildShellCommand(backend: RepositoryBackend = createNativeBackend()): TerminalCommand {
   if (backend.kind === 'wsl') {
@@ -911,39 +781,6 @@ export function buildScriptCommand(
     file: shellCommand.file,
     args: ['/d', '/s', '/c', script],
     displayCommand: `${shellCommand.displayCommand} /d /s /c <script>`
-  }
-}
-
-function runGit(
-  cwd: string,
-  args: string[],
-  backend: RepositoryBackend = createNativeBackend()
-): string {
-  const result = spawnSyncBackendCommand(backend, buildNativeCommand('git', ['-C', cwd, ...args]), {
-    cwd
-  })
-
-  if (!result.ok) {
-    const message = result.stderr.trim() || result.stdout.trim() || `git ${args.join(' ')} failed`
-    throw new Error(message)
-  }
-
-  return result.stdout.trim()
-}
-
-function tryGit(
-  cwd: string,
-  args: string[],
-  backend: RepositoryBackend = createNativeBackend()
-): { ok: boolean; stdout: string; stderr: string } {
-  const result = spawnSyncBackendCommand(backend, buildNativeCommand('git', ['-C', cwd, ...args]), {
-    cwd
-  })
-
-  return {
-    ok: result.ok,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr.trim()
   }
 }
 
@@ -1052,7 +889,7 @@ function finalizeSession(session: TerminalSession, exitCode: number): void {
     return
   }
 
-  ownerContents.send('terminal:exit', {
+  ownerContents.send(IPC_CHANNELS.terminal.exit, {
     terminalId: session.id,
     exitCode
   })
@@ -1166,7 +1003,7 @@ function createSession(
       return
     }
 
-    event.sender.send('terminal:data', {
+    event.sender.send(IPC_CHANNELS.terminal.data, {
       terminalId,
       data
     })
@@ -1247,18 +1084,18 @@ export function killSessionsForThread(threadId: string): void {
 export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
   terminalHooks = hooks
 
-  ipcMain.handle(
-    'terminal:status',
+  handleIpc(
+    IPC_CHANNELS.terminal.status,
     (_event, providerId?: AgentProviderId, backend?: RepositoryBackend) => {
       return getAgentStatus(getAgentProvider(providerId), normalizeRepositoryBackend(backend))
     }
   )
 
-  ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => {
+  handleIpc(IPC_CHANNELS.terminal.create, (event, request: TerminalCreateRequest) => {
     return createSession(event, request)
   })
 
-  ipcMain.handle('terminal:kill', (event, terminalId: string) => {
+  handleIpc(IPC_CHANNELS.terminal.kill, (event, terminalId: string) => {
     const session = getOwnedSession(event, terminalId)
     if (!session) {
       return false
@@ -1268,21 +1105,24 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
     return true
   })
 
-  ipcMain.handle('terminal:save-clipboard-image', (event, terminalId: string) => {
+  handleIpc(IPC_CHANNELS.terminal.saveClipboardImage, (event, terminalId: string) => {
     return saveClipboardImageForSession(event, terminalId)
   })
 
-  ipcMain.on('terminal:input', (event, payload: { terminalId: string; data: string }) => {
-    const session = getOwnedSession(event, payload.terminalId)
-    if (!session) {
-      return
-    }
+  ipcMain.on(
+    IPC_CHANNELS.terminal.input,
+    (event, payload: { terminalId: string; data: string }) => {
+      const session = getOwnedSession(event, payload.terminalId)
+      if (!session) {
+        return
+      }
 
-    session.ptyProcess.write(payload.data)
-  })
+      session.ptyProcess.write(payload.data)
+    }
+  )
 
   ipcMain.on(
-    'terminal:resize',
+    IPC_CHANNELS.terminal.resize,
     (event, payload: { terminalId: string; cols: number; rows: number }) => {
       const session = getOwnedSession(event, payload.terminalId)
       if (!session) {

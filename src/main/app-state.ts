@@ -1,23 +1,13 @@
 import { randomUUID } from 'crypto'
 import { pathToFileURL } from 'url'
 import type { DiffResultTextFile } from 'simple-git'
-import {
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync
-} from 'fs'
-import { dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'path'
+import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
+import { extname, isAbsolute, join, normalize, relative, resolve } from 'path'
 import { spawn, spawnSync, type ChildProcess } from 'child_process'
 import {
   app,
   BrowserWindow,
   dialog,
-  ipcMain,
   shell,
   type OpenDialogOptions,
   type WebContents
@@ -26,7 +16,6 @@ import {
   type BranchStatusRequest,
   type BranchStatusSnapshot,
   type CompleteRepositoryTaskInput,
-  type ProjectTaskTag,
   type RepositoryBackend,
   type OpenThreadWorkingDirectoryResult,
   type OpenThreadWorkspaceInVscodeResult,
@@ -39,10 +28,8 @@ import {
   type CreateThreadInput,
   type MutationResult,
   type PersistedAppState,
-  type PersistedProjectTask,
   type PersistedRepository,
   type PersistedThread,
-  type RepositorySnapshot,
   type ThreadDiffFileStatus,
   type ThreadDiffFileSummary,
   type ThreadDiffPatchRequest,
@@ -52,7 +39,6 @@ import {
   type ThreadDiffRangeOptionsResult,
   type ThreadDiffSummaryResult,
   THREAD_DIFF_WORKTREE_REF,
-  type ThreadSnapshot,
   type UpdateRepositoryInput,
   type UpdateRepositoryTaskInput,
   type UpdateThreadInput,
@@ -62,11 +48,9 @@ import {
   type UpdateSettingsInput,
   type UpdateUiInput
 } from '../shared/app-types'
+import { IPC_CHANNELS } from '../shared/contracts/ipc'
 import {
   DEFAULT_PROJECT_TASK_TAGS,
-  mergeTaskTags,
-  normalizeTaskTags,
-  normalizeTaskTagsAgainstAllowed,
   normalizeTaskTagsInput,
   parseTaskTagsInput
 } from '../shared/task-tags'
@@ -79,6 +63,7 @@ import {
   quoteCmdArgument,
   resolveCommandOnPath
 } from './terminal'
+import { runGit, tryGit, tryGitAsync } from './backends/git-client'
 import {
   backendPathExists,
   buildNativeCommand,
@@ -98,7 +83,17 @@ import {
   spawnBackendCommand,
   spawnSyncBackendCommand,
   toUiPath
-} from './repository-backend'
+} from './backends/repository-backend'
+import { parseBranchStatus } from './features/branch-status/parse-branch-status'
+import { normalizePersistedTask } from './features/project-tasks/project-task-values'
+import { createProjectTaskService } from './features/project-tasks/project-task-service'
+import {
+  createSnapshotService,
+  type BuildSnapshotOptions
+} from './features/snapshots/snapshot-service'
+import { createPersistedStateStore } from './features/state-store/persisted-state-store'
+import { createSettingsService } from './features/settings/settings-service'
+import { handleIpc } from './ipc/typed-ipc'
 
 const STORE_FILENAME = 'taskmaster-state.json'
 const STATE_VERSION = 12 as const
@@ -106,6 +101,7 @@ const WORKTREES_DIR_SUFFIX = '.worktrees'
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 const EMPTY_TREE_HASH = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 const RUN_OUTPUT_LIMIT = 24_000
+// eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE_PATTERN = /\u001b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g
 const BRANCH_NAME_TOKEN = '{BRANCH-NAME}'
 const BRANCH_NAME_SAFE_TOKEN = '{BRANCH-NAME-SAFE}'
@@ -126,7 +122,6 @@ const REPOSITORY_FAVICON_EXTENSIONS = new Set([
   '.webp'
 ])
 
-let persistedState: PersistedAppState | null = null
 const repositoryGitStateCache = new Map<string, RepositoryGitState>()
 const branchStatusCache = new Map<
   string,
@@ -192,7 +187,12 @@ type LegacyThreadV2 = Omit<
 >
 type LegacyRepositoryV3 = Omit<
   PersistedRepository,
-  'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand' | 'faviconPath' | 'runCommand' | 'tasks'
+  | 'backend'
+  | 'newWorktreeSetupCommand'
+  | 'postWorktreeRemoveCommand'
+  | 'faviconPath'
+  | 'runCommand'
+  | 'tasks'
 >
 type LegacyAppStateV3 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 3
@@ -265,10 +265,6 @@ type ThreadGitContext =
       error: string
     }
 
-type BuildSnapshotOptions = {
-  refreshGit?: boolean
-}
-
 function normalizePersistedThread(thread: PersistedThread): PersistedThread {
   const latestCopilotTitle = normalizeCopilotTitle(thread, thread.latestCopilotTitle)
   const lastUserMessage = normalizeTrackedText(thread.lastUserMessage ?? null)
@@ -285,39 +281,6 @@ function normalizePersistedThread(thread: PersistedThread): PersistedThread {
 function normalizeTrackedText(value: string | null): string | null {
   const normalized = value?.trim() ?? ''
   return normalized.length > 0 ? normalized : null
-}
-
-function normalizeTaskTitle(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? ''
-  return normalized.length > 0 ? normalized : null
-}
-
-function normalizeTaskDescription(value: string | null | undefined): string | null {
-  const normalized = value?.trim() ?? ''
-  return normalized.length > 0 ? normalized : null
-}
-
-function sameTaskTags(left: readonly ProjectTaskTag[], right: readonly ProjectTaskTag[]): boolean {
-  return left.length === right.length && left.every((tag, index) => tag === right[index])
-}
-
-function normalizePersistedTask(task: PersistedProjectTask): PersistedProjectTask {
-  const title = normalizeTaskTitle(task.title) ?? 'Untitled task'
-  const description = normalizeTaskDescription(task.description) ?? ''
-  const currentTags = Array.isArray(task.tags) ? task.tags : []
-  const tags = normalizeTaskTags(currentTags)
-
-  return title === task.title &&
-    description === task.description &&
-    Array.isArray(task.tags) &&
-    sameTaskTags(tags, currentTags)
-    ? task
-    : {
-        ...task,
-        title,
-        description,
-        tags
-      }
 }
 
 function normalizeRunCommand(value: string | null | undefined): string | null {
@@ -673,72 +636,33 @@ function createDefaultState(): PersistedAppState {
   }
 }
 
+const persistedStateStore = createPersistedStateStore({
+  getStorePath,
+  createDefaultState,
+  migrateState: (parsed) =>
+    migrateState(
+      parsed as
+        | PersistedAppState
+        | LegacyAppStateV11
+        | LegacyAppStateV10
+        | LegacyAppStateV9
+        | LegacyAppStateV8
+        | LegacyAppStateV7
+        | LegacyAppStateV6
+        | LegacyAppStateV5
+        | LegacyAppStateV4
+        | LegacyAppStateV3
+        | LegacyAppStateV2
+        | LegacyAppStateV1
+    )
+})
+
 function ensureState(): PersistedAppState {
-  if (persistedState) {
-    return persistedState
-  }
-
-  const storePath = getStorePath()
-  if (!existsSync(storePath)) {
-    persistedState = createDefaultState()
-    return persistedState
-  }
-
-  const parsed = JSON.parse(readFileSync(storePath, 'utf8')) as
-    | PersistedAppState
-    | LegacyAppStateV11
-    | LegacyAppStateV10
-    | LegacyAppStateV9
-    | LegacyAppStateV8
-    | LegacyAppStateV7
-    | LegacyAppStateV6
-    | LegacyAppStateV5
-    | LegacyAppStateV4
-    | LegacyAppStateV3
-    | LegacyAppStateV2
-    | LegacyAppStateV1
-  const migrated = migrateState(parsed)
-  persistedState = migrated
-  normalizeSelection(migrated)
-  return migrated
+  return persistedStateStore.ensureState()
 }
 
 function saveState(): void {
-  const state = ensureState()
-  normalizeSelection(state)
-
-  const storePath = getStorePath()
-  mkdirSync(dirname(storePath), { recursive: true })
-
-  const tempPath = `${storePath}.tmp`
-  writeFileSync(tempPath, JSON.stringify(state, null, 2))
-
-  if (existsSync(storePath)) {
-    unlinkSync(storePath)
-  }
-
-  renameSync(tempPath, storePath)
-}
-
-function normalizeSelection(state: PersistedAppState): void {
-  const repositoryIds = new Set(state.repositories.map((repository) => repository.id))
-  const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const))
-
-  if (state.ui.selectedRepositoryId && !repositoryIds.has(state.ui.selectedRepositoryId)) {
-    state.ui.selectedRepositoryId = null
-  }
-
-  if (state.ui.selectedThreadId && !threadsById.has(state.ui.selectedThreadId)) {
-    state.ui.selectedThreadId = null
-  }
-
-  if (state.ui.selectedThreadId) {
-    state.ui.selectedRepositoryId = threadsById.get(state.ui.selectedThreadId)?.repositoryId ?? null
-  }
-
-  if (!state.ui.selectedRepositoryId && state.repositories.length > 0) {
-    state.ui.selectedRepositoryId = state.repositories[0].id
-  }
+  persistedStateStore.saveState()
 }
 
 function nowIso(): string {
@@ -921,92 +845,6 @@ function validateRepositoryPostWorktreeRemoveCommandInput(input: string | null):
     ok: true,
     command: normalizeRepositoryScript(input)
   }
-}
-
-function runGit(
-  cwd: string,
-  args: string[],
-  backend: RepositoryBackend = createNativeBackend()
-): string {
-  const result = spawnSyncBackendCommand(
-    backend,
-    buildNativeCommand('git', ['-C', cwd, ...args], `git ${args.join(' ')}`),
-    { cwd }
-  )
-
-  if (!result.ok) {
-    const message = result.stderr.trim() || result.stdout.trim() || `git ${args.join(' ')} failed`
-    throw new Error(message)
-  }
-
-  return result.stdout.trim()
-}
-
-function tryGit(
-  cwd: string,
-  args: string[],
-  backend: RepositoryBackend = createNativeBackend()
-): { ok: boolean; stdout: string; stderr: string } {
-  const result = spawnSyncBackendCommand(
-    backend,
-    buildNativeCommand('git', ['-C', cwd, ...args], `git ${args.join(' ')}`),
-    { cwd }
-  )
-
-  return {
-    ok: result.ok,
-    stdout: result.stdout.trim(),
-    stderr: result.stderr.trim()
-  }
-}
-
-function tryGitAsync(
-  cwd: string,
-  args: string[],
-  backend: RepositoryBackend = createNativeBackend()
-): Promise<{ ok: boolean; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const child = spawnBackendCommand(backend, buildNativeCommand('git', ['-C', cwd, ...args]), {
-      cwd,
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-    let stdout = ''
-    let stderr = ''
-    let settled = false
-    const finish = (result: { ok: boolean; stdout: string; stderr: string }): void => {
-      if (settled) {
-        return
-      }
-      settled = true
-      resolve(result)
-    }
-
-    child.stdout?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-
-    child.stderr?.setEncoding('utf8')
-    child.stderr?.on('data', (chunk: string) => {
-      stderr += chunk
-    })
-
-    child.on('error', (error) => {
-      finish({
-        ok: false,
-        stdout,
-        stderr: error.message
-      })
-    })
-
-    child.on('close', (code) => {
-      finish({
-        ok: code === 0,
-        stdout,
-        stderr: stderr.trim()
-      })
-    })
-  })
 }
 
 function resolveGitRoot(
@@ -1413,9 +1251,12 @@ function formatThreadRunFailureDetail(
 }
 
 function sanitizeUserFacingMessage(value: string): string {
-  return value
-    .replace(ANSI_ESCAPE_PATTERN, '')
-    .replace(/[\u0000-\u0008\u000b-\u001a\u001c-\u001f\u007f]/g, '')
+  return (
+    value
+      .replace(ANSI_ESCAPE_PATTERN, '')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000b-\u001a\u001c-\u001f\u007f]/g, '')
+  )
 }
 
 async function showThreadRunFailureDialog(
@@ -1451,7 +1292,7 @@ function broadcastThreadRunState(threadId: string): void {
     if (window.isDestroyed()) {
       continue
     }
-    window.webContents.send('app-state:thread-run-state', { threadId })
+    window.webContents.send(IPC_CHANNELS.appState.threadRunState, { threadId })
   }
 }
 
@@ -1791,66 +1632,6 @@ function getRepositoryGitState(
   const next = readRepositoryGitState(repository)
   repositoryGitStateCache.set(repository.id, next)
   return next
-}
-
-function parseBranchStatus(stdout: string): BranchStatusSnapshot {
-  const status: BranchStatusSnapshot = {
-    ahead: 0,
-    behind: 0,
-    staged: 0,
-    modified: 0,
-    deleted: 0,
-    untracked: 0,
-    conflicted: 0
-  }
-
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line) {
-      continue
-    }
-
-    if (line.startsWith('# branch.ab ')) {
-      const match = /^# branch\.ab \+(\d+) -(\d+)$/.exec(line)
-      if (match) {
-        status.ahead = Number(match[1])
-        status.behind = Number(match[2])
-      }
-      continue
-    }
-
-    if (line.startsWith('? ')) {
-      status.untracked += 1
-      continue
-    }
-
-    if (line.startsWith('u ')) {
-      status.conflicted += 1
-      continue
-    }
-
-    if (!line.startsWith('1 ') && !line.startsWith('2 ')) {
-      continue
-    }
-
-    const xy = line.split(' ', 3)[1] ?? '..'
-    const indexStatus = xy[0] ?? '.'
-    const worktreeStatus = xy[1] ?? '.'
-
-    if (indexStatus !== '.') {
-      status.staged += 1
-    }
-
-    if (worktreeStatus === 'D') {
-      status.deleted += 1
-      continue
-    }
-
-    if (worktreeStatus !== '.') {
-      status.modified += 1
-    }
-  }
-
-  return status
 }
 
 function hasHeadCommit(cwd: string, backend: RepositoryBackend = createNativeBackend()): boolean {
@@ -2647,55 +2428,56 @@ async function getBranchStatus(input: BranchStatusRequest): Promise<BranchStatus
   return request
 }
 
-function buildThreadSnapshot(
-  repository: PersistedRepository,
-  thread: PersistedThread,
-  runningThreadIds: Set<string>,
-  runningRunThreadIds: Set<string>
-): ThreadSnapshot {
-  return {
-    ...thread,
-    cwd: getThreadUiCwd(thread, repository),
-    executionCwd: getThreadExecutionCwd(thread, repository),
-    backend: repository.backend,
-    displayBranchName: thread.branchName,
-    displayTitle: thread.customTitle ?? thread.branchName,
-    isRunning: runningThreadIds.has(thread.id),
-    isRunCommandRunning: runningRunThreadIds.has(thread.id)
-  }
+const snapshotService = createSnapshotService({
+  ensureState,
+  getRunningThreadIds,
+  getRunningRunThreadIds: () => new Set(threadRunSessions.keys()),
+  getRepositoryGitState,
+  getThreadUiCwd,
+  getThreadExecutionCwd,
+  buildRepositoryFaviconUrl,
+  parseGlobalFlags,
+  parseTaskTagsInput,
+  resolveTerminalFontFamily,
+  sidebarWidth: {
+    default: SIDEBAR_WIDTH_DEFAULT,
+    min: SIDEBAR_WIDTH_MIN,
+    max: SIDEBAR_WIDTH_MAX
+  },
+  sanitizeUserFacingMessage
+})
+const projectTaskService = createProjectTaskService({
+  ensureState,
+  findRepository,
+  saveState,
+  successResult,
+  failureResult,
+  nowIso,
+  createId: randomUUID
+})
+const settingsService = createSettingsService({
+  ensureState,
+  saveState,
+  successResult,
+  normalizeAgentProviderId,
+  normalizeTerminalFontFamilyInput,
+  clampSidebarWidth
+})
+
+function buildSnapshot(options: BuildSnapshotOptions = {}): AppSnapshot {
+  return snapshotService.buildSnapshot(options)
 }
 
-function buildRepositorySnapshot(
-  repository: PersistedRepository,
-  threads: PersistedThread[],
-  runningThreadIds: Set<string>,
-  runningRunThreadIds: Set<string>,
-  refreshGit: boolean
-): RepositorySnapshot {
-  const repositoryGitState = getRepositoryGitState(repository, refreshGit)
-  const snapshotThreads = threads
-    .filter((thread) => thread.repositoryId === repository.id)
-    .map((thread) => buildThreadSnapshot(repository, thread, runningThreadIds, runningRunThreadIds))
-    .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
-
-  return {
-    ...repository,
-    currentBranch: repositoryGitState.currentBranch,
-    faviconUrl: buildRepositoryFaviconUrl(repository.path, repository.faviconPath),
-    primaryBranch: repositoryGitState.primaryBranch,
-    lastActivityAt: snapshotThreads[0]?.lastActivityAt ?? repository.addedAt,
-    threads: snapshotThreads
-  }
+function buildSelectionSnapshot(): AppSnapshot {
+  return snapshotService.buildSelectionSnapshot()
 }
 
-function compareRepositoriesAlphabetically(
-  left: Pick<RepositorySnapshot, 'name' | 'path'>,
-  right: Pick<RepositorySnapshot, 'name' | 'path'>
-): number {
-  const byName = left.name.localeCompare(right.name, undefined, { sensitivity: 'base' })
-  return byName !== 0
-    ? byName
-    : left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
+function successResult(): MutationResult {
+  return snapshotService.successResult()
+}
+
+function failureResult(error: string, cancelled = false): MutationResult {
+  return snapshotService.failureResult(error, cancelled)
 }
 
 function clampSidebarWidth(value: number): number {
@@ -2705,70 +2487,16 @@ function clampSidebarWidth(value: number): number {
   return Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_MIN, Math.round(value)))
 }
 
-function buildSnapshot(options: BuildSnapshotOptions = {}): AppSnapshot {
-  const state = ensureState()
-  const runningThreadIds = getRunningThreadIds()
-  const runningRunThreadIds = new Set(threadRunSessions.keys())
-  const refreshGit = options.refreshGit ?? true
-
-  const repositories = state.repositories
-    .map((repository) =>
-      buildRepositorySnapshot(
-        repository,
-        state.threads,
-        runningThreadIds,
-        runningRunThreadIds,
-        refreshGit
-      )
-    )
-    .sort(compareRepositoriesAlphabetically)
-
-  return {
-    repositories,
-    settings: {
-      ...state.settings,
-      parsedGlobalFlags: parseGlobalFlags(state.settings.globalFlagsInput),
-      parsedTaskTags: parseTaskTagsInput(state.settings.taskTagsInput),
-      resolvedTerminalFontFamily: resolveTerminalFontFamily(state.settings)
-    },
-    selectedRepositoryId: state.ui.selectedRepositoryId,
-    selectedThreadId: state.ui.selectedThreadId,
-    sidebarWidth: clampSidebarWidth(state.ui.sidebarWidth ?? SIDEBAR_WIDTH_DEFAULT)
-  }
-}
-
-function buildSelectionSnapshot(): AppSnapshot {
-  return buildSnapshot({ refreshGit: false })
-}
-
-function successResult(): MutationResult {
-  return {
-    ok: true,
-    snapshot: buildSnapshot()
-  }
-}
-
-function failureResult(error: string, cancelled = false): MutationResult {
-  return {
-    ok: false,
-    cancelled,
-    error: sanitizeUserFacingMessage(error),
-    snapshot: buildSnapshot()
-  }
-}
-
 function updateSelection(repositoryId: string | null, threadId: string | null): void {
-  const state = ensureState()
-  state.ui.selectedRepositoryId = repositoryId
-  state.ui.selectedThreadId = threadId
+  persistedStateStore.updateSelection(repositoryId, threadId)
 }
 
 function findThread(threadId: string): PersistedThread | undefined {
-  return ensureState().threads.find((thread) => thread.id === threadId)
+  return persistedStateStore.findThread(threadId)
 }
 
 function findRepository(repositoryId: string): PersistedRepository | undefined {
-  return ensureState().repositories.find((repository) => repository.id === repositoryId)
+  return persistedStateStore.findRepository(repositoryId)
 }
 
 type BaseRefResolution = { ok: true; ref: string } | { ok: false; error: string }
@@ -2814,117 +2542,16 @@ function buildThreadSessionName(repository: Pick<PersistedRepository, 'name'>): 
   return `${sanitizeSessionNamePrefix(repository.name)}-${randomUUID()}`
 }
 
-function validateRepositoryTaskValues(input: {
-  title: string
-  description: string
-  tags: ProjectTaskTag[]
-  allowedTags: readonly ProjectTaskTag[]
-}):
-  | {
-      ok: true
-      title: string
-      description: string
-      tags: ProjectTaskTag[]
-    }
-  | {
-      ok: false
-      error: string
-    } {
-  const title = normalizeTaskTitle(input.title)
-  if (!title) {
-    return { ok: false, error: 'Task title is required.' }
-  }
-
-  const description = normalizeTaskDescription(input.description)
-  if (!description) {
-    return { ok: false, error: 'Task description is required.' }
-  }
-
-  return {
-    ok: true,
-    title,
-    description,
-    tags: normalizeTaskTagsAgainstAllowed(input.tags, input.allowedTags)
-  }
-}
-
 function createRepositoryTask(input: CreateRepositoryTaskInput): MutationResult {
-  const repository = findRepository(input.repositoryId)
-  if (!repository) {
-    return failureResult('Repository not found.')
-  }
-
-  const validation = validateRepositoryTaskValues({
-    ...input,
-    allowedTags: parseTaskTagsInput(ensureState().settings.taskTagsInput)
-  })
-  if (!validation.ok) {
-    return failureResult(validation.error)
-  }
-
-  const task: PersistedProjectTask = {
-    id: randomUUID(),
-    title: validation.title,
-    description: validation.description,
-    tags: validation.tags,
-    createdAt: nowIso()
-  }
-
-  repository.tasks = [task, ...(repository.tasks ?? [])]
-  saveState()
-  return successResult()
+  return projectTaskService.createRepositoryTask(input)
 }
 
 function updateRepositoryTask(input: UpdateRepositoryTaskInput): MutationResult {
-  const repository = findRepository(input.repositoryId)
-  if (!repository) {
-    return failureResult('Repository not found.')
-  }
-
-  const task = (repository.tasks ?? []).find((item) => item.id === input.taskId)
-  if (!task) {
-    return failureResult('Task not found.')
-  }
-
-  const validation = validateRepositoryTaskValues({
-    ...input,
-    allowedTags: mergeTaskTags(parseTaskTagsInput(ensureState().settings.taskTagsInput), task.tags)
-  })
-  if (!validation.ok) {
-    return failureResult(validation.error)
-  }
-
-  const currentTags = normalizeTaskTags(task.tags)
-  if (
-    task.title === validation.title &&
-    task.description === validation.description &&
-    sameTaskTags(currentTags, validation.tags)
-  ) {
-    return successResult()
-  }
-
-  task.title = validation.title
-  task.description = validation.description
-  task.tags = validation.tags
-  saveState()
-  return successResult()
+  return projectTaskService.updateRepositoryTask(input)
 }
 
 function completeRepositoryTask(input: CompleteRepositoryTaskInput): MutationResult {
-  const repository = findRepository(input.repositoryId)
-  if (!repository) {
-    return failureResult('Repository not found.')
-  }
-
-  const currentTasks = repository.tasks ?? []
-  const nextTasks = currentTasks.filter((task) => task.id !== input.taskId)
-  if (nextTasks.length === currentTasks.length) {
-    return failureResult('Task not found.')
-  }
-
-  repository.tasks = nextTasks
-  saveState()
-  return successResult()
+  return projectTaskService.completeRepositoryTask(input)
 }
 
 function createThread(input: CreateThreadInput): MutationResult {
@@ -3230,15 +2857,7 @@ async function closeThread(threadId: string): Promise<MutationResult> {
 }
 
 function updateSettings(input: UpdateSettingsInput): MutationResult {
-  const state = ensureState()
-  state.settings.agentProviderId = normalizeAgentProviderId(input.agentProviderId)
-  state.settings.globalFlagsInput = input.globalFlagsInput.trim()
-  state.settings.terminalFontFamilyInput = normalizeTerminalFontFamilyInput(
-    input.terminalFontFamilyInput
-  )
-  state.settings.taskTagsInput = normalizeTaskTagsInput(input.taskTagsInput)
-  saveState()
-  return successResult()
+  return settingsService.updateSettings(input)
 }
 
 function updateRepository(input: UpdateRepositoryInput): MutationResult {
@@ -3338,12 +2957,7 @@ async function pickRepositoryFavicon(
 }
 
 function updateUi(input: UpdateUiInput): MutationResult {
-  const state = ensureState()
-  if (typeof input.sidebarWidth === 'number') {
-    state.ui.sidebarWidth = clampSidebarWidth(input.sidebarWidth)
-  }
-  saveState()
-  return successResult()
+  return settingsService.updateUi(input)
 }
 
 function updateThreadCopilotTitle(input: UpdateThreadCopilotTitleInput): boolean {
@@ -3455,74 +3069,78 @@ export function registerAppStateIpc(): void {
     threadRunSessions.clear()
   })
 
-  ipcMain.handle('app-state:get-snapshot', () => buildSnapshot())
-  ipcMain.handle('app-state:refresh', () => buildSnapshot())
-  ipcMain.handle('app-state:add-repository', () => addRepository())
-  ipcMain.handle('app-state:create-repository-task', (_event, input: CreateRepositoryTaskInput) =>
-    createRepositoryTask(input)
+  handleIpc(IPC_CHANNELS.appState.getSnapshot, () => buildSnapshot())
+  handleIpc(IPC_CHANNELS.appState.refresh, () => buildSnapshot())
+  handleIpc(IPC_CHANNELS.appState.addRepository, () => addRepository())
+  handleIpc(
+    IPC_CHANNELS.appState.createRepositoryTask,
+    (_event, input: CreateRepositoryTaskInput) => createRepositoryTask(input)
   )
-  ipcMain.handle(
-    'app-state:complete-repository-task',
+  handleIpc(
+    IPC_CHANNELS.appState.completeRepositoryTask,
     (_event, input: CompleteRepositoryTaskInput) => completeRepositoryTask(input)
   )
-  ipcMain.handle('app-state:update-repository-task', (_event, input: UpdateRepositoryTaskInput) =>
-    updateRepositoryTask(input)
+  handleIpc(
+    IPC_CHANNELS.appState.updateRepositoryTask,
+    (_event, input: UpdateRepositoryTaskInput) => updateRepositoryTask(input)
   )
-  ipcMain.handle('app-state:create-thread', (_event, input: CreateThreadInput) =>
+  handleIpc(IPC_CHANNELS.appState.createThread, (_event, input: CreateThreadInput) =>
     createThread(input)
   )
-  ipcMain.handle('app-state:close-thread', (_event, threadId: string) => closeThread(threadId))
-  ipcMain.handle('app-state:update-repository', (_event, input: UpdateRepositoryInput) =>
+  handleIpc(IPC_CHANNELS.appState.closeThread, (_event, threadId: string) => closeThread(threadId))
+  handleIpc(IPC_CHANNELS.appState.updateRepository, (_event, input: UpdateRepositoryInput) =>
     updateRepository(input)
   )
-  ipcMain.handle('app-state:start-thread-run', (_event, threadId: string) =>
+  handleIpc(IPC_CHANNELS.appState.startThreadRun, (_event, threadId: string) =>
     startThreadRun(threadId)
   )
-  ipcMain.handle('app-state:stop-thread-run', (_event, threadId: string) => stopThreadRun(threadId))
-  ipcMain.handle('app-state:update-thread', (_event, input: UpdateThreadInput) =>
+  handleIpc(IPC_CHANNELS.appState.stopThreadRun, (_event, threadId: string) =>
+    stopThreadRun(threadId)
+  )
+  handleIpc(IPC_CHANNELS.appState.updateThread, (_event, input: UpdateThreadInput) =>
     updateThread(input)
   )
-  ipcMain.handle('app-state:pick-repository-favicon', (event, repositoryId: string) =>
+  handleIpc(IPC_CHANNELS.appState.pickRepositoryFavicon, (event, repositoryId: string) =>
     pickRepositoryFavicon(event.sender, repositoryId)
   )
-  ipcMain.handle('app-state:update-settings', (_event, input: UpdateSettingsInput) =>
+  handleIpc(IPC_CHANNELS.appState.updateSettings, (_event, input: UpdateSettingsInput) =>
     updateSettings(input)
   )
-  ipcMain.handle('app-state:update-ui', (_event, input: UpdateUiInput) => updateUi(input))
-  ipcMain.handle(
-    'app-state:update-thread-copilot-title',
+  handleIpc(IPC_CHANNELS.appState.updateUi, (_event, input: UpdateUiInput) => updateUi(input))
+  handleIpc(
+    IPC_CHANNELS.appState.updateThreadCopilotTitle,
     (_event, input: UpdateThreadCopilotTitleInput) => updateThreadCopilotTitle(input)
   )
-  ipcMain.handle(
-    'app-state:update-thread-resume-session',
+  handleIpc(
+    IPC_CHANNELS.appState.updateThreadResumeSession,
     (_event, input: UpdateThreadResumeSessionInput) => updateThreadResumeSession(input)
   )
-  ipcMain.handle(
-    'app-state:update-thread-last-user-message',
+  handleIpc(
+    IPC_CHANNELS.appState.updateThreadLastUserMessage,
     (_event, input: UpdateThreadLastUserMessageInput) => updateThreadLastUserMessage(input)
   )
-  ipcMain.handle('app-state:get-branch-status', (_event, input: BranchStatusRequest) =>
+  handleIpc(IPC_CHANNELS.appState.getBranchStatus, (_event, input: BranchStatusRequest) =>
     getBranchStatus(input)
   )
-  ipcMain.handle('app-state:get-thread-diff-summary', (_event, input: ThreadDiffQuery) =>
+  handleIpc(IPC_CHANNELS.appState.getThreadDiffSummary, (_event, input: ThreadDiffQuery) =>
     getThreadDiffSummary(input)
   )
-  ipcMain.handle('app-state:get-thread-diff-range-options', (_event, threadId: string) =>
+  handleIpc(IPC_CHANNELS.appState.getThreadDiffRangeOptions, (_event, threadId: string) =>
     getThreadDiffRangeOptions(threadId)
   )
-  ipcMain.handle('app-state:get-thread-diff-patch', (_event, input: ThreadDiffPatchRequest) =>
+  handleIpc(IPC_CHANNELS.appState.getThreadDiffPatch, (_event, input: ThreadDiffPatchRequest) =>
     getThreadDiffPatch(input)
   )
-  ipcMain.handle('app-state:open-thread-working-directory', (_event, threadId: string) =>
+  handleIpc(IPC_CHANNELS.appState.openThreadWorkingDirectory, (_event, threadId: string) =>
     openThreadWorkingDirectory(threadId)
   )
-  ipcMain.handle('app-state:open-thread-workspace-in-vscode', (_event, threadId: string) =>
+  handleIpc(IPC_CHANNELS.appState.openThreadWorkspaceInVscode, (_event, threadId: string) =>
     openThreadWorkspaceInVscode(threadId)
   )
-  ipcMain.handle('app-state:select-repository', (_event, repositoryId: string | null) =>
+  handleIpc(IPC_CHANNELS.appState.selectRepository, (_event, repositoryId: string | null) =>
     selectRepository(repositoryId)
   )
-  ipcMain.handle('app-state:select-thread', (_event, threadId: string | null) =>
+  handleIpc(IPC_CHANNELS.appState.selectThread, (_event, threadId: string | null) =>
     selectThread(threadId)
   )
 }

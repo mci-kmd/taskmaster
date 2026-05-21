@@ -53,7 +53,9 @@ export default function ProjectTaskManager({
   const [editingDescription, setEditingDescription] = useState('')
   const [editingTags, setEditingTags] = useState<ProjectTaskTag[]>([])
   const editingTask =
-    editingTaskId === null ? null : repository.tasks.find((task) => task.id === editingTaskId) ?? null
+    editingTaskId === null
+      ? null
+      : (repository.tasks.find((task) => task.id === editingTaskId) ?? null)
   const createTagOptions = taskTags
   const editTagOptions = mergeTaskTags(taskTags, editingTask?.tags ?? [])
 

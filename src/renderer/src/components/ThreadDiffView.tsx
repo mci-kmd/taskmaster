@@ -14,6 +14,9 @@ import ResizeHandle from './ResizeHandle'
 import Button from './ui/Button'
 import { Field, Select } from './ui/Field'
 import SegmentedControl from './ui/SegmentedControl'
+import { getRendererApi } from '../shared/api/client'
+
+const api = getRendererApi()
 
 type ThreadDiffViewProps = {
   thread: ThreadSnapshot
@@ -208,6 +211,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
 
   useEffect(() => {
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRangeOptionsState({
       status: 'loading',
       options: null,
@@ -218,7 +222,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
       headRef: ''
     })
 
-    void window.api.appState
+    void api.appState
       .getThreadDiffRangeOptions(thread.id)
       .then((result) => {
         if (cancelled) {
@@ -263,6 +267,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
 
   useEffect(() => {
     if (!query) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSummaryState({
         status: 'loading',
         files: [],
@@ -275,7 +280,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
 
     let cancelled = false
 
-    void window.api.appState
+    void api.appState
       .getThreadDiffSummary(query)
       .then((result) => {
         if (cancelled) {
@@ -380,7 +385,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
       status: selectedFile.status
     }
 
-    void window.api.appState
+    void api.appState
       .getThreadDiffPatch(request)
       .then((result) => {
         if (cancelled) {

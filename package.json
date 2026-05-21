@@ -9,6 +9,8 @@
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "bun run typecheck:node && bun run typecheck:web",
@@ -16,7 +18,7 @@
     "dev": "electron-vite dev",
     "build": "bun run typecheck && electron-vite build",
     "rebuild:native": "electron-builder install-app-deps",
-    "ci": "bun ci && bun run lint && bun run typecheck",
+    "ci": "bun ci && bun run lint && bun run typecheck && bun run test",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win",
     "build:mac": "bun run build && electron-builder --mac",
@@ -42,6 +44,9 @@
     "@electron-toolkit/eslint-config-ts": "3.1.0",
     "@electron-toolkit/tsconfig": "2.0.0",
     "@tailwindcss/vite": "4.2.4",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "22.19.1",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
@@ -53,11 +58,13 @@
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "7.0.1",
     "eslint-plugin-react-refresh": "0.4.24",
+    "jsdom": "^29.1.1",
     "prettier": "3.8.3",
     "react": "19.2.5",
     "react-dom": "19.2.5",
     "tailwindcss": "4.2.4",
     "typescript": "6.0.3",
-    "vite": "7.2.6"
+    "vite": "7.2.6",
+    "vitest": "^4.1.6"
   }
 }

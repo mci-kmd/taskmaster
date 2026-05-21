@@ -22,8 +22,10 @@ import Button from './ui/Button'
 import { formatRelativeTime } from '../lib/time'
 import { composeThreadTitle } from '../lib/title'
 import { useNow } from '../lib/useNow'
+import { getRendererApi } from '../shared/api/client'
+import { isDevMode } from '../../../shared/runtime-mode'
 
-const isDevMode = import.meta.env.DEV
+const api = getRendererApi()
 
 type SidebarProps = {
   snapshot: AppSnapshot
@@ -129,7 +131,7 @@ export default function Sidebar({
   )
 
   useEffect(() => {
-    return window.api.appState.onSidebarContextMenuAction(handleContextMenuAction)
+    return api.appState.onSidebarContextMenuAction(handleContextMenuAction)
   }, [handleContextMenuAction])
 
   const getThreadModeTooltip = (thread: ThreadSnapshot): string | null => {
@@ -143,7 +145,7 @@ export default function Sidebar({
   }
 
   const showContextMenu = useCallback((request: SidebarContextMenuRequest): void => {
-    void window.api.appState.showSidebarContextMenu(request)
+    void api.appState.showSidebarContextMenu(request)
   }, [])
 
   return (
