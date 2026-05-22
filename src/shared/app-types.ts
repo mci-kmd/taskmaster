@@ -3,6 +3,17 @@ export type AgentProviderId = 'copilot' | 'codex'
 export type TerminalKind = 'agent' | 'shell'
 export type ProjectTaskTag = string
 
+export interface RepositoryBranchOption {
+  value: string
+  kind: 'local' | 'remote'
+  label: string
+}
+
+export interface RepositoryWorktreeOption {
+  branchName: string
+  path: string
+}
+
 export type RepositoryBackend =
   | { kind: 'native' }
   | { kind: 'wsl'; distro: string; windowsPath: string; linuxPath: string }
@@ -135,6 +146,8 @@ export interface PersistedThread {
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
+  ownsBranch?: boolean
+  ownsWorktree?: boolean
   sessionName: string
   resumeSessionId: string | null
   createdAt: string
@@ -176,6 +189,8 @@ export interface RepositorySnapshot extends PersistedRepository {
   faviconUrl: string | null
   /** Resolved primary branch (origin/HEAD → main → master) or null if none found. */
   primaryBranch: string | null
+  branchOptions: RepositoryBranchOption[]
+  worktreeOptions: RepositoryWorktreeOption[]
   lastActivityAt: string
   threads: ThreadSnapshot[]
 }

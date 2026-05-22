@@ -168,6 +168,7 @@ describe('createThreadCloseService', () => {
       expect.objectContaining({ id: 'thread-1' }),
       '/repo',
       createNativeBackend(),
+      true,
       true
     )
     expect(harness.state.threads).toEqual([])
@@ -190,5 +191,23 @@ describe('createThreadCloseService', () => {
     expect(harness.stopThreadRunSession).not.toHaveBeenCalled()
     expect(harness.state.threads).toHaveLength(1)
     expect(harness.saveState).not.toHaveBeenCalled()
+  })
+
+  it('closes existing worktree threads without deleting the worktree', async () => {
+    const harness = createHarness(
+      createThread({
+        ownsBranch: false,
+        ownsWorktree: false
+      })
+    )
+
+    const result = await harness.closeThread('thread-1')
+
+    expect(result).toEqual({ ok: true })
+    expect(removeWorktree).not.toHaveBeenCalled()
+    expect(runPostWorktreeRemoveCommand).not.toHaveBeenCalled()
+    expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
+    expect(harness.stopThreadRunSession).toHaveBeenCalledWith('thread-1')
+    expect(harness.state.threads).toEqual([])
   })
 })

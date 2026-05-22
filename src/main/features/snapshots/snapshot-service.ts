@@ -19,7 +19,12 @@ type SnapshotServiceDependencies = {
   getRepositoryGitState: (
     repository: PersistedRepository,
     refreshGit: boolean
-  ) => { currentBranch: string; primaryBranch: string | null }
+  ) => {
+    currentBranch: string
+    primaryBranch: string | null
+    branchOptions: RepositorySnapshot['branchOptions']
+    worktreeOptions: RepositorySnapshot['worktreeOptions']
+  }
   getThreadUiCwd: (
     thread: Pick<PersistedThread, 'mode' | 'worktreePath'>,
     repository: Pick<PersistedRepository, 'path' | 'backend'>
@@ -104,6 +109,8 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
       currentBranch: repositoryGitState.currentBranch,
       faviconUrl: dependencies.buildRepositoryFaviconUrl(repository.path, repository.faviconPath),
       primaryBranch: repositoryGitState.primaryBranch,
+      branchOptions: repositoryGitState.branchOptions,
+      worktreeOptions: repositoryGitState.worktreeOptions,
       lastActivityAt: snapshotThreads[0]?.lastActivityAt ?? repository.addedAt,
       threads: snapshotThreads
     }

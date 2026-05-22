@@ -5,7 +5,7 @@ A personal Electron app for running an embedded LLM CLI inside the app and organ
 ## Current features
 
 - Add git repositories from a folder picker
-- Create persisted threads in active-branch mode or owned-worktree mode
+- Create persisted threads on the active branch, an existing branch, a new branch, or a worktree
 - Launch Copilot CLI or Codex CLI inside the embedded terminal per selected thread
 - Resume prior agent sessions by persisted session ID or name
 - Configure the active provider and global provider flags for all thread launches
@@ -43,6 +43,16 @@ The project uses Bun-native package hardening:
 
 ```bash
 bun run dev
+```
+
+Install the local git hooks before committing:
+
+```bash
+./scripts/register-precommit-hook.sh
+```
+
+```powershell
+.\scripts\register-precommit-hook.ps1
 ```
 
 If Electron or `node-pty` did not install its native binaries on Linux:
@@ -87,5 +97,7 @@ Renderer dev server runs on port `5175`.
 
 - Worktree-backed threads prompt before deletion if the worktree is dirty.
 - Worktree-backed threads can run an optional setup script on creation and an optional cleanup script on close.
+- Existing worktrees can be attached as threads without rerunning the worktree setup script.
+- Verified commits are enforced by local git hooks; `git commit --no-verify` is blocked.
 - Normal install/dev/build flows do not require Python on platforms where native binaries are shipped.
 - `node-pty` is still a native dependency; Linux may require a local rebuild with the native build tools above.

@@ -53,7 +53,12 @@ describe('snapshot service', () => {
       ensureState: () => state,
       getRunningThreadIds: () => new Set(['thread-1']),
       getRunningRunThreadIds: () => new Set<string>(),
-      getRepositoryGitState: () => ({ currentBranch: 'main', primaryBranch: 'main' }),
+      getRepositoryGitState: () => ({
+        currentBranch: 'main',
+        primaryBranch: 'main',
+        branchOptions: [],
+        worktreeOptions: []
+      }),
       getThreadUiCwd: () => 'C:\\repo',
       getThreadExecutionCwd: () => 'C:\\repo',
       buildRepositoryFaviconUrl: () => null,

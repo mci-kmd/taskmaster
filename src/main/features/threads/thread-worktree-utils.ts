@@ -174,17 +174,9 @@ export function removeWorktree(
   thread: Pick<PersistedThread, 'branchName' | 'worktreePath'>,
   repositoryPath: string,
   backend: RepositoryBackend,
-  force: boolean
+  force: boolean,
+  deleteBranch = true
 ): void {
-  const protectedBranchError = getProtectedBranchDeletionError(
-    repositoryPath,
-    thread.branchName,
-    backend
-  )
-  if (protectedBranchError) {
-    throw new Error(protectedBranchError)
-  }
-
   if (thread.worktreePath && backendPathExists(backend, thread.worktreePath, 'directory')) {
     const args = ['worktree', 'remove']
     if (force) {
@@ -193,6 +185,19 @@ export function removeWorktree(
 
     args.push(thread.worktreePath)
     runGit(repositoryPath, args, backend)
+  }
+
+  if (!deleteBranch) {
+    return
+  }
+
+  const protectedBranchError = getProtectedBranchDeletionError(
+    repositoryPath,
+    thread.branchName,
+    backend
+  )
+  if (protectedBranchError) {
+    throw new Error(protectedBranchError)
   }
 
   if (branchExists(repositoryPath, thread.branchName, backend)) {

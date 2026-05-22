@@ -4,14 +4,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-HOOK_PATH="$(git --no-pager -C "$REPO_ROOT" rev-parse --git-path hooks/pre-commit)"
-
-if [[ "$HOOK_PATH" != /* ]]; then
-  HOOK_PATH="$REPO_ROOT/$HOOK_PATH"
-fi
-
-HOOK_DIR="$(dirname "$HOOK_PATH")"
-BACKUP_PATH="${HOOK_PATH}.taskmaster-backup"
 MARKER="# taskmaster-validate-hook"
 
 quote_for_sh() {
@@ -20,36 +12,104 @@ quote_for_sh() {
   printf "'%s'" "$value"
 }
 
-mkdir -p "$HOOK_DIR"
+resolve_git_path() {
+  local git_path
+  git_path="$(git --no-pager -C "$REPO_ROOT" rev-parse --git-path "$1")"
+  if [[ "$git_path" != /* ]]; then
+    git_path="$REPO_ROOT/$git_path"
+  fi
+  printf '%s' "$git_path"
+}
 
-if [[ -f "$HOOK_PATH" ]] && ! grep -Fq "$MARKER" "$HOOK_PATH"; then
-  if [[ -f "$BACKUP_PATH" ]]; then
-    printf 'Refusing to overwrite %s because %s already exists.\n' "$HOOK_PATH" "$BACKUP_PATH" >&2
-    exit 1
+install_hook() {
+  local hook_name="$1"
+  local hook_path backup_path hook_dir
+  hook_path="$(resolve_git_path "hooks/$hook_name")"
+  backup_path="${hook_path}.taskmaster-backup"
+  hook_dir="$(dirname "$hook_path")"
+
+  mkdir -p "$hook_dir"
+
+  if [[ -f "$hook_path" ]] && ! grep -Fq "$MARKER" "$hook_path"; then
+    if [[ -f "$backup_path" ]]; then
+      printf 'Refusing to overwrite %s because %s already exists.\n' "$hook_path" "$backup_path" >&2
+      exit 1
+    fi
+
+    mv "$hook_path" "$backup_path"
   fi
 
-  mv "$HOOK_PATH" "$BACKUP_PATH"
-fi
+  cat >"$hook_path"
+  chmod +x "$hook_path"
+
+  printf 'Installed %s hook at %s\n' "$hook_name" "$hook_path"
+  if [[ -f "$backup_path" ]]; then
+    printf 'Preserved previous %s hook at %s\n' "$hook_name" "$backup_path"
+  fi
+}
 
 VALIDATE_PATH_QUOTED="$(quote_for_sh "$REPO_ROOT/scripts/validate.sh")"
-BACKUP_PATH_QUOTED="$(quote_for_sh "$BACKUP_PATH")"
+VERIFY_SENTINEL_PATH="$(resolve_git_path "hooks/taskmaster-verified")"
+VERIFY_SENTINEL_PATH_QUOTED="$(quote_for_sh "$VERIFY_SENTINEL_PATH")"
 
-cat >"$HOOK_PATH" <<EOF
+PRE_COMMIT_BACKUP_PATH="$(resolve_git_path "hooks/pre-commit").taskmaster-backup"
+PRE_COMMIT_BACKUP_PATH_QUOTED="$(quote_for_sh "$PRE_COMMIT_BACKUP_PATH")"
+install_hook "pre-commit" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 $MARKER
 
-BACKUP_PATH=$BACKUP_PATH_QUOTED
+BACKUP_PATH=$PRE_COMMIT_BACKUP_PATH_QUOTED
+VERIFY_SENTINEL_PATH=$VERIFY_SENTINEL_PATH_QUOTED
+
+rm -f "\$VERIFY_SENTINEL_PATH"
 if [ -f "\$BACKUP_PATH" ]; then
   "\$BACKUP_PATH" "\$@"
 fi
 
-exec $VALIDATE_PATH_QUOTED
+$VALIDATE_PATH_QUOTED
+mkdir -p "\$(dirname "\$VERIFY_SENTINEL_PATH")"
+: >"\$VERIFY_SENTINEL_PATH"
 EOF
 
-chmod +x "$HOOK_PATH"
+PRE_MERGE_COMMIT_BACKUP_PATH="$(resolve_git_path "hooks/pre-merge-commit").taskmaster-backup"
+PRE_MERGE_COMMIT_BACKUP_PATH_QUOTED="$(quote_for_sh "$PRE_MERGE_COMMIT_BACKUP_PATH")"
+install_hook "pre-merge-commit" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+$MARKER
 
-printf 'Installed pre-commit hook at %s\n' "$HOOK_PATH"
-if [[ -f "$BACKUP_PATH" ]]; then
-  printf 'Preserved previous hook at %s\n' "$BACKUP_PATH"
+BACKUP_PATH=$PRE_MERGE_COMMIT_BACKUP_PATH_QUOTED
+VERIFY_SENTINEL_PATH=$VERIFY_SENTINEL_PATH_QUOTED
+
+rm -f "\$VERIFY_SENTINEL_PATH"
+if [ -f "\$BACKUP_PATH" ]; then
+  "\$BACKUP_PATH" "\$@"
 fi
+
+$VALIDATE_PATH_QUOTED
+mkdir -p "\$(dirname "\$VERIFY_SENTINEL_PATH")"
+: >"\$VERIFY_SENTINEL_PATH"
+EOF
+
+PREPARE_COMMIT_MSG_BACKUP_PATH="$(resolve_git_path "hooks/prepare-commit-msg").taskmaster-backup"
+PREPARE_COMMIT_MSG_BACKUP_PATH_QUOTED="$(quote_for_sh "$PREPARE_COMMIT_MSG_BACKUP_PATH")"
+install_hook "prepare-commit-msg" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+$MARKER
+
+BACKUP_PATH=$PREPARE_COMMIT_MSG_BACKUP_PATH_QUOTED
+VERIFY_SENTINEL_PATH=$VERIFY_SENTINEL_PATH_QUOTED
+
+if [ -f "\$BACKUP_PATH" ]; then
+  "\$BACKUP_PATH" "\$@"
+fi
+
+if [ ! -f "\$VERIFY_SENTINEL_PATH" ]; then
+  printf '%s\n' 'Verified commits are required in this repo; git commit --no-verify is disabled.' >&2
+  exit 1
+fi
+
+rm -f "\$VERIFY_SENTINEL_PATH"
+EOF

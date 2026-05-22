@@ -2,14 +2,18 @@ import type {
   CreateThreadInput,
   MutationResult,
   PersistedAppState,
-  PersistedThread
+  PersistedThread,
+  ThreadMode
 } from '../../../shared/app-types'
 import { runGit } from '../../backends/git-client'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
 import {
-  branchExists,
+  checkoutExistingBranch,
   getCurrentBranchLabel,
-  hasUncommittedChanges
+  getCurrentBranchName,
+  hasUncommittedChanges,
+  listRepositoryWorktrees,
+  resolveExistingBranchTarget
 } from '../repositories/repository-git'
 import { buildThreadSessionName, normalizeCustomTitle } from './thread-values'
 import {
@@ -18,6 +22,42 @@ import {
   runNewWorktreeSetupCommand,
   removeWorktree
 } from './thread-worktree-utils'
+
+function createThreadRecord(
+  dependencies: {
+    createId: () => string
+    nowIso: () => string
+  },
+  repositoryId: string,
+  mode: ThreadMode,
+  branchName: string,
+  customTitle: string | null,
+  worktreePath: string | null,
+  repositoryName: string,
+  ownership: {
+    ownsBranch: boolean
+    ownsWorktree: boolean
+  }
+): PersistedThread {
+  const createdAt = dependencies.nowIso()
+  return {
+    id: dependencies.createId(),
+    repositoryId,
+    customTitle,
+    latestCopilotTitle: null,
+    lastUserMessage: null,
+    mode,
+    branchName,
+    worktreePath,
+    ownsBranch: ownership.ownsBranch,
+    ownsWorktree: ownership.ownsWorktree,
+    sessionName: buildThreadSessionName(repositoryName, dependencies.createId),
+    resumeSessionId: null,
+    createdAt,
+    lastActivityAt: createdAt,
+    hasLaunched: false
+  }
+}
 
 export function createThreadCreateService(dependencies: {
   ensureState: () => Pick<PersistedAppState, 'repositories' | 'threads'>
@@ -38,7 +78,6 @@ export function createThreadCreateService(dependencies: {
         return dependencies.failureResult('Repository not found.')
       }
 
-      const createdAt = dependencies.nowIso()
       const customTitle = normalizeCustomTitle(input.title)
       const repositoryPath = getRepositoryExecutionPath(repository)
 
@@ -46,6 +85,44 @@ export function createThreadCreateService(dependencies: {
         const branchName = input.branchName?.trim()
         if (!branchName) {
           return dependencies.failureResult('Branch name is required for worktree threads.')
+        }
+
+        const existingWorktree = listRepositoryWorktrees(repositoryPath, repository.backend).find(
+          (item) => item.branchName === branchName
+        )
+        if (existingWorktree) {
+          const thread = createThreadRecord(
+            dependencies,
+            repository.id,
+            'worktree',
+            existingWorktree.branchName,
+            customTitle,
+            existingWorktree.path,
+            repository.name,
+            {
+              ownsBranch: false,
+              ownsWorktree: false
+            }
+          )
+
+          state.threads.push(thread)
+          dependencies.updateSelection(repository.id, thread.id)
+          dependencies.saveState()
+          return dependencies.successResult()
+        }
+
+        const branchResolution = resolveExistingBranchTarget(
+          repositoryPath,
+          branchName,
+          repository.backend
+        )
+        if (!branchResolution.ok) {
+          return dependencies.failureResult(branchResolution.error)
+        }
+        if (branchResolution.target) {
+          return dependencies.failureResult(
+            `Cannot create a worktree thread for existing branch "${branchName}" because it is not an existing worktree.`
+          )
         }
 
         const baseResolution = resolveBaseRef(
@@ -76,7 +153,13 @@ export function createThreadCreateService(dependencies: {
           let cleanupError: string | null = null
 
           try {
-            removeWorktree({ branchName, worktreePath }, repositoryPath, repository.backend, true)
+            removeWorktree(
+              { branchName, worktreePath },
+              repositoryPath,
+              repository.backend,
+              true,
+              true
+            )
           } catch (cleanupFailure) {
             cleanupError =
               cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure)
@@ -89,21 +172,19 @@ export function createThreadCreateService(dependencies: {
           )
         }
 
-        const thread: PersistedThread = {
-          id: dependencies.createId(),
-          repositoryId: repository.id,
-          customTitle,
-          latestCopilotTitle: null,
-          lastUserMessage: null,
-          mode: 'worktree',
+        const thread = createThreadRecord(
+          dependencies,
+          repository.id,
+          'worktree',
           branchName,
+          customTitle,
           worktreePath,
-          sessionName: buildThreadSessionName(repository.name, dependencies.createId),
-          resumeSessionId: null,
-          createdAt,
-          lastActivityAt: createdAt,
-          hasLaunched: false
-        }
+          repository.name,
+          {
+            ownsBranch: true,
+            ownsWorktree: true
+          }
+        )
 
         state.threads.push(thread)
         dependencies.updateSelection(repository.id, thread.id)
@@ -111,56 +192,71 @@ export function createThreadCreateService(dependencies: {
         return dependencies.successResult()
       }
 
-      if (input.mode === 'new-branch') {
-        const branchName = input.branchName?.trim()
-        if (!branchName) {
-          return dependencies.failureResult('Branch name is required for new-branch threads.')
-        }
-
-        if (branchExists(repositoryPath, branchName, repository.backend)) {
-          return dependencies.failureResult(`Branch "${branchName}" already exists.`)
-        }
-
-        if (hasUncommittedChanges(repositoryPath, repository.backend)) {
-          return dependencies.failureResult(
-            'Working tree has uncommitted changes. Commit or stash them before creating a new-branch thread.'
-          )
-        }
-
-        const baseResolution = resolveBaseRef(
-          repositoryPath,
-          input.useCurrentBranch,
-          repository.backend
+      const requestedBranchName = input.branchName?.trim()
+      if (!requestedBranchName) {
+        const currentBranchLabel = getCurrentBranchLabel(repositoryPath, repository.backend)
+        const thread = createThreadRecord(
+          dependencies,
+          repository.id,
+          'active-branch',
+          currentBranchLabel,
+          customTitle,
+          null,
+          repository.name,
+          {
+            ownsBranch: false,
+            ownsWorktree: false
+          }
         )
-        if (!baseResolution.ok) {
-          return dependencies.failureResult(baseResolution.error)
-        }
 
+        state.threads.push(thread)
+        dependencies.updateSelection(repository.id, thread.id)
+        dependencies.saveState()
+        return dependencies.successResult()
+      }
+
+      const branchResolution = resolveExistingBranchTarget(
+        repositoryPath,
+        requestedBranchName,
+        repository.backend
+      )
+      if (!branchResolution.ok) {
+        return dependencies.failureResult(branchResolution.error)
+      }
+
+      const currentBranchName = getCurrentBranchName(repositoryPath, repository.backend)
+      const currentBranchLabel = getCurrentBranchLabel(repositoryPath, repository.backend)
+      const targetBranchName = branchResolution.target?.branchName ?? requestedBranchName
+      const switchingBranches = currentBranchName !== targetBranchName
+
+      if (switchingBranches && hasUncommittedChanges(repositoryPath, repository.backend)) {
+        return dependencies.failureResult(
+          `Cannot switch from "${currentBranchLabel}" to "${targetBranchName}" because the current branch has uncommitted changes. Commit or stash them first.`
+        )
+      }
+
+      if (branchResolution.target) {
         try {
-          runGit(
-            repositoryPath,
-            ['checkout', '-b', branchName, baseResolution.ref],
-            repository.backend
-          )
+          if (switchingBranches) {
+            checkoutExistingBranch(repositoryPath, branchResolution.target, repository.backend)
+          }
         } catch (error) {
           return dependencies.failureResult(error instanceof Error ? error.message : String(error))
         }
 
-        const thread: PersistedThread = {
-          id: dependencies.createId(),
-          repositoryId: repository.id,
+        const thread = createThreadRecord(
+          dependencies,
+          repository.id,
+          'active-branch',
+          targetBranchName,
           customTitle,
-          latestCopilotTitle: null,
-          lastUserMessage: null,
-          mode: 'new-branch',
-          branchName,
-          worktreePath: null,
-          sessionName: buildThreadSessionName(repository.name, dependencies.createId),
-          resumeSessionId: null,
-          createdAt,
-          lastActivityAt: createdAt,
-          hasLaunched: false
-        }
+          null,
+          repository.name,
+          {
+            ownsBranch: false,
+            ownsWorktree: false
+          }
+        )
 
         state.threads.push(thread)
         dependencies.updateSelection(repository.id, thread.id)
@@ -168,21 +264,38 @@ export function createThreadCreateService(dependencies: {
         return dependencies.successResult()
       }
 
-      const thread: PersistedThread = {
-        id: dependencies.createId(),
-        repositoryId: repository.id,
-        customTitle,
-        latestCopilotTitle: null,
-        lastUserMessage: null,
-        mode: 'active-branch',
-        branchName: getCurrentBranchLabel(repositoryPath, repository.backend),
-        worktreePath: null,
-        sessionName: buildThreadSessionName(repository.name, dependencies.createId),
-        resumeSessionId: null,
-        createdAt,
-        lastActivityAt: createdAt,
-        hasLaunched: false
+      const baseResolution = resolveBaseRef(
+        repositoryPath,
+        input.useCurrentBranch,
+        repository.backend
+      )
+      if (!baseResolution.ok) {
+        return dependencies.failureResult(baseResolution.error)
       }
+
+      try {
+        runGit(
+          repositoryPath,
+          ['checkout', '-b', requestedBranchName, baseResolution.ref],
+          repository.backend
+        )
+      } catch (error) {
+        return dependencies.failureResult(error instanceof Error ? error.message : String(error))
+      }
+
+      const thread = createThreadRecord(
+        dependencies,
+        repository.id,
+        'new-branch',
+        requestedBranchName,
+        customTitle,
+        null,
+        repository.name,
+        {
+          ownsBranch: true,
+          ownsWorktree: false
+        }
+      )
 
       state.threads.push(thread)
       dependencies.updateSelection(repository.id, thread.id)

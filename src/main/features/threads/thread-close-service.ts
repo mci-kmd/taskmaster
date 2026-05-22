@@ -34,6 +34,14 @@ type MessageBoxResult = {
   response: number
 }
 
+function ownsBranch(thread: Pick<PersistedThread, 'mode' | 'ownsBranch'>): boolean {
+  return thread.ownsBranch ?? (thread.mode === 'new-branch' || thread.mode === 'worktree')
+}
+
+function ownsWorktree(thread: Pick<PersistedThread, 'mode' | 'ownsWorktree'>): boolean {
+  return thread.ownsWorktree ?? thread.mode === 'worktree'
+}
+
 async function maybeRemoveLocalBranchForNewBranchThread(
   thread: PersistedThread,
   repositoryPath: string,
@@ -166,7 +174,7 @@ export function createThreadCloseService(dependencies: {
           dependencies.stopThreadRunSession(threadId)
         }
 
-        if (thread.mode === 'worktree') {
+        if (thread.mode === 'worktree' && ownsWorktree(thread)) {
           const skipGitCleanup = shouldSkipWorktreeGitCleanup(
             thread,
             repositoryPath,
@@ -183,7 +191,9 @@ export function createThreadCloseService(dependencies: {
                 cancelId: 0,
                 title: 'Uncommitted changes',
                 message: `The worktree for "${thread.customTitle ?? thread.branchName}" has uncommitted changes.`,
-                detail: 'Delete anyway will remove the worktree and delete its branch.'
+                detail: ownsBranch(thread)
+                  ? 'Delete anyway will remove the worktree and delete its branch.'
+                  : 'Delete anyway will remove the worktree.'
               })
 
               if (confirmation.response === 0) {
@@ -193,7 +203,7 @@ export function createThreadCloseService(dependencies: {
 
             stopThreadProcesses()
             try {
-              removeWorktree(thread, repositoryPath, repository.backend, dirty)
+              removeWorktree(thread, repositoryPath, repository.backend, dirty, ownsBranch(thread))
             } catch (error) {
               return dependencies.failureResult(
                 error instanceof Error ? error.message : String(error)
@@ -208,7 +218,7 @@ export function createThreadCloseService(dependencies: {
           }
         }
 
-        if (thread.mode === 'new-branch') {
+        if (thread.mode === 'new-branch' && ownsBranch(thread)) {
           const branchRemovalResult = await maybeRemoveLocalBranchForNewBranchThread(
             thread,
             repositoryPath,
