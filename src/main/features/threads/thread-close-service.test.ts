@@ -8,13 +8,10 @@ import {
   getPrimaryBranchCheckoutTarget,
   getProtectedBranchDeletionError,
   isDirtyGitPath,
-  remoteBranchExists
+  remoteBranchExists,
+  resolveGitRoot
 } from '../repositories/repository-git'
-import {
-  removeWorktree,
-  runPostWorktreeRemoveCommand,
-  shouldSkipWorktreeGitCleanup
-} from './thread-worktree-utils'
+import { removeWorktree, runPostWorktreeRemoveCommand } from './thread-worktree-utils'
 
 vi.mock('../../backends/git-client', () => ({
   runGit: vi.fn()
@@ -26,13 +23,13 @@ vi.mock('../repositories/repository-git', () => ({
   getPrimaryBranchCheckoutTarget: vi.fn(),
   getProtectedBranchDeletionError: vi.fn(),
   isDirtyGitPath: vi.fn(),
-  remoteBranchExists: vi.fn()
+  remoteBranchExists: vi.fn(),
+  resolveGitRoot: vi.fn()
 }))
 
 vi.mock('./thread-worktree-utils', () => ({
   removeWorktree: vi.fn(),
-  runPostWorktreeRemoveCommand: vi.fn(),
-  shouldSkipWorktreeGitCleanup: vi.fn()
+  runPostWorktreeRemoveCommand: vi.fn()
 }))
 
 function createState(thread: PersistedThread): PersistedAppState {
@@ -126,9 +123,9 @@ describe('createThreadCloseService', () => {
     vi.mocked(getProtectedBranchDeletionError).mockReset()
     vi.mocked(isDirtyGitPath).mockReset()
     vi.mocked(remoteBranchExists).mockReset()
+    vi.mocked(resolveGitRoot).mockReset()
     vi.mocked(removeWorktree).mockReset()
     vi.mocked(runPostWorktreeRemoveCommand).mockReset()
-    vi.mocked(shouldSkipWorktreeGitCleanup).mockReset()
 
     vi.mocked(branchExists).mockReturnValue(true)
     vi.mocked(getCurrentBranchName).mockReturnValue('main')
@@ -136,7 +133,7 @@ describe('createThreadCloseService', () => {
     vi.mocked(getProtectedBranchDeletionError).mockReturnValue(null)
     vi.mocked(isDirtyGitPath).mockReturnValue(false)
     vi.mocked(remoteBranchExists).mockReturnValue(false)
-    vi.mocked(shouldSkipWorktreeGitCleanup).mockReturnValue(false)
+    vi.mocked(resolveGitRoot).mockReturnValue('/repo/.worktrees/feature-thread')
   })
 
   it('does not stop thread processes when dirty worktree close is cancelled', async () => {
@@ -209,5 +206,75 @@ describe('createThreadCloseService', () => {
     expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
     expect(harness.stopThreadRunSession).toHaveBeenCalledWith('thread-1')
     expect(harness.state.threads).toEqual([])
+  })
+
+  it('falls back to removing the branch when the worktree no longer is a git repo', async () => {
+    vi.mocked(resolveGitRoot).mockReturnValue(null)
+    const harness = createHarness(createThread())
+
+    const result = await harness.closeThread('thread-1')
+
+    expect(result).toEqual({ ok: true })
+    expect(removeWorktree).not.toHaveBeenCalled()
+    expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
+    expect(harness.stopThreadRunSession).toHaveBeenCalledWith('thread-1')
+    expect(harness.state.threads).toEqual([])
+  })
+
+  it('closes the thread with a warning when orphaned branch cleanup fails', async () => {
+    vi.mocked(resolveGitRoot).mockReturnValue(null)
+    vi.mocked(getProtectedBranchDeletionError).mockReturnValue('The main branch cannot be deleted.')
+    const harness = createHarness(createThread({ branchName: 'main' }))
+
+    const result = await harness.closeThread('thread-1')
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        'Thread closed, but the orphaned branch cleanup failed: The main branch cannot be deleted.',
+      cancelled: false
+    })
+    expect(harness.state.threads).toEqual([])
+    expect(harness.saveState).toHaveBeenCalledOnce()
+  })
+
+  it('closes the thread if worktree removal partially succeeds and branch cleanup finishes', async () => {
+    vi.mocked(resolveGitRoot)
+      .mockReturnValueOnce('/repo/.worktrees/feature-thread')
+      .mockReturnValueOnce(null)
+    vi.mocked(removeWorktree).mockImplementation(() => {
+      throw new Error('failed to delete worktree: Permission denied')
+    })
+    const harness = createHarness(createThread())
+
+    const result = await harness.closeThread('thread-1')
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        'Thread closed, but the worktree disappeared during cleanup. Original worktree removal error: failed to delete worktree: Permission denied',
+      cancelled: false
+    })
+    expect(harness.state.threads).toEqual([])
+    expect(harness.saveState).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the thread when worktree removal fails and the worktree is still present', async () => {
+    vi.mocked(resolveGitRoot).mockReturnValue('/repo/.worktrees/feature-thread')
+    vi.mocked(removeWorktree).mockImplementation(() => {
+      throw new Error('failed to delete worktree: Permission denied')
+    })
+    const harness = createHarness(createThread())
+
+    const result = await harness.closeThread('thread-1')
+
+    expect(result).toEqual({
+      ok: false,
+      error:
+        'failed to delete worktree: Permission denied Close any apps still using that worktree folder and try again.',
+      cancelled: false
+    })
+    expect(harness.state.threads).toHaveLength(1)
+    expect(harness.saveState).not.toHaveBeenCalled()
   })
 })

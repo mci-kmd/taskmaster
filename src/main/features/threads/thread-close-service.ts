@@ -12,13 +12,10 @@ import {
   getPrimaryBranchCheckoutTarget,
   getProtectedBranchDeletionError,
   isDirtyGitPath,
-  remoteBranchExists
+  remoteBranchExists,
+  resolveGitRoot
 } from '../repositories/repository-git'
-import {
-  removeWorktree,
-  runPostWorktreeRemoveCommand,
-  shouldSkipWorktreeGitCleanup
-} from './thread-worktree-utils'
+import { removeWorktree, runPostWorktreeRemoveCommand } from './thread-worktree-utils'
 
 type MessageBoxOptions = {
   type: 'question' | 'warning'
@@ -40,6 +37,80 @@ function ownsBranch(thread: Pick<PersistedThread, 'mode' | 'ownsBranch'>): boole
 
 function ownsWorktree(thread: Pick<PersistedThread, 'mode' | 'ownsWorktree'>): boolean {
   return thread.ownsWorktree ?? thread.mode === 'worktree'
+}
+
+type BranchDeleteResult = { ok: true } | { ok: false; error: string }
+
+function deleteLocalBranch(
+  thread: PersistedThread,
+  repositoryPath: string,
+  backend: RepositoryBackend
+): BranchDeleteResult {
+  if (!branchExists(repositoryPath, thread.branchName, backend)) {
+    return { ok: true }
+  }
+
+  const protectedBranchError = getProtectedBranchDeletionError(
+    repositoryPath,
+    thread.branchName,
+    backend
+  )
+  if (protectedBranchError) {
+    return { ok: false, error: protectedBranchError }
+  }
+
+  const currentBranchName = getCurrentBranchName(repositoryPath, backend)
+  if (currentBranchName === thread.branchName) {
+    if (isDirtyGitPath(repositoryPath, backend)) {
+      return {
+        ok: false,
+        error: `Can't delete "${thread.branchName}" because it is checked out and has uncommitted changes.`
+      }
+    }
+
+    const checkoutTarget = getPrimaryBranchCheckoutTarget(
+      repositoryPath,
+      thread.branchName,
+      backend
+    )
+    if (!checkoutTarget) {
+      return {
+        ok: false,
+        error: `Can't delete "${thread.branchName}" because the repository primary branch could not be determined.`
+      }
+    }
+
+    try {
+      runGit(repositoryPath, ['checkout', checkoutTarget], backend)
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  if (!branchExists(repositoryPath, thread.branchName, backend)) {
+    return { ok: true }
+  }
+
+  try {
+    runGit(repositoryPath, ['branch', '-D', thread.branchName], backend)
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+
+  return { ok: true }
+}
+
+function hasAccessibleWorktreeGit(
+  thread: Pick<PersistedThread, 'worktreePath'>,
+  backend: RepositoryBackend
+): boolean {
+  return thread.worktreePath ? resolveGitRoot(thread.worktreePath, backend) !== null : false
+}
+
+function formatWorktreeRemovalError(error: string): string {
+  return /permission denied|access is denied/i.test(error)
+    ? `${error} Close any apps still using that worktree folder and try again.`
+    : error
 }
 
 async function maybeRemoveLocalBranchForNewBranchThread(
@@ -75,65 +146,31 @@ async function maybeRemoveLocalBranchForNewBranchThread(
     return null
   }
 
-  const protectedBranchError = getProtectedBranchDeletionError(
-    repositoryPath,
-    thread.branchName,
-    backend
-  )
-  if (protectedBranchError) {
-    return failureResult(protectedBranchError)
-  }
-
-  const currentBranchName = getCurrentBranchName(repositoryPath, backend)
-  if (currentBranchName === thread.branchName) {
-    if (isDirtyGitPath(repositoryPath, backend)) {
-      const dirtyConfirmation = await showMessageBox({
-        type: 'warning',
-        buttons: ['Cancel thread removal', 'Continue without removing branch'],
-        defaultId: 0,
-        cancelId: 0,
-        title: 'Cannot delete branch',
-        message: `Can't delete "${thread.branchName}" because it is checked out and has uncommitted changes.`,
-        detail:
-          'Taskmaster cannot switch to the primary branch until you commit or stash those changes.'
-      })
-
-      if (dirtyConfirmation.response === 0) {
-        return failureResult('Thread close cancelled.', true)
-      }
-
-      return null
-    }
-
-    const checkoutTarget = getPrimaryBranchCheckoutTarget(
-      repositoryPath,
-      thread.branchName,
-      backend
-    )
-    if (!checkoutTarget) {
-      return failureResult(
-        `Can't delete "${thread.branchName}" because the repository primary branch could not be determined.`
-      )
-    }
-
-    try {
-      runGit(repositoryPath, ['checkout', checkoutTarget], backend)
-    } catch (error) {
-      return failureResult(error instanceof Error ? error.message : String(error))
-    }
-  }
-
-  if (!branchExists(repositoryPath, thread.branchName, backend)) {
+  const deleteResult = deleteLocalBranch(thread, repositoryPath, backend)
+  if (deleteResult.ok) {
     return null
   }
 
-  try {
-    runGit(repositoryPath, ['branch', '-D', thread.branchName], backend)
-  } catch (error) {
-    return failureResult(error instanceof Error ? error.message : String(error))
+  if (deleteResult.error.includes('checked out and has uncommitted changes.')) {
+    const dirtyConfirmation = await showMessageBox({
+      type: 'warning',
+      buttons: ['Cancel thread removal', 'Continue without removing branch'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Cannot delete branch',
+      message: deleteResult.error,
+      detail:
+        'Taskmaster cannot switch to the primary branch until you commit or stash those changes.'
+    })
+
+    if (dirtyConfirmation.response === 0) {
+      return failureResult('Thread close cancelled.', true)
+    }
+
+    return null
   }
 
-  return null
+  return failureResult(deleteResult.error)
 }
 
 export function createThreadCloseService(dependencies: {
@@ -162,6 +199,7 @@ export function createThreadCloseService(dependencies: {
         }
 
         let postWorktreeRemoveError: string | null = null
+        let closeWarning: string | null = null
         const repositoryPath = getRepositoryExecutionPath(repository)
         let didStopThreadProcesses = false
         const stopThreadProcesses = (): void => {
@@ -175,13 +213,10 @@ export function createThreadCloseService(dependencies: {
         }
 
         if (thread.mode === 'worktree' && ownsWorktree(thread)) {
-          const skipGitCleanup = shouldSkipWorktreeGitCleanup(
-            thread,
-            repositoryPath,
-            repository.backend
-          )
+          let worktreeCleanupCompleted = false
+          const branchOwned = ownsBranch(thread)
 
-          if (!skipGitCleanup && thread.worktreePath) {
+          if (hasAccessibleWorktreeGit(thread, repository.backend) && thread.worktreePath) {
             const dirty = isDirtyGitPath(thread.worktreePath, repository.backend)
             if (dirty) {
               const confirmation = await dependencies.showMessageBox({
@@ -203,18 +238,44 @@ export function createThreadCloseService(dependencies: {
 
             stopThreadProcesses()
             try {
-              removeWorktree(thread, repositoryPath, repository.backend, dirty, ownsBranch(thread))
+              removeWorktree(thread, repositoryPath, repository.backend, dirty, branchOwned)
+              worktreeCleanupCompleted = true
             } catch (error) {
-              return dependencies.failureResult(
-                error instanceof Error ? error.message : String(error)
+              const cleanupError = error instanceof Error ? error.message : String(error)
+              if (hasAccessibleWorktreeGit(thread, repository.backend) || !branchOwned) {
+                return dependencies.failureResult(formatWorktreeRemovalError(cleanupError))
+              }
+
+              const branchDeleteResult = deleteLocalBranch(
+                thread,
+                repositoryPath,
+                repository.backend
               )
+              worktreeCleanupCompleted = true
+              closeWarning = branchDeleteResult.ok
+                ? `the worktree disappeared during cleanup. Original worktree removal error: ${cleanupError}`
+                : `the worktree disappeared during cleanup, and the branch cleanup failed: ${branchDeleteResult.error}`
+            }
+          } else {
+            worktreeCleanupCompleted = true
+            if (branchOwned) {
+              const branchDeleteResult = deleteLocalBranch(
+                thread,
+                repositoryPath,
+                repository.backend
+              )
+              if (!branchDeleteResult.ok) {
+                closeWarning = `the orphaned branch cleanup failed: ${branchDeleteResult.error}`
+              }
             }
           }
 
-          try {
-            runPostWorktreeRemoveCommand(repository, thread)
-          } catch (error) {
-            postWorktreeRemoveError = error instanceof Error ? error.message : String(error)
+          if (worktreeCleanupCompleted && !closeWarning) {
+            try {
+              runPostWorktreeRemoveCommand(repository, thread)
+            } catch (error) {
+              postWorktreeRemoveError = error instanceof Error ? error.message : String(error)
+            }
           }
         }
 
@@ -239,10 +300,12 @@ export function createThreadCloseService(dependencies: {
         }
 
         dependencies.saveState()
-        return postWorktreeRemoveError
-          ? dependencies.failureResult(
-              `Thread closed, but post-remove script failed: ${postWorktreeRemoveError}`
-            )
+        const issues = [
+          closeWarning,
+          postWorktreeRemoveError ? `post-remove script failed: ${postWorktreeRemoveError}` : null
+        ].filter((value): value is string => value !== null)
+        return issues.length > 0
+          ? dependencies.failureResult(`Thread closed, but ${issues.join(' ')}`)
           : dependencies.successResult()
       } catch (error) {
         return dependencies.failureResult(error instanceof Error ? error.message : String(error))
