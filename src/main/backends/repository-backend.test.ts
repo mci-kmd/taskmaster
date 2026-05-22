@@ -6,8 +6,8 @@ import {
   linuxPathToWslUncPath,
   normalizeLinuxPath,
   parseWslUncPath
-} from './backends/repository-backend'
-import { defineRepositoryBackendContractSuite } from './backends/repository-backend-contract-suite.test'
+} from './repository-backend'
+import { defineRepositoryBackendContractSuite } from './repository-backend-contract-suite.test'
 
 const nativeBackend = createNativeBackend()
 const wslBackend = {
