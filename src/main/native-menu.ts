@@ -4,25 +4,20 @@ import {
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions
 } from 'electron'
-import type {
-  SidebarContextMenuAction,
-  SidebarContextMenuActionEvent,
-  SidebarContextMenuRequest
-} from '../shared/app-types'
+import type { SidebarContextMenuAction, SidebarContextMenuRequest } from '../shared/app-types'
 import { IPC_CHANNELS } from '../shared/contracts/ipc'
-import { handleIpc } from './ipc/typed-ipc'
+import { handleIpc, sendIpc } from './ipc/typed-ipc'
 
 function sendAction(
   event: IpcMainInvokeEvent,
   request: SidebarContextMenuRequest,
   action: SidebarContextMenuAction
 ): void {
-  const payload: SidebarContextMenuActionEvent = {
+  sendIpc(event.sender, IPC_CHANNELS.nativeMenu.sidebarContextMenuAction, {
     action,
     kind: request.kind,
     itemId: request.itemId
-  }
-  event.sender.send(IPC_CHANNELS.nativeMenu.sidebarContextMenuAction, payload)
+  })
 }
 
 function buildSidebarContextMenuTemplate(

@@ -6,22 +6,31 @@ import {
   type SpawnSyncOptions
 } from 'child_process'
 import { existsSync, mkdirSync, statSync } from 'fs'
-import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from 'path'
+import path from 'path'
 import type {
   BackendCommand,
   BackendCommandResult,
   RepositoryBackendImplementation
 } from './repository-backend'
 
+function isWindowsLikePath(value: string): boolean {
+  return /^[a-z]:[\\/]/iu.test(value) || value.startsWith('\\\\')
+}
+
+function pathModuleFor(...values: string[]): typeof path {
+  return values.some(isWindowsLikePath) ? path.win32 : path
+}
+
 export const nativeRepositoryBackendImplementation: RepositoryBackendImplementation = {
   kind: 'native',
-  getBasename: (_backend, path) => basename(path),
-  getDirname: (_backend, path) => dirname(path),
-  joinPath: (_backend, ...parts) => join(...parts),
-  resolvePath: (_backend, base, path) => resolve(base, path),
-  relativePath: (_backend, from, to) => relative(from, to),
-  normalizePath: (_backend, path) => normalize(path),
-  isAbsolutePath: (_backend, path) => isAbsolute(path),
+  getBasename: (_backend, pathValue) => pathModuleFor(pathValue).basename(pathValue),
+  getDirname: (_backend, pathValue) => pathModuleFor(pathValue).dirname(pathValue),
+  joinPath: (_backend, ...parts) => pathModuleFor(...parts).join(...parts),
+  resolvePath: (_backend, base, pathValue) =>
+    pathModuleFor(base, pathValue).resolve(base, pathValue),
+  relativePath: (_backend, from, to) => pathModuleFor(from, to).relative(from, to),
+  normalizePath: (_backend, pathValue) => pathModuleFor(pathValue).normalize(pathValue),
+  isAbsolutePath: (_backend, pathValue) => pathModuleFor(pathValue).isAbsolute(pathValue),
   toUiPath: (_backend, executionPath) => executionPath,
   pathForDisplay: (_backend, path) => path,
   buildCommand: (_backend, command) => command,

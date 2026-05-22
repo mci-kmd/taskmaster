@@ -1,4 +1,3 @@
-import { dialog } from 'electron'
 import type {
   MutationResult,
   PersistedAppState,
@@ -21,11 +20,26 @@ import {
   shouldSkipWorktreeGitCleanup
 } from './thread-worktree-utils'
 
+type MessageBoxOptions = {
+  type: 'question' | 'warning'
+  buttons: string[]
+  defaultId: number
+  cancelId: number
+  title: string
+  message: string
+  detail: string
+}
+
+type MessageBoxResult = {
+  response: number
+}
+
 async function maybeRemoveLocalBranchForNewBranchThread(
   thread: PersistedThread,
   repositoryPath: string,
   backend: RepositoryBackend,
-  failureResult: (error: string, cancelled?: boolean) => MutationResult
+  failureResult: (error: string, cancelled?: boolean) => MutationResult,
+  showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResult>
 ): Promise<MutationResult | null> {
   if (
     !branchExists(repositoryPath, thread.branchName, backend) ||
@@ -35,7 +49,7 @@ async function maybeRemoveLocalBranchForNewBranchThread(
   }
 
   const threadLabel = thread.customTitle ?? thread.branchName
-  const confirmation = await dialog.showMessageBox({
+  const confirmation = await showMessageBox({
     type: 'question',
     buttons: ['Cancel', 'Keep branch', 'Remove branch'],
     defaultId: 2,
@@ -65,7 +79,7 @@ async function maybeRemoveLocalBranchForNewBranchThread(
   const currentBranchName = getCurrentBranchName(repositoryPath, backend)
   if (currentBranchName === thread.branchName) {
     if (isDirtyGitPath(repositoryPath, backend)) {
-      const dirtyConfirmation = await dialog.showMessageBox({
+      const dirtyConfirmation = await showMessageBox({
         type: 'warning',
         buttons: ['Cancel thread removal', 'Continue without removing branch'],
         defaultId: 0,
@@ -121,6 +135,7 @@ export function createThreadCloseService(dependencies: {
   failureResult: (error: string, cancelled?: boolean) => MutationResult
   stopThreadRunSession: (threadId: string) => boolean
   killSessionsForThread: (threadId: string) => void
+  showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResult>
 }): {
   closeThread: (threadId: string) => Promise<MutationResult>
 } {
@@ -138,10 +153,18 @@ export function createThreadCloseService(dependencies: {
           return dependencies.failureResult('Owning repository not found.')
         }
 
-        dependencies.killSessionsForThread(threadId)
-        dependencies.stopThreadRunSession(threadId)
         let postWorktreeRemoveError: string | null = null
         const repositoryPath = getRepositoryExecutionPath(repository)
+        let didStopThreadProcesses = false
+        const stopThreadProcesses = (): void => {
+          if (didStopThreadProcesses) {
+            return
+          }
+
+          didStopThreadProcesses = true
+          dependencies.killSessionsForThread(threadId)
+          dependencies.stopThreadRunSession(threadId)
+        }
 
         if (thread.mode === 'worktree') {
           const skipGitCleanup = shouldSkipWorktreeGitCleanup(
@@ -153,7 +176,7 @@ export function createThreadCloseService(dependencies: {
           if (!skipGitCleanup && thread.worktreePath) {
             const dirty = isDirtyGitPath(thread.worktreePath, repository.backend)
             if (dirty) {
-              const confirmation = await dialog.showMessageBox({
+              const confirmation = await dependencies.showMessageBox({
                 type: 'warning',
                 buttons: ['Cancel', 'Delete anyway'],
                 defaultId: 0,
@@ -168,6 +191,7 @@ export function createThreadCloseService(dependencies: {
               }
             }
 
+            stopThreadProcesses()
             try {
               removeWorktree(thread, repositoryPath, repository.backend, dirty)
             } catch (error) {
@@ -189,13 +213,15 @@ export function createThreadCloseService(dependencies: {
             thread,
             repositoryPath,
             repository.backend,
-            dependencies.failureResult
+            dependencies.failureResult,
+            dependencies.showMessageBox
           )
           if (branchRemovalResult) {
             return branchRemovalResult
           }
         }
 
+        stopThreadProcesses()
         state.threads = state.threads.filter((item) => item.id !== thread.id)
         if (state.ui.selectedThreadId === thread.id) {
           state.ui.selectedThreadId = null

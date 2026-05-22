@@ -1,11 +1,10 @@
 import { spawn } from 'child_process'
 import { pathToFileURL } from 'url'
-import { app, shell } from 'electron'
 import type {
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult
 } from '../../../shared/app-types'
-import { quoteCmdArgument, resolveCommandOnPath } from '../../terminal'
+import { quoteCmdArgument, resolveCommandOnPath } from '../../terminal/command-utils'
 import { backendPathExists, toUiPath } from '../../backends/repository-backend'
 import type { ThreadGitContext } from './thread-git-context'
 
@@ -59,6 +58,9 @@ function spawnDetachedProcess(
 
 export function createThreadWorkspaceService(dependencies: {
   resolveThreadGitContext: (threadId: string) => ThreadGitContext
+  openPath: (path: string) => Promise<string>
+  openExternal: (url: string) => Promise<void>
+  getHomePath: () => string
 }): {
   openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
   openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
@@ -76,7 +78,7 @@ export function createThreadWorkspaceService(dependencies: {
       return { ok: false, error: `Working directory not found: ${cwd}` }
     }
 
-    const error = await shell.openPath(cwd)
+    const error = await dependencies.openPath(cwd)
     return error ? { ok: false, error: `Failed to open working directory: ${error}` } : { ok: true }
   }
 
@@ -96,7 +98,7 @@ export function createThreadWorkspaceService(dependencies: {
     try {
       if (context.repository.backend.kind === 'wsl') {
         try {
-          await shell.openExternal(buildVscodeWorkspaceUri(cwd))
+          await dependencies.openExternal(buildVscodeWorkspaceUri(cwd))
           return { ok: true }
         } catch {
           // Fall back to the VS Code CLI below.
@@ -107,11 +109,14 @@ export function createThreadWorkspaceService(dependencies: {
           return { ok: false, error: 'VS Code is unavailable: code CLI was not found on PATH.' }
         }
 
-        await spawnDetachedProcess(buildVscodeLaunchCommand(codePath, cwd), app.getPath('home'))
+        await spawnDetachedProcess(
+          buildVscodeLaunchCommand(codePath, cwd),
+          dependencies.getHomePath()
+        )
         return { ok: true }
       }
 
-      await shell.openExternal(buildVscodeWorkspaceUri(cwd))
+      await dependencies.openExternal(buildVscodeWorkspaceUri(cwd))
       return { ok: true }
     } catch (uriError) {
       const codePath = resolveCommandOnPath('code')

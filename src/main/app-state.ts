@@ -1,6 +1,4 @@
 import { randomUUID } from 'crypto'
-import { join } from 'path'
-import { BrowserWindow, dialog, type OpenDialogOptions } from 'electron'
 import type {
   AppSnapshot,
   BranchStatusRequest,
@@ -75,6 +73,7 @@ import {
   toUiPath
 } from './backends/repository-backend'
 import { registerAppStateIpcHandlers } from './ipc/app-state-ipc'
+import { electronUi } from './platform/electron-ui'
 
 const persistedStateStore = createAppStateStore()
 const repositoryGitStateService = createRepositoryGitStateService()
@@ -147,29 +146,8 @@ const repositoryService = createRepositoryService({
   createId: randomUUID,
   nowIso,
   platform: process.platform,
-  selectRepositoryDirectory: () =>
-    dialog.showOpenDialog({
-      title: 'Add repository',
-      properties: ['openDirectory']
-    }),
-  pickRepositoryFaviconFile: async (repository) => {
-    const ownerWindow = BrowserWindow.getFocusedWindow() ?? null
-    const dialogOptions: OpenDialogOptions = {
-      title: `Choose favicon for ${repository.name}`,
-      defaultPath: join(repository.path, 'favicon.ico'),
-      filters: [
-        {
-          name: 'Image files',
-          extensions: ['bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp']
-        }
-      ],
-      properties: ['openFile']
-    }
-
-    return ownerWindow
-      ? dialog.showOpenDialog(ownerWindow, dialogOptions)
-      : dialog.showOpenDialog(dialogOptions)
-  },
+  selectRepositoryDirectory: electronUi.selectRepositoryDirectory,
+  pickRepositoryFaviconFile: electronUi.pickRepositoryFaviconFile,
   parseWslUncPath,
   createNativeBackend,
   resolveGitRoot,
@@ -201,13 +179,18 @@ const threadGitContextService = createThreadGitContextService({
   findRepository
 })
 const threadWorkspaceService = createThreadWorkspaceService({
-  resolveThreadGitContext: threadGitContextService.resolveThreadGitContext
+  resolveThreadGitContext: threadGitContextService.resolveThreadGitContext,
+  openPath: electronUi.openPath,
+  openExternal: electronUi.openExternal,
+  getHomePath: electronUi.getHomePath
 })
 const threadRunService = createThreadRunService({
   findThread,
   resolveThreadGitContext: threadGitContextService.resolveThreadGitContext,
   successResult,
-  failureResult
+  failureResult,
+  broadcastThreadRunState: electronUi.broadcastThreadRunState,
+  showThreadRunFailure: electronUi.showThreadRunFailure
 })
 threadRunServiceRef = threadRunService
 const threadCreateService = createThreadCreateService({
@@ -225,7 +208,8 @@ const threadCloseService = createThreadCloseService({
   successResult,
   failureResult,
   stopThreadRunSession: threadRunService.stopThreadRunSession,
-  killSessionsForThread
+  killSessionsForThread,
+  showMessageBox: electronUi.showMessageBox
 })
 const branchStatusService = createBranchStatusService({
   resolveBranchStatusContext: threadGitContextService.resolveBranchStatusContext

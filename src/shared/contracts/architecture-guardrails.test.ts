@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 const SOURCE_ROOT = resolve(process.cwd(), 'src')
 const CONTRACTS_ROOT = resolve(SOURCE_ROOT, 'shared', 'contracts')
 const RENDERER_API_CLIENT = resolve(SOURCE_ROOT, 'renderer', 'src', 'shared', 'api', 'client.ts')
+const MAIN_FEATURES_ROOT = resolve(SOURCE_ROOT, 'main', 'features')
 
 function listSourceFiles(root: string): string[] {
   const entries = readdirSync(root)
@@ -53,6 +54,38 @@ describe('architecture guardrails', () => {
       }
       return readFileSync(path, 'utf8').includes('ipcMain.handle')
     })
+
+    expect(offenders.map(relativeSourcePath)).toEqual([])
+  })
+
+  it('keeps ipcMain.on registration behind typed IPC', () => {
+    const offenders = listSourceFiles(resolve(SOURCE_ROOT, 'main')).filter((path) => {
+      if (path.endsWith('typed-ipc.ts')) {
+        return false
+      }
+      return readFileSync(path, 'utf8').includes('ipcMain.on')
+    })
+
+    expect(offenders.map(relativeSourcePath)).toEqual([])
+  })
+
+  it('keeps main-to-renderer IPC events behind typed IPC', () => {
+    const offenders = listSourceFiles(resolve(SOURCE_ROOT, 'main')).filter((path) => {
+      if (path.endsWith('typed-ipc.ts')) {
+        return false
+      }
+      return /\.send\(\s*IPC_CHANNELS\./u.test(readFileSync(path, 'utf8'))
+    })
+
+    expect(offenders.map(relativeSourcePath)).toEqual([])
+  })
+
+  it('keeps Electron UI APIs behind platform adapters', () => {
+    const electronUiImportPattern =
+      /import\s+(?:[\s\S]*?\b(?:BrowserWindow|Menu|clipboard|dialog|shell)\b[\s\S]*?)from ['"]electron['"]/u
+    const offenders = listSourceFiles(MAIN_FEATURES_ROOT).filter((path) =>
+      electronUiImportPattern.test(readFileSync(path, 'utf8'))
+    )
 
     expect(offenders.map(relativeSourcePath)).toEqual([])
   })

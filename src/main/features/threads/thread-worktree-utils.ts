@@ -15,7 +15,7 @@ import {
   pathForDisplay,
   spawnSyncBackendCommand
 } from '../../backends/repository-backend'
-import { buildScriptCommand } from '../../terminal'
+import { buildScriptCommand } from '../../terminal/command-utils'
 import { normalizeRepositoryScript } from '../repositories/repository-values'
 import {
   branchExists,

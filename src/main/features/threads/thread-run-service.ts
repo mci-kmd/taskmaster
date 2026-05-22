@@ -1,15 +1,12 @@
 import { spawnSync, type ChildProcess } from 'child_process'
-import { BrowserWindow, dialog } from 'electron'
 import type { MutationResult, PersistedThread } from '../../../shared/app-types'
-import { IPC_CHANNELS } from '../../../shared/contracts/ipc'
-import { buildScriptCommand } from '../../terminal'
+import { buildScriptCommand } from '../../terminal/command-utils'
 import {
   backendPathExists,
   pathForDisplay,
   spawnBackendCommand
 } from '../../backends/repository-backend'
 import { normalizeRunCommand } from '../repositories/repository-values'
-import { sanitizeUserFacingMessage } from '../shared/user-facing-messages'
 import { applyThreadBranchTokens } from './thread-worktree-utils'
 import type { ThreadGitContext } from './thread-git-context'
 
@@ -48,43 +45,6 @@ function formatThreadRunFailureDetail(
   return sections.join('\n\n')
 }
 
-async function showThreadRunFailureDialog(
-  title: string,
-  message: string,
-  detail: string
-): Promise<void> {
-  const ownerWindow =
-    BrowserWindow.getFocusedWindow() ??
-    BrowserWindow.getAllWindows().find((window) => !window.isDestroyed()) ??
-    null
-
-  const options = {
-    type: 'error' as const,
-    buttons: ['OK'],
-    defaultId: 0,
-    title: sanitizeUserFacingMessage(title),
-    message: sanitizeUserFacingMessage(message),
-    detail: sanitizeUserFacingMessage(detail),
-    noLink: true
-  }
-
-  if (ownerWindow) {
-    await dialog.showMessageBox(ownerWindow, options)
-    return
-  }
-
-  await dialog.showMessageBox(options)
-}
-
-function broadcastThreadRunState(threadId: string): void {
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed()) {
-      continue
-    }
-    window.webContents.send(IPC_CHANNELS.appState.threadRunState, { threadId })
-  }
-}
-
 function killChildProcessTree(child: Pick<ChildProcess, 'pid'>): void {
   if (!child.pid) {
     return
@@ -117,6 +77,8 @@ export function createThreadRunService(dependencies: {
   resolveThreadGitContext: (threadId: string) => ThreadGitContext
   successResult: () => MutationResult
   failureResult: (error: string, cancelled?: boolean) => MutationResult
+  broadcastThreadRunState: (threadId: string) => void
+  showThreadRunFailure: (title: string, message: string, detail: string) => Promise<void>
 }): {
   getRunningThreadIds: () => Set<string>
   startThreadRun: (threadId: string) => MutationResult
@@ -135,7 +97,7 @@ export function createThreadRunService(dependencies: {
 
     session.stopping = true
     threadRunSessions.delete(threadId)
-    broadcastThreadRunState(threadId)
+    dependencies.broadcastThreadRunState(threadId)
     killChildProcessTree(session.child)
     return true
   }
@@ -150,7 +112,7 @@ export function createThreadRunService(dependencies: {
     }
 
     threadRunSessions.delete(threadId)
-    broadcastThreadRunState(threadId)
+    dependencies.broadcastThreadRunState(threadId)
 
     if (session.stopping || appIsQuitting) {
       return
@@ -161,7 +123,7 @@ export function createThreadRunService(dependencies: {
         session,
         result.error instanceof Error ? result.error.message : String(result.error)
       )
-      void showThreadRunFailureDialog(
+      void dependencies.showThreadRunFailure(
         'Run command failed',
         `${session.threadLabel} failed to start.`,
         detail
@@ -174,7 +136,7 @@ export function createThreadRunService(dependencies: {
         session,
         `Process exited with code ${result.exitCode}.`
       )
-      void showThreadRunFailureDialog(
+      void dependencies.showThreadRunFailure(
         'Run command failed',
         `${session.threadLabel} exited with code ${result.exitCode}.`,
         detail
@@ -235,7 +197,7 @@ export function createThreadRunService(dependencies: {
         child.once('error', (error) => finalizeThreadRun(threadId, { error }))
         child.once('exit', (exitCode) => finalizeThreadRun(threadId, { exitCode }))
 
-        broadcastThreadRunState(threadId)
+        dependencies.broadcastThreadRunState(threadId)
         return dependencies.successResult()
       } catch (error) {
         return dependencies.failureResult(error instanceof Error ? error.message : String(error))
