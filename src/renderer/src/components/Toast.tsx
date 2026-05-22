@@ -18,7 +18,11 @@ const toneStyles: Record<ToastTone, string> = {
 
 export default function Toast({ tone, message, onDismiss }: ToastProps): React.JSX.Element {
   useEffect(() => {
-    const timer = window.setTimeout(onDismiss, tone === 'error' ? 6000 : 3500)
+    if (tone === 'error') {
+      return
+    }
+
+    const timer = window.setTimeout(onDismiss, 3500)
     return () => window.clearTimeout(timer)
   }, [tone, onDismiss])
 
