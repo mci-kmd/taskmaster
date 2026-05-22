@@ -1,30 +1,23 @@
 import {
   BrowserWindow,
-  ipcMain,
   Menu,
   type IpcMainInvokeEvent,
   type MenuItemConstructorOptions
 } from 'electron'
-import type {
-  SidebarContextMenuAction,
-  SidebarContextMenuActionEvent,
-  SidebarContextMenuRequest
-} from '../shared/app-types'
-
-const SHOW_SIDEBAR_CONTEXT_MENU_CHANNEL = 'native-menu:show-sidebar-context-menu'
-const SIDEBAR_CONTEXT_MENU_ACTION_CHANNEL = 'native-menu:sidebar-context-menu-action'
+import type { SidebarContextMenuAction, SidebarContextMenuRequest } from '../shared/app-types'
+import { IPC_CHANNELS } from '../shared/contracts/ipc'
+import { handleIpc, sendIpc } from './ipc/typed-ipc'
 
 function sendAction(
   event: IpcMainInvokeEvent,
   request: SidebarContextMenuRequest,
   action: SidebarContextMenuAction
 ): void {
-  const payload: SidebarContextMenuActionEvent = {
+  sendIpc(event.sender, IPC_CHANNELS.nativeMenu.sidebarContextMenuAction, {
     action,
     kind: request.kind,
     itemId: request.itemId
-  }
-  event.sender.send(SIDEBAR_CONTEXT_MENU_ACTION_CHANNEL, payload)
+  })
 }
 
 function buildSidebarContextMenuTemplate(
@@ -58,18 +51,21 @@ function buildSidebarContextMenuTemplate(
 }
 
 export function registerNativeMenuIpc(): void {
-  ipcMain.handle(SHOW_SIDEBAR_CONTEXT_MENU_CHANNEL, (event, request: SidebarContextMenuRequest) => {
-    const window = BrowserWindow.fromWebContents(event.sender)
-    if (!window || window.isDestroyed()) {
-      return false
-    }
+  handleIpc(
+    IPC_CHANNELS.nativeMenu.showSidebarContextMenu,
+    (event, request: SidebarContextMenuRequest) => {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      if (!window || window.isDestroyed()) {
+        return false
+      }
 
-    const menu = Menu.buildFromTemplate(buildSidebarContextMenuTemplate(event, request))
-    menu.popup({
-      window,
-      x: Math.round(request.x),
-      y: Math.round(request.y)
-    })
-    return true
-  })
+      const menu = Menu.buildFromTemplate(buildSidebarContextMenuTemplate(event, request))
+      menu.popup({
+        window,
+        x: Math.round(request.x),
+        y: Math.round(request.y)
+      })
+      return true
+    }
+  )
 }

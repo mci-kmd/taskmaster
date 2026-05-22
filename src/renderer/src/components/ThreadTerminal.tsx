@@ -11,6 +11,15 @@ import {
   DEFAULT_AGENT_PROVIDER_ID,
   getAgentProviderDescriptor
 } from '../../../shared/agent-providers'
+import {
+  consumeTrackedUserInput,
+  isMissingResumeSessionError,
+  normalizeTrackedUserMessage,
+  type UserInputTrackingState
+} from '../lib/terminal-input'
+import { getRendererApi } from '../shared/api/client'
+
+const api = getRendererApi()
 
 export type SessionPhase = 'initializing' | 'idle' | 'launching' | 'running' | 'stopped' | 'error'
 
@@ -76,11 +85,6 @@ type VisibleTextMap = {
 type StyledOutputState = {
   current: string
   insideToolBlock: boolean
-}
-
-type UserInputTrackingState = {
-  draft: string
-  dirty: boolean
 }
 
 const TERMINAL_THEME = {
@@ -450,17 +454,6 @@ function styleTerminalOutput(incoming: string, state: StyledOutputState): string
   return output
 }
 
-function isMissingResumeSessionError(output: string): boolean {
-  return /No session, task, or name matched|No conversation\/session|session .*not found|No sessions? found/i.test(
-    output
-  )
-}
-
-function normalizeTrackedUserMessage(value: string): string | null {
-  const normalized = value.replace(/\r\n?/gu, '\n').trim()
-  return normalized.length > 0 ? normalized : null
-}
-
 function hasBlockingModal(document: Document): boolean {
   return document.querySelector('[role="dialog"][aria-modal="true"]') !== null
 }
@@ -496,71 +489,6 @@ function isTextEntryElement(element: HTMLElement | null): boolean {
     ].includes(element.type)
   }
   return element.isContentEditable
-}
-
-function trimLastCharacter(value: string): string {
-  const chars = Array.from(value)
-  chars.pop()
-  return chars.join('')
-}
-
-function trimLastWord(value: string): string {
-  return value.replace(/[^\s]+[\s\u00a0]*$/u, '')
-}
-
-function consumeTrackedUserInput(
-  state: UserInputTrackingState,
-  data: string
-): { state: UserInputTrackingState; submittedMessage: string | null } {
-  let draft = state.draft
-  let dirty = state.dirty
-  let submittedMessage: string | null = null
-
-  for (const char of Array.from(data)) {
-    if (char === '\r' || char === '\n') {
-      if (!dirty) {
-        submittedMessage = normalizeTrackedUserMessage(draft)
-      }
-      draft = ''
-      dirty = false
-      continue
-    }
-
-    if (char === '\b' || char === '\x7f') {
-      if (!dirty) {
-        draft = trimLastCharacter(draft)
-      }
-      continue
-    }
-
-    if (char === '\x17') {
-      if (!dirty) {
-        draft = trimLastWord(draft)
-      }
-      continue
-    }
-
-    if (char === '\t') {
-      if (!dirty) {
-        draft += char
-      }
-      continue
-    }
-
-    if (char === '\x1b' || char.charCodeAt(0) < 0x20) {
-      dirty = true
-      continue
-    }
-
-    if (!dirty) {
-      draft += char
-    }
-  }
-
-  return {
-    state: { draft, dirty },
-    submittedMessage
-  }
 }
 
 const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
@@ -642,7 +570,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const frameId = window.requestAnimationFrame(() => {
         fitTerminal(term, container)
         if (terminalIdRef.current) {
-          window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
+          api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
         }
       })
 
@@ -694,7 +622,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       }
 
       lastPersistedCopilotTitleRef.current = trimmedRuntimeTitle
-      void window.api.appState.updateThreadCopilotTitle({
+      void api.appState.updateThreadCopilotTitle({
         threadId: thread.id,
         title: trimmedRuntimeTitle
       })
@@ -710,7 +638,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       }
 
       lastPersistedUserMessageRef.current = normalizedLastUserMessage
-      void window.api.appState.updateThreadLastUserMessage({
+      void api.appState.updateThreadLastUserMessage({
         threadId: thread.id,
         message: normalizedLastUserMessage
       })
@@ -755,7 +683,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           return false
         }
 
-        const result = await window.api.terminal.create({
+        const result = await api.terminal.create({
           kind: isAgentTerminal ? 'agent' : 'shell',
           agentProviderId: isAgentTerminal ? launchAgentProvider.id : undefined,
           threadId: currentThread.id,
@@ -853,7 +781,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         return
       }
 
-      await window.api.terminal.kill(id)
+      await api.terminal.kill(id)
       terminalIdRef.current = null
       launchAttemptRef.current = null
       agentProviderRef.current = latestAgentProviderRef.current
@@ -878,7 +806,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       }
       fitTerminal(term, container)
       if (terminalIdRef.current) {
-        window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
+        api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
       }
     }, [])
 
@@ -916,7 +844,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const syncSize = (): void => {
         fitTerminal(term, container)
         if (terminalIdRef.current) {
-          window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
+          api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
         }
       }
       const resizeObserver = new ResizeObserver(syncSize)
@@ -933,7 +861,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         setRuntimeTitle(title?.trim() || null)
       })
 
-      const dataCleanup = window.api.terminal.onData((payload) => {
+      const dataCleanup = api.terminal.onData((payload) => {
         if (payload.terminalId !== terminalIdRef.current) {
           return
         }
@@ -1002,14 +930,14 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         await onRefreshRef.current()
       }
 
-      const exitCleanup = window.api.terminal.onExit((payload) => {
+      const exitCleanup = api.terminal.onExit((payload) => {
         if (payload.terminalId !== terminalIdRef.current) {
           return
         }
         void handleExit(payload.exitCode)
       })
 
-      const sessionStartCleanup = window.api.terminal.onSessionStart((payload) => {
+      const sessionStartCleanup = api.terminal.onSessionStart((payload) => {
         if (kindRef.current !== 'agent') {
           return
         }
@@ -1028,7 +956,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           return
         }
 
-        void window.api.appState
+        void api.appState
           .updateThreadResumeSession({
             threadId: currentThread.id,
             sessionId: payload.sessionId,
@@ -1042,7 +970,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           })
       })
 
-      const userPromptCleanup = window.api.terminal.onUserPrompt((payload) => {
+      const userPromptCleanup = api.terminal.onUserPrompt((payload) => {
         if (kindRef.current !== 'agent') {
           return
         }
@@ -1054,7 +982,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         setLastUserMessage((current) => (current === prompt ? current : prompt))
         const currentThread = threadRef.current
         if (currentThread && prompt === lastPersistedUserMessageRef.current) {
-          void window.api.appState.updateThreadLastUserMessage({
+          void api.appState.updateThreadLastUserMessage({
             threadId: currentThread.id,
             message: prompt
           })
@@ -1067,7 +995,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (kindRef.current === 'agent' && trackedData !== null && trackedData.length > 0) {
           trackTerminalInput(trackedData)
         }
-        window.api.terminal.input(activeId, data)
+        api.terminal.input(activeId, data)
       }
       const inputDisposable = term.onData((data) => {
         forwardTerminalInput(data)
@@ -1084,7 +1012,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         const capabilities = agentProviderRef.current.capabilities
         const activeTerminalId = terminalIdRef.current
         if (activeTerminalId && capabilities.supportsClipboardImagePathPaste) {
-          const result = await window.api.terminal.saveClipboardImage(activeTerminalId)
+          const result = await api.terminal.saveClipboardImage(activeTerminalId)
           if (result.ok) {
             pasteTerminalText(` ${result.path} `)
             return
@@ -1105,13 +1033,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         kindRef.current === 'agent' &&
         (agentProviderRef.current.capabilities.supportsClipboardImagePathPaste ||
           agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut) &&
-        window.api.terminal.hasClipboardImage()
+        api.terminal.hasClipboardImage()
       const pasteClipboard = (): void => {
         if (clipboardHasImage()) {
           void pasteClipboardImage()
           return
         }
-        pasteTerminalText(window.api.terminal.readClipboardText())
+        pasteTerminalText(api.terminal.readClipboardText())
       }
       const pasteEventHasImage = (event: ClipboardEvent): boolean =>
         Array.from(event.clipboardData?.items ?? []).some((item) => item.type.startsWith('image/'))
@@ -1237,7 +1165,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         inputDisposable.dispose()
         titleDisposable.dispose()
         if (terminalIdRef.current) {
-          void window.api.terminal.kill(terminalIdRef.current)
+          void api.terminal.kill(terminalIdRef.current)
           terminalIdRef.current = null
           launchAttemptRef.current = null
         }
@@ -1271,7 +1199,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const id = window.requestAnimationFrame(() => {
         fitTerminal(term, container)
         if (terminalIdRef.current) {
-          window.api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
+          api.terminal.resize(terminalIdRef.current, term.cols, term.rows)
         }
         focusTerminalInput(term)
       })

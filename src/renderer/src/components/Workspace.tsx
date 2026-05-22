@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AppSettingsSnapshot,
-  BranchStatusRequest,
-  BranchStatusSnapshot,
   CreateRepositoryTaskInput,
   RepositorySnapshot,
   TerminalStatus,
@@ -31,6 +29,10 @@ import {
 } from './Icons'
 import { composeThreadTitle } from '../lib/title'
 import { getAgentProviderDescriptor } from '../../../shared/agent-providers'
+import { getRendererApi } from '../shared/api/client'
+import { useBranchStatus } from '../shared/hooks/use-branch-status'
+
+const api = getRendererApi()
 
 type WorkspaceProps = {
   threads: ThreadSnapshot[]
@@ -76,8 +78,6 @@ const IDLE_STATE: ThreadSessionState = {
   lastUserMessage: null
 }
 
-const ACTIVE_BRANCH_STATUS_POLL_MS = 4_000
-const IDLE_BRANCH_STATUS_POLL_MS = 15_000
 function buildThreadViewOptions(agentLabel: string): Array<{
   value: ThreadWorkspaceViewId
   label: string
@@ -100,31 +100,6 @@ function buildThreadViewOptions(agentLabel: string): Array<{
       description: 'Changed files and patches for this thread'
     }
   ]
-}
-
-function formatBranchStatusTokens(status: BranchStatusSnapshot): string[] {
-  const tokens: string[] = []
-  if (status.ahead > 0) tokens.push(`↑${status.ahead}`)
-  if (status.behind > 0) tokens.push(`↓${status.behind}`)
-  if (status.staged > 0) tokens.push(`+${status.staged}`)
-  if (status.modified > 0) tokens.push(`~${status.modified}`)
-  if (status.deleted > 0) tokens.push(`-${status.deleted}`)
-  if (status.untracked > 0) tokens.push(`?${status.untracked}`)
-  if (status.conflicted > 0) tokens.push(`!${status.conflicted}`)
-  return tokens
-}
-
-function formatBranchStatusTitle(status: BranchStatusSnapshot): string {
-  const parts = [
-    `${status.ahead} ahead`,
-    `${status.behind} behind`,
-    `${status.staged} staged`,
-    `${status.modified} modified`,
-    `${status.deleted} deleted`,
-    `${status.untracked} untracked`,
-    `${status.conflicted} conflicted`
-  ]
-  return parts.join(' · ')
 }
 
 function getSelectedThreadView(
@@ -256,15 +231,7 @@ export default function Workspace({
   const [threadViewSelections, setThreadViewSelections] = useState<
     Map<string, ThreadWorkspaceViewId>
   >(new Map())
-  const [branchStatusState, setBranchStatusState] = useState<{
-    key: string | null
-    value: BranchStatusSnapshot | null
-  }>({
-    key: null,
-    value: null
-  })
   const autoLaunchedRef = useRef<Set<string>>(new Set())
-  const branchStatusPollMsRef = useRef(IDLE_BRANCH_STATUS_POLL_MS)
   const agentProvider = getAgentProviderDescriptor(settings.agentProviderId)
   const threadViewOptions = useMemo(
     () => buildThreadViewOptions(agentProvider.label),
@@ -274,7 +241,7 @@ export default function Workspace({
 
   useEffect(() => {
     let cancelled = false
-    void window.api.terminal
+    void api.terminal
       .getStatus(settings.agentProviderId, selectedRepository?.backend)
       .then((status) => {
         if (cancelled) return
@@ -323,39 +290,6 @@ export default function Workspace({
   const hasRunCommand = Boolean(selectedRepository?.runCommand)
   const runCommandRunning = selectedThread?.isRunCommandRunning ?? false
   const showRunCommandButton = hasRunCommand || runCommandRunning
-  const branchStatusTarget = useMemo<BranchStatusRequest | null>(() => {
-    if (selectedThread) {
-      return { threadId: selectedThread.id }
-    }
-    if (selectedRepository) {
-      return { repositoryId: selectedRepository.id }
-    }
-    return null
-  }, [selectedRepository, selectedThread])
-  const branchStatusTargetKey = selectedThread
-    ? `thread:${selectedThread.id}`
-    : selectedRepository
-      ? `repository:${selectedRepository.id}`
-      : null
-  const branchStatus =
-    branchStatusTargetKey && branchStatusState.key === branchStatusTargetKey
-      ? branchStatusState.value
-      : null
-  const branchStatusSummary = useMemo(() => {
-    if (!branchStatus) {
-      return null
-    }
-    const tokens = formatBranchStatusTokens(branchStatus)
-    return tokens.length > 0 ? tokens.join(' ') : 'clean'
-  }, [branchStatus])
-  const branchStatusTitle = useMemo(() => {
-    if (!branchStatus) {
-      return null
-    }
-    const tokens = formatBranchStatusTokens(branchStatus)
-    return tokens.length > 0 ? formatBranchStatusTitle(branchStatus) : 'Working tree clean'
-  }, [branchStatus])
-
   const headerTitle = selectedThread
     ? composeThreadTitle(selectedThread, selectedCopilotSession.runtimeTitle)
     : selectedRepository
@@ -370,55 +304,12 @@ export default function Workspace({
     selectedCopilotSession.lastUserMessage?.trim() ??
     selectedThread?.lastUserMessage?.trim() ??
     null
-
-  useEffect(() => {
-    const hasActiveThreadSession =
-      hasThread &&
-      [selectedCopilotSession, selectedTerminalSession].some(
-        (session) => session.phase === 'running' || session.phase === 'launching'
-      )
-
-    branchStatusPollMsRef.current = hasActiveThreadSession
-      ? ACTIVE_BRANCH_STATUS_POLL_MS
-      : IDLE_BRANCH_STATUS_POLL_MS
-  }, [hasThread, selectedCopilotSession, selectedTerminalSession])
-
-  useEffect(() => {
-    if (!branchStatusTarget || !branchStatusTargetKey) {
-      return
-    }
-
-    let cancelled = false
-    let timeoutId: number | null = null
-
-    const load = async (): Promise<void> => {
-      const nextStatus = await window.api.appState.getBranchStatus(branchStatusTarget)
-      if (cancelled) {
-        return
-      }
-      setBranchStatusState({
-        key: branchStatusTargetKey,
-        value: nextStatus
-      })
-      timeoutId = window.setTimeout(() => {
-        void load()
-      }, branchStatusPollMsRef.current)
-    }
-
-    void load()
-
-    return () => {
-      cancelled = true
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId)
-      }
-    }
-  }, [
-    branchStatusTarget,
-    branchStatusTargetKey,
-    selectedCopilotSession.phase,
-    selectedTerminalSession.phase
-  ])
+  const { branchStatusSummary, branchStatusTitle } = useBranchStatus({
+    selectedRepository,
+    selectedThread,
+    selectedAgentSession: selectedCopilotSession,
+    selectedTerminalSession: selectedTerminalSession
+  })
 
   // Auto-launch on freshly-created threads.
   useEffect(() => {

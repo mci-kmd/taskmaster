@@ -8,13 +8,14 @@ import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
 import ResizeHandle from './components/ResizeHandle'
 import type { SessionMap } from './components/TerminalSessions'
+import { getRendererApi } from './shared/api/client'
+import { useAppSnapshot } from './shared/hooks/use-app-snapshot'
 import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   type AppSnapshot,
   type CreateRepositoryTaskInput,
-  type MutationResult,
   type RepositorySnapshot,
   type ThreadMode,
   type ThreadSnapshot,
@@ -30,6 +31,7 @@ type Feedback = {
 type DialogKey = 'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | null
 
 const DEFAULT_COLLAPSE_WINDOW_MS = 7 * 24 * 60 * 60 * 1_000
+const api = getRendererApi()
 
 function findThreadById(snapshot: AppSnapshot, threadId: string): ThreadSnapshot | null {
   return (
@@ -118,7 +120,6 @@ function getDefaultCollapsedRepositoryIds(
 }
 
 export default function App(): React.JSX.Element {
-  const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
   const [feedback, setFeedback] = useState<Feedback | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [dialog, setDialog] = useState<DialogKey>(null)
@@ -130,35 +131,32 @@ export default function App(): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionMap>(new Map())
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
   const selectionRequestIdRef = useRef(0)
-
-  useEffect(() => {
-    let isMounted = true
-
-    void window.api.appState.getSnapshot().then((nextSnapshot) => {
-      if (!isMounted) {
+  const handleSnapshotLoaded = useCallback((nextSnapshot: AppSnapshot): void => {
+    setCollapsedRepositoryIds(getDefaultCollapsedRepositoryIds(nextSnapshot))
+    setSidebarWidth(nextSnapshot.sidebarWidth)
+  }, [])
+  const handleMutationFeedback = useCallback(
+    (
+      result: { ok: boolean; cancelled?: boolean; error?: string },
+      successMessage?: string
+    ): void => {
+      if (result.ok) {
+        if (successMessage) {
+          setFeedback({ tone: 'success', message: successMessage })
+        }
         return
       }
 
-      setSnapshot(nextSnapshot)
-      setCollapsedRepositoryIds(getDefaultCollapsedRepositoryIds(nextSnapshot))
-      setSidebarWidth(nextSnapshot.sidebarWidth)
-    })
-
-    return () => {
-      isMounted = false
-    }
-  }, [])
-
-  const refreshSnapshot = useCallback(async (): Promise<void> => {
-    const nextSnapshot = await window.api.appState.refresh()
-    setSnapshot(nextSnapshot)
-  }, [])
-
-  useEffect(() => {
-    return window.api.appState.onThreadRunState(() => {
-      void refreshSnapshot()
-    })
-  }, [refreshSnapshot])
+      if (!result.cancelled) {
+        setFeedback({ tone: 'error', message: result.error ?? 'Request failed.' })
+      }
+    },
+    []
+  )
+  const { applyMutation, refreshSnapshot, setSnapshot, snapshot } = useAppSnapshot({
+    onSnapshotLoaded: handleSnapshotLoaded,
+    onMutationFeedback: handleMutationFeedback
+  })
 
   const selectedRepository = useMemo(() => {
     if (!snapshot) {
@@ -215,33 +213,12 @@ export default function App(): React.JSX.Element {
   }, [])
 
   const handleSidebarResizeEnd = useCallback((finalWidth: number): void => {
-    void window.api.appState.updateUi({ sidebarWidth: finalWidth })
+    void api.appState.updateUi({ sidebarWidth: finalWidth })
   }, [])
-
-  const applyMutation = useCallback(
-    async (action: Promise<MutationResult>, successMessage?: string): Promise<MutationResult> => {
-      const result = await action
-
-      if (result.snapshot) {
-        setSnapshot(result.snapshot)
-      }
-
-      if (result.ok) {
-        if (successMessage) {
-          setFeedback({ tone: 'success', message: successMessage })
-        }
-      } else if (!result.cancelled) {
-        setFeedback({ tone: 'error', message: result.error ?? 'Request failed.' })
-      }
-
-      return result
-    },
-    []
-  )
 
   const handleAddRepository = useCallback(async (): Promise<void> => {
     setBusyAction('add-repository')
-    const result = await applyMutation(window.api.appState.addRepository(), 'Repository added.')
+    const result = await applyMutation(api.appState.addRepository(), 'Repository added.')
     if (result.ok && result.snapshot?.selectedRepositoryId) {
       setRepositoryViewId(result.snapshot.selectedRepositoryId)
     }
@@ -268,31 +245,39 @@ export default function App(): React.JSX.Element {
     setEditingThreadId(null)
   }, [])
 
-  const handleSelectRepository = useCallback((repositoryId: string): void => {
-    const requestId = ++selectionRequestIdRef.current
-    setRepositoryViewId(repositoryId)
-    setSnapshot((current) => (current ? applyRepositorySelection(current, repositoryId) : current))
-    void window.api.appState.selectRepository(repositoryId).then((nextSnapshot) => {
-      if (selectionRequestIdRef.current !== requestId) {
-        return
-      }
+  const handleSelectRepository = useCallback(
+    (repositoryId: string): void => {
+      const requestId = ++selectionRequestIdRef.current
+      setRepositoryViewId(repositoryId)
+      setSnapshot((current) =>
+        current ? applyRepositorySelection(current, repositoryId) : current
+      )
+      void api.appState.selectRepository(repositoryId).then((nextSnapshot) => {
+        if (selectionRequestIdRef.current !== requestId) {
+          return
+        }
 
-      setSnapshot(nextSnapshot)
-    })
-  }, [])
+        setSnapshot(nextSnapshot)
+      })
+    },
+    [setSnapshot]
+  )
 
-  const handleSelectThread = useCallback((threadId: string): void => {
-    const requestId = ++selectionRequestIdRef.current
-    setRepositoryViewId(null)
-    setSnapshot((current) => (current ? applyThreadSelection(current, threadId) : current))
-    void window.api.appState.selectThread(threadId).then((nextSnapshot) => {
-      if (selectionRequestIdRef.current !== requestId) {
-        return
-      }
+  const handleSelectThread = useCallback(
+    (threadId: string): void => {
+      const requestId = ++selectionRequestIdRef.current
+      setRepositoryViewId(null)
+      setSnapshot((current) => (current ? applyThreadSelection(current, threadId) : current))
+      void api.appState.selectThread(threadId).then((nextSnapshot) => {
+        if (selectionRequestIdRef.current !== requestId) {
+          return
+        }
 
-      setSnapshot(nextSnapshot)
-    })
-  }, [])
+        setSnapshot(nextSnapshot)
+      })
+    },
+    [setSnapshot]
+  )
 
   const handleToggleRepository = useCallback((repositoryId: string): void => {
     setCollapsedRepositoryIds((current) => {
@@ -319,7 +304,7 @@ export default function App(): React.JSX.Element {
 
       setBusyAction('create-thread')
       const result = await applyMutation(
-        window.api.appState.createThread({
+        api.appState.createThread({
           repositoryId: selectedRepository.id,
           mode: input.mode,
           title: input.title,
@@ -362,10 +347,7 @@ export default function App(): React.JSX.Element {
   const handleSaveSettings = useCallback(
     async (input: UpdateSettingsInput): Promise<boolean> => {
       setBusyAction('save-settings')
-      const result = await applyMutation(
-        window.api.appState.updateSettings(input),
-        'Settings saved.'
-      )
+      const result = await applyMutation(api.appState.updateSettings(input), 'Settings saved.')
       setBusyAction(null)
       return result.ok
     },
@@ -374,7 +356,7 @@ export default function App(): React.JSX.Element {
 
   const handleBrowseRepositoryFavicon = useCallback(
     async (repositoryId: string): Promise<string | null> => {
-      const result = await window.api.appState.pickRepositoryFavicon(repositoryId)
+      const result = await api.appState.pickRepositoryFavicon(repositoryId)
       if (result.ok) {
         return result.path
       }
@@ -401,10 +383,7 @@ export default function App(): React.JSX.Element {
       postWorktreeRemoveCommand: string | null
     }): Promise<boolean> => {
       setBusyAction('save-repository')
-      const result = await applyMutation(
-        window.api.appState.updateRepository(input),
-        'Project updated.'
-      )
+      const result = await applyMutation(api.appState.updateRepository(input), 'Project updated.')
       setBusyAction(null)
       return result.ok
     },
@@ -419,7 +398,7 @@ export default function App(): React.JSX.Element {
 
       setBusyAction('create-task')
       const result = await applyMutation(
-        window.api.appState.createRepositoryTask({
+        api.appState.createRepositoryTask({
           repositoryId: selectedRepository.id,
           title: input.title,
           description: input.description,
@@ -441,7 +420,7 @@ export default function App(): React.JSX.Element {
 
       setBusyAction('complete-task')
       await applyMutation(
-        window.api.appState.completeRepositoryTask({
+        api.appState.completeRepositoryTask({
           repositoryId: selectedRepository.id,
           taskId
         }),
@@ -460,7 +439,7 @@ export default function App(): React.JSX.Element {
 
       setBusyAction('update-task')
       const result = await applyMutation(
-        window.api.appState.updateRepositoryTask({
+        api.appState.updateRepositoryTask({
           repositoryId: selectedRepository.id,
           taskId: input.taskId,
           title: input.title,
@@ -481,7 +460,7 @@ export default function App(): React.JSX.Element {
     }
 
     setBusyAction('run-command')
-    await applyMutation(window.api.appState.startThreadRun(selectedThread.id))
+    await applyMutation(api.appState.startThreadRun(selectedThread.id))
     setBusyAction(null)
   }, [applyMutation, selectedThread])
 
@@ -491,14 +470,14 @@ export default function App(): React.JSX.Element {
     }
 
     setBusyAction('run-command')
-    await applyMutation(window.api.appState.stopThreadRun(selectedThread.id))
+    await applyMutation(api.appState.stopThreadRun(selectedThread.id))
     setBusyAction(null)
   }, [applyMutation, selectedThread])
 
   const handleSaveThread = useCallback(
     async (input: { threadId: string; customTitle: string | null }): Promise<boolean> => {
       setBusyAction('save-thread')
-      const result = await applyMutation(window.api.appState.updateThread(input), 'Thread updated.')
+      const result = await applyMutation(api.appState.updateThread(input), 'Thread updated.')
       setBusyAction(null)
       return result.ok
     },
@@ -509,7 +488,7 @@ export default function App(): React.JSX.Element {
     async (threadId: string): Promise<void> => {
       setBusyAction('close-thread')
       try {
-        await applyMutation(window.api.appState.closeThread(threadId), 'Thread closed.')
+        await applyMutation(api.appState.closeThread(threadId), 'Thread closed.')
       } catch (error) {
         setFeedback({
           tone: 'error',
@@ -527,7 +506,7 @@ export default function App(): React.JSX.Element {
       return
     }
 
-    const result = await window.api.appState.openThreadWorkingDirectory(selectedThread.id)
+    const result = await api.appState.openThreadWorkingDirectory(selectedThread.id)
     if (!result.ok) {
       setFeedback({ tone: 'error', message: result.error })
     }
@@ -538,7 +517,7 @@ export default function App(): React.JSX.Element {
       return
     }
 
-    const result = await window.api.appState.openThreadWorkspaceInVscode(selectedThread.id)
+    const result = await api.appState.openThreadWorkspaceInVscode(selectedThread.id)
     if (!result.ok) {
       setFeedback({ tone: 'error', message: result.error })
       return
@@ -551,7 +530,6 @@ export default function App(): React.JSX.Element {
   // New Thread dialog opens — git state can change externally between opens.
   useEffect(() => {
     if (dialog === 'new-thread') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       void refreshSnapshot()
     }
   }, [dialog, refreshSnapshot])

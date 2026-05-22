@@ -3,9 +3,16 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import iconIco from '../../build/icon.ico?asset'
 import iconPng from '../../resources/icon.png?asset'
+import { isDevMode } from '../shared/runtime-mode'
+import { resolveDevUserDataPath } from './dev-user-data-path'
 import { registerTerminalIpc } from './terminal'
 import { initializeAppState, markThreadLaunched, registerAppStateIpc } from './app-state'
 import { registerNativeMenuIpc } from './native-menu'
+
+const devUserDataPath = resolveDevUserDataPath(app.getPath('appData'), isDevMode)
+if (devUserDataPath) {
+  app.setPath('userData', devUserDataPath)
+}
 
 function createWindow(): void {
   const windowIcon = process.platform === 'win32' ? iconIco : iconPng

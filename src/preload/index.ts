@@ -32,113 +32,120 @@ import type {
   UpdateSettingsInput,
   UpdateUiInput
 } from '../shared/app-types'
+import {
+  IPC_CHANNELS,
+  type IpcEventChannel,
+  type IpcEventDefinitions,
+  type IpcInvokeChannel,
+  type IpcInvokeDefinitions,
+  type IpcSendChannel,
+  type IpcSendDefinitions
+} from '../shared/contracts/ipc'
+
+function invokeIpc<Channel extends IpcInvokeChannel>(
+  channel: Channel,
+  ...request: IpcInvokeDefinitions[Channel]['request']
+): Promise<IpcInvokeDefinitions[Channel]['response']> {
+  return ipcRenderer.invoke(channel, ...request) as Promise<
+    IpcInvokeDefinitions[Channel]['response']
+  >
+}
+
+function sendIpc<Channel extends IpcSendChannel>(
+  channel: Channel,
+  payload: IpcSendDefinitions[Channel]['payload']
+): void {
+  ipcRenderer.send(channel, payload)
+}
+
+function onIpc<Channel extends IpcEventChannel>(
+  channel: Channel,
+  callback: (payload: IpcEventDefinitions[Channel]['payload']) => void
+): () => void {
+  const listener = (
+    _event: Electron.IpcRendererEvent,
+    payload: IpcEventDefinitions[Channel]['payload']
+  ): void => callback(payload)
+
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.off(channel, listener)
+}
 
 const api = {
   appState: {
-    getSnapshot: () => ipcRenderer.invoke('app-state:get-snapshot'),
-    refresh: () => ipcRenderer.invoke('app-state:refresh'),
-    addRepository: () => ipcRenderer.invoke('app-state:add-repository'),
+    getSnapshot: () => invokeIpc(IPC_CHANNELS.appState.getSnapshot),
+    refresh: () => invokeIpc(IPC_CHANNELS.appState.refresh),
+    addRepository: () => invokeIpc(IPC_CHANNELS.appState.addRepository),
     updateRepository: (input: UpdateRepositoryInput) =>
-      ipcRenderer.invoke('app-state:update-repository', input),
+      invokeIpc(IPC_CHANNELS.appState.updateRepository, input),
     createRepositoryTask: (input: CreateRepositoryTaskInput) =>
-      ipcRenderer.invoke('app-state:create-repository-task', input),
+      invokeIpc(IPC_CHANNELS.appState.createRepositoryTask, input),
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) =>
-      ipcRenderer.invoke('app-state:complete-repository-task', input),
+      invokeIpc(IPC_CHANNELS.appState.completeRepositoryTask, input),
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) =>
-      ipcRenderer.invoke('app-state:update-repository-task', input),
-    startThreadRun: (threadId: string) =>
-      ipcRenderer.invoke('app-state:start-thread-run', threadId),
-    stopThreadRun: (threadId: string) => ipcRenderer.invoke('app-state:stop-thread-run', threadId),
+      invokeIpc(IPC_CHANNELS.appState.updateRepositoryTask, input),
+    startThreadRun: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.startThreadRun, threadId),
+    stopThreadRun: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.stopThreadRun, threadId),
     updateThread: (input: UpdateThreadInput) =>
-      ipcRenderer.invoke('app-state:update-thread', input),
+      invokeIpc(IPC_CHANNELS.appState.updateThread, input),
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
-      ipcRenderer.invoke('app-state:pick-repository-favicon', repositoryId),
+      invokeIpc(IPC_CHANNELS.appState.pickRepositoryFavicon, repositoryId),
     createThread: (input: CreateThreadInput) =>
-      ipcRenderer.invoke('app-state:create-thread', input),
-    closeThread: (threadId: string) => ipcRenderer.invoke('app-state:close-thread', threadId),
+      invokeIpc(IPC_CHANNELS.appState.createThread, input),
+    closeThread: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.closeThread, threadId),
     updateSettings: (input: UpdateSettingsInput) =>
-      ipcRenderer.invoke('app-state:update-settings', input),
-    updateUi: (input: UpdateUiInput) => ipcRenderer.invoke('app-state:update-ui', input),
+      invokeIpc(IPC_CHANNELS.appState.updateSettings, input),
+    updateUi: (input: UpdateUiInput) => invokeIpc(IPC_CHANNELS.appState.updateUi, input),
     updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) =>
-      ipcRenderer.invoke('app-state:update-thread-copilot-title', input),
+      invokeIpc(IPC_CHANNELS.appState.updateThreadCopilotTitle, input),
     updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) =>
-      ipcRenderer.invoke('app-state:update-thread-last-user-message', input),
+      invokeIpc(IPC_CHANNELS.appState.updateThreadLastUserMessage, input),
     updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) =>
-      ipcRenderer.invoke('app-state:update-thread-resume-session', input),
+      invokeIpc(IPC_CHANNELS.appState.updateThreadResumeSession, input),
     getBranchStatus: (input: BranchStatusRequest) =>
-      ipcRenderer.invoke('app-state:get-branch-status', input),
+      invokeIpc(IPC_CHANNELS.appState.getBranchStatus, input),
     getThreadDiffRangeOptions: (threadId: string): Promise<ThreadDiffRangeOptionsResult> =>
-      ipcRenderer.invoke('app-state:get-thread-diff-range-options', threadId),
+      invokeIpc(IPC_CHANNELS.appState.getThreadDiffRangeOptions, threadId),
     getThreadDiffSummary: (input: ThreadDiffQuery): Promise<ThreadDiffSummaryResult> =>
-      ipcRenderer.invoke('app-state:get-thread-diff-summary', input),
+      invokeIpc(IPC_CHANNELS.appState.getThreadDiffSummary, input),
     getThreadDiffPatch: (input: ThreadDiffPatchRequest): Promise<ThreadDiffPatchResult> =>
-      ipcRenderer.invoke('app-state:get-thread-diff-patch', input),
+      invokeIpc(IPC_CHANNELS.appState.getThreadDiffPatch, input),
     openThreadWorkingDirectory: (threadId: string): Promise<OpenThreadWorkingDirectoryResult> =>
-      ipcRenderer.invoke('app-state:open-thread-working-directory', threadId),
+      invokeIpc(IPC_CHANNELS.appState.openThreadWorkingDirectory, threadId),
     openThreadWorkspaceInVscode: (threadId: string): Promise<OpenThreadWorkspaceInVscodeResult> =>
-      ipcRenderer.invoke('app-state:open-thread-workspace-in-vscode', threadId),
+      invokeIpc(IPC_CHANNELS.appState.openThreadWorkspaceInVscode, threadId),
     selectRepository: (repositoryId: string | null) =>
-      ipcRenderer.invoke('app-state:select-repository', repositoryId),
+      invokeIpc(IPC_CHANNELS.appState.selectRepository, repositoryId),
     selectThread: (threadId: string | null) =>
-      ipcRenderer.invoke('app-state:select-thread', threadId),
+      invokeIpc(IPC_CHANNELS.appState.selectThread, threadId),
     showSidebarContextMenu: (input: SidebarContextMenuRequest) =>
-      ipcRenderer.invoke('native-menu:show-sidebar-context-menu', input),
-    onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: ThreadRunStateEvent): void =>
-        callback(payload)
-      ipcRenderer.on('app-state:thread-run-state', listener)
-      return () => ipcRenderer.off('app-state:thread-run-state', listener)
-    },
-    onSidebarContextMenuAction: (callback: (payload: SidebarContextMenuActionEvent) => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        payload: SidebarContextMenuActionEvent
-      ): void => callback(payload)
-      ipcRenderer.on('native-menu:sidebar-context-menu-action', listener)
-      return () => ipcRenderer.off('native-menu:sidebar-context-menu-action', listener)
-    }
+      invokeIpc(IPC_CHANNELS.nativeMenu.showSidebarContextMenu, input),
+    onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) =>
+      onIpc(IPC_CHANNELS.appState.threadRunState, callback),
+    onSidebarContextMenuAction: (callback: (payload: SidebarContextMenuActionEvent) => void) =>
+      onIpc(IPC_CHANNELS.nativeMenu.sidebarContextMenuAction, callback)
   },
   terminal: {
     getStatus: (providerId?: AgentProviderId, backend?: RepositoryBackend) =>
-      ipcRenderer.invoke('terminal:status', providerId, backend),
-    create: (request: TerminalCreateRequest) => ipcRenderer.invoke('terminal:create', request),
-    kill: (terminalId: string) => ipcRenderer.invoke('terminal:kill', terminalId),
+      invokeIpc(IPC_CHANNELS.terminal.status, providerId, backend),
+    create: (request: TerminalCreateRequest) => invokeIpc(IPC_CHANNELS.terminal.create, request),
+    kill: (terminalId: string) => invokeIpc(IPC_CHANNELS.terminal.kill, terminalId),
     hasClipboardImage: () => !clipboard.readImage().isEmpty(),
     saveClipboardImage: (terminalId: string) =>
-      ipcRenderer.invoke('terminal:save-clipboard-image', terminalId),
+      invokeIpc(IPC_CHANNELS.terminal.saveClipboardImage, terminalId),
     readClipboardText: () => clipboard.readText(),
     input: (terminalId: string, data: string) =>
-      ipcRenderer.send('terminal:input', { terminalId, data }),
+      sendIpc(IPC_CHANNELS.terminal.input, { terminalId, data }),
     resize: (terminalId: string, cols: number, rows: number) =>
-      ipcRenderer.send('terminal:resize', { terminalId, cols, rows }),
-    onData: (callback: (payload: TerminalDataEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: TerminalDataEvent): void =>
-        callback(payload)
-      ipcRenderer.on('terminal:data', listener)
-      return () => ipcRenderer.off('terminal:data', listener)
-    },
-    onExit: (callback: (payload: TerminalExitEvent) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, payload: TerminalExitEvent): void =>
-        callback(payload)
-      ipcRenderer.on('terminal:exit', listener)
-      return () => ipcRenderer.off('terminal:exit', listener)
-    },
-    onSessionStart: (callback: (payload: TerminalSessionStartEvent) => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        payload: TerminalSessionStartEvent
-      ): void => callback(payload)
-      ipcRenderer.on('terminal:session-start', listener)
-      return () => ipcRenderer.off('terminal:session-start', listener)
-    },
-    onUserPrompt: (callback: (payload: TerminalUserPromptEvent) => void) => {
-      const listener = (
-        _event: Electron.IpcRendererEvent,
-        payload: TerminalUserPromptEvent
-      ): void => callback(payload)
-      ipcRenderer.on('terminal:user-prompt', listener)
-      return () => ipcRenderer.off('terminal:user-prompt', listener)
-    }
+      sendIpc(IPC_CHANNELS.terminal.resize, { terminalId, cols, rows }),
+    onData: (callback: (payload: TerminalDataEvent) => void) =>
+      onIpc(IPC_CHANNELS.terminal.data, callback),
+    onExit: (callback: (payload: TerminalExitEvent) => void) =>
+      onIpc(IPC_CHANNELS.terminal.exit, callback),
+    onSessionStart: (callback: (payload: TerminalSessionStartEvent) => void) =>
+      onIpc(IPC_CHANNELS.terminal.sessionStart, callback),
+    onUserPrompt: (callback: (payload: TerminalUserPromptEvent) => void) =>
+      onIpc(IPC_CHANNELS.terminal.userPrompt, callback)
   }
 }
 
