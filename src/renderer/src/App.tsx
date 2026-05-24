@@ -128,6 +128,7 @@ export default function App(): React.JSX.Element {
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
   const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
   const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
+  const [newThreadError, setNewThreadError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
   const selectionRequestIdRef = useRef(0)
@@ -302,31 +303,42 @@ export default function App(): React.JSX.Element {
         return false
       }
 
+      setNewThreadError(null)
       setBusyAction('create-thread')
-      const result = await applyMutation(
-        api.appState.createThread({
+      try {
+        const result = await api.appState.createThread({
           repositoryId: selectedRepository.id,
           mode: input.mode,
           title: input.title,
           branchName: input.branchName,
           useCurrentBranch: input.useCurrentBranch
-        }),
-        'Thread created.'
-      )
-      setBusyAction(null)
+        })
 
-      if (result.ok && result.snapshot?.selectedThreadId) {
-        setRepositoryViewId(null)
-        const newThreadId = result.snapshot.selectedThreadId
-        const newThread = findThreadById(result.snapshot, newThreadId)
-        if (newThread && !newThread.hasLaunched) {
-          setAutoLaunchThreadId(newThreadId)
+        if (result.snapshot) {
+          setSnapshot(result.snapshot)
         }
-      }
 
-      return result.ok
+        if (result.ok && result.snapshot?.selectedThreadId) {
+          setFeedback({ tone: 'success', message: 'Thread created.' })
+          setRepositoryViewId(null)
+          const newThreadId = result.snapshot.selectedThreadId
+          const newThread = findThreadById(result.snapshot, newThreadId)
+          if (newThread && !newThread.hasLaunched) {
+            setAutoLaunchThreadId(newThreadId)
+          }
+        } else if (!result.cancelled) {
+          setNewThreadError(result.error ?? 'Thread creation failed.')
+        }
+
+        return result.ok
+      } catch (error) {
+        setNewThreadError(error instanceof Error ? error.message : String(error))
+        return false
+      } finally {
+        setBusyAction(null)
+      }
     },
-    [applyMutation, selectedRepository]
+    [selectedRepository, setSnapshot]
   )
 
   const handleOpenNewThreadDialog = useCallback(
@@ -339,10 +351,16 @@ export default function App(): React.JSX.Element {
       if (targetRepositoryId !== selectedRepository?.id) {
         handleSelectRepository(targetRepositoryId)
       }
+      setNewThreadError(null)
       setDialog('new-thread')
     },
     [handleSelectRepository, selectedRepository]
   )
+
+  const handleCloseNewThreadDialog = useCallback((): void => {
+    setDialog(null)
+    setNewThreadError(null)
+  }, [])
 
   const handleSaveSettings = useCallback(
     async (input: UpdateSettingsInput): Promise<boolean> => {
@@ -620,7 +638,8 @@ export default function App(): React.JSX.Element {
 
       <NewThreadDialog
         busy={busyAction === 'create-thread'}
-        onClose={() => setDialog(null)}
+        error={newThreadError}
+        onClose={handleCloseNewThreadDialog}
         onSubmit={handleCreateThread}
         open={dialog === 'new-thread'}
         repository={selectedRepository}
