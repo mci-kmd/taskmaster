@@ -10,9 +10,9 @@ type ToastProps = {
 }
 
 const toneStyles: Record<ToastTone, string> = {
-  error: 'border-[rgba(240,140,140,0.35)] bg-[rgba(240,140,140,0.06)] text-[var(--color-danger)]',
+  error: 'border-[rgba(240,140,140,0.45)] bg-[var(--color-surface-2)] text-[var(--color-danger)]',
   success:
-    'border-[rgba(110,231,168,0.3)] bg-[rgba(110,231,168,0.05)] text-[var(--color-positive)]',
+    'border-[rgba(110,231,168,0.4)] bg-[var(--color-surface-2)] text-[var(--color-positive)]',
   info: 'border-[var(--color-border-strong)] bg-[var(--color-surface-2)] text-[var(--color-fg)]'
 }
 

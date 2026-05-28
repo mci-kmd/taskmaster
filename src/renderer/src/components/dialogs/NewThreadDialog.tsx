@@ -19,6 +19,7 @@ type NewThreadDialogProps = {
   open: boolean
   repository: RepositorySnapshot | null
   busy: boolean
+  error: string | null
   onClose: () => void
   onSubmit: (input: SubmitInput) => Promise<boolean>
 }
@@ -27,6 +28,7 @@ export default function NewThreadDialog({
   open,
   repository,
   busy,
+  error,
   onClose,
   onSubmit
 }: NewThreadDialogProps): React.JSX.Element {
@@ -45,6 +47,7 @@ export default function NewThreadDialog({
       {repository ? (
         <NewThreadForm
           busy={busy}
+          error={error}
           onCancel={onClose}
           onSubmit={async (input) => {
             const ok = await onSubmit(input)
@@ -73,6 +76,7 @@ export default function NewThreadDialog({
 type NewThreadFormProps = {
   repository: RepositorySnapshot
   busy: boolean
+  error: string | null
   onCancel: () => void
   onSubmit: (input: SubmitInput) => Promise<void>
 }
@@ -80,6 +84,7 @@ type NewThreadFormProps = {
 function NewThreadForm({
   repository,
   busy,
+  error,
   onCancel,
   onSubmit
 }: NewThreadFormProps): React.JSX.Element {
@@ -224,6 +229,15 @@ function NewThreadForm({
             />
           </div>
         </Field>
+      ) : null}
+
+      {error ? (
+        <div
+          className="rounded-md border border-[rgba(240,140,140,0.45)] bg-[rgba(240,140,140,0.08)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-danger)]"
+          role="alert"
+        >
+          {error}
+        </div>
       ) : null}
 
       <div className="mt-2 flex items-center justify-end gap-2 pt-1">
