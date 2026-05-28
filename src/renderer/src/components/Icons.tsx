@@ -45,6 +45,15 @@ export function ChevronRightIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function ArrowRightIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M3 8h8" />
+      <path d="m8 4 4 4-4 4" />
+    </svg>
+  )
+}
+
 export function ChevronDownIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

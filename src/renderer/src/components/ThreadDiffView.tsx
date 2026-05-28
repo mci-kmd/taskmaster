@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Diff, Hunk, parseDiff } from 'react-diff-view'
+import { createPortal } from 'react-dom'
+import {
+  computeOldLineNumber,
+  computeNewLineNumber,
+  Diff,
+  getCorrespondingNewLineNumber,
+  Hunk,
+  parseDiff
+} from 'react-diff-view'
+import type { DiffProps } from 'react-diff-view'
 import type {
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
@@ -12,7 +21,7 @@ import type {
   ThreadDiffRangeOptions,
   ThreadSnapshot
 } from '../../../shared/app-types'
-import { RefreshIcon } from './Icons'
+import { ArrowRightIcon, RefreshIcon } from './Icons'
 import MonacoFileEditor from './MonacoFileEditor'
 import ResizeHandle from './ResizeHandle'
 import Button from './ui/Button'
@@ -62,6 +71,19 @@ type FileContentState = {
   saveStatus: 'idle' | 'saving' | 'success' | 'error'
   saveMessage: string | null
 }
+
+type FileRevealTarget = {
+  lineNumber: number
+  token: number
+}
+
+type HoverJumpTarget = {
+  cell: HTMLElement
+  lineNumber: number
+}
+
+type DiffChange = Parameters<typeof computeNewLineNumber>[0]
+type DiffHunks = Parameters<typeof getCorrespondingNewLineNumber>[0]
 
 const DIFF_SPLIT_MIN_WIDTH_PX = 1320
 const FILE_LIST_WIDTH_DEFAULT = 380
@@ -240,6 +262,40 @@ function createFileContentState(result?: ThreadDiffFileContentResult): FileConte
   }
 }
 
+function resolveFileJumpLineNumber(change: DiffChange, hunks: DiffHunks): number | null {
+  const directLineNumber = computeNewLineNumber(change)
+  if (directLineNumber > 0) {
+    return directLineNumber
+  }
+
+  const deletedLineNumber = computeOldLineNumber(change)
+  if (deletedLineNumber <= 0) {
+    return null
+  }
+
+  const mappedLineNumber = getCorrespondingNewLineNumber(hunks, deletedLineNumber)
+  if (mappedLineNumber > 0) {
+    return mappedLineNumber
+  }
+
+  for (let offset = 1; offset <= 20; offset += 1) {
+    const forwardLineNumber = getCorrespondingNewLineNumber(hunks, deletedLineNumber + offset)
+    if (forwardLineNumber > 0) {
+      return forwardLineNumber
+    }
+
+    const backwardCandidate = deletedLineNumber - offset
+    if (backwardCandidate > 0) {
+      const backwardLineNumber = getCorrespondingNewLineNumber(hunks, backwardCandidate)
+      if (backwardLineNumber > 0) {
+        return backwardLineNumber
+      }
+    }
+  }
+
+  return null
+}
+
 export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.JSX.Element {
   const [mode, setMode] = useState<ThreadDiffMode>('working-tree')
   const [rangeOptionsState, setRangeOptionsState] = useState<RangeOptionsState>({
@@ -261,6 +317,8 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
   const [fileContentStates, setFileContentStates] = useState<Record<string, FileContentState>>({})
   const [filePaneMode, setFilePaneMode] = useState<FilePaneMode>('patch')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [fileRevealTarget, setFileRevealTarget] = useState<FileRevealTarget | null>(null)
+  const [hoverJumpTarget, setHoverJumpTarget] = useState<HoverJumpTarget | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [diffPaneWidth, setDiffPaneWidth] = useState<number | null>(null)
   const [fileListWidth, setFileListWidth] = useState(FILE_LIST_WIDTH_DEFAULT)
@@ -597,6 +655,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
 
     return parseDiff(activePatchState.patch)
   }, [activePatchState.patch, activePatchState.status])
+  const selectedParsedDiff = parsedDiffs[0] ?? null
 
   const summaryLabel =
     mode === 'range'
@@ -671,6 +730,21 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
 
   const handleRefresh = useCallback((): void => {
     setRefreshToken((current) => current + 1)
+  }, [])
+
+  const handleSelectPath = useCallback((path: string): void => {
+    setSelectedPath(path)
+    setFileRevealTarget(null)
+    setHoverJumpTarget(null)
+  }, [])
+
+  const handleJumpToFileLine = useCallback((lineNumber: number): void => {
+    setFilePaneMode('file')
+    setHoverJumpTarget(null)
+    setFileRevealTarget((current) => ({
+      lineNumber,
+      token: (current?.token ?? 0) + 1
+    }))
   }, [])
 
   const handleFileContentChange = useCallback(
@@ -816,6 +890,47 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
     selectedFileState,
     thread.id
   ])
+
+  const patchCodeEvents = useMemo<DiffProps['codeEvents']>(() => {
+    if (
+      filePaneMode !== 'patch' ||
+      !selectedFile ||
+      selectedFile.status === 'deleted' ||
+      !selectedParsedDiff
+    ) {
+      return {}
+    }
+
+    const hunks = selectedParsedDiff.hunks
+
+    return {
+      onMouseEnter: ({ change }, event) => {
+        if (!change) {
+          setHoverJumpTarget(null)
+          return
+        }
+
+        const lineNumber = resolveFileJumpLineNumber(change, hunks)
+        if (!lineNumber) {
+          setHoverJumpTarget(null)
+          return
+        }
+
+        setHoverJumpTarget({
+          cell: event.currentTarget,
+          lineNumber
+        })
+      },
+      onMouseLeave: (_args, event) => {
+        const nextTarget = event.relatedTarget
+        if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+          return
+        }
+
+        setHoverJumpTarget((current) => (current?.cell === event.currentTarget ? null : current))
+      }
+    }
+  }, [filePaneMode, selectedFile, selectedParsedDiff])
 
   const filePaneStatus = !selectedFile
     ? null
@@ -1047,7 +1162,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                               : 'border-transparent bg-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]'
                           }`}
                           key={`${file.previousPath ?? ''}:${file.path}`}
-                          onClick={() => setSelectedPath(file.path)}
+                          onClick={() => handleSelectPath(file.path)}
                           title={tooltip}
                           type="button"
                         >
@@ -1196,6 +1311,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                     {parsedDiffs.map((file) => (
                       <Diff
                         codeClassName="text-[12.5px]"
+                        codeEvents={patchCodeEvents}
                         diffType={file.type}
                         gutterClassName="text-[11.5px]"
                         gutterType="anchor"
@@ -1206,6 +1322,28 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                         {(hunks) => hunks.map((hunk) => <Hunk hunk={hunk} key={hunk.content} />)}
                       </Diff>
                     ))}
+                    {hoverJumpTarget?.cell.isConnected
+                      ? createPortal(
+                          <button
+                            aria-label={`Open file at line ${hoverJumpTarget.lineNumber}`}
+                            className="tm-diff-line-jump"
+                            onClick={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                              handleJumpToFileLine(hoverJumpTarget.lineNumber)
+                            }}
+                            onMouseDown={(event) => {
+                              event.preventDefault()
+                              event.stopPropagation()
+                            }}
+                            title={`Open file at line ${hoverJumpTarget.lineNumber}`}
+                            type="button"
+                          >
+                            <ArrowRightIcon height={12} width={12} />
+                          </button>,
+                          hoverJumpTarget.cell
+                        )
+                      : null}
                   </div>
                 ) : activePatchState.status === 'ready' ? (
                   <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-fg-muted)]">
@@ -1229,6 +1367,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                   onChange={handleFileContentChange}
                   path={selectedFile.path}
                   readOnly={selectedFileReadOnly || selectedFileState.saveStatus === 'saving'}
+                  revealTarget={fileRevealTarget}
                   value={selectedFileState.content}
                 />
               )}

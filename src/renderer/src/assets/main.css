@@ -430,10 +430,44 @@ select {
 }
 
 .tm-diff-view .diff-code {
-  padding-right: 0.75rem;
+  position: relative;
+  padding-right: 2.6rem;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+.tm-diff-line-jump {
+  position: absolute;
+  top: 50%;
+  right: 0.55rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  transform: translateY(-50%);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: rgba(22, 22, 24, 0.92);
+  color: var(--color-fg-muted);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.tm-diff-line-jump:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+
+.tm-diff-line-jump:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .tm-monaco-editor {
