@@ -300,6 +300,41 @@ export type ThreadDiffPatchResult =
       error: string
     }
 
+export interface ThreadDiffFileContentRequest extends ThreadDiffQuery {
+  path: string
+  previousPath?: string | null
+  status: ThreadDiffFileStatus
+}
+
+export type ThreadDiffFileContentResult =
+  | {
+      ok: true
+      content: string
+      revisionToken: string
+    }
+  | {
+      ok: false
+      error: string
+    }
+
+export interface ThreadDiffFileSaveRequest extends ThreadDiffQuery {
+  path: string
+  previousPath?: string | null
+  status: ThreadDiffFileStatus
+  content: string
+  expectedRevisionToken: string
+}
+
+export type ThreadDiffFileSaveResult =
+  | {
+      ok: true
+      revisionToken: string
+    }
+  | {
+      ok: false
+      error: string
+    }
+
 export type SidebarContextMenuKind = 'repository' | 'thread'
 
 export type SidebarContextMenuAction = 'new-thread' | 'edit' | 'close-thread'

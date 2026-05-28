@@ -436,6 +436,17 @@ select {
   overflow-wrap: anywhere;
 }
 
+.tm-monaco-editor {
+  height: 100%;
+  min-height: 0;
+}
+
+.tm-monaco-editor .monaco-editor,
+.tm-monaco-editor .monaco-editor-background,
+.tm-monaco-editor .margin {
+  background: var(--color-panel) !important;
+}
+
 /* Sidebar resize handle. The handle straddles the right edge of the sidebar
    so the visible boundary is part of the grab target. */
 .tm-resize-handle {

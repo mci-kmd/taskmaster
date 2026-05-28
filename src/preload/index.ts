@@ -12,6 +12,10 @@ import type {
   RepositoryBackend,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
+  ThreadDiffFileContentRequest,
+  ThreadDiffFileContentResult,
+  ThreadDiffFileSaveRequest,
+  ThreadDiffFileSaveResult,
   ThreadDiffPatchRequest,
   ThreadDiffPatchResult,
   ThreadDiffQuery,
@@ -110,6 +114,14 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.getThreadDiffSummary, input),
     getThreadDiffPatch: (input: ThreadDiffPatchRequest): Promise<ThreadDiffPatchResult> =>
       invokeIpc(IPC_CHANNELS.appState.getThreadDiffPatch, input),
+    getThreadDiffFileContent: (
+      input: ThreadDiffFileContentRequest
+    ): Promise<ThreadDiffFileContentResult> =>
+      invokeIpc(IPC_CHANNELS.appState.getThreadDiffFileContent, input),
+    saveThreadDiffFileContent: (
+      input: ThreadDiffFileSaveRequest
+    ): Promise<ThreadDiffFileSaveResult> =>
+      invokeIpc(IPC_CHANNELS.appState.saveThreadDiffFileContent, input),
     openThreadWorkingDirectory: (threadId: string): Promise<OpenThreadWorkingDirectoryResult> =>
       invokeIpc(IPC_CHANNELS.appState.openThreadWorkingDirectory, threadId),
     openThreadWorkspaceInVscode: (threadId: string): Promise<OpenThreadWorkspaceInVscodeResult> =>

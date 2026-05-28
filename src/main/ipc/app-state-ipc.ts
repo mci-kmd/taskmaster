@@ -10,6 +10,10 @@ import type {
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
+  ThreadDiffFileContentRequest,
+  ThreadDiffFileContentResult,
+  ThreadDiffFileSaveRequest,
+  ThreadDiffFileSaveResult,
   ThreadDiffPatchRequest,
   ThreadDiffPatchResult,
   ThreadDiffQuery,
@@ -51,6 +55,10 @@ type AppStateIpcHandlers = {
   getThreadDiffSummary: (input: ThreadDiffQuery) => Promise<ThreadDiffSummaryResult>
   getThreadDiffRangeOptions: (threadId: string) => Promise<ThreadDiffRangeOptionsResult>
   getThreadDiffPatch: (input: ThreadDiffPatchRequest) => Promise<ThreadDiffPatchResult>
+  getThreadDiffFileContent: (
+    input: ThreadDiffFileContentRequest
+  ) => Promise<ThreadDiffFileContentResult>
+  saveThreadDiffFileContent: (input: ThreadDiffFileSaveRequest) => Promise<ThreadDiffFileSaveResult>
   openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
   openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
   selectRepository: (repositoryId: string | null) => AppSnapshot
@@ -125,6 +133,14 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.getThreadDiffPatch, (_event, input: ThreadDiffPatchRequest) =>
     handlers.getThreadDiffPatch(input)
+  )
+  handleIpc(
+    IPC_CHANNELS.appState.getThreadDiffFileContent,
+    (_event, input: ThreadDiffFileContentRequest) => handlers.getThreadDiffFileContent(input)
+  )
+  handleIpc(
+    IPC_CHANNELS.appState.saveThreadDiffFileContent,
+    (_event, input: ThreadDiffFileSaveRequest) => handlers.saveThreadDiffFileContent(input)
   )
   handleIpc(IPC_CHANNELS.appState.openThreadWorkingDirectory, (_event, threadId: string) =>
     handlers.openThreadWorkingDirectory(threadId)

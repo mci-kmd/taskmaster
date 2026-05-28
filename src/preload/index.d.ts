@@ -12,6 +12,10 @@ import type {
   PickRepositoryFaviconResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
+  ThreadDiffFileContentRequest,
+  ThreadDiffFileContentResult,
+  ThreadDiffFileSaveRequest,
+  ThreadDiffFileSaveResult,
   ThreadDiffPatchRequest,
   ThreadDiffPatchResult,
   ThreadDiffQuery,
@@ -53,6 +57,12 @@ declare global {
     getThreadDiffRangeOptions: (threadId: string) => Promise<ThreadDiffRangeOptionsResult>
     getThreadDiffSummary: (input: ThreadDiffQuery) => Promise<ThreadDiffSummaryResult>
     getThreadDiffPatch: (input: ThreadDiffPatchRequest) => Promise<ThreadDiffPatchResult>
+    getThreadDiffFileContent: (
+      input: ThreadDiffFileContentRequest
+    ) => Promise<ThreadDiffFileContentResult>
+    saveThreadDiffFileContent: (
+      input: ThreadDiffFileSaveRequest
+    ) => Promise<ThreadDiffFileSaveResult>
     openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
     openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>

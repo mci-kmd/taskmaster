@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Diff, Hunk, parseDiff } from 'react-diff-view'
 import type {
+  ThreadDiffFileContentRequest,
+  ThreadDiffFileContentResult,
+  ThreadDiffFileSaveRequest,
   ThreadDiffFileSummary,
   ThreadDiffMode,
   ThreadDiffPatchRequest,
@@ -10,6 +13,7 @@ import type {
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { RefreshIcon } from './Icons'
+import MonacoFileEditor from './MonacoFileEditor'
 import ResizeHandle from './ResizeHandle'
 import Button from './ui/Button'
 import { Field, Select } from './ui/Field'
@@ -47,12 +51,40 @@ type FileGroup = {
   files: ThreadDiffFileSummary[]
 }
 
+type FilePaneMode = 'patch' | 'file'
+
+type FileContentState = {
+  status: 'idle' | 'loading' | 'ready' | 'error'
+  content: string
+  savedContent: string
+  revisionToken: string | null
+  error: string | null
+  saveStatus: 'idle' | 'saving' | 'success' | 'error'
+  saveMessage: string | null
+}
+
 const DIFF_SPLIT_MIN_WIDTH_PX = 1320
 const FILE_LIST_WIDTH_DEFAULT = 380
 const FILE_LIST_WIDTH_MIN = 220
 const FILE_LIST_WIDTH_MAX = 560
 const DIFF_CONTENT_WIDTH_MIN = 480
 const DIFF_PANE_GAP_PX = 12
+const FILE_PANE_OPTIONS: Array<{
+  value: FilePaneMode
+  label: string
+  description: string
+}> = [
+  {
+    value: 'patch',
+    label: 'Patch',
+    description: 'Show the git patch for the selected file'
+  },
+  {
+    value: 'file',
+    label: 'File',
+    description: 'Show the full file content'
+  }
+]
 
 const DIFF_MODE_OPTIONS: Array<{
   value: ThreadDiffMode
@@ -149,6 +181,65 @@ function getRangeOptionLabel(value: string, optionMap: Map<string, ThreadDiffRan
   return optionMap.get(value)?.label ?? value
 }
 
+function buildThreadDiffRequestKey(
+  query: ThreadDiffQuery | null,
+  threadId: string,
+  mode: ThreadDiffMode,
+  refreshToken: number
+): string {
+  if (!query) {
+    return JSON.stringify(['pending-range', threadId, mode, refreshToken])
+  }
+
+  return JSON.stringify([
+    query.threadId,
+    query.mode,
+    query.baseRef ?? null,
+    query.headRef ?? null,
+    refreshToken
+  ])
+}
+
+function buildFileContentStateKey(requestKey: string, path: string): string {
+  return `${requestKey}:${path}:file`
+}
+
+function createFileContentState(result?: ThreadDiffFileContentResult): FileContentState {
+  if (!result) {
+    return {
+      status: 'idle',
+      content: '',
+      savedContent: '',
+      revisionToken: null,
+      error: null,
+      saveStatus: 'idle',
+      saveMessage: null
+    }
+  }
+
+  if (!result.ok) {
+    return {
+      status: 'error',
+      content: '',
+      savedContent: '',
+      revisionToken: null,
+      error: result.error,
+      saveStatus: 'idle',
+      saveMessage: null
+    }
+  }
+
+  return {
+    status: 'ready',
+    content: result.content,
+    savedContent: result.content,
+    revisionToken: result.revisionToken,
+    error: null,
+    saveStatus: 'idle',
+    saveMessage: null
+  }
+}
+
 export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.JSX.Element {
   const [mode, setMode] = useState<ThreadDiffMode>('working-tree')
   const [rangeOptionsState, setRangeOptionsState] = useState<RangeOptionsState>({
@@ -167,6 +258,8 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
   })
   const [loadedSummaryKey, setLoadedSummaryKey] = useState<string | null>(null)
   const [patchStates, setPatchStates] = useState<Record<string, PatchState>>({})
+  const [fileContentStates, setFileContentStates] = useState<Record<string, FileContentState>>({})
+  const [filePaneMode, setFilePaneMode] = useState<FilePaneMode>('patch')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [diffPaneWidth, setDiffPaneWidth] = useState<number | null>(null)
@@ -196,17 +289,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
   }, [mode, selectedRange.baseRef, selectedRange.headRef, thread.id])
 
   const requestKey = useMemo(() => {
-    if (!query) {
-      return JSON.stringify(['pending-range', thread.id, mode, refreshToken])
-    }
-
-    return JSON.stringify([
-      query.threadId,
-      query.mode,
-      query.baseRef ?? null,
-      query.headRef ?? null,
-      refreshToken
-    ])
+    return buildThreadDiffRequestKey(query, thread.id, mode, refreshToken)
   }, [mode, query, refreshToken, thread.id])
 
   useEffect(() => {
@@ -363,10 +446,18 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
   }, [summaryState.files, thread.cwd])
 
   const patchKey = selectedFile ? `${requestKey}:${selectedFile.path}` : null
+  const fileContentKey = selectedFile
+    ? buildFileContentStateKey(requestKey, selectedFile.path)
+    : null
   const selectedPatchState = patchKey ? (patchStates[patchKey] ?? null) : null
+  const selectedFileState = fileContentKey ? (fileContentStates[fileContentKey] ?? null) : null
   const summaryLoading =
     (mode === 'range' && !query && rangeOptionsState.status === 'loading') ||
     (!!query && loadedSummaryKey !== requestKey && summaryState.status !== 'error')
+  const selectedFileDirty =
+    selectedFileState?.status === 'ready' &&
+    selectedFileState.content !== selectedFileState.savedContent
+  const selectedFileReadOnly = mode !== 'working-tree'
 
   useEffect(() => {
     if (!query || !selectedFile || !patchKey || summaryLoading) {
@@ -429,6 +520,59 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
       cancelled = true
     }
   }, [patchKey, query, selectedFile, selectedPatchState, summaryLoading])
+
+  useEffect(() => {
+    if (filePaneMode !== 'file' || !query || !selectedFile || !fileContentKey || summaryLoading) {
+      return
+    }
+
+    if (selectedFileState) {
+      return
+    }
+
+    let cancelled = false
+    const request: ThreadDiffFileContentRequest = {
+      ...query,
+      path: selectedFile.path,
+      previousPath: selectedFile.previousPath,
+      status: selectedFile.status
+    }
+
+    void api.appState
+      .getThreadDiffFileContent(request)
+      .then((result) => {
+        if (cancelled) {
+          return
+        }
+
+        setFileContentStates((current) => ({
+          ...current,
+          [fileContentKey]: createFileContentState(result)
+        }))
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return
+        }
+
+        setFileContentStates((current) => ({
+          ...current,
+          [fileContentKey]: {
+            status: 'error',
+            content: '',
+            savedContent: '',
+            revisionToken: null,
+            error: error instanceof Error ? error.message : String(error),
+            saveStatus: 'idle',
+            saveMessage: null
+          }
+        }))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [fileContentKey, filePaneMode, query, selectedFile, selectedFileState, summaryLoading])
 
   const activePatchState = !selectedFile
     ? {
@@ -528,6 +672,184 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
   const handleRefresh = useCallback((): void => {
     setRefreshToken((current) => current + 1)
   }, [])
+
+  const handleFileContentChange = useCallback(
+    (nextContent: string): void => {
+      if (!fileContentKey) {
+        return
+      }
+
+      setFileContentStates((current) => {
+        const existing = current[fileContentKey]
+        if (!existing || existing.status !== 'ready') {
+          return current
+        }
+
+        return {
+          ...current,
+          [fileContentKey]: {
+            ...existing,
+            content: nextContent,
+            saveStatus: 'idle',
+            saveMessage: null
+          }
+        }
+      })
+    },
+    [fileContentKey]
+  )
+
+  const handleRevertFile = useCallback((): void => {
+    if (!fileContentKey) {
+      return
+    }
+
+    setFileContentStates((current) => {
+      const existing = current[fileContentKey]
+      if (!existing || existing.status !== 'ready') {
+        return current
+      }
+
+      return {
+        ...current,
+        [fileContentKey]: {
+          ...existing,
+          content: existing.savedContent,
+          saveStatus: 'idle',
+          saveMessage: null
+        }
+      }
+    })
+  }, [fileContentKey])
+
+  const handleSaveFile = useCallback((): void => {
+    if (!query || !selectedFile || !fileContentKey || !selectedFileState) {
+      return
+    }
+
+    if (selectedFileState.status !== 'ready' || !selectedFileState.revisionToken) {
+      return
+    }
+
+    const request: ThreadDiffFileSaveRequest = {
+      ...query,
+      path: selectedFile.path,
+      previousPath: selectedFile.previousPath,
+      status: selectedFile.status,
+      content: selectedFileState.content,
+      expectedRevisionToken: selectedFileState.revisionToken
+    }
+
+    setFileContentStates((current) => ({
+      ...current,
+      [fileContentKey]: {
+        ...selectedFileState,
+        saveStatus: 'saving',
+        saveMessage: null
+      }
+    }))
+
+    void api.appState
+      .saveThreadDiffFileContent(request)
+      .then((result) => {
+        if (!result.ok) {
+          setFileContentStates((current) => ({
+            ...current,
+            [fileContentKey]: {
+              ...selectedFileState,
+              saveStatus: 'error',
+              saveMessage: result.error
+            }
+          }))
+          return
+        }
+
+        const nextRefreshToken = refreshToken + 1
+        const nextRequestKey = buildThreadDiffRequestKey(query, thread.id, mode, nextRefreshToken)
+        const nextFileContentKey = buildFileContentStateKey(nextRequestKey, selectedFile.path)
+
+        setFileContentStates((current) => ({
+          ...current,
+          [fileContentKey]: {
+            ...selectedFileState,
+            content: selectedFileState.content,
+            savedContent: selectedFileState.content,
+            revisionToken: result.revisionToken,
+            saveStatus: 'success',
+            saveMessage: 'Saved.'
+          },
+          [nextFileContentKey]: {
+            ...selectedFileState,
+            content: selectedFileState.content,
+            savedContent: selectedFileState.content,
+            revisionToken: result.revisionToken,
+            saveStatus: 'success',
+            saveMessage: 'Saved.'
+          }
+        }))
+        setPatchStates((current) => {
+          const next = { ...current }
+          if (patchKey) {
+            delete next[patchKey]
+          }
+          return next
+        })
+        setRefreshToken(nextRefreshToken)
+      })
+      .catch((error: unknown) => {
+        setFileContentStates((current) => ({
+          ...current,
+          [fileContentKey]: {
+            ...selectedFileState,
+            saveStatus: 'error',
+            saveMessage: error instanceof Error ? error.message : String(error)
+          }
+        }))
+      })
+  }, [
+    fileContentKey,
+    mode,
+    patchKey,
+    query,
+    refreshToken,
+    selectedFile,
+    selectedFileState,
+    thread.id
+  ])
+
+  const filePaneStatus = !selectedFile
+    ? null
+    : filePaneMode === 'patch'
+      ? {
+          tone: 'muted' as const,
+          message:
+            diffViewType === 'split' ? 'Patch view · split or unified' : 'Patch view · unified'
+        }
+      : !selectedFileState
+        ? { tone: 'muted' as const, message: 'Loading full file…' }
+        : selectedFileState?.status === 'loading'
+          ? { tone: 'muted' as const, message: 'Loading full file…' }
+          : selectedFileState?.status === 'error'
+            ? { tone: 'error' as const, message: selectedFileState.error ?? 'Unable to load file.' }
+            : selectedFileState?.status === 'ready'
+              ? selectedFileState.saveStatus === 'saving'
+                ? { tone: 'muted' as const, message: 'Saving…' }
+                : selectedFileState.saveStatus === 'error'
+                  ? {
+                      tone: 'error' as const,
+                      message: selectedFileState.saveMessage ?? 'Unable to save file.'
+                    }
+                  : selectedFileDirty
+                    ? { tone: 'warning' as const, message: 'Unsaved changes' }
+                    : selectedFileReadOnly
+                      ? { tone: 'muted' as const, message: 'Snapshot · read-only' }
+                      : selectedFileState.saveStatus === 'success'
+                        ? {
+                            tone: 'success' as const,
+                            message: selectedFileState.saveMessage ?? 'Saved.'
+                          }
+                        : { tone: 'muted' as const, message: 'Current file · editable' }
+              : { tone: 'muted' as const, message: 'Pick a changed file to inspect.' }
 
   return (
     <div className="tm-fade-in flex h-full min-h-0 flex-col gap-3">
@@ -787,16 +1109,69 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
           <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
             <div className="border-b border-[var(--color-border)] px-4 py-3">
               {selectedFile ? (
-                <>
-                  <div className="truncate font-mono text-[13px] text-[var(--color-fg)]">
-                    {selectedFile.path}
-                  </div>
-                  {selectedFile.previousPath ? (
-                    <div className="mt-1 truncate font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
-                      from {selectedFile.previousPath}
+                <div className="flex flex-wrap items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-mono text-[13px] text-[var(--color-fg)]">
+                      {selectedFile.path}
                     </div>
-                  ) : null}
-                </>
+                    {selectedFile.previousPath ? (
+                      <div className="mt-1 truncate font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
+                        from {selectedFile.previousPath}
+                      </div>
+                    ) : null}
+                    {filePaneStatus ? (
+                      <div
+                        className={`mt-2 text-[11.5px] ${
+                          filePaneStatus.tone === 'error'
+                            ? 'text-[var(--color-danger)]'
+                            : filePaneStatus.tone === 'success'
+                              ? 'text-[var(--color-positive)]'
+                              : filePaneStatus.tone === 'warning'
+                                ? 'text-[var(--color-warning)]'
+                                : 'text-[var(--color-fg-subtle)]'
+                        }`}
+                      >
+                        {filePaneStatus.message}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="ml-auto flex shrink-0 items-center gap-2">
+                    <div className="w-[160px]">
+                      <SegmentedControl<FilePaneMode>
+                        ariaLabel="Selected file view"
+                        onChange={setFilePaneMode}
+                        options={FILE_PANE_OPTIONS}
+                        value={filePaneMode}
+                      />
+                    </div>
+
+                    {filePaneMode === 'file' &&
+                    selectedFileState?.status === 'ready' &&
+                    !selectedFileReadOnly ? (
+                      <>
+                        <Button
+                          disabled={!selectedFileDirty || selectedFileState.saveStatus === 'saving'}
+                          onClick={handleRevertFile}
+                          size="sm"
+                          title="Discard unsaved changes"
+                          variant="secondary"
+                        >
+                          Revert
+                        </Button>
+                        <Button
+                          disabled={!selectedFileDirty || selectedFileState.saveStatus === 'saving'}
+                          onClick={handleSaveFile}
+                          size="sm"
+                          title="Save file"
+                          variant="primary"
+                        >
+                          Save
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
               ) : (
                 <div className="text-[12.5px] text-[var(--color-fg-muted)]">
                   Pick a changed file to inspect its diff.
@@ -805,39 +1180,58 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto" ref={diffPaneRef}>
-              {!selectedFile ? null : activePatchState.status === 'loading' ? (
+              {!selectedFile ? null : filePaneMode === 'patch' ? (
+                activePatchState.status === 'loading' ? (
+                  <div className="px-5 py-6 text-[12.5px] text-[var(--color-fg-muted)]">
+                    Loading diff…
+                  </div>
+                ) : activePatchState.status === 'error' ? (
+                  <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-danger)]">
+                    {activePatchState.error}
+                  </div>
+                ) : activePatchState.status === 'ready' && parsedDiffs.length > 0 ? (
+                  <div
+                    className={`tm-diff-view tm-diff-view--${diffViewType} overflow-auto px-4 py-4`}
+                  >
+                    {parsedDiffs.map((file) => (
+                      <Diff
+                        codeClassName="text-[12.5px]"
+                        diffType={file.type}
+                        gutterClassName="text-[11.5px]"
+                        gutterType="anchor"
+                        hunks={file.hunks}
+                        key={`${file.oldPath}:${file.newPath}:${file.type}`}
+                        viewType={diffViewType}
+                      >
+                        {(hunks) => hunks.map((hunk) => <Hunk hunk={hunk} key={hunk.content} />)}
+                      </Diff>
+                    ))}
+                  </div>
+                ) : activePatchState.status === 'ready' ? (
+                  <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-fg-muted)]">
+                    {activePatchState.isBinary
+                      ? 'Binary diff ready, but there is no text patch to render.'
+                      : 'No text patch was returned for this file.'}
+                  </div>
+                ) : null
+              ) : selectedFileState?.status === 'loading' || !selectedFileState ? (
                 <div className="px-5 py-6 text-[12.5px] text-[var(--color-fg-muted)]">
-                  Loading diff…
+                  Loading file…
                 </div>
-              ) : activePatchState.status === 'error' ? (
+              ) : selectedFileState.status === 'error' ? (
                 <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-danger)]">
-                  {activePatchState.error}
+                  {selectedFileState.error}
                 </div>
-              ) : activePatchState.status === 'ready' && parsedDiffs.length > 0 ? (
-                <div
-                  className={`tm-diff-view tm-diff-view--${diffViewType} overflow-auto px-4 py-4`}
-                >
-                  {parsedDiffs.map((file) => (
-                    <Diff
-                      codeClassName="text-[12.5px]"
-                      diffType={file.type}
-                      gutterClassName="text-[11.5px]"
-                      gutterType="anchor"
-                      hunks={file.hunks}
-                      key={`${file.oldPath}:${file.newPath}:${file.type}`}
-                      viewType={diffViewType}
-                    >
-                      {(hunks) => hunks.map((hunk) => <Hunk hunk={hunk} key={hunk.content} />)}
-                    </Diff>
-                  ))}
-                </div>
-              ) : activePatchState.status === 'ready' ? (
-                <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-fg-muted)]">
-                  {activePatchState.isBinary
-                    ? 'Binary diff ready, but there is no text patch to render.'
-                    : 'No text patch was returned for this file.'}
-                </div>
-              ) : null}
+              ) : (
+                <MonacoFileEditor
+                  key={fileContentKey}
+                  modelKey={fileContentKey ?? selectedFile.path}
+                  onChange={handleFileContentChange}
+                  path={selectedFile.path}
+                  readOnly={selectedFileReadOnly || selectedFileState.saveStatus === 'saving'}
+                  value={selectedFileState.content}
+                />
+              )}
             </div>
           </section>
         </div>

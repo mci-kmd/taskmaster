@@ -10,6 +10,10 @@ import type {
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
+  ThreadDiffFileContentRequest,
+  ThreadDiffFileContentResult,
+  ThreadDiffFileSaveRequest,
+  ThreadDiffFileSaveResult,
   RepositoryBackend,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -61,6 +65,8 @@ export const IPC_CHANNELS = {
     getThreadDiffRangeOptions: 'app-state:get-thread-diff-range-options',
     getThreadDiffSummary: 'app-state:get-thread-diff-summary',
     getThreadDiffPatch: 'app-state:get-thread-diff-patch',
+    getThreadDiffFileContent: 'app-state:get-thread-diff-file-content',
+    saveThreadDiffFileContent: 'app-state:save-thread-diff-file-content',
     openThreadWorkingDirectory: 'app-state:open-thread-working-directory',
     openThreadWorkspaceInVscode: 'app-state:open-thread-workspace-in-vscode',
     selectRepository: 'app-state:select-repository',
@@ -140,6 +146,14 @@ export type IpcInvokeDefinitions = {
   'app-state:get-thread-diff-patch': {
     request: [ThreadDiffPatchRequest]
     response: ThreadDiffPatchResult
+  }
+  'app-state:get-thread-diff-file-content': {
+    request: [ThreadDiffFileContentRequest]
+    response: ThreadDiffFileContentResult
+  }
+  'app-state:save-thread-diff-file-content': {
+    request: [ThreadDiffFileSaveRequest]
+    response: ThreadDiffFileSaveResult
   }
   'app-state:open-thread-working-directory': {
     request: [string]

@@ -1,6 +1,12 @@
+import { createHash } from 'crypto'
+import { readFileSync, writeFileSync } from 'fs'
 import type {
   RepositoryBackend,
+  ThreadDiffFileContentRequest,
+  ThreadDiffFileContentResult,
   ThreadDiffFileSummary,
+  ThreadDiffFileSaveRequest,
+  ThreadDiffFileSaveResult,
   ThreadDiffPatchRequest,
   ThreadDiffPatchResult,
   ThreadDiffQuery,
@@ -9,7 +15,13 @@ import type {
 } from '../../../shared/app-types'
 import { THREAD_DIFF_WORKTREE_REF } from '../../../shared/app-types'
 import { tryGit, tryGitAsync } from '../../backends/git-client'
-import { resolvePath } from '../../backends/repository-backend'
+import {
+  backendPathExists,
+  buildNativeCommand,
+  resolvePath,
+  spawnBackendCommand,
+  toUiPath
+} from '../../backends/repository-backend'
 import { isPathInsideRepository } from '../repositories/repository-path-utils'
 import type { ThreadGitContext } from '../threads/thread-git-context'
 import {
@@ -27,6 +39,173 @@ import {
   parseNameStatusOutput,
   readCommitOption
 } from './thread-diff-helpers'
+
+const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024
+const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf])
+
+type TextFileMetadata = {
+  content: string
+  hasUtf8Bom: boolean
+  lineEnding: 'lf' | 'crlf'
+  revisionToken: string
+}
+
+type TextFileReadResult = { ok: true; file: TextFileMetadata } | { ok: false; error: string }
+type RawGitResult = { ok: true; stdout: Buffer } | { ok: false; error: string }
+
+function createRevisionToken(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex')
+}
+
+function buildUnavailableTextFileError(detail: string): string {
+  return `${detail} Monaco file view supports UTF-8 text files up to 2 MB.`
+}
+
+function decodeTextFileBuffer(buffer: Buffer, path: string): TextFileReadResult {
+  if (buffer.byteLength > MAX_TEXT_FILE_BYTES) {
+    return {
+      ok: false,
+      error: buildUnavailableTextFileError(`"${path}" is too large to display.`)
+    }
+  }
+
+  if (buffer.includes(0)) {
+    return {
+      ok: false,
+      error: buildUnavailableTextFileError(`"${path}" appears to be a binary file.`)
+    }
+  }
+
+  const hasUtf8Bom = buffer.subarray(0, UTF8_BOM.length).equals(UTF8_BOM)
+  const textBuffer = hasUtf8Bom ? buffer.subarray(UTF8_BOM.length) : buffer
+
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(textBuffer)
+    return {
+      ok: true,
+      file: {
+        content: decoded.replace(/\r\n/g, '\n'),
+        hasUtf8Bom,
+        lineEnding: decoded.includes('\r\n') ? 'crlf' : 'lf',
+        revisionToken: createRevisionToken(buffer)
+      }
+    }
+  } catch {
+    return {
+      ok: false,
+      error: buildUnavailableTextFileError(`"${path}" is not valid UTF-8 text.`)
+    }
+  }
+}
+
+function encodeTextFileBuffer(
+  content: string,
+  options: Pick<TextFileMetadata, 'hasUtf8Bom' | 'lineEnding'>
+): Buffer {
+  const normalized = content.replace(/\r\n?/g, '\n')
+  const text = options.lineEnding === 'crlf' ? normalized.replace(/\n/g, '\r\n') : normalized
+  const body = Buffer.from(text, 'utf8')
+  return options.hasUtf8Bom ? Buffer.concat([UTF8_BOM, body]) : body
+}
+
+function resolveThreadDiffFilePath(
+  cwd: string,
+  backend: RepositoryBackend,
+  path: string
+): { ok: true; executionPath: string; uiPath: string } | { ok: false; error: string } {
+  const trimmedPath = path.trim()
+  if (!trimmedPath) {
+    return { ok: false, error: 'Diff path is required.' }
+  }
+
+  const executionPath = resolvePath(backend, cwd, trimmedPath)
+  if (!isPathInsideRepository(cwd, executionPath, backend)) {
+    return { ok: false, error: 'Diff path must stay inside the thread working directory.' }
+  }
+
+  return {
+    ok: true,
+    executionPath,
+    uiPath: toUiPath(backend, executionPath)
+  }
+}
+
+function readWorkingTreeTextFile(
+  cwd: string,
+  backend: RepositoryBackend,
+  path: string
+): TextFileReadResult {
+  const resolved = resolveThreadDiffFilePath(cwd, backend, path)
+  if (!resolved.ok) {
+    return resolved
+  }
+
+  if (!backendPathExists(backend, resolved.executionPath, 'file')) {
+    return { ok: false, error: `Current file not found: ${path}` }
+  }
+
+  try {
+    return decodeTextFileBuffer(readFileSync(resolved.uiPath), path)
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+function readGitBlob(
+  cwd: string,
+  backend: RepositoryBackend,
+  ref: string,
+  path: string
+): Promise<RawGitResult> {
+  return new Promise((resolve) => {
+    const child = spawnBackendCommand(
+      backend,
+      buildNativeCommand('git', ['-C', cwd, 'show', `${ref}:${path.replaceAll('\\', '/')}`]),
+      {
+        cwd,
+        stdio: ['ignore', 'pipe', 'pipe']
+      }
+    )
+    const stdoutChunks: Buffer[] = []
+    let stderr = ''
+    let settled = false
+    const finish = (result: RawGitResult): void => {
+      if (settled) {
+        return
+      }
+      settled = true
+      resolve(result)
+    }
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      stdoutChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    })
+
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+
+    child.on('error', (error) => {
+      finish({ ok: false, error: error.message })
+    })
+
+    child.on('close', (code) => {
+      if (code !== 0) {
+        finish({
+          ok: false,
+          error: stderr.trim() || `Unable to read "${path}" from ${ref}.`
+        })
+        return
+      }
+
+      finish({ ok: true, stdout: Buffer.concat(stdoutChunks) })
+    })
+  })
+}
 
 async function buildUntrackedFilePatch(
   cwd: string,
@@ -55,6 +234,10 @@ export function createThreadDiffService(dependencies: {
   getThreadDiffRangeOptions: (threadId: string) => Promise<ThreadDiffRangeOptionsResult>
   getThreadDiffSummary: (input: ThreadDiffQuery) => Promise<ThreadDiffSummaryResult>
   getThreadDiffPatch: (input: ThreadDiffPatchRequest) => Promise<ThreadDiffPatchResult>
+  getThreadDiffFileContent: (
+    input: ThreadDiffFileContentRequest
+  ) => Promise<ThreadDiffFileContentResult>
+  saveThreadDiffFileContent: (input: ThreadDiffFileSaveRequest) => Promise<ThreadDiffFileSaveResult>
 } {
   const getThreadDiffRangeOptions = async (
     threadId: string
@@ -347,9 +530,137 @@ export function createThreadDiffService(dependencies: {
     }
   }
 
+  const getThreadDiffFileContent = async (
+    input: ThreadDiffFileContentRequest
+  ): Promise<ThreadDiffFileContentResult> => {
+    const context = dependencies.resolveThreadGitContext(input.threadId)
+    if (!context.ok) {
+      return { ok: false, error: context.error }
+    }
+
+    const { cwd } = context
+    const { backend } = context.repository
+    const trimmedPath = input.path.trim()
+    if (!trimmedPath) {
+      return { ok: false, error: 'Diff path is required.' }
+    }
+
+    const resolved = resolveThreadDiffFilePath(cwd, backend, trimmedPath)
+    if (!resolved.ok) {
+      return resolved
+    }
+
+    if (input.status === 'deleted') {
+      return { ok: false, error: 'Deleted files do not have current file content.' }
+    }
+
+    if (input.mode === 'range') {
+      const baseRef = input.baseRef?.trim() ?? ''
+      const headRef = input.headRef?.trim() ?? ''
+      if (!baseRef || !headRef) {
+        return { ok: false, error: 'Both range refs are required.' }
+      }
+      if (isWorkingTreeRef(baseRef)) {
+        return { ok: false, error: 'Base ref must be a commit.' }
+      }
+
+      if (isWorkingTreeRef(headRef)) {
+        const file = readWorkingTreeTextFile(cwd, backend, trimmedPath)
+        return file.ok
+          ? { ok: true, content: file.file.content, revisionToken: file.file.revisionToken }
+          : file
+      }
+
+      const result = await readGitBlob(cwd, backend, headRef, trimmedPath)
+      if (!result.ok) {
+        return { ok: false, error: result.error }
+      }
+
+      const file = decodeTextFileBuffer(result.stdout, trimmedPath)
+      return file.ok
+        ? { ok: true, content: file.file.content, revisionToken: file.file.revisionToken }
+        : file
+    }
+
+    const file = readWorkingTreeTextFile(cwd, backend, trimmedPath)
+    return file.ok
+      ? { ok: true, content: file.file.content, revisionToken: file.file.revisionToken }
+      : file
+  }
+
+  const saveThreadDiffFileContent = async (
+    input: ThreadDiffFileSaveRequest
+  ): Promise<ThreadDiffFileSaveResult> => {
+    const context = dependencies.resolveThreadGitContext(input.threadId)
+    if (!context.ok) {
+      return { ok: false, error: context.error }
+    }
+
+    if (input.mode !== 'working-tree') {
+      return { ok: false, error: 'Editing is only allowed in the uncommitted diff scope.' }
+    }
+
+    if (input.status === 'deleted') {
+      return { ok: false, error: 'Deleted files cannot be edited.' }
+    }
+
+    const { cwd } = context
+    const { backend } = context.repository
+    const trimmedPath = input.path.trim()
+    const resolved = resolveThreadDiffFilePath(cwd, backend, trimmedPath)
+    if (!resolved.ok) {
+      return resolved
+    }
+
+    if (!backendPathExists(backend, resolved.executionPath, 'file')) {
+      return { ok: false, error: `Current file not found: ${trimmedPath}` }
+    }
+
+    let currentFile: TextFileReadResult
+    try {
+      currentFile = decodeTextFileBuffer(readFileSync(resolved.uiPath), trimmedPath)
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+
+    if (!currentFile.ok) {
+      return currentFile
+    }
+
+    if (currentFile.file.revisionToken !== input.expectedRevisionToken) {
+      return { ok: false, error: 'File changed on disk. Reload before saving.' }
+    }
+
+    const outputBuffer = encodeTextFileBuffer(input.content, currentFile.file)
+    if (outputBuffer.byteLength > MAX_TEXT_FILE_BYTES) {
+      return {
+        ok: false,
+        error: buildUnavailableTextFileError(`"${trimmedPath}" is too large to save.`)
+      }
+    }
+
+    try {
+      writeFileSync(resolved.uiPath, outputBuffer)
+      return {
+        ok: true,
+        revisionToken: createRevisionToken(outputBuffer)
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+
   return {
     getThreadDiffRangeOptions,
     getThreadDiffSummary,
-    getThreadDiffPatch
+    getThreadDiffPatch,
+    getThreadDiffFileContent,
+    saveThreadDiffFileContent
   }
 }

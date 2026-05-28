@@ -7,6 +7,10 @@ import type {
   CreateThreadInput,
   MutationResult,
   PickRepositoryFaviconResult,
+  ThreadDiffFileContentRequest,
+  ThreadDiffFileContentResult,
+  ThreadDiffFileSaveRequest,
+  ThreadDiffFileSaveResult,
   ThreadDiffPatchRequest,
   ThreadDiffPatchResult,
   ThreadDiffQuery,
@@ -258,6 +262,12 @@ export function registerAppStateIpc(): void {
       threadDiffService.getThreadDiffRangeOptions(threadId),
     getThreadDiffPatch: (input: ThreadDiffPatchRequest): Promise<ThreadDiffPatchResult> =>
       threadDiffService.getThreadDiffPatch(input),
+    getThreadDiffFileContent: (
+      input: ThreadDiffFileContentRequest
+    ): Promise<ThreadDiffFileContentResult> => threadDiffService.getThreadDiffFileContent(input),
+    saveThreadDiffFileContent: (
+      input: ThreadDiffFileSaveRequest
+    ): Promise<ThreadDiffFileSaveResult> => threadDiffService.saveThreadDiffFileContent(input),
     openThreadWorkingDirectory: (threadId: string) =>
       threadWorkspaceService.openThreadWorkingDirectory(threadId),
     openThreadWorkspaceInVscode: (threadId: string) =>
