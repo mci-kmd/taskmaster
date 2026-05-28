@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MutationResult, PersistedAppState, PersistedThread } from '../../../shared/app-types'
+import { runGit } from '../../backends/git-client'
 import { createNativeBackend } from '../../backends/repository-backend'
 import { createThreadCloseService } from './thread-close-service'
 import {
@@ -124,6 +125,7 @@ describe('createThreadCloseService', () => {
     vi.mocked(isDirtyGitPath).mockReset()
     vi.mocked(remoteBranchExists).mockReset()
     vi.mocked(resolveGitRoot).mockReset()
+    vi.mocked(runGit).mockReset()
     vi.mocked(removeWorktree).mockReset()
     vi.mocked(runPostWorktreeRemoveCommand).mockReset()
 
@@ -205,6 +207,63 @@ describe('createThreadCloseService', () => {
     expect(runPostWorktreeRemoveCommand).not.toHaveBeenCalled()
     expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
     expect(harness.stopThreadRunSession).toHaveBeenCalledWith('thread-1')
+    expect(harness.state.threads).toEqual([])
+  })
+
+  it('switches off an active branch before offering local branch removal', async () => {
+    vi.mocked(getCurrentBranchName).mockReturnValueOnce('feature/thread').mockReturnValue('main')
+    const harness = createHarness(
+      createThread({
+        mode: 'active-branch',
+        worktreePath: null,
+        ownsBranch: false,
+        ownsWorktree: false
+      })
+    )
+    harness.showMessageBox.mockResolvedValue({ response: 2, checkboxChecked: false })
+
+    const result = await harness.closeThread('thread-1')
+
+    expect(result).toEqual({ ok: true })
+    expect(runGit).toHaveBeenNthCalledWith(1, '/repo', ['checkout', 'main'], createNativeBackend())
+    expect(harness.showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Remove local branch?',
+        message: 'Close "feature/thread" and remove its local branch?'
+      })
+    )
+    expect(runGit).toHaveBeenNthCalledWith(
+      2,
+      '/repo',
+      ['branch', '-D', 'feature/thread'],
+      createNativeBackend()
+    )
+    expect(vi.mocked(runGit).mock.invocationCallOrder[0]).toBeLessThan(
+      harness.showMessageBox.mock.invocationCallOrder[0]
+    )
+    expect(harness.state.threads).toEqual([])
+  })
+
+  it('does not offer local branch removal for the protected active branch', async () => {
+    vi.mocked(getCurrentBranchName).mockReturnValue('main')
+    vi.mocked(getProtectedBranchDeletionError).mockReturnValue(
+      'The repository primary branch "main" cannot be deleted.'
+    )
+    const harness = createHarness(
+      createThread({
+        mode: 'active-branch',
+        branchName: 'main',
+        worktreePath: null,
+        ownsBranch: false,
+        ownsWorktree: false
+      })
+    )
+
+    const result = await harness.closeThread('thread-1')
+
+    expect(result).toEqual({ ok: true })
+    expect(harness.showMessageBox).not.toHaveBeenCalled()
+    expect(runGit).not.toHaveBeenCalled()
     expect(harness.state.threads).toEqual([])
   })
 

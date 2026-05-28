@@ -31,6 +31,14 @@ type MessageBoxResult = {
   response: number
 }
 
+type CheckedOutBranchResult =
+  | { ok: true }
+  | {
+      ok: false
+      error: string
+      dirty: boolean
+    }
+
 function ownsBranch(thread: Pick<PersistedThread, 'mode' | 'ownsBranch'>): boolean {
   return thread.ownsBranch ?? (thread.mode === 'new-branch' || thread.mode === 'worktree')
 }
@@ -40,6 +48,46 @@ function ownsWorktree(thread: Pick<PersistedThread, 'mode' | 'ownsWorktree'>): b
 }
 
 type BranchDeleteResult = { ok: true } | { ok: false; error: string }
+
+function ensureBranchNotCheckedOut(
+  branchName: string,
+  repositoryPath: string,
+  backend: RepositoryBackend
+): CheckedOutBranchResult {
+  const currentBranchName = getCurrentBranchName(repositoryPath, backend)
+  if (currentBranchName !== branchName) {
+    return { ok: true }
+  }
+
+  if (isDirtyGitPath(repositoryPath, backend)) {
+    return {
+      ok: false,
+      error: `Can't delete "${branchName}" because it is checked out and has uncommitted changes.`,
+      dirty: true
+    }
+  }
+
+  const checkoutTarget = getPrimaryBranchCheckoutTarget(repositoryPath, branchName, backend)
+  if (!checkoutTarget) {
+    return {
+      ok: false,
+      error: `Can't delete "${branchName}" because the repository primary branch could not be determined.`,
+      dirty: false
+    }
+  }
+
+  try {
+    runGit(repositoryPath, ['checkout', checkoutTarget], backend)
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      dirty: false
+    }
+  }
+
+  return { ok: true }
+}
 
 function deleteLocalBranch(
   thread: PersistedThread,
@@ -59,32 +107,13 @@ function deleteLocalBranch(
     return { ok: false, error: protectedBranchError }
   }
 
-  const currentBranchName = getCurrentBranchName(repositoryPath, backend)
-  if (currentBranchName === thread.branchName) {
-    if (isDirtyGitPath(repositoryPath, backend)) {
-      return {
-        ok: false,
-        error: `Can't delete "${thread.branchName}" because it is checked out and has uncommitted changes.`
-      }
-    }
-
-    const checkoutTarget = getPrimaryBranchCheckoutTarget(
-      repositoryPath,
-      thread.branchName,
-      backend
-    )
-    if (!checkoutTarget) {
-      return {
-        ok: false,
-        error: `Can't delete "${thread.branchName}" because the repository primary branch could not be determined.`
-      }
-    }
-
-    try {
-      runGit(repositoryPath, ['checkout', checkoutTarget], backend)
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) }
-    }
+  const checkedOutBranchResult = ensureBranchNotCheckedOut(
+    thread.branchName,
+    repositoryPath,
+    backend
+  )
+  if (!checkedOutBranchResult.ok) {
+    return { ok: false, error: checkedOutBranchResult.error }
   }
 
   if (!branchExists(repositoryPath, thread.branchName, backend)) {
@@ -113,7 +142,30 @@ function formatWorktreeRemovalError(error: string): string {
     : error
 }
 
-async function maybeRemoveLocalBranchForNewBranchThread(
+async function handleBranchDeleteFailure(
+  error: string,
+  failureResult: (error: string, cancelled?: boolean) => MutationResult,
+  showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResult>
+): Promise<MutationResult | null> {
+  if (!error.includes('checked out and has uncommitted changes.')) {
+    return failureResult(error)
+  }
+
+  const dirtyConfirmation = await showMessageBox({
+    type: 'warning',
+    buttons: ['Cancel thread removal', 'Continue without removing branch'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Cannot delete branch',
+    message: error,
+    detail:
+      'Taskmaster cannot switch to the primary branch until you commit or stash those changes.'
+  })
+
+  return dirtyConfirmation.response === 0 ? failureResult('Thread close cancelled.', true) : null
+}
+
+async function maybeRemoveLocalBranchForBranchThread(
   thread: PersistedThread,
   repositoryPath: string,
   backend: RepositoryBackend,
@@ -125,6 +177,24 @@ async function maybeRemoveLocalBranchForNewBranchThread(
     remoteBranchExists(repositoryPath, thread.branchName, backend)
   ) {
     return null
+  }
+
+  if (
+    thread.mode === 'active-branch' &&
+    getProtectedBranchDeletionError(repositoryPath, thread.branchName, backend)
+  ) {
+    return null
+  }
+
+  if (thread.mode === 'active-branch') {
+    const checkedOutBranchResult = ensureBranchNotCheckedOut(
+      thread.branchName,
+      repositoryPath,
+      backend
+    )
+    if (!checkedOutBranchResult.ok) {
+      return handleBranchDeleteFailure(checkedOutBranchResult.error, failureResult, showMessageBox)
+    }
   }
 
   const threadLabel = thread.customTitle ?? thread.branchName
@@ -151,26 +221,7 @@ async function maybeRemoveLocalBranchForNewBranchThread(
     return null
   }
 
-  if (deleteResult.error.includes('checked out and has uncommitted changes.')) {
-    const dirtyConfirmation = await showMessageBox({
-      type: 'warning',
-      buttons: ['Cancel thread removal', 'Continue without removing branch'],
-      defaultId: 0,
-      cancelId: 0,
-      title: 'Cannot delete branch',
-      message: deleteResult.error,
-      detail:
-        'Taskmaster cannot switch to the primary branch until you commit or stash those changes.'
-    })
-
-    if (dirtyConfirmation.response === 0) {
-      return failureResult('Thread close cancelled.', true)
-    }
-
-    return null
-  }
-
-  return failureResult(deleteResult.error)
+  return handleBranchDeleteFailure(deleteResult.error, failureResult, showMessageBox)
 }
 
 export function createThreadCloseService(dependencies: {
@@ -279,8 +330,11 @@ export function createThreadCloseService(dependencies: {
           }
         }
 
-        if (thread.mode === 'new-branch' && ownsBranch(thread)) {
-          const branchRemovalResult = await maybeRemoveLocalBranchForNewBranchThread(
+        if (
+          (thread.mode === 'new-branch' && ownsBranch(thread)) ||
+          thread.mode === 'active-branch'
+        ) {
+          const branchRemovalResult = await maybeRemoveLocalBranchForBranchThread(
             thread,
             repositoryPath,
             repository.backend,
