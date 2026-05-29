@@ -1,4 +1,4 @@
-import { spawnSync, type ChildProcess } from 'child_process'
+import { spawn, spawnSync, type ChildProcess } from 'child_process'
 import type { MutationResult, PersistedThread } from '../../../shared/app-types'
 import { buildScriptCommand } from '../../terminal/command-utils'
 import {
@@ -45,16 +45,27 @@ function formatThreadRunFailureDetail(
   return sections.join('\n\n')
 }
 
-function killChildProcessTree(child: Pick<ChildProcess, 'pid'>): void {
+function killChildProcessTree(child: Pick<ChildProcess, 'pid'>, waitForExit = true): void {
   if (!child.pid) {
     return
   }
 
   if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+    const args = ['/pid', String(child.pid), '/t', '/f']
+    if (waitForExit) {
+      spawnSync('taskkill', args, {
+        windowsHide: true,
+        stdio: 'ignore'
+      })
+      return
+    }
+
+    const taskkill = spawn('taskkill', args, {
+      detached: true,
       windowsHide: true,
       stdio: 'ignore'
     })
+    taskkill.unref()
     return
   }
 
@@ -216,7 +227,7 @@ export function createThreadRunService(dependencies: {
       appIsQuitting = true
       for (const session of threadRunSessions.values()) {
         session.stopping = true
-        killChildProcessTree(session.child)
+        killChildProcessTree(session.child, false)
       }
       threadRunSessions.clear()
     }

@@ -106,6 +106,7 @@ const snapshotService = createSnapshotService({
   getRunningThreadIds,
   getRunningRunThreadIds: () => threadRunServiceRef?.getRunningThreadIds() ?? new Set(),
   getRepositoryGitState: repositoryGitStateService.getRepositoryGitState,
+  refreshRepositoryGitState: repositoryGitStateService.refreshRepositoryGitState,
   getThreadUiCwd,
   getThreadExecutionCwd,
   buildRepositoryFaviconUrl,
@@ -119,9 +120,8 @@ const snapshotService = createSnapshotService({
   },
   sanitizeUserFacingMessage
 })
-
-const buildSnapshot = (options: BuildSnapshotOptions = {}): AppSnapshot =>
-  snapshotService.buildSnapshot(options)
+const buildSnapshotAsync = (options: BuildSnapshotOptions = {}): Promise<AppSnapshot> =>
+  snapshotService.buildSnapshotAsync(options)
 const buildSelectionSnapshot = (): AppSnapshot => snapshotService.buildSelectionSnapshot()
 const successResult = (): MutationResult => snapshotService.successResult()
 const failureResult = (error: string, cancelled = false): MutationResult =>
@@ -237,8 +237,8 @@ export function initializeAppState(): void {
 export function registerAppStateIpc(): void {
   registerAppStateIpcHandlers({
     beforeQuit: () => threadRunService.shutdown(),
-    getSnapshot: () => buildSnapshot(),
-    refresh: () => buildSnapshot(),
+    getSnapshot: () => buildSelectionSnapshot(),
+    refresh: () => buildSnapshotAsync({ refreshGit: true }),
     addRepository: () => repositoryService.addRepository(),
     createRepositoryTask: (input: CreateRepositoryTaskInput) =>
       projectTaskService.createRepositoryTask(input),

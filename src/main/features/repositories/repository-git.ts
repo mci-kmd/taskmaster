@@ -4,7 +4,7 @@ import type {
   RepositoryBranchOption,
   RepositoryWorktreeOption
 } from '../../../shared/app-types'
-import { runGit, tryGit } from '../../backends/git-client'
+import { runGit, tryGit, tryGitAsync } from '../../backends/git-client'
 import { createNativeBackend, getRepositoryExecutionPath } from '../../backends/repository-backend'
 
 type ExistingBranchTarget =
@@ -24,6 +24,8 @@ export type RepositoryGitState = {
   branchOptions: RepositoryBranchOption[]
   worktreeOptions: RepositoryWorktreeOption[]
 }
+
+const LOADING_BRANCH_LABEL = 'Loading...'
 
 type ExistingBranchTargetResolution =
   | { ok: true; target: ExistingBranchTarget | null }
@@ -56,11 +58,39 @@ function listLocalBranchNames(
   return result.ok ? parseLines(result.stdout).sort(compareBranchNames) : []
 }
 
+async function listLocalBranchNamesAsync(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<string[]> {
+  const result = await tryGitAsync(
+    repoPath,
+    ['for-each-ref', '--format=%(refname:short)', 'refs/heads'],
+    backend
+  )
+  return result.ok ? parseLines(result.stdout).sort(compareBranchNames) : []
+}
+
 function listRemoteBranchRefs(
   repoPath: string,
   backend: RepositoryBackend = createNativeBackend()
 ): string[] {
   const result = tryGit(
+    repoPath,
+    ['for-each-ref', '--format=%(refname:short)', 'refs/remotes'],
+    backend
+  )
+  return result.ok
+    ? parseLines(result.stdout)
+        .filter((name) => !name.endsWith('/HEAD'))
+        .sort(compareBranchNames)
+    : []
+}
+
+async function listRemoteBranchRefsAsync(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<string[]> {
+  const result = await tryGitAsync(
     repoPath,
     ['for-each-ref', '--format=%(refname:short)', 'refs/remotes'],
     backend
@@ -94,6 +124,51 @@ export function listRepositoryWorktrees(
   backend: RepositoryBackend = createNativeBackend()
 ): RepositoryWorktreeOption[] {
   const result = tryGit(repoPath, ['worktree', 'list', '--porcelain'], backend)
+  if (!result.ok) {
+    return []
+  }
+
+  const entries: RepositoryWorktreeOption[] = []
+  let currentPath: string | null = null
+  let currentBranchName: string | null = null
+
+  const flush = (): void => {
+    if (currentPath && currentBranchName) {
+      entries.push({
+        branchName: currentBranchName,
+        path: currentPath
+      })
+    }
+    currentPath = null
+    currentBranchName = null
+  }
+
+  for (const rawLine of result.stdout.split(/\r?\n/u)) {
+    const line = rawLine.trim()
+    if (!line) {
+      flush()
+      continue
+    }
+
+    if (line.startsWith('worktree ')) {
+      currentPath = line.slice('worktree '.length).trim()
+      continue
+    }
+
+    if (line.startsWith('branch ')) {
+      currentBranchName = parseBranchNameFromRef(line.slice('branch '.length).trim())
+    }
+  }
+
+  flush()
+  return entries.sort((left, right) => compareBranchNames(left.branchName, right.branchName))
+}
+
+export async function listRepositoryWorktreesAsync(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<RepositoryWorktreeOption[]> {
+  const result = await tryGitAsync(repoPath, ['worktree', 'list', '--porcelain'], backend)
   if (!result.ok) {
     return []
   }
@@ -226,6 +301,19 @@ export function branchExists(
     .ok
 }
 
+async function branchExistsAsync(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<boolean> {
+  const result = await tryGitAsync(
+    repoPath,
+    ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
+    backend
+  )
+  return result.ok
+}
+
 export function remoteBranchExists(
   repoPath: string,
   branchName: string,
@@ -246,6 +334,23 @@ export function getCurrentBranchLabel(
 
   if (branchResult.stdout === 'HEAD') {
     const headResult = tryGit(repoPath, ['rev-parse', '--short', 'HEAD'], backend)
+    return headResult.ok ? `HEAD (${headResult.stdout})` : 'HEAD'
+  }
+
+  return branchResult.stdout
+}
+
+export async function getCurrentBranchLabelAsync(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<string> {
+  const branchResult = await tryGitAsync(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
+  if (!branchResult.ok) {
+    return 'Unavailable'
+  }
+
+  if (branchResult.stdout === 'HEAD') {
+    const headResult = await tryGitAsync(repoPath, ['rev-parse', '--short', 'HEAD'], backend)
     return headResult.ok ? `HEAD (${headResult.stdout})` : 'HEAD'
   }
 
@@ -278,6 +383,31 @@ export function getPrimaryBranch(
 
   for (const candidate of ['main', 'master']) {
     if (branchExists(repoPath, candidate, backend)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+export async function getPrimaryBranchAsync(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<string | null> {
+  const symref = await tryGitAsync(
+    repoPath,
+    ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+    backend
+  )
+  if (symref.ok && symref.stdout) {
+    const candidate = symref.stdout.replace(/^origin\//, '')
+    if (candidate && (await branchExistsAsync(repoPath, candidate, backend))) {
+      return candidate
+    }
+  }
+
+  for (const candidate of ['main', 'master']) {
+    if (await branchExistsAsync(repoPath, candidate, backend)) {
       return candidate
     }
   }
@@ -336,13 +466,60 @@ function readRepositoryGitState(repository: PersistedRepository): RepositoryGitS
   }
 }
 
+async function readRepositoryGitStateAsync(
+  repository: PersistedRepository
+): Promise<RepositoryGitState> {
+  const repositoryPath = getRepositoryExecutionPath(repository)
+  const [currentBranch, primaryBranch, branchOptions, worktreeOptions] = await Promise.all([
+    getCurrentBranchLabelAsync(repositoryPath, repository.backend),
+    getPrimaryBranchAsync(repositoryPath, repository.backend),
+    (async () => {
+      const [localBranches, remoteBranches] = await Promise.all([
+        listLocalBranchNamesAsync(repositoryPath, repository.backend),
+        listRemoteBranchRefsAsync(repositoryPath, repository.backend)
+      ])
+      return [
+        ...localBranches.map((branchName) => ({
+          value: branchName,
+          kind: 'local' as const,
+          label: 'Local branch'
+        })),
+        ...remoteBranches.map((remoteRef) => ({
+          value: remoteRef,
+          kind: 'remote' as const,
+          label: 'Remote branch'
+        }))
+      ]
+    })(),
+    listRepositoryWorktreesAsync(repositoryPath, repository.backend)
+  ])
+
+  return {
+    currentBranch,
+    primaryBranch,
+    branchOptions,
+    worktreeOptions
+  }
+}
+
+function createPlaceholderRepositoryGitState(): RepositoryGitState {
+  return {
+    currentBranch: LOADING_BRANCH_LABEL,
+    primaryBranch: null,
+    branchOptions: [],
+    worktreeOptions: []
+  }
+}
+
 export function createRepositoryGitStateService(): {
   getRepositoryGitState: (
     repository: PersistedRepository,
     refreshGit: boolean
   ) => RepositoryGitState
+  refreshRepositoryGitState: (repository: PersistedRepository) => Promise<RepositoryGitState>
 } {
   const repositoryGitStateCache = new Map<string, RepositoryGitState>()
+  const repositoryGitRefreshes = new Map<string, Promise<RepositoryGitState>>()
 
   return {
     getRepositoryGitState: (
@@ -350,15 +527,26 @@ export function createRepositoryGitStateService(): {
       refreshGit: boolean
     ): RepositoryGitState => {
       if (!refreshGit) {
-        const cached = repositoryGitStateCache.get(repository.id)
-        if (cached) {
-          return cached
-        }
+        return repositoryGitStateCache.get(repository.id) ?? createPlaceholderRepositoryGitState()
       }
 
       const next = readRepositoryGitState(repository)
       repositoryGitStateCache.set(repository.id, next)
       return next
+    },
+    refreshRepositoryGitState: (repository: PersistedRepository): Promise<RepositoryGitState> => {
+      const existingRefresh = repositoryGitRefreshes.get(repository.id)
+      if (existingRefresh) {
+        return existingRefresh
+      }
+
+      const refreshPromise = readRepositoryGitStateAsync(repository).then((next) => {
+        repositoryGitStateCache.set(repository.id, next)
+        repositoryGitRefreshes.delete(repository.id)
+        return next
+      })
+      repositoryGitRefreshes.set(repository.id, refreshPromise)
+      return refreshPromise
     }
   }
 }

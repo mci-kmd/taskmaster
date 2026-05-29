@@ -1,8 +1,11 @@
+import 'react-diff-view/style/index.css'
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   computeOldLineNumber,
   computeNewLineNumber,
+  Decoration,
   Diff,
   getCorrespondingNewLineNumber,
   Hunk,
@@ -28,6 +31,7 @@ import Button from './ui/Button'
 import { Field, Select } from './ui/Field'
 import SegmentedControl from './ui/SegmentedControl'
 import { getRendererApi } from '../shared/api/client'
+import { getSkippedHunkInfo } from '../lib/diff-hunks'
 
 const api = getRendererApi()
 
@@ -294,6 +298,29 @@ function resolveFileJumpLineNumber(change: DiffChange, hunks: DiffHunks): number
   }
 
   return null
+}
+
+function renderPatchHunks(diffType: DiffProps['diffType'], hunks: DiffHunks): React.JSX.Element[] {
+  return hunks.flatMap((hunk, index) => {
+    const elements: React.JSX.Element[] = []
+    const skippedHunkInfo = index > 0 ? getSkippedHunkInfo(diffType, hunks[index - 1], hunk) : null
+
+    if (skippedHunkInfo) {
+      elements.push(
+        <Decoration contentClassName="tm-diff-gap-cell" key={`gap:${hunk.content}:${index}`}>
+          <div className="tm-diff-gap" title={skippedHunkInfo.label}>
+            <span aria-hidden="true" className="tm-diff-gap__line" />
+            <span className="tm-diff-gap__label">{skippedHunkInfo.label}</span>
+            <span aria-hidden="true" className="tm-diff-gap__line" />
+          </div>
+        </Decoration>
+      )
+    }
+
+    elements.push(<Hunk hunk={hunk} key={`hunk:${hunk.content}:${index}`} />)
+
+    return elements
+  })
 }
 
 export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.JSX.Element {
@@ -1132,7 +1159,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                   <div key={group.key}>
                     {group.title ? (
                       <div
-                        className={`px-[6px] pb-1 text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)] ${
+                        className={`px-[6px] pb-1 text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg)] ${
                           groupIndex === 0 ? 'pt-1' : 'pt-3'
                         }`}
                       >
@@ -1319,7 +1346,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                         key={`${file.oldPath}:${file.newPath}:${file.type}`}
                         viewType={diffViewType}
                       >
-                        {(hunks) => hunks.map((hunk) => <Hunk hunk={hunk} key={hunk.content} />)}
+                        {(hunks) => renderPatchHunks(file.type, hunks)}
                       </Diff>
                     ))}
                     {hoverJumpTarget?.cell.isConnected

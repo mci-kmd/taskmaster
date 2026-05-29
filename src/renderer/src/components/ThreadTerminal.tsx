@@ -1,3 +1,5 @@
+import '@xterm/xterm/css/xterm.css'
+
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import type {

@@ -31,6 +31,14 @@ export function useAppSnapshot(options: UseAppSnapshotOptions = {}): {
 
       setSnapshot(nextSnapshot)
       onSnapshotLoaded?.(nextSnapshot)
+
+      void api.appState.refresh().then((refreshedSnapshot) => {
+        if (!isMounted) {
+          return
+        }
+
+        setSnapshot(refreshedSnapshot)
+      })
     })
 
     return () => {

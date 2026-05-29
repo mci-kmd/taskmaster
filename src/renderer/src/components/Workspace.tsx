@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AppSettingsSnapshot,
   CreateRepositoryTaskInput,
@@ -12,7 +12,6 @@ import TerminalSessions, {
   type TerminalSessionsHandle,
   type ThreadSessionState
 } from './TerminalSessions'
-import ThreadDiffView from './ThreadDiffView'
 import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
 import ProjectTaskManager from './ProjectTaskManager'
@@ -34,6 +33,7 @@ import { getRendererApi } from '../shared/api/client'
 import { useBranchStatus } from '../shared/hooks/use-branch-status'
 
 const api = getRendererApi()
+const LazyThreadDiffView = lazy(() => import('./ThreadDiffView'))
 
 type WorkspaceProps = {
   threads: ThreadSnapshot[]
@@ -199,6 +199,14 @@ function TerminalLaunchPanel({
           </div>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+function DiffLoadingPanel(): React.JSX.Element {
+  return (
+    <div className="flex h-full w-full items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
+      <div className="text-[12.5px] text-[var(--color-fg-muted)]">Loading diff…</div>
     </div>
   )
 }
@@ -559,7 +567,9 @@ export default function Workspace({
 
               {selectedView === 'diff' && selectedThread ? (
                 <div className="absolute inset-0">
-                  <ThreadDiffView key={selectedThread.id} thread={selectedThread} />
+                  <Suspense fallback={<DiffLoadingPanel />}>
+                    <LazyThreadDiffView key={selectedThread.id} thread={selectedThread} />
+                  </Suspense>
                 </div>
               ) : null}
             </div>

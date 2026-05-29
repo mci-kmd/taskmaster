@@ -33,10 +33,12 @@ import type {
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
 import { handleIpc } from './typed-ipc'
 
+type MaybePromise<T> = T | Promise<T>
+
 type AppStateIpcHandlers = {
   beforeQuit: () => void
-  getSnapshot: () => AppSnapshot
-  refresh: () => AppSnapshot
+  getSnapshot: () => MaybePromise<AppSnapshot>
+  refresh: () => MaybePromise<AppSnapshot>
   addRepository: () => Promise<MutationResult>
   createRepositoryTask: (input: CreateRepositoryTaskInput) => MutationResult
   completeRepositoryTask: (input: CompleteRepositoryTaskInput) => MutationResult

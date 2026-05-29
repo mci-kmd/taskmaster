@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { mkdirSync, existsSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { spawn } from 'child_process'
 import {
   app,
   clipboard,
@@ -202,6 +203,27 @@ function clearLaunchConfirmation(session: TerminalSession): void {
   session.launchConfirmationTimer = null
 }
 
+function killPtyProcess(session: TerminalSession, waitForExit = true): void {
+  if (process.platform === 'win32' && !waitForExit && session.ptyProcess.pid) {
+    const taskkill = spawn('taskkill', ['/pid', String(session.ptyProcess.pid), '/t', '/f'], {
+      detached: true,
+      windowsHide: true,
+      stdio: 'ignore'
+    })
+    taskkill.unref()
+    return
+  }
+
+  session.ptyProcess.kill()
+}
+
+function disposeSession(session: TerminalSession, waitForExit = true): void {
+  clearLaunchConfirmation(session)
+  stopHookPolling(session)
+  sessions.delete(session.id)
+  killPtyProcess(session, waitForExit)
+}
+
 function attachOwnerCleanup(ownerContents: WebContents): void {
   if (ownerCleanupHooks.has(ownerContents.id)) {
     return
@@ -216,10 +238,7 @@ function attachOwnerCleanup(ownerContents: WebContents): void {
         continue
       }
 
-      clearLaunchConfirmation(session)
-      stopHookPolling(session)
-      sessions.delete(session.id)
-      session.ptyProcess.kill()
+      disposeSession(session, false)
     }
   })
 }
@@ -422,10 +441,7 @@ export function killSessionsForThread(threadId: string): void {
       continue
     }
 
-    clearLaunchConfirmation(session)
-    stopHookPolling(session)
-    sessions.delete(session.id)
-    session.ptyProcess.kill()
+    disposeSession(session)
   }
 }
 
@@ -483,9 +499,7 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
 
   app.on('before-quit', () => {
     for (const session of sessions.values()) {
-      clearLaunchConfirmation(session)
-      stopHookPolling(session)
-      session.ptyProcess.kill()
+      disposeSession(session, false)
     }
 
     sessions.clear()

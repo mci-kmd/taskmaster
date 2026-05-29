@@ -437,6 +437,35 @@ select {
   overflow-wrap: anywhere;
 }
 
+.tm-diff-gap-cell {
+  padding: 0 !important;
+}
+
+.tm-diff-gap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  color: var(--color-fg-muted);
+}
+
+.tm-diff-gap__line {
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tm-diff-gap__label {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
 .tm-diff-line-jump {
   position: absolute;
   top: 50%;

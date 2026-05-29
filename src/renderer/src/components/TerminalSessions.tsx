@@ -1,5 +1,7 @@
 import {
+  Suspense,
   forwardRef,
+  lazy,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -15,14 +17,13 @@ import type {
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { DEFAULT_AGENT_PROVIDER_ID } from '../../../shared/agent-providers'
-import ThreadTerminal, {
-  type ThreadSessionState,
-  type ThreadTerminalHandle
-} from './ThreadTerminal'
+import type { ThreadSessionState, ThreadTerminalHandle } from './ThreadTerminal'
 
 export type { SessionPhase, ThreadSessionState } from './ThreadTerminal'
 
 export type SessionMap = Map<string, ThreadSessionState>
+
+const LazyThreadTerminal = lazy(() => import('./ThreadTerminal'))
 
 export type TerminalSessionsHandle = {
   start: (threadId: string) => void
@@ -136,19 +137,20 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
         className={`absolute inset-0 ${selectedThreadId ? 'pointer-events-auto' : 'pointer-events-none'}`}
       >
         {liveEntries.map((entry) => (
-          <ThreadTerminal
-            agentProviderId={agentProviderId}
-            agentStatus={agentStatus}
-            kind={kind}
-            key={entry.thread.id}
-            launchKey={entry.launchKey}
-            onRefresh={onRefresh}
-            onStateChange={(state) => handleStateChange(entry.thread.id, state)}
-            ref={(handle) => setHandle(entry.thread.id, handle)}
-            settings={settings}
-            thread={entry.thread}
-            visible={selectedThreadId === entry.thread.id}
-          />
+          <Suspense fallback={null} key={entry.thread.id}>
+            <LazyThreadTerminal
+              agentProviderId={agentProviderId}
+              agentStatus={agentStatus}
+              kind={kind}
+              launchKey={entry.launchKey}
+              onRefresh={onRefresh}
+              onStateChange={(state) => handleStateChange(entry.thread.id, state)}
+              ref={(handle) => setHandle(entry.thread.id, handle)}
+              settings={settings}
+              thread={entry.thread}
+              visible={selectedThreadId === entry.thread.id}
+            />
+          </Suspense>
         ))}
       </div>
     )
