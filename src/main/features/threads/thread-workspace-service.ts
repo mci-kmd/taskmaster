@@ -1,11 +1,16 @@
 import { spawn } from 'child_process'
 import { pathToFileURL } from 'url'
 import type {
+  OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult
 } from '../../../shared/app-types'
 import { quoteCmdArgument, resolveCommandOnPath } from '../../terminal/command-utils'
 import { backendPathExists, toUiPath } from '../../backends/repository-backend'
+import {
+  normalizeRepositorySolutionFilePath,
+  resolveRepositorySolutionFilePath
+} from '../repositories/repository-solution-file-service'
 import type { ThreadGitContext } from './thread-git-context'
 
 function buildVscodeWorkspaceUri(cwd: string): string {
@@ -64,6 +69,9 @@ export function createThreadWorkspaceService(dependencies: {
 }): {
   openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
   openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
+  openThreadSolutionInVisualStudio: (
+    threadId: string
+  ) => Promise<OpenThreadSolutionInVisualStudioResult>
 } {
   const openThreadWorkingDirectory = async (
     threadId: string
@@ -142,8 +150,50 @@ export function createThreadWorkspaceService(dependencies: {
     }
   }
 
+  const openThreadSolutionInVisualStudio = async (
+    threadId: string
+  ): Promise<OpenThreadSolutionInVisualStudioResult> => {
+    const context = dependencies.resolveThreadGitContext(threadId)
+    if (!context.ok) {
+      return { ok: false, error: context.error }
+    }
+
+    if (process.platform !== 'win32') {
+      return {
+        ok: false,
+        error: 'Opening a solution in Visual Studio is only supported on Windows.'
+      }
+    }
+
+    if (context.repository.backend.kind === 'wsl') {
+      return {
+        ok: false,
+        error: 'Opening a solution in Visual Studio is not supported for WSL repositories.'
+      }
+    }
+
+    const configuredPath = normalizeRepositorySolutionFilePath(context.repository.solutionFilePath)
+    if (!configuredPath) {
+      return { ok: false, error: 'No solution file is configured for this project.' }
+    }
+
+    const solutionPath = resolveRepositorySolutionFilePath(context.repository.path, configuredPath)
+    if (!solutionPath) {
+      return {
+        ok: false,
+        error: `Configured solution file was not found: ${configuredPath}. Update it in Edit project.`
+      }
+    }
+
+    const error = await dependencies.openPath(solutionPath)
+    return error
+      ? { ok: false, error: `Failed to open solution in Visual Studio: ${error}` }
+      : { ok: true }
+  }
+
   return {
     openThreadWorkingDirectory,
-    openThreadWorkspaceInVscode
+    openThreadWorkspaceInVscode,
+    openThreadSolutionInVisualStudio
   }
 }

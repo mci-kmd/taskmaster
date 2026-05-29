@@ -3,6 +3,7 @@ import type {
   PersistedAppState,
   PersistedRepository,
   PickRepositoryFaviconResult,
+  PickRepositorySolutionFileResult,
   RepositoryBackend,
   UpdateRepositoryInput
 } from '../../../shared/app-types'
@@ -24,6 +25,7 @@ type RepositoryServiceDependencies = {
   platform: NodeJS.Platform
   selectRepositoryDirectory: () => Promise<FilePickerResult>
   pickRepositoryFaviconFile: (repository: PersistedRepository) => Promise<FilePickerResult>
+  pickRepositorySolutionFile: (repository: PersistedRepository) => Promise<FilePickerResult>
   parseWslUncPath: (path: string) => RepositoryBackend | null
   createNativeBackend: () => RepositoryBackend
   resolveGitRoot: (path: string, backend: RepositoryBackend) => string | null
@@ -46,6 +48,14 @@ type RepositoryServiceDependencies = {
   validateRepositoryRunCommandInput: (
     value: string | null
   ) => { ok: true; command: string | null } | { ok: false }
+  validateRepositorySolutionFileInput: (
+    repositoryPath: string,
+    value: string | null
+  ) => { ok: true; path: string | null } | { ok: false; error: string }
+  validateRepositorySolutionFileAbsolutePath: (
+    repositoryPath: string,
+    value: string
+  ) => PickRepositorySolutionFileResult
   validateRepositoryNewWorktreeSetupCommandInput: (
     value: string | null
   ) => { ok: true; command: string | null } | { ok: false }
@@ -58,6 +68,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
   addRepository: () => Promise<MutationResult>
   updateRepository: (input: UpdateRepositoryInput) => MutationResult
   pickRepositoryFavicon: (repositoryId: string) => Promise<PickRepositoryFaviconResult>
+  pickRepositorySolutionFile: (repositoryId: string) => Promise<PickRepositorySolutionFileResult>
 } {
   return {
     addRepository: async (): Promise<MutationResult> => {
@@ -110,6 +121,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         backend,
         faviconPath: null,
         runCommand: null,
+        solutionFilePath: null,
         newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         addedAt: dependencies.nowIso(),
@@ -142,6 +154,14 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         return dependencies.failureResult('Run command is invalid.')
       }
 
+      const solutionFileValidation = dependencies.validateRepositorySolutionFileInput(
+        repository.path,
+        input.solutionFilePath
+      )
+      if (!solutionFileValidation.ok) {
+        return dependencies.failureResult(solutionFileValidation.error)
+      }
+
       const newWorktreeSetupCommandValidation =
         dependencies.validateRepositoryNewWorktreeSetupCommandInput(input.newWorktreeSetupCommand)
       if (!newWorktreeSetupCommandValidation.ok) {
@@ -159,6 +179,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       if (
         repository.faviconPath === faviconValidation.path &&
         repository.runCommand === runCommandValidation.command &&
+        repository.solutionFilePath === solutionFileValidation.path &&
         repository.newWorktreeSetupCommand === newWorktreeSetupCommandValidation.command &&
         repository.postWorktreeRemoveCommand === postWorktreeRemoveCommandValidation.command
       ) {
@@ -167,6 +188,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
 
       repository.faviconPath = faviconValidation.path
       repository.runCommand = runCommandValidation.command
+      repository.solutionFilePath = solutionFileValidation.path
       repository.newWorktreeSetupCommand = newWorktreeSetupCommandValidation.command
       repository.postWorktreeRemoveCommand = postWorktreeRemoveCommandValidation.command
       dependencies.saveState()
@@ -185,6 +207,25 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       }
 
       return dependencies.validateRepositoryFaviconAbsolutePath(
+        repository.path,
+        dialogResult.filePaths[0]
+      )
+    },
+
+    pickRepositorySolutionFile: async (
+      repositoryId: string
+    ): Promise<PickRepositorySolutionFileResult> => {
+      const repository = dependencies.findRepository(repositoryId)
+      if (!repository) {
+        return { ok: false, error: 'Repository not found.' }
+      }
+
+      const dialogResult = await dependencies.pickRepositorySolutionFile(repository)
+      if (dialogResult.canceled || dialogResult.filePaths.length === 0) {
+        return { ok: false, cancelled: true }
+      }
+
+      return dependencies.validateRepositorySolutionFileAbsolutePath(
         repository.path,
         dialogResult.filePaths[0]
       )

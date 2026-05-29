@@ -13,11 +13,12 @@ import {
   normalizeTerminalFontFamilyInput,
   DEFAULT_TASK_TAGS_INPUT
 } from '../settings/settings-values'
+import { normalizeRepositorySolutionFilePath } from '../repositories/repository-solution-file-service'
 import { normalizeRepositoryScript, normalizeRunCommand } from '../repositories/repository-values'
 import { normalizeTrackedText } from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
-export const STATE_VERSION = 12 as const
+export const STATE_VERSION = 13 as const
 
 function sameRepositoryBackend(
   left: RepositoryBackend,
@@ -52,6 +53,12 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
 export function normalizePersistedRepository(repository: PersistedRepository): PersistedRepository {
   const backend = normalizeRepositoryBackend((repository as { backend?: unknown }).backend)
   const runCommand = normalizeRunCommand(repository.runCommand)
+  const rawSolutionFilePath = (repository as { solutionFilePath?: unknown }).solutionFilePath
+  const solutionFilePath = normalizeRepositorySolutionFilePath(
+    typeof rawSolutionFilePath === 'string' || rawSolutionFilePath == null
+      ? rawSolutionFilePath
+      : null
+  )
   const rawNewWorktreeSetupCommand = (repository as { newWorktreeSetupCommand?: unknown })
     .newWorktreeSetupCommand
   const newWorktreeSetupCommand = normalizeRepositoryScript(
@@ -65,6 +72,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
 
   return sameRepositoryBackend(backend, repository.backend) &&
     runCommand === repository.runCommand &&
+    solutionFilePath === rawSolutionFilePath &&
     newWorktreeSetupCommand === repository.newWorktreeSetupCommand &&
     postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
     Array.isArray(repository.tasks) &&
@@ -75,6 +83,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
         ...repository,
         backend,
         runCommand,
+        solutionFilePath,
         newWorktreeSetupCommand,
         postWorktreeRemoveCommand,
         tasks

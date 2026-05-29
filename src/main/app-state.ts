@@ -36,6 +36,10 @@ import {
   validateRepositoryFaviconInput
 } from './features/repositories/repository-favicon-service'
 import {
+  validateRepositorySolutionFileAbsolutePath,
+  validateRepositorySolutionFileInput
+} from './features/repositories/repository-solution-file-service'
+import {
   createRepositoryGitStateService,
   resolveGitRoot
 } from './features/repositories/repository-git'
@@ -152,6 +156,7 @@ const repositoryService = createRepositoryService({
   platform: process.platform,
   selectRepositoryDirectory: electronUi.selectRepositoryDirectory,
   pickRepositoryFaviconFile: electronUi.pickRepositoryFaviconFile,
+  pickRepositorySolutionFile: electronUi.pickRepositorySolutionFile,
   parseWslUncPath,
   createNativeBackend,
   resolveGitRoot,
@@ -161,6 +166,8 @@ const repositoryService = createRepositoryService({
   validateRepositoryFaviconInput,
   validateRepositoryFaviconAbsolutePath,
   validateRepositoryRunCommandInput,
+  validateRepositorySolutionFileInput,
+  validateRepositorySolutionFileAbsolutePath,
   validateRepositoryNewWorktreeSetupCommandInput,
   validateRepositoryPostWorktreeRemoveCommandInput
 })
@@ -247,6 +254,8 @@ export function registerAppStateIpc(): void {
     updateThread: (input: UpdateThreadInput) => threadStateService.updateThread(input),
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
       repositoryService.pickRepositoryFavicon(repositoryId),
+    pickRepositorySolutionFile: (repositoryId: string) =>
+      repositoryService.pickRepositorySolutionFile(repositoryId),
     updateSettings: (input: UpdateSettingsInput) => settingsService.updateSettings(input),
     updateUi: (input: UpdateUiInput) => settingsService.updateUi(input),
     updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) =>
@@ -272,6 +281,8 @@ export function registerAppStateIpc(): void {
       threadWorkspaceService.openThreadWorkingDirectory(threadId),
     openThreadWorkspaceInVscode: (threadId: string) =>
       threadWorkspaceService.openThreadWorkspaceInVscode(threadId),
+    openThreadSolutionInVisualStudio: (threadId: string) =>
+      threadWorkspaceService.openThreadSolutionInVisualStudio(threadId),
     selectRepository: (repositoryId: string | null) =>
       threadStateService.selectRepository(repositoryId),
     selectThread: (threadId: string | null) => threadStateService.selectThread(threadId)

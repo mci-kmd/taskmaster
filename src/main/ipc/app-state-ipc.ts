@@ -7,9 +7,11 @@ import type {
   CreateRepositoryTaskInput,
   CreateThreadInput,
   MutationResult,
+  OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
+  PickRepositorySolutionFileResult,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -46,6 +48,7 @@ type AppStateIpcHandlers = {
   stopThreadRun: (threadId: string) => MutationResult
   updateThread: (input: UpdateThreadInput) => MutationResult
   pickRepositoryFavicon: (repositoryId: string) => Promise<PickRepositoryFaviconResult>
+  pickRepositorySolutionFile: (repositoryId: string) => Promise<PickRepositorySolutionFileResult>
   updateSettings: (input: UpdateSettingsInput) => MutationResult
   updateUi: (input: UpdateUiInput) => MutationResult
   updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) => boolean
@@ -61,6 +64,9 @@ type AppStateIpcHandlers = {
   saveThreadDiffFileContent: (input: ThreadDiffFileSaveRequest) => Promise<ThreadDiffFileSaveResult>
   openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
   openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
+  openThreadSolutionInVisualStudio: (
+    threadId: string
+  ) => Promise<OpenThreadSolutionInVisualStudioResult>
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
 }
@@ -103,6 +109,9 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.pickRepositoryFavicon, (_event, repositoryId: string) =>
     handlers.pickRepositoryFavicon(repositoryId)
+  )
+  handleIpc(IPC_CHANNELS.appState.pickRepositorySolutionFile, (_event, repositoryId: string) =>
+    handlers.pickRepositorySolutionFile(repositoryId)
   )
   handleIpc(IPC_CHANNELS.appState.updateSettings, (_event, input: UpdateSettingsInput) =>
     handlers.updateSettings(input)
@@ -147,6 +156,9 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.openThreadWorkspaceInVscode, (_event, threadId: string) =>
     handlers.openThreadWorkspaceInVscode(threadId)
+  )
+  handleIpc(IPC_CHANNELS.appState.openThreadSolutionInVisualStudio, (_event, threadId: string) =>
+    handlers.openThreadSolutionInVisualStudio(threadId)
   )
   handleIpc(IPC_CHANNELS.appState.selectRepository, (_event, repositoryId: string | null) =>
     handlers.selectRepository(repositoryId)

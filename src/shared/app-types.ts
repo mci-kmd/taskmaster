@@ -131,6 +131,7 @@ export interface PersistedRepository {
   backend: RepositoryBackend
   faviconPath: string | null
   runCommand: string | null
+  solutionFilePath: string | null
   newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
   addedAt: string
@@ -156,7 +157,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 12
+  version: 13
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -381,6 +382,8 @@ export type OpenThreadWorkingDirectoryResult = OpenThreadLocationResult
 
 export type OpenThreadWorkspaceInVscodeResult = OpenThreadLocationResult
 
+export type OpenThreadSolutionInVisualStudioResult = OpenThreadLocationResult
+
 export interface CreateThreadInput {
   repositoryId: string
   mode: ThreadMode
@@ -401,6 +404,7 @@ export interface UpdateRepositoryInput {
   repositoryId: string
   faviconPath: string | null
   runCommand: string | null
+  solutionFilePath: string | null
   newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
 }
@@ -467,6 +471,8 @@ export type PickRepositoryFaviconResult =
       ok: false
       error: string
     }
+
+export type PickRepositorySolutionFileResult = PickRepositoryFaviconResult
 
 export const SIDEBAR_WIDTH_DEFAULT = 268
 export const SIDEBAR_WIDTH_MIN = 220

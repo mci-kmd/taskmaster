@@ -4,7 +4,7 @@ import { createSnapshotService } from './snapshot-service'
 describe('snapshot service', () => {
   it('builds repository, thread, and settings snapshots from dependencies', () => {
     const state = {
-      version: 12 as const,
+      version: 13 as const,
       settings: {
         agentProviderId: 'copilot' as const,
         globalFlagsInput: '--model gpt-5',
@@ -19,6 +19,7 @@ describe('snapshot service', () => {
           backend: { kind: 'native' as const },
           faviconPath: null,
           runCommand: null,
+          solutionFilePath: null,
           newWorktreeSetupCommand: null,
           postWorktreeRemoveCommand: null,
           addedAt: '2026-01-01T00:00:00.000Z',

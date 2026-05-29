@@ -9,7 +9,7 @@ const tempDirs: string[] = []
 
 function createState(): PersistedAppState {
   return {
-    version: 12,
+    version: 13,
     settings: {
       agentProviderId: 'copilot',
       globalFlagsInput: '',
@@ -41,6 +41,7 @@ describe('persisted state store', () => {
       backend: { kind: 'native' },
       faviconPath: null,
       runCommand: null,
+      solutionFilePath: null,
       newWorktreeSetupCommand: null,
       postWorktreeRemoveCommand: null,
       addedAt: '2026-01-01T00:00:00.000Z',
@@ -86,6 +87,7 @@ describe('persisted state store', () => {
       backend: { kind: 'native' },
       faviconPath: null,
       runCommand: null,
+      solutionFilePath: null,
       newWorktreeSetupCommand: null,
       postWorktreeRemoveCommand: null,
       addedAt: '2026-01-01T00:00:00.000Z',

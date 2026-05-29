@@ -6,9 +6,11 @@ import type {
   CreateThreadInput,
   CreateRepositoryTaskInput,
   CompleteRepositoryTaskInput,
+  OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
+  PickRepositorySolutionFileResult,
   RepositoryBackend,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -94,6 +96,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.updateThread, input),
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
       invokeIpc(IPC_CHANNELS.appState.pickRepositoryFavicon, repositoryId),
+    pickRepositorySolutionFile: (repositoryId: string): Promise<PickRepositorySolutionFileResult> =>
+      invokeIpc(IPC_CHANNELS.appState.pickRepositorySolutionFile, repositoryId),
     createThread: (input: CreateThreadInput) =>
       invokeIpc(IPC_CHANNELS.appState.createThread, input),
     closeThread: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.closeThread, threadId),
@@ -126,6 +130,10 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.openThreadWorkingDirectory, threadId),
     openThreadWorkspaceInVscode: (threadId: string): Promise<OpenThreadWorkspaceInVscodeResult> =>
       invokeIpc(IPC_CHANNELS.appState.openThreadWorkspaceInVscode, threadId),
+    openThreadSolutionInVisualStudio: (
+      threadId: string
+    ): Promise<OpenThreadSolutionInVisualStudioResult> =>
+      invokeIpc(IPC_CHANNELS.appState.openThreadSolutionInVisualStudio, threadId),
     selectRepository: (repositoryId: string | null) =>
       invokeIpc(IPC_CHANNELS.appState.selectRepository, repositoryId),
     selectThread: (threadId: string | null) =>

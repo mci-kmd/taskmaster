@@ -7,9 +7,11 @@ import type {
   CreateRepositoryTaskInput,
   CompleteRepositoryTaskInput,
   MutationResult,
+  OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
+  PickRepositorySolutionFileResult,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
   ThreadDiffFileContentRequest,
@@ -46,6 +48,7 @@ declare global {
     stopThreadRun: (threadId: string) => Promise<MutationResult>
     updateThread: (input: UpdateThreadInput) => Promise<MutationResult>
     pickRepositoryFavicon: (repositoryId: string) => Promise<PickRepositoryFaviconResult>
+    pickRepositorySolutionFile: (repositoryId: string) => Promise<PickRepositorySolutionFileResult>
     createThread: (input: CreateThreadInput) => Promise<MutationResult>
     closeThread: (threadId: string) => Promise<MutationResult>
     updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>
@@ -65,6 +68,9 @@ declare global {
     ) => Promise<ThreadDiffFileSaveResult>
     openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
     openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
+    openThreadSolutionInVisualStudio: (
+      threadId: string
+    ) => Promise<OpenThreadSolutionInVisualStudioResult>
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
     showSidebarContextMenu: (input: SidebarContextMenuRequest) => Promise<boolean>

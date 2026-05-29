@@ -56,6 +56,27 @@ export const electronUi = {
       : dialog.showOpenDialog(dialogOptions)
   },
 
+  pickRepositorySolutionFile: async (
+    repository: PersistedRepository
+  ): Promise<OpenDialogReturnValue> => {
+    const ownerWindow = BrowserWindow.getFocusedWindow() ?? null
+    const dialogOptions: OpenDialogOptions = {
+      title: `Choose solution file for ${repository.name}`,
+      defaultPath: repository.path,
+      filters: [
+        {
+          name: 'Visual Studio solution files',
+          extensions: ['sln', 'slnx']
+        }
+      ],
+      properties: ['openFile']
+    }
+
+    return ownerWindow
+      ? dialog.showOpenDialog(ownerWindow, dialogOptions)
+      : dialog.showOpenDialog(dialogOptions)
+  },
+
   showThreadRunFailure: async (title: string, message: string, detail: string): Promise<void> => {
     const ownerWindow =
       BrowserWindow.getFocusedWindow() ??

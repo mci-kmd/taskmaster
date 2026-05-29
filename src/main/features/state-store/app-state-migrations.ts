@@ -21,22 +21,23 @@ type LegacyThreadV2 = Omit<
 type LegacyThreadV4 = Omit<PersistedThread, 'lastUserMessage' | 'resumeSessionId'>
 type LegacyThreadV5 = Omit<PersistedThread, 'lastUserMessage'>
 type LegacySettingsV9 = Omit<PersistedAppState['settings'], 'agentProviderId'>
-type LegacyRepositoryV11 = Omit<PersistedRepository, 'newWorktreeSetupCommand'>
-type LegacyRepositoryV10 = Omit<PersistedRepository, 'backend' | 'newWorktreeSetupCommand'>
+type LegacyRepositoryV12 = Omit<PersistedRepository, 'solutionFilePath'>
+type LegacyRepositoryV11 = Omit<LegacyRepositoryV12, 'newWorktreeSetupCommand'>
+type LegacyRepositoryV10 = Omit<LegacyRepositoryV12, 'backend' | 'newWorktreeSetupCommand'>
 type LegacyRepositoryV8 = Omit<
-  PersistedRepository,
+  LegacyRepositoryV12,
   'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand'
 >
 type LegacyRepositoryV7 = Omit<
-  PersistedRepository,
+  LegacyRepositoryV12,
   'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand' | 'tasks'
 >
 type LegacyRepositoryV6 = Omit<
-  PersistedRepository,
+  LegacyRepositoryV12,
   'backend' | 'newWorktreeSetupCommand' | 'postWorktreeRemoveCommand' | 'runCommand' | 'tasks'
 >
 type LegacyRepositoryV3 = Omit<
-  PersistedRepository,
+  LegacyRepositoryV12,
   | 'backend'
   | 'newWorktreeSetupCommand'
   | 'postWorktreeRemoveCommand'
@@ -44,6 +45,10 @@ type LegacyRepositoryV3 = Omit<
   | 'runCommand'
   | 'tasks'
 >
+type LegacyAppStateV12 = Omit<PersistedAppState, 'version' | 'repositories'> & {
+  version: 12
+  repositories: LegacyRepositoryV12[]
+}
 type LegacyAppStateV11 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 11
   repositories: LegacyRepositoryV11[]
@@ -96,6 +101,7 @@ type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
 
 type MigratedInput =
   | PersistedAppState
+  | LegacyAppStateV12
   | LegacyAppStateV11
   | LegacyAppStateV10
   | LegacyAppStateV9
@@ -132,12 +138,24 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
     return normalizePersistedState(state)
   }
 
+  if (state.version === 12) {
+    return normalizePersistedState({
+      ...state,
+      version: STATE_VERSION,
+      repositories: state.repositories.map((repository) => ({
+        ...repository,
+        solutionFilePath: null
+      }))
+    })
+  }
+
   if (state.version === 11) {
     return normalizePersistedState({
       ...state,
       version: STATE_VERSION,
       repositories: state.repositories.map((repository) => ({
         ...repository,
+        solutionFilePath: null,
         newWorktreeSetupCommand: null
       }))
     })
@@ -150,6 +168,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
       repositories: state.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),
+        solutionFilePath: null,
         newWorktreeSetupCommand: null
       }))
     })
@@ -166,6 +185,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
       repositories: state.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),
+        solutionFilePath: null,
         newWorktreeSetupCommand: null
       }))
     })
@@ -178,6 +198,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
       repositories: state.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),
+        solutionFilePath: null,
         newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null
       }))
@@ -191,6 +212,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
       repositories: state.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),
+        solutionFilePath: null,
         newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
@@ -206,6 +228,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
         ...repository,
         backend: createNativeBackend(),
         runCommand: null,
+        solutionFilePath: null,
         newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         tasks: []
@@ -218,6 +241,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
     backend: createNativeBackend(),
     faviconPath: null,
     runCommand: null,
+    solutionFilePath: null,
     newWorktreeSetupCommand: null,
     postWorktreeRemoveCommand: null,
     tasks: []

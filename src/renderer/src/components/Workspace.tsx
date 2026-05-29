@@ -25,6 +25,7 @@ import {
   PlayIcon,
   RefreshIcon,
   StopIcon,
+  VisualStudioIcon,
   WorktreeIcon
 } from './Icons'
 import { composeThreadTitle } from '../lib/title'
@@ -58,6 +59,7 @@ type WorkspaceProps = {
   onStopRunCommand: () => void
   onOpenWorkingDirectory: () => void
   onOpenWorkingDirectoryInVscode: () => void
+  onOpenSolutionInVisualStudio: () => void
   onSessionsChange: (sessions: SessionMap) => void
 }
 
@@ -221,6 +223,7 @@ export default function Workspace({
   onStopRunCommand,
   onOpenWorkingDirectory,
   onOpenWorkingDirectoryInVscode,
+  onOpenSolutionInVisualStudio,
   onSessionsChange
 }: WorkspaceProps): React.JSX.Element {
   const copilotSessionsRef = useRef<TerminalSessionsHandle | null>(null)
@@ -238,6 +241,7 @@ export default function Workspace({
     [agentProvider.label]
   )
   const threadViewControlWidthPx = threadViewOptions.length * 88
+  const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
 
   useEffect(() => {
     let cancelled = false
@@ -457,6 +461,19 @@ export default function Workspace({
               >
                 <CodeIcon width={13} height={13} />
               </Button>
+
+              {hasSolutionFile ? (
+                <Button
+                  aria-label="Open solution in Visual Studio"
+                  iconOnly
+                  onClick={onOpenSolutionInVisualStudio}
+                  size="sm"
+                  title="Open solution in Visual Studio"
+                  variant="ghost"
+                >
+                  <VisualStudioIcon width={13} height={13} />
+                </Button>
+              ) : null}
 
               <div style={{ width: threadViewControlWidthPx }}>
                 <SegmentedControl<ThreadWorkspaceViewId>

@@ -35,7 +35,7 @@ vi.mock('./thread-worktree-utils', () => ({
 
 function createState(thread: PersistedThread): PersistedAppState {
   return {
-    version: 12,
+    version: 13,
     settings: {
       agentProviderId: 'copilot',
       globalFlagsInput: '',
@@ -50,6 +50,7 @@ function createState(thread: PersistedThread): PersistedAppState {
         backend: createNativeBackend(),
         faviconPath: null,
         runCommand: null,
+        solutionFilePath: null,
         newWorktreeSetupCommand: null,
         postWorktreeRemoveCommand: null,
         addedAt: '2026-01-01T00:00:00.000Z',

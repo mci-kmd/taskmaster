@@ -37,6 +37,15 @@ export function CodeIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function VisualStudioIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <rect x="2.75" y="3.25" width="10.5" height="9.5" rx="1.2" />
+      <path d="M6 3.25v9.5M6.2 6.1h7" />
+    </svg>
+  )
+}
+
 export function ChevronRightIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

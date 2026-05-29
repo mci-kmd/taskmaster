@@ -8,8 +8,10 @@ import type {
   CreateThreadInput,
   MutationResult,
   OpenThreadWorkingDirectoryResult,
+  OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
+  PickRepositorySolutionFileResult,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -54,6 +56,7 @@ export const IPC_CHANNELS = {
     stopThreadRun: 'app-state:stop-thread-run',
     updateThread: 'app-state:update-thread',
     pickRepositoryFavicon: 'app-state:pick-repository-favicon',
+    pickRepositorySolutionFile: 'app-state:pick-repository-solution-file',
     createThread: 'app-state:create-thread',
     closeThread: 'app-state:close-thread',
     updateSettings: 'app-state:update-settings',
@@ -69,6 +72,7 @@ export const IPC_CHANNELS = {
     saveThreadDiffFileContent: 'app-state:save-thread-diff-file-content',
     openThreadWorkingDirectory: 'app-state:open-thread-working-directory',
     openThreadWorkspaceInVscode: 'app-state:open-thread-workspace-in-vscode',
+    openThreadSolutionInVisualStudio: 'app-state:open-thread-solution-in-visual-studio',
     selectRepository: 'app-state:select-repository',
     selectThread: 'app-state:select-thread',
     threadRunState: 'app-state:thread-run-state'
@@ -114,6 +118,10 @@ export type IpcInvokeDefinitions = {
   'app-state:pick-repository-favicon': {
     request: [string]
     response: PickRepositoryFaviconResult
+  }
+  'app-state:pick-repository-solution-file': {
+    request: [string]
+    response: PickRepositorySolutionFileResult
   }
   'app-state:create-thread': { request: [CreateThreadInput]; response: MutationResult }
   'app-state:close-thread': { request: [string]; response: MutationResult }
@@ -162,6 +170,10 @@ export type IpcInvokeDefinitions = {
   'app-state:open-thread-workspace-in-vscode': {
     request: [string]
     response: OpenThreadWorkspaceInVscodeResult
+  }
+  'app-state:open-thread-solution-in-visual-studio': {
+    request: [string]
+    response: OpenThreadSolutionInVisualStudioResult
   }
   'app-state:select-repository': { request: [string | null]; response: AppSnapshot }
   'app-state:select-thread': { request: [string | null]; response: AppSnapshot }

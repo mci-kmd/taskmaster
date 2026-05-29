@@ -392,11 +392,32 @@ export default function App(): React.JSX.Element {
     []
   )
 
+  const handleBrowseRepositorySolutionFile = useCallback(
+    async (repositoryId: string): Promise<string | null> => {
+      const result = await api.appState.pickRepositorySolutionFile(repositoryId)
+      if (result.ok) {
+        return result.path
+      }
+
+      if ('cancelled' in result && result.cancelled) {
+        return null
+      }
+
+      if ('error' in result) {
+        setFeedback({ tone: 'error', message: result.error })
+      }
+
+      return null
+    },
+    []
+  )
+
   const handleSaveRepository = useCallback(
     async (input: {
       repositoryId: string
       faviconPath: string | null
       runCommand: string | null
+      solutionFilePath: string | null
       newWorktreeSetupCommand: string | null
       postWorktreeRemoveCommand: string | null
     }): Promise<boolean> => {
@@ -544,6 +565,20 @@ export default function App(): React.JSX.Element {
     setFeedback({ tone: 'success', message: 'Opened workspace in VS Code.' })
   }, [selectedThread])
 
+  const handleOpenSolutionInVisualStudio = useCallback(async (): Promise<void> => {
+    if (!selectedThread) {
+      return
+    }
+
+    const result = await api.appState.openThreadSolutionInVisualStudio(selectedThread.id)
+    if (!result.ok) {
+      setFeedback({ tone: 'error', message: result.error })
+      return
+    }
+
+    setFeedback({ tone: 'success', message: 'Opened solution in Visual Studio.' })
+  }, [selectedThread])
+
   // Refresh repo state (current branch, primary branch, etc.) every time the
   // New Thread dialog opens — git state can change externally between opens.
   useEffect(() => {
@@ -622,6 +657,7 @@ export default function App(): React.JSX.Element {
         onStopRunCommand={() => void handleStopRunCommand()}
         onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
         onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
+        onOpenSolutionInVisualStudio={() => void handleOpenSolutionInVisualStudio()}
         onRefresh={refreshSnapshot}
         onSessionsChange={handleSessionsChange}
         repositoryTaskBusy={
@@ -655,7 +691,8 @@ export default function App(): React.JSX.Element {
 
       <EditRepositoryDialog
         busy={busyAction === 'save-repository'}
-        onBrowse={handleBrowseRepositoryFavicon}
+        onBrowseFavicon={handleBrowseRepositoryFavicon}
+        onBrowseSolutionFile={handleBrowseRepositorySolutionFile}
         onClose={handleCloseRepositoryEditor}
         onSubmit={handleSaveRepository}
         open={dialog === 'edit-repository'}

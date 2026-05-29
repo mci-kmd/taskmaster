@@ -9,11 +9,13 @@ type EditRepositoryDialogProps = {
   repository: RepositorySnapshot | null
   busy: boolean
   onClose: () => void
-  onBrowse: (repositoryId: string) => Promise<string | null>
+  onBrowseFavicon: (repositoryId: string) => Promise<string | null>
+  onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
   onSubmit: (input: {
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
+    solutionFilePath: string | null
     newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
   }) => Promise<boolean>
@@ -24,14 +26,15 @@ export default function EditRepositoryDialog({
   repository,
   busy,
   onClose,
-  onBrowse,
+  onBrowseFavicon,
+  onBrowseSolutionFile,
   onSubmit
 }: EditRepositoryDialogProps): React.JSX.Element {
   return (
     <Modal
       description={
         repository
-          ? `Configure the icon and project commands for ${repository.name}.`
+          ? `Configure the icon, solution file, and project commands for ${repository.name}.`
           : 'Pick a repository in the sidebar first.'
       }
       onClose={onClose}
@@ -42,8 +45,9 @@ export default function EditRepositoryDialog({
       {repository ? (
         <EditRepositoryForm
           busy={busy}
-          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}`}
-          onBrowse={onBrowse}
+          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}`}
+          onBrowseFavicon={onBrowseFavicon}
+          onBrowseSolutionFile={onBrowseSolutionFile}
           onCancel={onClose}
           onSubmit={async (input) => {
             const ok = await onSubmit(input)
@@ -73,11 +77,13 @@ type EditRepositoryFormProps = {
   repository: RepositorySnapshot
   busy: boolean
   onCancel: () => void
-  onBrowse: (repositoryId: string) => Promise<string | null>
+  onBrowseFavicon: (repositoryId: string) => Promise<string | null>
+  onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
   onSubmit: (input: {
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
+    solutionFilePath: string | null
     newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
   }) => Promise<void>
@@ -87,11 +93,15 @@ function EditRepositoryForm({
   repository,
   busy,
   onCancel,
-  onBrowse,
+  onBrowseFavicon,
+  onBrowseSolutionFile,
   onSubmit
 }: EditRepositoryFormProps): React.JSX.Element {
   const [faviconDraft, setFaviconDraft] = useState(repository.faviconPath ?? '')
   const [runCommandDraft, setRunCommandDraft] = useState(repository.runCommand ?? '')
+  const [solutionFilePathDraft, setSolutionFilePathDraft] = useState(
+    repository.solutionFilePath ?? ''
+  )
   const [newWorktreeSetupCommandDraft, setNewWorktreeSetupCommandDraft] = useState(
     repository.newWorktreeSetupCommand ?? ''
   )
@@ -102,6 +112,7 @@ function EditRepositoryForm({
   const dirty =
     faviconDraft !== (repository.faviconPath ?? '') ||
     runCommandDraft !== (repository.runCommand ?? '') ||
+    solutionFilePathDraft !== (repository.solutionFilePath ?? '') ||
     newWorktreeSetupCommandDraft !== (repository.newWorktreeSetupCommand ?? '') ||
     postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '')
 
@@ -115,6 +126,7 @@ function EditRepositoryForm({
             repositoryId: repository.id,
             faviconPath: faviconDraft.trim() || null,
             runCommand: runCommandDraft.trim() || null,
+            solutionFilePath: solutionFilePathDraft.trim() || null,
             newWorktreeSetupCommand: newWorktreeSetupCommandDraft.trim() || null,
             postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null
           })
@@ -136,7 +148,7 @@ function EditRepositoryForm({
           <Button
             disabled={busy}
             onClick={async () => {
-              const nextPath = await onBrowse(repository.id)
+              const nextPath = await onBrowseFavicon(repository.id)
               if (nextPath) {
                 setFaviconDraft(nextPath)
               }
@@ -162,6 +174,35 @@ function EditRepositoryForm({
           spellCheck={false}
           value={runCommandDraft}
         />
+      </Field>
+
+      <Field
+        hint={`Use Browse to pick a .sln or .slnx file, or paste a relative path manually. Stored relative to ${repository.name}'s repo root so the same solution opens from worktrees too.`}
+        label="Visual Studio solution file"
+      >
+        <div className="flex items-center gap-2">
+          <TextInput
+            className="min-w-0 flex-1"
+            onChange={(event) => setSolutionFilePathDraft(event.target.value)}
+            placeholder="src\\MyApp.slnx"
+            spellCheck={false}
+            value={solutionFilePathDraft}
+          />
+          <Button
+            disabled={busy}
+            onClick={async () => {
+              const nextPath = await onBrowseSolutionFile(repository.id)
+              if (nextPath) {
+                setSolutionFilePathDraft(nextPath)
+              }
+            }}
+            title="Browse for a solution file"
+            type="button"
+            variant="secondary"
+          >
+            Browse…
+          </Button>
+        </div>
       </Field>
 
       <Field
@@ -203,12 +244,14 @@ function EditRepositoryForm({
               busy ||
               (faviconDraft.length === 0 &&
                 runCommandDraft.length === 0 &&
+                solutionFilePathDraft.length === 0 &&
                 newWorktreeSetupCommandDraft.length === 0 &&
                 postWorktreeRemoveCommandDraft.length === 0)
             }
             onClick={() => {
               setFaviconDraft('')
               setRunCommandDraft('')
+              setSolutionFilePathDraft('')
               setNewWorktreeSetupCommandDraft('')
               setPostWorktreeRemoveCommandDraft('')
             }}
