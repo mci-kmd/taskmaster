@@ -1004,12 +1004,8 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                           }
                         : { tone: 'muted' as const, message: 'Current file · editable' }
               : { tone: 'muted' as const, message: 'Pick a changed file to inspect.' }
-  const selectedFileAdditions = selectedFile
-    ? formatStatDelta('+', selectedFile.additions)
-    : null
-  const selectedFileDeletions = selectedFile
-    ? formatStatDelta('-', selectedFile.deletions)
-    : null
+  const selectedFileAdditions = selectedFile ? formatStatDelta('+', selectedFile.additions) : null
+  const selectedFileDeletions = selectedFile ? formatStatDelta('-', selectedFile.deletions) : null
   const selectedFileChangeLabel =
     selectedFile?.status === 'added' || selectedFile?.status === 'untracked'
       ? { text: 'Added', className: 'text-[var(--color-positive)]' }
