@@ -133,6 +133,18 @@ function formatStatDelta(label: '+' | '-', value: number | null): string | null 
   return typeof value === 'number' ? `${label}${value}` : null
 }
 
+function getDiffFilenameColorClass(status: ThreadDiffFileSummary['status']): string {
+  if (status === 'added' || status === 'untracked') {
+    return 'text-[var(--color-positive)]'
+  }
+
+  if (status === 'deleted') {
+    return 'text-[var(--color-danger)]'
+  }
+
+  return 'text-[var(--color-fg)]'
+}
+
 function splitPathForDisplay(path: string): {
   directory: string
   separator: string
@@ -992,6 +1004,18 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                           }
                         : { tone: 'muted' as const, message: 'Current file · editable' }
               : { tone: 'muted' as const, message: 'Pick a changed file to inspect.' }
+  const selectedFileAdditions = selectedFile
+    ? formatStatDelta('+', selectedFile.additions)
+    : null
+  const selectedFileDeletions = selectedFile
+    ? formatStatDelta('-', selectedFile.deletions)
+    : null
+  const selectedFileChangeLabel =
+    selectedFile?.status === 'added' || selectedFile?.status === 'untracked'
+      ? { text: 'Added', className: 'text-[var(--color-positive)]' }
+      : selectedFile?.status === 'deleted'
+        ? { text: 'Removed', className: 'text-[var(--color-danger)]' }
+        : null
 
   return (
     <div className="tm-fade-in flex h-full min-h-0 flex-col gap-3">
@@ -1168,13 +1192,11 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                     ) : null}
 
                     {group.files.map((file) => {
-                      const additions = formatStatDelta('+', file.additions)
-                      const deletions = formatStatDelta('-', file.deletions)
                       const active = file.path === selectedPath
-                      const showNewLabel = file.status === 'untracked'
                       const pathDisplay = splitPathForDisplay(
                         getProjectRelativePath(file.path, file.projectRootPath)
                       )
+                      const filenameColorClass = getDiffFilenameColorClass(file.status)
                       const previousPathDisplay = getPreviousPathDisplay(file, thread.cwd)
                       const tooltip =
                         file.previousPath !== null && file.previousPath.length > 0
@@ -1205,26 +1227,13 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                                   {pathDisplay.separator}
                                 </span>
                               ) : null}
-                              <span className="truncate text-[var(--color-fg)]">
+                              <span className={`truncate ${filenameColorClass}`}>
                                 {pathDisplay.filename}
                               </span>
                             </div>
                             {previousPathDisplay ? (
                               <div className="tm-truncate-start mt-[2px] font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
                                 from {previousPathDisplay}
-                              </div>
-                            ) : null}
-                            {additions || deletions || showNewLabel ? (
-                              <div className="mt-[2px] flex items-center gap-1 text-[11.5px] font-mono">
-                                {additions ? (
-                                  <span className="text-[var(--color-positive)]">{additions}</span>
-                                ) : null}
-                                {deletions ? (
-                                  <span className="text-[var(--color-danger)]">{deletions}</span>
-                                ) : null}
-                                {showNewLabel ? (
-                                  <span className="text-[var(--color-positive)]">New</span>
-                                ) : null}
                               </div>
                             ) : null}
                           </div>
@@ -1263,7 +1272,7 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                     ) : null}
                     {filePaneStatus ? (
                       <div
-                        className={`mt-2 text-[11.5px] ${
+                        className={`mt-2 flex flex-wrap items-center gap-1 text-[11.5px] ${
                           filePaneStatus.tone === 'error'
                             ? 'text-[var(--color-danger)]'
                             : filePaneStatus.tone === 'success'
@@ -1273,7 +1282,22 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                                 : 'text-[var(--color-fg-subtle)]'
                         }`}
                       >
-                        {filePaneStatus.message}
+                        <span>{filePaneStatus.message}</span>
+                        {selectedFileAdditions ? (
+                          <span className="font-mono text-[var(--color-positive)]">
+                            {selectedFileAdditions}
+                          </span>
+                        ) : null}
+                        {selectedFileDeletions ? (
+                          <span className="font-mono text-[var(--color-danger)]">
+                            {selectedFileDeletions}
+                          </span>
+                        ) : null}
+                        {selectedFileChangeLabel ? (
+                          <span className={`font-mono ${selectedFileChangeLabel.className}`}>
+                            {selectedFileChangeLabel.text}
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
