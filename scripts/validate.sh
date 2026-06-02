@@ -16,6 +16,7 @@ run_step() {
 cd "$REPO_ROOT"
 
 run_step "Formatting code" bun run format
+run_step "Staging formatter changes" git add -u
 run_step "Linting" bun run lint
 run_step "Running tests" bun run test
 run_step "Typechecking" bun run typecheck

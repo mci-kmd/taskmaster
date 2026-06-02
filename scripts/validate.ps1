@@ -26,6 +26,7 @@ function Invoke-Step {
 }
 
 Invoke-Step "Formatting code" bun run format
+Invoke-Step "Staging formatter changes" git add -u
 Invoke-Step "Linting" bun run lint
 Invoke-Step "Running tests" bun run test
 Invoke-Step "Typechecking" bun run typecheck
