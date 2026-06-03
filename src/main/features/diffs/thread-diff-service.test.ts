@@ -80,7 +80,7 @@ describe('thread diff service', () => {
   it('reads and saves working-tree files while preserving BOM and CRLF', async () => {
     const repo = createTempRepo()
     const service = createHarness(repo)
-    const filePath = 'src\\example.ts'
+    const filePath = 'src/example.ts'
     const bomCrLfContent = Buffer.from([
       0xef,
       0xbb,
@@ -133,7 +133,7 @@ describe('thread diff service', () => {
   it('reads the head-side range snapshot instead of the working tree', async () => {
     const repo = createTempRepo()
     const service = createHarness(repo)
-    const filePath = 'src\\range-example.ts'
+    const filePath = 'src/range-example.ts'
 
     writeRepoFile(repo, filePath, 'export const value = 1;\n')
     const baseRef = commitAll(repo, 'base')
@@ -160,7 +160,7 @@ describe('thread diff service', () => {
   it('rejects saving from range mode', async () => {
     const repo = createTempRepo()
     const service = createHarness(repo)
-    const filePath = 'src\\range-save.ts'
+    const filePath = 'src/range-save.ts'
 
     writeRepoFile(repo, filePath, 'export const value = 1;\n')
     const baseRef = commitAll(repo, 'base')
@@ -187,7 +187,7 @@ describe('thread diff service', () => {
   it('rejects stale saves after external changes', async () => {
     const repo = createTempRepo()
     const service = createHarness(repo)
-    const filePath = 'src\\stale.ts'
+    const filePath = 'src/stale.ts'
 
     writeRepoFile(repo, filePath, 'export const value = 1;\n')
     commitAll(repo, 'initial')
@@ -220,7 +220,7 @@ describe('thread diff service', () => {
   it('returns a clear error for deleted files', async () => {
     const repo = createTempRepo()
     const service = createHarness(repo)
-    const filePath = 'src\\deleted.ts'
+    const filePath = 'src/deleted.ts'
 
     writeRepoFile(repo, filePath, 'export const value = 1;\n')
     commitAll(repo, 'initial')

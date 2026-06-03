@@ -82,6 +82,7 @@ import {
 } from './backends/repository-backend'
 import { registerAppStateIpcHandlers } from './ipc/app-state-ipc'
 import { electronUi } from './platform/electron-ui'
+import { runGit } from './backends/git-client'
 
 const persistedStateStore = createAppStateStore()
 const repositoryGitStateService = createRepositoryGitStateService()
@@ -155,11 +156,15 @@ const repositoryService = createRepositoryService({
   nowIso,
   platform: process.platform,
   selectRepositoryDirectory: electronUi.selectRepositoryDirectory,
+  confirmInitializeRepository: electronUi.confirmInitializeRepository,
   pickRepositoryFaviconFile: electronUi.pickRepositoryFaviconFile,
   pickRepositorySolutionFile: electronUi.pickRepositorySolutionFile,
   parseWslUncPath,
   createNativeBackend,
   resolveGitRoot,
+  initializeGitRepository: (path, backend) => {
+    runGit(path, ['init'], backend)
+  },
   isSameRepositoryPath,
   getBasename,
   toUiPath,

@@ -13,6 +13,10 @@ type FilePickerResult = {
   filePaths: string[]
 }
 
+type ConfirmInitializeRepositoryResult = {
+  confirmed: boolean
+}
+
 type RepositoryServiceDependencies = {
   ensureState: () => Pick<PersistedAppState, 'repositories'>
   findRepository: (repositoryId: string) => PersistedRepository | undefined
@@ -24,11 +28,13 @@ type RepositoryServiceDependencies = {
   nowIso: () => string
   platform: NodeJS.Platform
   selectRepositoryDirectory: () => Promise<FilePickerResult>
+  confirmInitializeRepository: (path: string) => Promise<ConfirmInitializeRepositoryResult>
   pickRepositoryFaviconFile: (repository: PersistedRepository) => Promise<FilePickerResult>
   pickRepositorySolutionFile: (repository: PersistedRepository) => Promise<FilePickerResult>
   parseWslUncPath: (path: string) => RepositoryBackend | null
   createNativeBackend: () => RepositoryBackend
   resolveGitRoot: (path: string, backend: RepositoryBackend) => string | null
+  initializeGitRepository: (path: string, backend: RepositoryBackend) => void
   isSameRepositoryPath: (
     leftPath: string,
     leftBackend: RepositoryBackend,
@@ -83,9 +89,26 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       const selectedExecutionPath =
         selectedWslBackend?.kind === 'wsl' ? selectedWslBackend.linuxPath : selectedPath
       const selectedBackend = selectedWslBackend ?? dependencies.createNativeBackend()
-      const gitRoot = dependencies.resolveGitRoot(selectedExecutionPath, selectedBackend)
+      let gitRoot = dependencies.resolveGitRoot(selectedExecutionPath, selectedBackend)
       if (!gitRoot) {
-        return dependencies.failureResult('Selected folder is not inside a git repository.')
+        const confirmation = await dependencies.confirmInitializeRepository(
+          dependencies.toUiPath(selectedBackend, selectedExecutionPath)
+        )
+        if (!confirmation.confirmed) {
+          return dependencies.failureResult('Repository initialization cancelled.', true)
+        }
+
+        try {
+          dependencies.initializeGitRepository(selectedExecutionPath, selectedBackend)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          return dependencies.failureResult(`Failed to initialize git repository: ${message}`)
+        }
+
+        gitRoot = dependencies.resolveGitRoot(selectedExecutionPath, selectedBackend)
+        if (!gitRoot) {
+          return dependencies.failureResult('Failed to initialize git repository.')
+        }
       }
 
       const backend =

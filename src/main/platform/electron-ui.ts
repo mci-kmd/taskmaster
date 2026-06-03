@@ -35,6 +35,25 @@ export const electronUi = {
       properties: ['openDirectory']
     }),
 
+  confirmInitializeRepository: async (path: string): Promise<{ confirmed: boolean }> => {
+    const ownerWindow = BrowserWindow.getFocusedWindow() ?? null
+    const options = {
+      type: 'question' as const,
+      buttons: ['Initialize', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Initialize git repository?',
+      message: 'Selected folder is not a git repository.',
+      detail: `Initialize a new git repository in ${path}?`,
+      noLink: true
+    }
+    const result = ownerWindow
+      ? await dialog.showMessageBox(ownerWindow, options)
+      : await dialog.showMessageBox(options)
+
+    return { confirmed: result.response === 0 }
+  },
+
   pickRepositoryFaviconFile: async (
     repository: PersistedRepository
   ): Promise<OpenDialogReturnValue> => {
