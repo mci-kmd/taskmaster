@@ -139,7 +139,9 @@ function getCurrentBranchLabel(
 ): string {
   const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
   if (!branchResult.ok) {
-    return 'Unavailable'
+    const unbornBranchResult = tryGit(repoPath, ['symbolic-ref', '--short', 'HEAD'], backend)
+    const unbornBranchName = unbornBranchResult.stdout.trim()
+    return unbornBranchResult.ok && unbornBranchName ? unbornBranchName : 'Unavailable'
   }
 
   if (branchResult.stdout === 'HEAD') {

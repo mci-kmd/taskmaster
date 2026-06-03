@@ -329,7 +329,9 @@ export function getCurrentBranchLabel(
 ): string {
   const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
   if (!branchResult.ok) {
-    return 'Unavailable'
+    const unbornBranchResult = tryGit(repoPath, ['symbolic-ref', '--short', 'HEAD'], backend)
+    const unbornBranchName = unbornBranchResult.stdout.trim()
+    return unbornBranchResult.ok && unbornBranchName ? unbornBranchName : 'Unavailable'
   }
 
   if (branchResult.stdout === 'HEAD') {
@@ -346,15 +348,23 @@ export async function getCurrentBranchLabelAsync(
 ): Promise<string> {
   const branchResult = await tryGitAsync(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
   if (!branchResult.ok) {
-    return 'Unavailable'
+    const unbornBranchResult = await tryGitAsync(
+      repoPath,
+      ['symbolic-ref', '--short', 'HEAD'],
+      backend
+    )
+    const unbornBranchName = unbornBranchResult.stdout.trim()
+    return unbornBranchResult.ok && unbornBranchName ? unbornBranchName : 'Unavailable'
   }
 
-  if (branchResult.stdout === 'HEAD') {
+  const branchName = branchResult.stdout.trim()
+  if (branchName === 'HEAD') {
     const headResult = await tryGitAsync(repoPath, ['rev-parse', '--short', 'HEAD'], backend)
-    return headResult.ok ? `HEAD (${headResult.stdout})` : 'HEAD'
+    const headShortRef = headResult.stdout.trim()
+    return headResult.ok && headShortRef ? `HEAD (${headShortRef})` : 'HEAD'
   }
 
-  return branchResult.stdout
+  return branchName
 }
 
 export function getCurrentBranchName(
@@ -362,7 +372,13 @@ export function getCurrentBranchName(
   backend: RepositoryBackend = createNativeBackend()
 ): string | null {
   const branchResult = tryGit(repoPath, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
-  if (!branchResult.ok || branchResult.stdout === 'HEAD') {
+  if (!branchResult.ok) {
+    const unbornBranchResult = tryGit(repoPath, ['symbolic-ref', '--short', 'HEAD'], backend)
+    const unbornBranchName = unbornBranchResult.stdout.trim()
+    return unbornBranchResult.ok && unbornBranchName ? unbornBranchName : null
+  }
+
+  if (branchResult.stdout === 'HEAD') {
     return null
   }
 
