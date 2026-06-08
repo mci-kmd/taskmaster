@@ -6,7 +6,9 @@ import { runGit } from '../../backends/git-client'
 import {
   getCurrentBranchLabel,
   getCurrentBranchLabelAsync,
-  getCurrentBranchName
+  getCurrentBranchName,
+  getPrimaryBranch,
+  getProtectedBranchDeletionError
 } from './repository-git'
 
 const tempDirs: string[] = []
@@ -31,5 +33,12 @@ describe('repository git helpers', () => {
     expect(getCurrentBranchLabel(repo)).toBe('master')
     expect(getCurrentBranchName(repo)).toBe('master')
     await expect(getCurrentBranchLabelAsync(repo)).resolves.toBe('master')
+  })
+
+  it('does not infer a primary branch from a conventional branch name', () => {
+    const repo = createUnbornRepo('main')
+
+    expect(getPrimaryBranch(repo)).toBeNull()
+    expect(getProtectedBranchDeletionError(repo, 'main')).toBeNull()
   })
 })

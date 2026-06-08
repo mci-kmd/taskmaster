@@ -23,6 +23,7 @@ import {
   toUiPath
 } from '../../backends/repository-backend'
 import { isPathInsideRepository } from '../repositories/repository-path-utils'
+import { getPrimaryBranch } from '../repositories/repository-git'
 import type { ThreadGitContext } from '../threads/thread-git-context'
 import {
   annotateDiffFilesWithProjects,
@@ -260,22 +261,7 @@ export function createThreadDiffService(dependencies: {
       let defaultBaseRef = ''
 
       if (branchName) {
-        const primaryBranch = tryGit(
-          cwd,
-          ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
-          backend
-        )
-        const primaryName =
-          primaryBranch.ok && primaryBranch.stdout
-            ? primaryBranch.stdout.replace(/^origin\//, '')
-            : (['main', 'master'].find(
-                (candidate) =>
-                  tryGit(
-                    cwd,
-                    ['show-ref', '--verify', '--quiet', `refs/heads/${candidate}`],
-                    backend
-                  ).ok
-              ) ?? null)
+        const primaryName = getPrimaryBranch(cwd, backend)
         if (primaryName && branchName !== primaryName) {
           const mergeBase = tryGit(cwd, ['merge-base', primaryName, 'HEAD'], backend)
           if (mergeBase.ok && mergeBase.stdout) {

@@ -283,15 +283,17 @@ describe('createThreadCloseService', () => {
 
   it('closes the thread with a warning when orphaned branch cleanup fails', async () => {
     vi.mocked(resolveGitRoot).mockReturnValue(null)
-    vi.mocked(getProtectedBranchDeletionError).mockReturnValue('The main branch cannot be deleted.')
-    const harness = createHarness(createThread({ branchName: 'main' }))
+    vi.mocked(getProtectedBranchDeletionError).mockReturnValue(
+      'The repository primary branch "trunk" cannot be deleted.'
+    )
+    const harness = createHarness(createThread({ branchName: 'trunk' }))
 
     const result = await harness.closeThread('thread-1')
 
     expect(result).toEqual({
       ok: false,
       error:
-        'Thread closed, but the orphaned branch cleanup failed: The main branch cannot be deleted.',
+        'Thread closed, but the orphaned branch cleanup failed: The repository primary branch "trunk" cannot be deleted.',
       cancelled: false
     })
     expect(harness.state.threads).toEqual([])

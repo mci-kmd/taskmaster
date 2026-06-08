@@ -397,12 +397,6 @@ export function getPrimaryBranch(
     }
   }
 
-  for (const candidate of ['main', 'master']) {
-    if (branchExists(repoPath, candidate, backend)) {
-      return candidate
-    }
-  }
-
   return null
 }
 
@@ -418,12 +412,6 @@ export async function getPrimaryBranchAsync(
   if (symref.ok && symref.stdout) {
     const candidate = symref.stdout.replace(/^origin\//, '')
     if (candidate && (await branchExistsAsync(repoPath, candidate, backend))) {
-      return candidate
-    }
-  }
-
-  for (const candidate of ['main', 'master']) {
-    if (await branchExistsAsync(repoPath, candidate, backend)) {
       return candidate
     }
   }
@@ -445,10 +433,6 @@ export function getProtectedBranchDeletionError(
   branchName: string,
   backend: RepositoryBackend = createNativeBackend()
 ): string | null {
-  if (branchName === 'main') {
-    return 'The main branch cannot be deleted.'
-  }
-
   const primaryBranch = getPrimaryBranch(repoPath, backend)
   if (primaryBranch === branchName) {
     return `The repository primary branch "${branchName}" cannot be deleted.`

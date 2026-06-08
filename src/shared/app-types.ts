@@ -188,7 +188,7 @@ export interface ThreadSnapshot extends PersistedThread {
 export interface RepositorySnapshot extends PersistedRepository {
   currentBranch: string
   faviconUrl: string | null
-  /** Resolved primary branch (origin/HEAD → main → master) or null if none found. */
+  /** Resolved primary branch from remote default-branch metadata, or null if none found. */
   primaryBranch: string | null
   branchOptions: RepositoryBranchOption[]
   worktreeOptions: RepositoryWorktreeOption[]

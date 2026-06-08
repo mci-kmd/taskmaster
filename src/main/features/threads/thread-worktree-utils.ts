@@ -147,7 +147,7 @@ export function resolveBaseRef(
     return {
       ok: false,
       error:
-        'Could not determine the primary branch (no origin/HEAD, main, or master found). Tick "Use current branch" to base off HEAD instead.'
+        'Could not determine the primary branch. Tick "Use current branch" to base off HEAD instead.'
     }
   }
 

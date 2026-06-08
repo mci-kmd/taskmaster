@@ -15,7 +15,12 @@ cd /d "%REPO_ROOT%"
 set "VM_REMOTE=vm"
 set "VM_URL=mc@uvd-claude1.uvd.local:~/code/taskmaster/.git"
 set "BRANCH=%~1"
-if not defined BRANCH set "BRANCH=main"
+if not defined BRANCH for /f "delims=" %%i in ('git branch --show-current 2^>nul') do set "BRANCH=%%i"
+if not defined BRANCH (
+    echo Could not determine current branch. Pass a branch name.
+    popd
+    exit /b 1
+)
 
 git remote get-url %VM_REMOTE% >nul 2>nul
 if errorlevel 1 (
