@@ -26,6 +26,7 @@ export type RepositoryGitState = {
 }
 
 const LOADING_BRANCH_LABEL = 'Loading...'
+const PRIMARY_BRANCH_FALLBACKS = ['main', 'master'] as const
 
 type ExistingBranchTargetResolution =
   | { ok: true; target: ExistingBranchTarget | null }
@@ -44,6 +45,22 @@ function parseBranchNameFromRef(ref: string): string | null {
 
 function compareBranchNames(left: string, right: string): number {
   return left.localeCompare(right, undefined, { sensitivity: 'base' })
+}
+
+function findFallbackPrimaryBranch(
+  localBranches: string[],
+  remoteBranches: string[]
+): string | null {
+  for (const branchName of PRIMARY_BRANCH_FALLBACKS) {
+    if (
+      localBranches.includes(branchName) ||
+      remoteBranches.some((remoteRef) => remoteRef === `origin/${branchName}`)
+    ) {
+      return branchName
+    }
+  }
+
+  return null
 }
 
 function listLocalBranchNames(
@@ -301,19 +318,6 @@ export function branchExists(
     .ok
 }
 
-async function branchExistsAsync(
-  repoPath: string,
-  branchName: string,
-  backend: RepositoryBackend = createNativeBackend()
-): Promise<boolean> {
-  const result = await tryGitAsync(
-    repoPath,
-    ['show-ref', '--verify', '--quiet', `refs/heads/${branchName}`],
-    backend
-  )
-  return result.ok
-}
-
 export function remoteBranchExists(
   repoPath: string,
   branchName: string,
@@ -392,12 +396,15 @@ export function getPrimaryBranch(
   const symref = tryGit(repoPath, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], backend)
   if (symref.ok && symref.stdout) {
     const candidate = symref.stdout.replace(/^origin\//, '')
-    if (candidate && branchExists(repoPath, candidate, backend)) {
+    if (candidate) {
       return candidate
     }
   }
 
-  return null
+  return findFallbackPrimaryBranch(
+    listLocalBranchNames(repoPath, backend),
+    listRemoteBranchRefs(repoPath, backend)
+  )
 }
 
 export async function getPrimaryBranchAsync(
@@ -411,12 +418,39 @@ export async function getPrimaryBranchAsync(
   )
   if (symref.ok && symref.stdout) {
     const candidate = symref.stdout.replace(/^origin\//, '')
-    if (candidate && (await branchExistsAsync(repoPath, candidate, backend))) {
+    if (candidate) {
       return candidate
     }
   }
 
-  return null
+  const [localBranches, remoteBranches] = await Promise.all([
+    listLocalBranchNamesAsync(repoPath, backend),
+    listRemoteBranchRefsAsync(repoPath, backend)
+  ])
+  return findFallbackPrimaryBranch(localBranches, remoteBranches)
+}
+
+export function getPrimaryBranchBaseRef(
+  repoPath: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string | null {
+  const primaryBranch = getPrimaryBranch(repoPath, backend)
+  if (!primaryBranch) {
+    return null
+  }
+
+  if (branchExists(repoPath, primaryBranch, backend)) {
+    return primaryBranch
+  }
+
+  const remoteRef = `origin/${primaryBranch}`
+  const remoteExists = tryGit(
+    repoPath,
+    ['show-ref', '--verify', '--quiet', `refs/remotes/${remoteRef}`],
+    backend
+  ).ok
+
+  return remoteExists ? remoteRef : primaryBranch
 }
 
 export function getPrimaryBranchCheckoutTarget(

@@ -19,7 +19,7 @@ import { buildScriptCommand } from '../../terminal/command-utils'
 import { normalizeRepositoryScript } from '../repositories/repository-values'
 import {
   branchExists,
-  getPrimaryBranch,
+  getPrimaryBranchBaseRef,
   getProtectedBranchDeletionError
 } from '../repositories/repository-git'
 
@@ -142,8 +142,8 @@ export function resolveBaseRef(
     return { ok: true, ref: 'HEAD' }
   }
 
-  const primary = getPrimaryBranch(repoPath, backend)
-  if (!primary) {
+  const primaryBaseRef = getPrimaryBranchBaseRef(repoPath, backend)
+  if (!primaryBaseRef) {
     return {
       ok: false,
       error:
@@ -151,7 +151,7 @@ export function resolveBaseRef(
     }
   }
 
-  return { ok: true, ref: primary }
+  return { ok: true, ref: primaryBaseRef }
 }
 
 export function createWorktree(

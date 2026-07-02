@@ -96,6 +96,7 @@ function NewThreadForm({
   const worktreeOptionsId = useId()
 
   const trimmedBranchName = branchName.trim()
+  const defaultBranchName = repository.primaryBranch ?? repository.currentBranch
   const noPrimary = repository.primaryBranch === null
   const onPrimary = repository.primaryBranch === repository.currentBranch
   const effectiveUseCurrent = noPrimary ? true : useCurrentBranch
@@ -106,10 +107,12 @@ function NewThreadForm({
   const showBaseField = mode === 'worktree' || trimmedBranchName.length > 0
 
   const submit = async (): Promise<void> => {
+    const submittedBranchName =
+      trimmedBranchName || (mode === 'branch' ? repository.primaryBranch : undefined)
     await onSubmit({
       mode: mode === 'worktree' ? 'worktree' : 'active-branch',
       title: title.trim() || undefined,
-      branchName: trimmedBranchName || undefined,
+      branchName: submittedBranchName || undefined,
       useCurrentBranch: showBaseField ? effectiveUseCurrent : undefined
     })
   }
@@ -120,11 +123,11 @@ function NewThreadForm({
       ? 'Defaults to the worktree branch name when blank.'
       : trimmedBranchName
         ? 'Defaults to the selected branch name when blank.'
-        : `Defaults to ${repository.currentBranch} when blank.`
+        : `Defaults to ${defaultBranchName} when blank.`
   const branchHint =
     mode === 'worktree'
       ? 'Pick an existing worktree branch to reuse it, or type a new branch name to create one. Existing branches without a worktree are not supported here.'
-      : `Leave blank to use ${repository.currentBranch}. Pick an existing local/remote branch or type a new one. Switching away from ${repository.currentBranch} requires a clean working tree.`
+      : `Leave blank to use ${defaultBranchName}. Pick an existing local/remote branch or type a new one. Switching away from ${repository.currentBranch} requires a clean working tree.`
 
   return (
     <form
@@ -160,7 +163,7 @@ function NewThreadForm({
         <TextInput
           autoFocus
           onChange={(event) => setTitle(event.target.value)}
-          placeholder={trimmedBranchName ? 'Optional thread label' : repository.currentBranch}
+          placeholder={trimmedBranchName ? 'Optional thread label' : defaultBranchName}
           value={title}
         />
       </Field>
@@ -169,7 +172,7 @@ function NewThreadForm({
         <TextInput
           list={mode === 'worktree' ? worktreeOptionsId : branchOptionsId}
           onChange={(event) => setBranchName(event.target.value)}
-          placeholder={mode === 'worktree' ? 'feature/my-worktree' : repository.currentBranch}
+          placeholder={mode === 'worktree' ? 'feature/my-worktree' : defaultBranchName}
           value={branchName}
         />
         <datalist id={branchOptionsId}>
@@ -195,7 +198,7 @@ function NewThreadForm({
       {mode === 'branch' && !trimmedBranchName ? (
         <div className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
           Blank creates the thread on{' '}
-          <span className="font-mono text-[var(--color-fg)]">{repository.currentBranch}</span>.
+          <span className="font-mono text-[var(--color-fg)]">{defaultBranchName}</span>.
         </div>
       ) : null}
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import {
   getCurrentBranchLabelAsync,
   getCurrentBranchName,
   getPrimaryBranch,
+  getPrimaryBranchBaseRef,
   getProtectedBranchDeletionError
 } from './repository-git'
 
@@ -40,5 +41,36 @@ describe('repository git helpers', () => {
 
     expect(getPrimaryBranch(repo)).toBeNull()
     expect(getProtectedBranchDeletionError(repo, 'main')).toBeNull()
+  })
+
+  it('uses the remote primary branch as a base when no local primary exists', () => {
+    const source = createUnbornRepo('main')
+    writeFileSync(join(source, 'README.md'), 'test')
+    runGit(source, ['add', 'README.md'])
+    runGit(source, [
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      'commit',
+      '-m',
+      'init'
+    ])
+
+    const bare = mkdtempSync(join(tmpdir(), 'taskmaster-repository-git-bare-'))
+    tempDirs.push(bare)
+    runGit(source, ['clone', '--bare', source, bare])
+
+    const repo = mkdtempSync(join(tmpdir(), 'taskmaster-repository-git-clone-'))
+    tempDirs.push(repo)
+    runGit(source, ['clone', bare, repo])
+    runGit(repo, ['checkout', '-b', 'feature/current'])
+    runGit(repo, ['branch', '-D', 'main'])
+    runGit(repo, ['update-ref', '-d', 'refs/remotes/origin/HEAD'])
+    runGit(repo, ['fetch', 'origin', 'main:refs/remotes/origin/main'])
+
+    expect(getCurrentBranchName(repo)).toBe('feature/current')
+    expect(getPrimaryBranch(repo)).toBe('main')
+    expect(getPrimaryBranchBaseRef(repo)).toBe('origin/main')
   })
 })
