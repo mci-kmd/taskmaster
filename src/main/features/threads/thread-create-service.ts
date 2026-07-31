@@ -17,10 +17,11 @@ import {
 } from '../repositories/repository-git'
 import { buildThreadSessionName, normalizeCustomTitle } from './thread-values'
 import {
+  cleanupFailedWorktree,
   createWorktree,
   resolveBaseRef,
   runNewWorktreeSetupCommand,
-  removeWorktree
+  WorktreeCreationError
 } from './thread-worktree-utils'
 
 function createThreadRecord(
@@ -143,7 +144,30 @@ export function createThreadCreateService(dependencies: {
             repository.backend
           )
         } catch (error) {
-          return dependencies.failureResult(error instanceof Error ? error.message : String(error))
+          const creationError = error instanceof Error ? error.message : String(error)
+          if (!(error instanceof WorktreeCreationError)) {
+            return dependencies.failureResult(creationError)
+          }
+
+          try {
+            cleanupFailedWorktree(
+              { branchName, worktreePath: error.worktreePath },
+              repositoryPath,
+              repository.backend,
+              {
+                deleteBranch: error.ownsBranch,
+                ownsWorktreePath: true
+              }
+            )
+          } catch (cleanupError) {
+            return dependencies.failureResult(
+              `Worktree creation failed: ${creationError} Cleanup also failed: ${
+                cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+              }`
+            )
+          }
+
+          return dependencies.failureResult(`Worktree creation failed: ${creationError}`)
         }
 
         try {
@@ -153,12 +177,14 @@ export function createThreadCreateService(dependencies: {
           let cleanupError: string | null = null
 
           try {
-            removeWorktree(
+            cleanupFailedWorktree(
               { branchName, worktreePath },
               repositoryPath,
               repository.backend,
-              true,
-              true
+              {
+                deleteBranch: true,
+                ownsWorktreePath: true
+              }
             )
           } catch (cleanupFailure) {
             cleanupError =

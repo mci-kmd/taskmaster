@@ -58,6 +58,7 @@ export const IPC_CHANNELS = {
     pickRepositoryFavicon: 'app-state:pick-repository-favicon',
     pickRepositorySolutionFile: 'app-state:pick-repository-solution-file',
     createThread: 'app-state:create-thread',
+    convertThreadToWorktree: 'app-state:convert-thread-to-worktree',
     closeThread: 'app-state:close-thread',
     updateSettings: 'app-state:update-settings',
     updateUi: 'app-state:update-ui',
@@ -124,6 +125,7 @@ export type IpcInvokeDefinitions = {
     response: PickRepositorySolutionFileResult
   }
   'app-state:create-thread': { request: [CreateThreadInput]; response: MutationResult }
+  'app-state:convert-thread-to-worktree': { request: [string]; response: MutationResult }
   'app-state:close-thread': { request: [string]; response: MutationResult }
   'app-state:update-settings': { request: [UpdateSettingsInput]; response: MutationResult }
   'app-state:update-ui': { request: [UpdateUiInput]; response: MutationResult }

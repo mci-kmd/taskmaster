@@ -64,6 +64,7 @@ import { createAppStateStore } from './features/state-store/app-state-store'
 import { createThreadDiffService } from './features/diffs/thread-diff-service'
 import { createBranchStatusService } from './features/branch-status/branch-status-service'
 import { createThreadCloseService } from './features/threads/thread-close-service'
+import { createThreadConvertService } from './features/threads/thread-convert-service'
 import { createThreadCreateService } from './features/threads/thread-create-service'
 import { createThreadGitContextService } from './features/threads/thread-git-context'
 import { getThreadExecutionCwd, getThreadUiCwd } from './features/threads/thread-paths'
@@ -72,7 +73,7 @@ import { createThreadStateService } from './features/threads/thread-state-servic
 import { normalizeCustomTitle, normalizeTrackedText } from './features/threads/thread-values'
 import { createThreadWorkspaceService } from './features/threads/thread-workspace-service'
 import { sanitizeUserFacingMessage } from './features/shared/user-facing-messages'
-import { getRunningThreadIds, killSessionsForThread } from './terminal'
+import { getRunningThreadIds, hasSessionsForThread, killSessionsForThread } from './terminal'
 import {
   createNativeBackend,
   getBasename,
@@ -218,6 +219,17 @@ const threadCreateService = createThreadCreateService({
   nowIso,
   createId: randomUUID
 })
+const threadConvertService = createThreadConvertService({
+  ensureState,
+  saveState,
+  successResult,
+  failureResult,
+  hasRunningProcesses: (threadId) =>
+    hasSessionsForThread(threadId) || threadRunService.getRunningThreadIds().has(threadId),
+  refreshRepositoryGitState: (repository) => {
+    repositoryGitStateService.getRepositoryGitState(repository, true)
+  }
+})
 const threadCloseService = createThreadCloseService({
   ensureState,
   saveState,
@@ -252,6 +264,8 @@ export function registerAppStateIpc(): void {
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) =>
       projectTaskService.updateRepositoryTask(input),
     createThread: (input: CreateThreadInput) => threadCreateService.createThread(input),
+    convertThreadToWorktree: (threadId: string) =>
+      threadConvertService.convertThreadToWorktree(threadId),
     closeThread: (threadId: string) => threadCloseService.closeThread(threadId),
     updateRepository: (input: UpdateRepositoryInput) => repositoryService.updateRepository(input),
     startThreadRun: (threadId: string) => threadRunService.startThreadRun(threadId),

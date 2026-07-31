@@ -540,6 +540,26 @@ export default function App(): React.JSX.Element {
     [applyMutation]
   )
 
+  const handleConvertThreadToWorktree = useCallback(
+    async (threadId: string): Promise<void> => {
+      setBusyAction('convert-thread-to-worktree')
+      try {
+        await applyMutation(
+          api.appState.convertThreadToWorktree(threadId),
+          'Thread converted to work tree.'
+        )
+      } catch (error) {
+        setFeedback({
+          tone: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      } finally {
+        setBusyAction(null)
+      }
+    },
+    [applyMutation]
+  )
+
   const handleOpenWorkingDirectory = useCallback(async (): Promise<void> => {
     if (!selectedThread) {
       return
@@ -620,9 +640,11 @@ export default function App(): React.JSX.Element {
         <Sidebar
           busyAddRepository={busyAction === 'add-repository'}
           closingThread={busyAction === 'close-thread'}
+          convertingThread={busyAction === 'convert-thread-to-worktree'}
           collapsedRepositoryIds={collapsedRepositoryIds}
           onAddRepository={() => void handleAddRepository()}
           onCloseThread={(id) => void handleCloseThread(id)}
+          onConvertThreadToWorktree={(id) => void handleConvertThreadToWorktree(id)}
           onEditRepository={handleOpenRepositoryEditor}
           onEditThread={handleOpenThreadEditor}
           onNewThread={handleOpenNewThreadDialog}

@@ -3,9 +3,11 @@ import type {
   PersistedThread,
   RepositoryBackend
 } from '../../../shared/app-types'
+import { mkdirSync, rmSync } from 'fs'
 import { runGit } from '../../backends/git-client'
 import {
   backendPathExists,
+  buildNativeCommand,
   createNativeBackend,
   getBasename,
   getDirname,
@@ -31,6 +33,48 @@ const BRANCH_PORT_MIN = 20_000
 const BRANCH_PORT_SPAN = 20_000
 
 export type BaseRefResolution = { ok: true; ref: string } | { ok: false; error: string }
+
+export class WorktreeCreationError extends Error {
+  readonly worktreePath: string
+  readonly ownsBranch: boolean
+
+  constructor(message: string, worktreePath: string, ownsBranch: boolean) {
+    super(message)
+    this.name = 'WorktreeCreationError'
+    this.worktreePath = worktreePath
+    this.ownsBranch = ownsBranch
+  }
+}
+
+function worktreeGitArgs(backend: RepositoryBackend, args: string[]): string[] {
+  return process.platform === 'win32' && backend.kind === 'native'
+    ? ['-c', 'core.longpaths=true', ...args]
+    : args
+}
+
+function runWorktreeGit(repoPath: string, args: string[], backend: RepositoryBackend): string {
+  return runGit(repoPath, worktreeGitArgs(backend, args), backend)
+}
+
+function reserveWorktreeDirectory(path: string, backend: RepositoryBackend): void {
+  if (backend.kind === 'native') {
+    mkdirSync(path)
+    return
+  }
+
+  const result = spawnSyncBackendCommand(
+    backend,
+    buildNativeCommand('mkdir', [path], 'mkdir <worktree-path>'),
+    { encoding: 'utf8' }
+  )
+  if (!result.ok) {
+    throw new Error(
+      result.stderr.trim() ||
+        result.stdout.trim() ||
+        `Failed to reserve worktree directory: ${pathForDisplay(path, backend)}`
+    )
+  }
+}
 
 function sanitizeWorktreeName(branchName: string): string {
   const sanitized = branchName
@@ -166,8 +210,139 @@ export function createWorktree(
 
   const worktreePath = deriveWorktreePath(repoPath, branchName, backend)
   mkdirBackend(backend, getDirname(worktreePath, backend))
-  runGit(repoPath, ['worktree', 'add', '-b', branchName, worktreePath, baseRef], backend)
+  reserveWorktreeDirectory(worktreePath, backend)
+  let ownsBranch = false
+  try {
+    runGit(repoPath, ['branch', branchName, baseRef], backend)
+    ownsBranch = true
+    runWorktreeGit(repoPath, ['worktree', 'add', worktreePath, branchName], backend)
+  } catch (error) {
+    throw new WorktreeCreationError(
+      error instanceof Error ? error.message : String(error),
+      worktreePath,
+      ownsBranch
+    )
+  }
   return worktreePath
+}
+
+export function createWorktreeForExistingBranch(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): string {
+  if (!branchExists(repoPath, branchName, backend)) {
+    throw new Error(`Branch "${branchName}" does not exist.`)
+  }
+
+  const worktreePath = deriveWorktreePath(repoPath, branchName, backend)
+  mkdirBackend(backend, getDirname(worktreePath, backend))
+  reserveWorktreeDirectory(worktreePath, backend)
+  try {
+    runWorktreeGit(repoPath, ['worktree', 'add', worktreePath, branchName], backend)
+  } catch (error) {
+    throw new WorktreeCreationError(
+      error instanceof Error ? error.message : String(error),
+      worktreePath,
+      false
+    )
+  }
+  return worktreePath
+}
+
+function removeDirectoryRecursively(path: string, backend: RepositoryBackend): void {
+  if (backend.kind === 'native') {
+    rmSync(path, { recursive: true, force: true })
+    return
+  }
+
+  const result = spawnSyncBackendCommand(
+    backend,
+    buildNativeCommand('rm', ['-rf', '--', path], 'rm -rf -- <worktree-path>'),
+    { encoding: 'utf8' }
+  )
+  if (!result.ok) {
+    throw new Error(
+      result.stderr.trim() ||
+        result.stdout.trim() ||
+        `Failed to remove worktree directory: ${pathForDisplay(path, backend)}`
+    )
+  }
+}
+
+export function cleanupFailedWorktree(
+  thread: Pick<PersistedThread, 'branchName' | 'worktreePath'>,
+  repositoryPath: string,
+  backend: RepositoryBackend,
+  options: {
+    deleteBranch: boolean
+    ownsWorktreePath: boolean
+  }
+): void {
+  if (!thread.worktreePath) {
+    throw new Error('Worktree path missing.')
+  }
+
+  const cleanupErrors: string[] = []
+  if (!options.ownsWorktreePath) {
+    throw new Error(
+      `Refusing to clean ${pathForDisplay(thread.worktreePath, backend)} because this operation does not own that path.`
+    )
+  }
+
+  try {
+    runWorktreeGit(
+      repositoryPath,
+      ['worktree', 'remove', '--force', '--force', thread.worktreePath],
+      backend
+    )
+  } catch (error) {
+    cleanupErrors.push(error instanceof Error ? error.message : String(error))
+  }
+
+  if (backendPathExists(backend, thread.worktreePath)) {
+    try {
+      removeDirectoryRecursively(thread.worktreePath, backend)
+    } catch (error) {
+      cleanupErrors.push(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  if (backendPathExists(backend, thread.worktreePath)) {
+    throw new Error(
+      `Failed to remove partial worktree at ${pathForDisplay(thread.worktreePath, backend)}. ${cleanupErrors.join(' ')}`
+    )
+  }
+
+  cleanupErrors.length = 0
+  try {
+    runWorktreeGit(repositoryPath, ['worktree', 'prune'], backend)
+  } catch (error) {
+    cleanupErrors.push(error instanceof Error ? error.message : String(error))
+  }
+
+  if (options.deleteBranch && branchExists(repositoryPath, thread.branchName, backend)) {
+    const protectedBranchError = getProtectedBranchDeletionError(
+      repositoryPath,
+      thread.branchName,
+      backend
+    )
+    if (protectedBranchError) {
+      cleanupErrors.push(protectedBranchError)
+    } else {
+      try {
+        runGit(repositoryPath, ['branch', '-D', thread.branchName], backend)
+      } catch (error) {
+        cleanupErrors.push(error instanceof Error ? error.message : String(error))
+      }
+    }
+  }
+
+  if (cleanupErrors.length > 0) {
+    throw new Error(
+      `Partial worktree cleanup failed for ${pathForDisplay(thread.worktreePath, backend)}: ${cleanupErrors.join(' ')}`
+    )
+  }
 }
 
 export function removeWorktree(
@@ -184,7 +359,7 @@ export function removeWorktree(
     }
 
     args.push(thread.worktreePath)
-    runGit(repositoryPath, args, backend)
+    runWorktreeGit(repositoryPath, args, backend)
   }
 
   if (!deleteBranch) {

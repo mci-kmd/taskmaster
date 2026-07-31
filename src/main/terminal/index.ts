@@ -437,6 +437,10 @@ export function getRunningThreadIds(): Set<string> {
   )
 }
 
+export function hasSessionsForThread(threadId: string): boolean {
+  return [...sessions.values()].some((session) => session.threadId === threadId)
+}
+
 export function killSessionsForThread(threadId: string): void {
   for (const session of sessions.values()) {
     if (session.threadId !== threadId) {

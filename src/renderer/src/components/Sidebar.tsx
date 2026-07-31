@@ -42,7 +42,9 @@ type SidebarProps = {
   onEditThread: (id: string) => void
   onNewThread: (repositoryId: string) => void
   onOpenSettings: () => void
+  onConvertThreadToWorktree: (id: string) => void
   onCloseThread: (id: string) => void
+  convertingThread: boolean
   closingThread: boolean
 }
 
@@ -95,7 +97,9 @@ export default function Sidebar({
   onEditThread,
   onNewThread,
   onOpenSettings,
+  onConvertThreadToWorktree,
   onCloseThread,
+  convertingThread,
   closingThread
 }: SidebarProps): React.JSX.Element {
   const now = useNow(30_000)
@@ -123,11 +127,16 @@ export default function Sidebar({
         return
       }
 
+      if (payload.action === 'convert-to-worktree') {
+        onConvertThreadToWorktree(payload.itemId)
+        return
+      }
+
       if (payload.action === 'close-thread') {
         onCloseThread(payload.itemId)
       }
     },
-    [onCloseThread, onEditRepository, onEditThread, onNewThread]
+    [onCloseThread, onConvertThreadToWorktree, onEditRepository, onEditThread, onNewThread]
   )
 
   useEffect(() => {
@@ -232,6 +241,8 @@ export default function Sidebar({
                       itemId: repository.id,
                       x: event.clientX,
                       y: event.clientY,
+                      convertToWorktreeVisible: false,
+                      convertToWorktreeEnabled: false,
                       closeThreadEnabled: false
                     })
                   }}
@@ -295,6 +306,8 @@ export default function Sidebar({
                                 itemId: thread.id,
                                 x: event.clientX,
                                 y: event.clientY,
+                                convertToWorktreeVisible: thread.mode !== 'worktree',
+                                convertToWorktreeEnabled: !convertingThread,
                                 closeThreadEnabled: !closingThread
                               })
                             }}

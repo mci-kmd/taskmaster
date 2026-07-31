@@ -50,6 +50,7 @@ declare global {
     pickRepositoryFavicon: (repositoryId: string) => Promise<PickRepositoryFaviconResult>
     pickRepositorySolutionFile: (repositoryId: string) => Promise<PickRepositorySolutionFileResult>
     createThread: (input: CreateThreadInput) => Promise<MutationResult>
+    convertThreadToWorktree: (threadId: string) => Promise<MutationResult>
     closeThread: (threadId: string) => Promise<MutationResult>
     updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>
     updateUi: (input: UpdateUiInput) => Promise<MutationResult>

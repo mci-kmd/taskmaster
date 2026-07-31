@@ -338,13 +338,19 @@ export type ThreadDiffFileSaveResult =
 
 export type SidebarContextMenuKind = 'repository' | 'thread'
 
-export type SidebarContextMenuAction = 'new-thread' | 'edit' | 'close-thread'
+export type SidebarContextMenuAction =
+  | 'new-thread'
+  | 'edit'
+  | 'convert-to-worktree'
+  | 'close-thread'
 
 export interface SidebarContextMenuRequest {
   kind: SidebarContextMenuKind
   itemId: string
   x: number
   y: number
+  convertToWorktreeVisible: boolean
+  convertToWorktreeEnabled: boolean
   closeThreadEnabled: boolean
 }
 

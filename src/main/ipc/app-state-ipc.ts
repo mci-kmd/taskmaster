@@ -44,6 +44,7 @@ type AppStateIpcHandlers = {
   completeRepositoryTask: (input: CompleteRepositoryTaskInput) => MutationResult
   updateRepositoryTask: (input: UpdateRepositoryTaskInput) => MutationResult
   createThread: (input: CreateThreadInput) => MutationResult
+  convertThreadToWorktree: (threadId: string) => MutationResult
   closeThread: (threadId: string) => Promise<MutationResult>
   updateRepository: (input: UpdateRepositoryInput) => MutationResult
   startThreadRun: (threadId: string) => MutationResult
@@ -93,6 +94,9 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.createThread, (_event, input: CreateThreadInput) =>
     handlers.createThread(input)
+  )
+  handleIpc(IPC_CHANNELS.appState.convertThreadToWorktree, (_event, threadId: string) =>
+    handlers.convertThreadToWorktree(threadId)
   )
   handleIpc(IPC_CHANNELS.appState.closeThread, (_event, threadId: string) =>
     handlers.closeThread(threadId)

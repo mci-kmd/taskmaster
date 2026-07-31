@@ -37,17 +37,27 @@ function buildSidebarContextMenuTemplate(
     ]
   }
 
-  return [
+  const template: MenuItemConstructorOptions[] = [
     {
       click: () => sendAction(event, request, 'edit'),
       label: 'Edit'
-    },
-    {
-      click: () => sendAction(event, request, 'close-thread'),
-      enabled: request.closeThreadEnabled,
-      label: request.closeThreadEnabled ? 'Close thread' : 'Closing...'
     }
   ]
+
+  if (request.convertToWorktreeVisible) {
+    template.push({
+      click: () => sendAction(event, request, 'convert-to-worktree'),
+      enabled: request.convertToWorktreeEnabled,
+      label: request.convertToWorktreeEnabled ? 'Convert to work tree' : 'Converting...'
+    })
+  }
+
+  template.push({
+    click: () => sendAction(event, request, 'close-thread'),
+    enabled: request.closeThreadEnabled,
+    label: request.closeThreadEnabled ? 'Close thread' : 'Closing...'
+  })
+  return template
 }
 
 export function registerNativeMenuIpc(): void {

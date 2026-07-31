@@ -100,6 +100,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.pickRepositorySolutionFile, repositoryId),
     createThread: (input: CreateThreadInput) =>
       invokeIpc(IPC_CHANNELS.appState.createThread, input),
+    convertThreadToWorktree: (threadId: string) =>
+      invokeIpc(IPC_CHANNELS.appState.convertThreadToWorktree, threadId),
     closeThread: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.closeThread, threadId),
     updateSettings: (input: UpdateSettingsInput) =>
       invokeIpc(IPC_CHANNELS.appState.updateSettings, input),

@@ -11,10 +11,11 @@ import {
   resolveExistingBranchTarget
 } from '../repositories/repository-git'
 import {
+  cleanupFailedWorktree,
   createWorktree,
   resolveBaseRef,
   runNewWorktreeSetupCommand,
-  removeWorktree
+  WorktreeCreationError
 } from './thread-worktree-utils'
 import { createThreadCreateService } from './thread-create-service'
 
@@ -32,10 +33,20 @@ vi.mock('../repositories/repository-git', () => ({
 }))
 
 vi.mock('./thread-worktree-utils', () => ({
+  cleanupFailedWorktree: vi.fn(),
   createWorktree: vi.fn(),
   resolveBaseRef: vi.fn(),
   runNewWorktreeSetupCommand: vi.fn(),
-  removeWorktree: vi.fn()
+  WorktreeCreationError: class WorktreeCreationError extends Error {
+    readonly worktreePath: string
+    readonly ownsBranch: boolean
+
+    constructor(message: string, worktreePath: string, ownsBranch: boolean) {
+      super(message)
+      this.worktreePath = worktreePath
+      this.ownsBranch = ownsBranch
+    }
+  }
 }))
 
 function createState(): PersistedAppState {
@@ -111,8 +122,8 @@ describe('createThreadCreateService', () => {
     vi.mocked(listRepositoryWorktrees).mockReset()
     vi.mocked(resolveBaseRef).mockReset()
     vi.mocked(createWorktree).mockReset()
+    vi.mocked(cleanupFailedWorktree).mockReset()
     vi.mocked(runNewWorktreeSetupCommand).mockReset()
-    vi.mocked(removeWorktree).mockReset()
     vi.mocked(runGit).mockReset()
 
     vi.mocked(getCurrentBranchLabel).mockReturnValue('main')
@@ -311,5 +322,41 @@ describe('createThreadCreateService', () => {
       ownsBranch: true,
       ownsWorktree: true
     })
+  })
+
+  it('cleans a partial worktree when creation fails', () => {
+    vi.mocked(createWorktree).mockImplementation(() => {
+      throw new WorktreeCreationError(
+        'Filename too long',
+        '/repo/.worktrees/feature-worktree',
+        true
+      )
+    })
+    const harness = createHarness()
+
+    const result = harness.createThread({
+      repositoryId: 'repo-1',
+      mode: 'worktree',
+      branchName: 'feature/worktree'
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'Worktree creation failed: Filename too long',
+      cancelled: false
+    })
+    expect(cleanupFailedWorktree).toHaveBeenCalledWith(
+      {
+        branchName: 'feature/worktree',
+        worktreePath: '/repo/.worktrees/feature-worktree'
+      },
+      '/repo',
+      createNativeBackend(),
+      {
+        deleteBranch: true,
+        ownsWorktreePath: true
+      }
+    )
+    expect(harness.state.threads).toEqual([])
   })
 })
