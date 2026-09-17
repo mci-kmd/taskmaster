@@ -8,7 +8,6 @@ describe('project task service', () => {
     const service = createProjectTaskService({
       ensureState: () => ({
         settings: {
-          agentProviderId: 'copilot',
           globalFlagsInput: '',
           terminalFontFamilyInput: '',
           taskTagsInput: 'bug'
@@ -48,7 +47,6 @@ describe('project task service', () => {
     const service = createProjectTaskService({
       ensureState: () => ({
         settings: {
-          agentProviderId: 'copilot',
           globalFlagsInput: '',
           terminalFontFamilyInput: '',
           taskTagsInput: 'bug\nenhancement'

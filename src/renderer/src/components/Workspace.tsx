@@ -28,7 +28,7 @@ import {
   WorktreeIcon
 } from './Icons'
 import { composeThreadTitle } from '../lib/title'
-import { getAgentProviderDescriptor } from '../../../shared/agent-providers'
+import { COPILOT_LABEL } from '../../../shared/copilot'
 import { getRendererApi } from '../shared/api/client'
 import { useBranchStatus } from '../shared/hooks/use-branch-status'
 
@@ -243,26 +243,20 @@ export default function Workspace({
     Map<string, ThreadWorkspaceViewId>
   >(new Map())
   const autoLaunchedRef = useRef<Set<string>>(new Set())
-  const agentProvider = getAgentProviderDescriptor(settings.agentProviderId)
-  const threadViewOptions = useMemo(
-    () => buildThreadViewOptions(agentProvider.label),
-    [agentProvider.label]
-  )
+  const threadViewOptions = useMemo(() => buildThreadViewOptions(COPILOT_LABEL), [])
   const threadViewControlWidthPx = threadViewOptions.length * 88
   const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
 
   useEffect(() => {
     let cancelled = false
-    void api.terminal
-      .getStatus(settings.agentProviderId, selectedRepository?.backend)
-      .then((status) => {
-        if (cancelled) return
-        setAgentStatus(status)
-      })
+    void api.terminal.getStatus(selectedRepository?.backend).then((status) => {
+      if (cancelled) return
+      setAgentStatus(status)
+    })
     return () => {
       cancelled = true
     }
-  }, [settings.agentProviderId, selectedRepository?.backend])
+  }, [selectedRepository?.backend])
 
   const handleCopilotSessionsChange = useCallback(
     (next: SessionMap): void => {
@@ -293,8 +287,7 @@ export default function Workspace({
       : selectedView === 'copilot'
         ? selectedCopilotSession
         : IDLE_STATE
-  const activeAgentStatus =
-    agentStatus?.providerId === settings.agentProviderId ? agentStatus : null
+  const activeAgentStatus = agentStatus
   const isRunning = activeSession.phase === 'running'
   const copilotRunning = selectedCopilotSession.phase === 'running'
   const cliAvailable = activeAgentStatus?.available ?? false
@@ -521,7 +514,6 @@ export default function Workspace({
 
             <div className="relative min-h-0 flex-1">
               <TerminalSessions
-                agentProviderId={settings.agentProviderId}
                 agentStatus={activeAgentStatus}
                 kind="agent"
                 onRefresh={onRefresh}
@@ -547,7 +539,6 @@ export default function Workspace({
                 <div className="absolute inset-0">
                   <LaunchPanel
                     copilotStatus={activeAgentStatus}
-                    provider={agentProvider}
                     onLaunch={handleLaunchCopilot}
                     session={selectedCopilotSession}
                     thread={selectedThread}

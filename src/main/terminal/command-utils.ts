@@ -81,13 +81,7 @@ export function quoteCmdArgument(value: string): string {
 export function buildShellCommand(
   backend: RepositoryBackend = createNativeBackend()
 ): ProcessCommand {
-  if (backend.kind === 'wsl') {
-    return {
-      file: '/bin/sh',
-      args: [],
-      displayCommand: 'sh'
-    }
-  }
+  void backend
 
   if (process.platform !== 'win32') {
     const configuredShell = process.env.SHELL
@@ -136,13 +130,7 @@ export function buildScriptCommand(
   script: string,
   backend: RepositoryBackend = createNativeBackend()
 ): ProcessCommand {
-  if (backend.kind === 'wsl') {
-    return {
-      file: '/bin/sh',
-      args: ['-lc', script],
-      displayCommand: 'sh -lc <script>'
-    }
-  }
+  void backend
 
   if (process.platform !== 'win32') {
     const shellPath =

@@ -213,7 +213,7 @@ async function buildUntrackedFilePatch(
   path: string,
   backend: RepositoryBackend
 ): Promise<ThreadDiffPatchResult> {
-  const nullPath = backend.kind === 'wsl' || process.platform !== 'win32' ? '/dev/null' : 'NUL'
+  const nullPath = process.platform !== 'win32' ? '/dev/null' : 'NUL'
   const result = await tryGitAsync(
     cwd,
     ['diff', '--no-index', '--binary', '--', nullPath, path],

@@ -1,11 +1,9 @@
 import { randomUUID } from 'crypto'
-import { mkdirSync, existsSync, statSync, writeFileSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 import { join } from 'path'
 import { spawn } from 'child_process'
 import {
   app,
-  clipboard,
-  nativeImage,
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -13,26 +11,18 @@ import {
 } from 'electron'
 import * as pty from 'node-pty'
 import type {
-  AgentProviderId,
   RepositoryBackend,
   TerminalCreateRequest,
-  TerminalClipboardImageResult,
   TerminalSessionStartEvent,
   TerminalUserPromptEvent
 } from '../../shared/app-types'
-import { getAgentProviderDescriptor } from '../../shared/agent-providers'
+import { COPILOT_LABEL } from '../../shared/copilot'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
-import {
-  buildBackendCommand,
-  createNativeBackend,
-  normalizeRepositoryBackend,
-  toUiPath
-} from '../backends/repository-backend'
+import { createNativeBackend, normalizeRepositoryBackend } from '../backends/repository-backend'
 import { buildShellCommand } from './command-utils'
 import { handleIpc, onIpc, sendIpc } from '../ipc/typed-ipc'
 import { runGit, tryGit } from '../backends/git-client'
 import { readHookFile, removeHookEventFiles, TASKMASTER_HOOK_EVENTS_DIRNAME } from './copilot-hooks'
-import { readCodexSessionFile } from './codex-cli'
 import { createTerminalAgentRuntime } from './agent-runtime'
 import type {
   HookSessionStartPayload,
@@ -55,13 +45,13 @@ function getDefaultCwd(): string {
   return app.isPackaged ? app.getPath('home') : process.cwd()
 }
 
-function normalizeCwd(cwd?: string): string {
+function resolveCwd(cwd?: string): string | null {
   if (!cwd) {
     return getDefaultCwd()
   }
 
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
-    return getDefaultCwd()
+    return null
   }
 
   return cwd
@@ -79,7 +69,6 @@ function emitSessionStart(session: TerminalSession, payload: HookSessionStartPay
 
   sendIpc(ownerContents, IPC_CHANNELS.terminal.sessionStart, {
     terminalId: session.id,
-    providerId: session.agentProviderId,
     sessionId: payload.sessionId,
     source: payload.source
   } satisfies TerminalSessionStartEvent)
@@ -93,14 +82,13 @@ function emitUserPrompt(session: TerminalSession, payload: HookUserPromptPayload
 
   sendIpc(ownerContents, IPC_CHANNELS.terminal.userPrompt, {
     terminalId: session.id,
-    providerId: session.agentProviderId,
     sessionId: payload.sessionId,
     prompt: payload.prompt
   } satisfies TerminalUserPromptEvent)
 }
 
 function startHookPolling(session: TerminalSession): void {
-  if (!session.sessionStartReader && !session.userPromptReader && !session.codexSessionReader) {
+  if (!session.sessionStartReader && !session.userPromptReader) {
     return
   }
 
@@ -114,13 +102,6 @@ function startHookPolling(session: TerminalSession): void {
       readHookFile<HookUserPromptPayload>(session.userPromptReader, (payload) =>
         emitUserPrompt(session, payload)
       )
-    }
-    if (session.codexSessionReader) {
-      readCodexSessionFile(session.codexSessionReader, {
-        onSessionStart: (payload) => emitSessionStart(session, payload),
-        onUserPrompt: (payload) => emitUserPrompt(session, payload),
-        now: Date.now
-      })
     }
   }, HOOK_POLL_MS)
 }
@@ -285,19 +266,22 @@ function createSession(
   | { ok: false; error: string } {
   const kind = request.kind ?? 'agent'
   const backend = normalizeRepositoryBackend(request.backend)
-  const provider = kind === 'agent' ? agentRuntime.getAgentProvider(request.agentProviderId) : null
+  const provider = kind === 'agent' ? agentRuntime.getAgentProvider() : null
   const status = provider ? agentRuntime.getAgentStatus(provider, backend) : null
   if (provider && (!status?.available || !status.commandPath)) {
-    const descriptor = getAgentProviderDescriptor(provider.id)
-    return { ok: false, error: status?.message ?? `${descriptor.label} CLI unavailable.` }
+    return {
+      ok: false,
+      error: status?.message ?? `${COPILOT_LABEL} CLI unavailable.`
+    }
   }
 
   attachOwnerCleanup(event.sender)
 
-  const cwd =
-    backend.kind === 'wsl'
-      ? (request.executionCwd ?? request.cwd ?? '/')
-      : normalizeCwd(request.cwd)
+  const requestedCwd = request.executionCwd ?? request.cwd
+  const cwd = resolveCwd(requestedCwd)
+  if (!cwd) {
+    return { ok: false, error: `Working directory not found: ${requestedCwd}` }
+  }
   const branchCheck = ensureThreadBranch(cwd, request, backend)
   if (!branchCheck.ok) {
     return branchCheck
@@ -317,20 +301,16 @@ function createSession(
           command: buildShellCommand(backend),
           env: {},
           sessionStartReader: null,
-          userPromptReader: null,
-          codexSessionReader: null
+          userPromptReader: null
         }
 
-  const ptyCommand =
-    backend.kind === 'wsl'
-      ? buildBackendCommand(backend, launchPreparation.command, cwd)
-      : launchPreparation.command
+  const ptyCommand = launchPreparation.command
 
   const ptyProcess = pty.spawn(ptyCommand.file, ptyCommand.args, {
     name: 'xterm-256color',
     cols: Math.max(request.cols, 40),
     rows: Math.max(request.rows, 12),
-    cwd: backend.kind === 'wsl' ? undefined : cwd,
+    cwd,
     env: {
       ...process.env,
       TERM: 'xterm-256color',
@@ -346,13 +326,11 @@ function createSession(
     ptyProcess,
     kind,
     backend,
-    agentProviderId: provider?.id,
     threadId: request.threadId,
     launchConfirmationTimer: null,
     hookPollTimer: null,
     sessionStartReader: launchPreparation.sessionStartReader,
-    userPromptReader: launchPreparation.userPromptReader,
-    codexSessionReader: launchPreparation.codexSessionReader
+    userPromptReader: launchPreparation.userPromptReader
   }
 
   sessions.set(terminalId, session)
@@ -391,56 +369,6 @@ function createSession(
   }
 }
 
-async function saveClipboardImageForSession(
-  event: IpcMainInvokeEvent,
-  terminalId: string
-): Promise<TerminalClipboardImageResult> {
-  const session = getOwnedSession(event, terminalId)
-  if (!session) {
-    return { ok: false, error: 'Terminal session not found.' }
-  }
-
-  try {
-    const items = await clipboard.read()
-    const clipboardItem = items.find((item) => item.types.some((type) => type.startsWith('image/')))
-    const imageType = clipboardItem?.types.find((type) => type.startsWith('image/'))
-    if (!clipboardItem || !imageType) {
-      return { ok: false, error: 'No image is currently available on the Windows clipboard.' }
-    }
-
-    const payload = await clipboardItem.getType(imageType)
-    if (!(payload instanceof Blob)) {
-      return { ok: false, error: 'The Windows clipboard image format is not supported.' }
-    }
-
-    const image = nativeImage.createFromBuffer(Buffer.from(await payload.arrayBuffer()))
-    if (image.isEmpty()) {
-      return { ok: false, error: 'The Windows clipboard image format is not supported.' }
-    }
-
-    const filename = `clipboard-${Date.now()}-${randomUUID()}.png`
-    const directory =
-      session.backend.kind === 'wsl'
-        ? '/tmp/taskmaster-clipboard-images'
-        : join(app.getPath('temp'), 'taskmaster-clipboard-images')
-    const targetPath =
-      session.backend.kind === 'wsl' ? `${directory}/${filename}` : join(directory, filename)
-    const windowsDirectory =
-      session.backend.kind === 'wsl' ? toUiPath(session.backend, directory) : directory
-    const windowsPath =
-      session.backend.kind === 'wsl' ? toUiPath(session.backend, targetPath) : targetPath
-
-    mkdirSync(windowsDirectory, { recursive: true })
-    writeFileSync(windowsPath, image.toPNG())
-    return { ok: true, path: targetPath }
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : String(error)
-    }
-  }
-}
-
 export function getRunningThreadIds(): Set<string> {
   return new Set(
     [...sessions.values()]
@@ -467,15 +395,12 @@ export function killSessionsForThread(threadId: string): void {
 export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
   terminalHooks = hooks
 
-  handleIpc(
-    IPC_CHANNELS.terminal.status,
-    (_event, providerId?: AgentProviderId, backend?: RepositoryBackend) => {
-      return agentRuntime.getAgentStatus(
-        agentRuntime.getAgentProvider(providerId),
-        normalizeRepositoryBackend(backend)
-      )
-    }
-  )
+  handleIpc(IPC_CHANNELS.terminal.status, (_event, backend?: RepositoryBackend) => {
+    return agentRuntime.getAgentStatus(
+      agentRuntime.getAgentProvider(),
+      normalizeRepositoryBackend(backend)
+    )
+  })
 
   handleIpc(IPC_CHANNELS.terminal.create, (event, request: TerminalCreateRequest) => {
     return createSession(event, request)
@@ -489,10 +414,6 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
 
     session.ptyProcess.kill()
     return true
-  })
-
-  handleIpc(IPC_CHANNELS.terminal.saveClipboardImage, (event, terminalId: string) => {
-    return saveClipboardImageForSession(event, terminalId)
   })
 
   onIpc(IPC_CHANNELS.terminal.input, (event, payload: { terminalId: string; data: string }) => {

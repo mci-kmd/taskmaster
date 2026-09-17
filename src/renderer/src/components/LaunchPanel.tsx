@@ -1,5 +1,5 @@
 import type { TerminalStatus, ThreadSnapshot } from '../../../shared/app-types'
-import type { AgentProviderDescriptor } from '../../../shared/agent-providers'
+import { COPILOT_LABEL } from '../../../shared/copilot'
 import type { SessionPhase, ThreadSessionState } from './ThreadTerminal'
 import Button from './ui/Button'
 import { PlayIcon, RefreshIcon, SparkIcon } from './Icons'
@@ -9,7 +9,6 @@ type LaunchPanelProps = {
   thread: ThreadSnapshot
   session: ThreadSessionState
   copilotStatus: TerminalStatus | null
-  provider: AgentProviderDescriptor
   onLaunch: () => void
 }
 
@@ -24,7 +23,6 @@ function pickVisual(
   thread: ThreadSnapshot,
   session: ThreadSessionState,
   copilotStatus: TerminalStatus | null,
-  provider: AgentProviderDescriptor,
   onLaunch: () => void
 ): Visual {
   const phase: SessionPhase = session.phase
@@ -33,8 +31,8 @@ function pickVisual(
   if (!copilotStatus) {
     return {
       tone: 'progress',
-      title: `Resolving ${provider.label} CLI…`,
-      detail: <span>Looking for the {provider.label} CLI on your PATH.</span>,
+      title: `Resolving ${COPILOT_LABEL} CLI…`,
+      detail: <span>Looking for the {COPILOT_LABEL} CLI on your PATH.</span>,
       action: null
     }
   }
@@ -46,7 +44,7 @@ function pickVisual(
       detail: (
         <span>
           {thread.hasLaunched ? 'Reattaching to ' : 'Spawning '}
-          {provider.label} CLI in{' '}
+          {COPILOT_LABEL} CLI in{' '}
           <span className="font-mono text-[var(--color-fg)]">{thread.cwd}</span>
         </span>
       ),
@@ -76,12 +74,12 @@ function pickVisual(
     return {
       tone: 'stopped',
       title: `Session ended${session.exitCode !== null ? ` (code ${session.exitCode})` : ''}`,
-      detail: <span>Restart the {provider.label} session for this thread to continue.</span>,
+      detail: <span>Restart the {COPILOT_LABEL} session for this thread to continue.</span>,
       action: (
         <Button
           onClick={onLaunch}
           size="md"
-          title={`Restart ${provider.label} session`}
+          title={`Restart ${COPILOT_LABEL} session`}
           variant="primary"
         >
           <PlayIcon width={11} height={11} />
@@ -94,10 +92,10 @@ function pickVisual(
   if (!cliAvailable) {
     return {
       tone: 'error',
-      title: `${provider.label} CLI unavailable`,
+      title: `${COPILOT_LABEL} CLI unavailable`,
       detail: (
         <span>
-          {copilotStatus.message ?? `Install ${provider.label} CLI and ensure it is signed in.`}
+          {copilotStatus.message ?? `Install ${COPILOT_LABEL} CLI and ensure it is signed in.`}
         </span>
       ),
       action: null
@@ -109,7 +107,7 @@ function pickVisual(
     title: thread.hasLaunched ? 'Ready to resume' : 'Ready to launch',
     detail: (
       <span>
-        Launch {provider.label} CLI in{' '}
+        Launch {COPILOT_LABEL} CLI in{' '}
         <span className="font-mono text-[var(--color-fg)]">{thread.cwd}</span>
       </span>
     ),
@@ -117,7 +115,7 @@ function pickVisual(
       <Button
         onClick={onLaunch}
         size="md"
-        title={`Launch ${provider.label} session`}
+        title={`Launch ${COPILOT_LABEL} session`}
         variant="primary"
       >
         <PlayIcon width={11} height={11} />
@@ -138,10 +136,9 @@ export default function LaunchPanel({
   thread,
   session,
   copilotStatus,
-  provider,
   onLaunch
 }: LaunchPanelProps): React.JSX.Element {
-  const visual = pickVisual(thread, session, copilotStatus, provider, onLaunch)
+  const visual = pickVisual(thread, session, copilotStatus, onLaunch)
   const isProgress = visual.tone === 'progress'
   const isResumeOnly = visual.tone === 'idle' && thread.hasLaunched
   const composedTitle = composeThreadTitle(thread, session.runtimeTitle)

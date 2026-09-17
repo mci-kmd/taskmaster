@@ -35,9 +35,8 @@ vi.mock('./thread-worktree-utils', () => ({
 
 function createState(thread: PersistedThread): PersistedAppState {
   return {
-    version: 13,
+    version: 14,
     settings: {
-      agentProviderId: 'copilot',
       globalFlagsInput: '',
       terminalFontFamilyInput: '',
       taskTagsInput: 'bug, feature'

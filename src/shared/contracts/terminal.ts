@@ -1,6 +1,5 @@
 export type {
   TerminalApi,
-  TerminalClipboardImageResult,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,

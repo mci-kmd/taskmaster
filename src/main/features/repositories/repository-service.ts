@@ -26,12 +26,10 @@ type RepositoryServiceDependencies = {
   failureResult: (error: string, cancelled?: boolean) => MutationResult
   createId: () => string
   nowIso: () => string
-  platform: NodeJS.Platform
   selectRepositoryDirectory: () => Promise<FilePickerResult>
   confirmInitializeRepository: (path: string) => Promise<ConfirmInitializeRepositoryResult>
   pickRepositoryFaviconFile: (repository: PersistedRepository) => Promise<FilePickerResult>
   pickRepositorySolutionFile: (repository: PersistedRepository) => Promise<FilePickerResult>
-  parseWslUncPath: (path: string) => RepositoryBackend | null
   createNativeBackend: () => RepositoryBackend
   resolveGitRoot: (path: string, backend: RepositoryBackend) => string | null
   initializeGitRepository: (path: string, backend: RepositoryBackend) => void
@@ -42,7 +40,6 @@ type RepositoryServiceDependencies = {
     rightBackend: RepositoryBackend
   ) => boolean
   getBasename: (path: string, backend: RepositoryBackend) => string
-  toUiPath: (backend: RepositoryBackend, executionPath: string) => string
   validateRepositoryFaviconInput: (
     repositoryPath: string,
     faviconPath: string | null
@@ -84,43 +81,29 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       }
 
       const selectedPath = dialogResult.filePaths[0]
-      const selectedWslBackend =
-        dependencies.platform === 'win32' ? dependencies.parseWslUncPath(selectedPath) : null
-      const selectedExecutionPath =
-        selectedWslBackend?.kind === 'wsl' ? selectedWslBackend.linuxPath : selectedPath
-      const selectedBackend = selectedWslBackend ?? dependencies.createNativeBackend()
-      let gitRoot = dependencies.resolveGitRoot(selectedExecutionPath, selectedBackend)
+      const selectedBackend = dependencies.createNativeBackend()
+      let gitRoot = dependencies.resolveGitRoot(selectedPath, selectedBackend)
       if (!gitRoot) {
-        const confirmation = await dependencies.confirmInitializeRepository(
-          dependencies.toUiPath(selectedBackend, selectedExecutionPath)
-        )
+        const confirmation = await dependencies.confirmInitializeRepository(selectedPath)
         if (!confirmation.confirmed) {
           return dependencies.failureResult('Repository initialization cancelled.', true)
         }
 
         try {
-          dependencies.initializeGitRepository(selectedExecutionPath, selectedBackend)
+          dependencies.initializeGitRepository(selectedPath, selectedBackend)
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error)
           return dependencies.failureResult(`Failed to initialize git repository: ${message}`)
         }
 
-        gitRoot = dependencies.resolveGitRoot(selectedExecutionPath, selectedBackend)
+        gitRoot = dependencies.resolveGitRoot(selectedPath, selectedBackend)
         if (!gitRoot) {
           return dependencies.failureResult('Failed to initialize git repository.')
         }
       }
 
-      const backend =
-        selectedBackend.kind === 'wsl'
-          ? {
-              kind: 'wsl' as const,
-              distro: selectedBackend.distro,
-              windowsPath: dependencies.toUiPath(selectedBackend, gitRoot),
-              linuxPath: gitRoot
-            }
-          : selectedBackend
-      const repositoryPath = backend.kind === 'wsl' ? backend.windowsPath : gitRoot
+      const backend = selectedBackend
+      const repositoryPath = gitRoot
 
       const state = dependencies.ensureState()
       const existing = state.repositories.find((repository) =>

@@ -4,9 +4,8 @@ import { createSnapshotService } from './snapshot-service'
 describe('snapshot service', () => {
   it('builds repository, thread, and settings snapshots from dependencies', () => {
     const state = {
-      version: 13 as const,
+      version: 14 as const,
       settings: {
-        agentProviderId: 'copilot' as const,
         globalFlagsInput: '--model gpt-5',
         terminalFontFamilyInput: '',
         taskTagsInput: 'bug'
@@ -92,9 +91,8 @@ describe('snapshot service', () => {
 
   it('builds async refreshed snapshots without forcing sync git refreshes', async () => {
     const state = {
-      version: 13 as const,
+      version: 14 as const,
       settings: {
-        agentProviderId: 'copilot' as const,
         globalFlagsInput: '',
         terminalFontFamilyInput: '',
         taskTagsInput: ''
@@ -173,9 +171,8 @@ describe('snapshot service', () => {
 
   it('prioritizes startup git refreshes for repositories with recent thread activity', async () => {
     const state = {
-      version: 13 as const,
+      version: 14 as const,
       settings: {
-        agentProviderId: 'copilot' as const,
         globalFlagsInput: '',
         terminalFontFamilyInput: '',
         taskTagsInput: ''

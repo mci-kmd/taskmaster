@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentLaunchRequest } from '../../shared/app-types'
-import { buildCodexArgs, buildCopilotArgs } from './agent-launch-args'
+import { buildCopilotArgs } from './agent-launch-args'
 
 const newLaunch: AgentLaunchRequest = {
   mode: 'new',
@@ -34,32 +34,6 @@ describe('provider launch args', () => {
       '--name=repo-thread-123',
       '--model',
       'gpt-5'
-    ])
-  })
-
-  it('passes raw Codex args through without launch metadata', () => {
-    expect(buildCodexArgs('/repo', undefined, ['--help'])).toEqual(['--help'])
-  })
-
-  it('builds Codex new-session args with cwd and no alternate screen', () => {
-    expect(buildCodexArgs('/repo', newLaunch)).toEqual([
-      '--cd',
-      '/repo',
-      '--no-alt-screen',
-      '--model',
-      'gpt-5'
-    ])
-  })
-
-  it('builds Codex resume args with session id last', () => {
-    expect(buildCodexArgs('/repo', resumeLaunch)).toEqual([
-      'resume',
-      '--cd',
-      '/repo',
-      '--no-alt-screen',
-      '--model',
-      'gpt-5',
-      'session-abc'
     ])
   })
 })

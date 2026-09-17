@@ -1,12 +1,11 @@
 import type { IPty } from 'node-pty'
 import type {
-  AgentProviderId,
   RepositoryBackend,
   TerminalKind,
   TerminalSessionStartEvent,
   TerminalUserPromptEvent
 } from '../../shared/app-types'
-import type { CodexSessionReaderState, HookFileReaderState } from '../providers/cli-agent-providers'
+import type { HookFileReaderState } from '../providers/cli-agent-providers'
 
 export type TerminalSession = {
   id: string
@@ -15,13 +14,11 @@ export type TerminalSession = {
   ptyProcess: IPty
   kind: TerminalKind
   backend: RepositoryBackend
-  agentProviderId?: AgentProviderId
   threadId?: string
   launchConfirmationTimer: NodeJS.Timeout | null
   hookPollTimer: NodeJS.Timeout | null
   sessionStartReader: HookFileReaderState | null
   userPromptReader: HookFileReaderState | null
-  codexSessionReader: CodexSessionReaderState | null
 }
 
 export type TerminalCommand = {

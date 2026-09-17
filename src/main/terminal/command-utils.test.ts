@@ -40,19 +40,4 @@ describe('command utilities', () => {
     expect(command.args).toEqual(['/d', '/s', '/c', 'bun run dev'])
     expect(command.displayCommand).toMatch(/ \/d \/s \/c <script>$/u)
   })
-
-  it('builds WSL script commands without wrapping in wsl.exe', () => {
-    expect(
-      buildScriptCommand('bun run dev', {
-        kind: 'wsl',
-        distro: 'Ubuntu',
-        windowsPath: '\\\\wsl.localhost\\Ubuntu\\home\\me\\repo',
-        linuxPath: '/home/me/repo'
-      })
-    ).toEqual({
-      file: '/bin/sh',
-      args: ['-lc', 'bun run dev'],
-      displayCommand: 'sh -lc <script>'
-    })
-  })
 })

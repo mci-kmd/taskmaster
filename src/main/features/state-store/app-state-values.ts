@@ -9,7 +9,6 @@ import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import { normalizePersistedTask } from '../project-tasks/project-task-values'
 import { normalizeRepositoryBackend } from '../../backends/repository-backend'
 import {
-  normalizeAgentProviderId,
   normalizeTerminalFontFamilyInput,
   DEFAULT_TASK_TAGS_INPUT
 } from '../settings/settings-values'
@@ -18,7 +17,7 @@ import { normalizeRepositoryScript, normalizeRunCommand } from '../repositories/
 import { normalizeTrackedText } from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
-export const STATE_VERSION = 13 as const
+export const STATE_VERSION = 14 as const
 
 function sameRepositoryBackend(
   left: RepositoryBackend,
@@ -28,12 +27,7 @@ function sameRepositoryBackend(
     return false
   }
 
-  return left.kind === 'native'
-    ? true
-    : right.kind === 'wsl' &&
-        left.distro === right.distro &&
-        left.windowsPath === right.windowsPath &&
-        left.linuxPath === right.linuxPath
+  return true
 }
 
 export function normalizePersistedThread(thread: PersistedThread): PersistedThread {
@@ -93,9 +87,6 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
 export function normalizePersistedSettings(
   settings: PersistedAppState['settings']
 ): PersistedAppState['settings'] {
-  const agentProviderId = normalizeAgentProviderId(
-    (settings as { agentProviderId?: unknown }).agentProviderId
-  )
   const terminalFontFamilyInput = normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput)
   const currentTaskTagsInput =
     typeof (settings as { taskTagsInput?: unknown }).taskTagsInput === 'string'
@@ -106,13 +97,11 @@ export function normalizePersistedSettings(
       ? DEFAULT_TASK_TAGS_INPUT
       : normalizeTaskTagsInput(currentTaskTagsInput)
 
-  return agentProviderId === (settings as { agentProviderId?: unknown }).agentProviderId &&
-    terminalFontFamilyInput === settings.terminalFontFamilyInput &&
+  return terminalFontFamilyInput === settings.terminalFontFamilyInput &&
     taskTagsInput === currentTaskTagsInput
     ? settings
     : {
         ...settings,
-        agentProviderId,
         terminalFontFamilyInput,
         taskTagsInput
       }

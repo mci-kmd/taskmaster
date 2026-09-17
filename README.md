@@ -6,9 +6,9 @@ A personal Electron app for running an embedded LLM CLI inside the app and organ
 
 - Add git repositories from a folder picker
 - Create persisted threads on the active branch, an existing branch, a new branch, or a worktree
-- Launch Copilot CLI or Codex CLI inside the embedded terminal per selected thread
+- Launch Copilot CLI inside the embedded terminal per selected thread
 - Resume prior agent sessions by persisted session ID or name
-- Configure the active provider and global provider flags for all thread launches
+- Configure global Copilot flags for all thread launches
 - Remove owned worktrees and branches when closing a worktree-backed thread
 - Configure optional setup and cleanup scripts for worktree-backed threads
 
@@ -23,7 +23,7 @@ A personal Electron app for running an embedded LLM CLI inside the app and organ
 
 - Bun
 - Git
-- GitHub Copilot CLI or Codex CLI installed and already signed in
+- GitHub Copilot CLI installed and already signed in
 - Linux: native build tools for `node-pty` (`sudo apt-get install build-essential python3` on Ubuntu/Debian)
 
 ## Install
@@ -78,8 +78,8 @@ Renderer dev server runs on port `5175`.
 
 - `src/shared/contracts` is the source of truth for IPC channels and shared DTOs.
 - `src/main/ipc/typed-ipc.ts` is the only place that should call `ipcMain.handle`; main features register through that adapter.
-- `src/main/providers` contains provider-specific CLI behavior behind the `LlmProvider` seam.
-- `src/main/backends` contains backend-aware command and git helpers so native vs WSL behavior stays isolated.
+- `src/main/providers` contains Copilot CLI launch behavior behind the `LlmProvider` seam.
+- `src/main/backends` contains native command, path, and git helpers.
 - `src/main/features` is where main-process feature logic now lives; persistence, project-task rules, branch-status parsing, and snapshot building have started moving out of `app-state.ts`.
 - `src/renderer/src/shared/api/client.ts` is the renderer bridge seam; renderer code should not use `window.api` directly.
 - `src/renderer/src/shared/hooks` owns renderer orchestration hooks like app snapshot loading and branch-status polling so `App.tsx` and workspace components stay smaller.

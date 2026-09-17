@@ -1,6 +1,5 @@
 import { join } from 'path'
 import {
-  app,
   BrowserWindow,
   dialog,
   shell,
@@ -130,6 +129,5 @@ export const electronUi = {
   },
 
   openPath: (path: string): Promise<string> => shell.openPath(path),
-  openExternal: (url: string): Promise<void> => shell.openExternal(url),
-  getHomePath: (): string => app.getPath('home')
+  openExternal: (url: string): Promise<void> => shell.openExternal(url)
 }

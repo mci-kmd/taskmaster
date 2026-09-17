@@ -9,9 +9,8 @@ const tempDirs: string[] = []
 
 function createState(): PersistedAppState {
   return {
-    version: 13,
+    version: 14,
     settings: {
-      agentProviderId: 'copilot',
       globalFlagsInput: '',
       terminalFontFamilyInput: '',
       taskTagsInput: ''

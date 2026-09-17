@@ -1,12 +1,6 @@
 import type { ChildProcess, SpawnOptions, SpawnSyncOptions } from 'child_process'
 import type { RepositoryBackend } from '../../shared/app-types'
 import { nativeRepositoryBackendImplementation } from './native-repository-backend'
-import {
-  linuxPathToWslUncPath,
-  normalizeLinuxPath,
-  windowsPathSuffixToLinuxPath,
-  wslRepositoryBackendImplementation
-} from './wsl-repository-backend'
 
 export type BackendCommand = {
   file: string
@@ -56,11 +50,9 @@ export type RepositoryBackendImplementation = {
   mkdir: (backend: RepositoryBackend, path: string) => void
 }
 
-const WSL_UNC_PATTERN = /^\\\\(?:wsl\$|wsl\.localhost)\\([^\\]+)(?:\\(.*))?$/i
 const BACKEND_IMPLEMENTATIONS: Record<RepositoryBackend['kind'], RepositoryBackendImplementation> =
   {
-    native: nativeRepositoryBackendImplementation,
-    wsl: wslRepositoryBackendImplementation
+    native: nativeRepositoryBackendImplementation
   }
 
 function getRepositoryBackendImplementation(
@@ -86,43 +78,8 @@ export function createNativeBackend(): RepositoryBackend {
 }
 
 export function normalizeRepositoryBackend(value: unknown): RepositoryBackend {
-  if (!value || typeof value !== 'object') {
-    return createNativeBackend()
-  }
-
-  const backend = value as Partial<RepositoryBackend>
-  if (backend.kind !== 'wsl') {
-    return createNativeBackend()
-  }
-
-  const distro = typeof backend.distro === 'string' ? backend.distro.trim() : ''
-  const windowsPath = typeof backend.windowsPath === 'string' ? backend.windowsPath.trim() : ''
-  const linuxPath =
-    typeof backend.linuxPath === 'string' ? normalizeLinuxPath(backend.linuxPath) : ''
-
-  return distro && windowsPath && linuxPath
-    ? { kind: 'wsl', distro, windowsPath, linuxPath }
-    : createNativeBackend()
-}
-
-export function parseWslUncPath(path: string): RepositoryBackend | null {
-  const match = WSL_UNC_PATTERN.exec(path)
-  if (!match) {
-    return null
-  }
-
-  const distro = match[1]?.trim()
-  if (!distro) {
-    return null
-  }
-
-  const suffix = match[2] ?? ''
-  return {
-    kind: 'wsl',
-    distro,
-    windowsPath: path,
-    linuxPath: windowsPathSuffixToLinuxPath(suffix)
-  }
+  void value
+  return createNativeBackend()
 }
 
 export function isSameRepositoryPath(
@@ -131,17 +88,8 @@ export function isSameRepositoryPath(
   rightPath: string,
   rightBackend: RepositoryBackend
 ): boolean {
-  if (leftBackend.kind !== rightBackend.kind) {
-    return false
-  }
-
-  if (leftBackend.kind === 'wsl' && rightBackend.kind === 'wsl') {
-    return (
-      leftBackend.distro.toLowerCase() === rightBackend.distro.toLowerCase() &&
-      normalizeLinuxPath(leftBackend.linuxPath) === normalizeLinuxPath(rightBackend.linuxPath)
-    )
-  }
-
+  void leftBackend
+  void rightBackend
   return process.platform === 'win32'
     ? leftPath.toLowerCase() === rightPath.toLowerCase()
     : leftPath === rightPath
@@ -151,7 +99,7 @@ export function getRepositoryExecutionPath(repository: {
   path: string
   backend: RepositoryBackend
 }): string {
-  return repository.backend.kind === 'wsl' ? repository.backend.linuxPath : repository.path
+  return repository.path
 }
 
 export function getBasename(path: string, backend: RepositoryBackend): string {
@@ -201,8 +149,6 @@ export function toUiPath(backend: RepositoryBackend, executionPath: string): str
 export function pathForDisplay(path: string, backend: RepositoryBackend): string {
   return getRepositoryBackendImplementation(backend).pathForDisplay(backend, path)
 }
-
-export { linuxPathToWslUncPath, normalizeLinuxPath }
 
 export function buildBackendCommand(
   backend: RepositoryBackend,

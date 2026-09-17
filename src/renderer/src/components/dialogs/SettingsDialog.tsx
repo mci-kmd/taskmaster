@@ -1,14 +1,9 @@
 import { useState } from 'react'
 import Modal from '../Modal'
 import Button from '../ui/Button'
-import { Field, Select, TextArea, TextInput } from '../ui/Field'
-import type {
-  AgentProviderId,
-  AppSettingsSnapshot,
-  UpdateSettingsInput
-} from '../../../../shared/app-types'
+import { Field, TextArea, TextInput } from '../ui/Field'
+import type { AppSettingsSnapshot, UpdateSettingsInput } from '../../../../shared/app-types'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
-import { AGENT_PROVIDERS, getAgentProviderDescriptor } from '../../../../shared/agent-providers'
 
 type SettingsDialogProps = {
   open: boolean
@@ -61,7 +56,6 @@ function SettingsForm({
   onCancel,
   onSubmit
 }: SettingsFormProps): React.JSX.Element {
-  const [agentProviderIdDraft, setAgentProviderIdDraft] = useState(settings.agentProviderId)
   const [draft, setDraft] = useState(settings.globalFlagsInput)
   const [terminalFontFamilyDraft, setTerminalFontFamilyDraft] = useState(
     settings.terminalFontFamilyInput
@@ -78,10 +72,7 @@ function SettingsForm({
     taskTagsDraft === settings.taskTagsInput
       ? settings.parsedTaskTags
       : parseTaskTagsInput(taskTagsDraft)
-  const agentProvider = getAgentProviderDescriptor(agentProviderIdDraft)
-
   const dirty =
-    agentProviderIdDraft !== settings.agentProviderId ||
     draft !== settings.globalFlagsInput ||
     terminalFontFamilyDraft !== settings.terminalFontFamilyInput ||
     taskTagsDraft !== settings.taskTagsInput
@@ -93,7 +84,6 @@ function SettingsForm({
         event.preventDefault()
         if (dirty && !busy) {
           void onSubmit({
-            agentProviderId: agentProviderIdDraft,
             globalFlagsInput: draft,
             terminalFontFamilyInput: terminalFontFamilyDraft,
             taskTagsInput: taskTagsDraft
@@ -102,27 +92,11 @@ function SettingsForm({
       }}
     >
       <Field
-        hint="The selected provider is used for new launches and resumes."
-        label="LLM provider"
-      >
-        <Select
-          autoFocus
-          onChange={(event) => setAgentProviderIdDraft(event.target.value as AgentProviderId)}
-          value={agentProviderIdDraft}
-        >
-          {AGENT_PROVIDERS.map((provider) => (
-            <option key={provider.id} value={provider.id}>
-              {provider.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-
-      <Field
         hint='Whitespace-separated CLI tokens. Use quotes to group, e.g. --model "gpt-5.5".'
-        label={`Global ${agentProvider.label} flags`}
+        label="Global Copilot flags"
       >
         <TextInput
+          autoFocus
           onChange={(event) => setDraft(event.target.value)}
           placeholder="--yolo"
           value={draft}

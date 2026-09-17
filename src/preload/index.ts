@@ -1,7 +1,6 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
-  AgentProviderId,
   BranchStatusRequest,
   CreateThreadInput,
   CreateRepositoryTaskInput,
@@ -148,14 +147,11 @@ const api = {
       onIpc(IPC_CHANNELS.nativeMenu.sidebarContextMenuAction, callback)
   },
   terminal: {
-    getStatus: (providerId?: AgentProviderId, backend?: RepositoryBackend) =>
-      invokeIpc(IPC_CHANNELS.terminal.status, providerId, backend),
+    getStatus: (backend?: RepositoryBackend) => invokeIpc(IPC_CHANNELS.terminal.status, backend),
     create: (request: TerminalCreateRequest) => invokeIpc(IPC_CHANNELS.terminal.create, request),
     kill: (terminalId: string) => invokeIpc(IPC_CHANNELS.terminal.kill, terminalId),
     hasClipboardImage: async () =>
       (await clipboard.read()).some((item) => item.types.some((type) => type.startsWith('image/'))),
-    saveClipboardImage: (terminalId: string) =>
-      invokeIpc(IPC_CHANNELS.terminal.saveClipboardImage, terminalId),
     readClipboardText: () => clipboard.readText(),
     input: (terminalId: string, data: string) =>
       sendIpc(IPC_CHANNELS.terminal.input, { terminalId, data }),

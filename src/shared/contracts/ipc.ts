@@ -1,5 +1,4 @@
 import type {
-  AgentProviderId,
   AppSnapshot,
   BranchStatusRequest,
   BranchStatusSnapshot,
@@ -25,7 +24,6 @@ import type {
   ThreadDiffRangeOptionsResult,
   ThreadDiffSummaryResult,
   ThreadRunStateEvent,
-  TerminalClipboardImageResult,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -86,7 +84,6 @@ export const IPC_CHANNELS = {
     status: 'terminal:status',
     create: 'terminal:create',
     kill: 'terminal:kill',
-    saveClipboardImage: 'terminal:save-clipboard-image',
     input: 'terminal:input',
     resize: 'terminal:resize',
     data: 'terminal:data',
@@ -184,15 +181,11 @@ export type IpcInvokeDefinitions = {
     response: boolean
   }
   'terminal:status': {
-    request: [AgentProviderId?] | [AgentProviderId | undefined, RepositoryBackend?]
+    request: [RepositoryBackend?]
     response: TerminalStatus
   }
   'terminal:create': { request: [TerminalCreateRequest]; response: TerminalLaunchResult }
   'terminal:kill': { request: [string]; response: boolean }
-  'terminal:save-clipboard-image': {
-    request: [string]
-    response: TerminalClipboardImageResult
-  }
 }
 
 export type IpcSendDefinitions = {

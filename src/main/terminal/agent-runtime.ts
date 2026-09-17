@@ -1,13 +1,7 @@
-import type { AgentProviderId, RepositoryBackend, TerminalStatus } from '../../shared/app-types'
-import { getAgentProviderDescriptor } from '../../shared/agent-providers'
-import {
-  buildNativeCommand,
-  normalizeRepositoryBackend,
-  spawnSyncBackendCommand
-} from '../backends/repository-backend'
-import { getLlmCliProviderSpec } from '../providers/cli-provider-specs'
-import { createCliAgentProviders, type AgentProvider } from '../providers/cli-agent-providers'
-import { createCodexSessionReader } from './codex-cli'
+import type { RepositoryBackend, TerminalStatus } from '../../shared/app-types'
+import { COPILOT_LABEL } from '../../shared/copilot'
+import { createNativeBackend } from '../backends/repository-backend'
+import { createCopilotCliProvider, type AgentProvider } from '../providers/cli-agent-providers'
 import {
   createHookFileReader,
   ensureTaskmasterHookConfig,
@@ -20,32 +14,6 @@ import type { TerminalCommand } from './types'
 type TerminalAgentRuntimeDependencies = {
   getDefaultCwd: () => string
   getTaskmasterHookEventsDir: () => string
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`
-}
-
-function resolveCommandOnWslPath(commandName: string, backend: RepositoryBackend): string | null {
-  if (backend.kind !== 'wsl') {
-    return null
-  }
-
-  const result = spawnSyncBackendCommand(
-    backend,
-    buildNativeCommand('/bin/bash', [
-      '-c',
-      `type -P -a -- ${shellQuote(commandName)} | grep -v '^/mnt/' | head -n 1`
-    ])
-  )
-  return result.ok && result.stdout ? result.stdout.split(/\r?\n/)[0] : null
-}
-
-function resolveProviderCommand(commandName: string, backend?: RepositoryBackend): string | null {
-  const normalizedBackend = normalizeRepositoryBackend(backend)
-  return normalizedBackend.kind === 'wsl'
-    ? resolveCommandOnWslPath(commandName, normalizedBackend)
-    : resolveCommandOnPath(commandName)
 }
 
 function buildCommand(
@@ -72,60 +40,43 @@ function buildCommand(
 }
 
 export function createTerminalAgentRuntime(dependencies: TerminalAgentRuntimeDependencies): {
-  getAgentProvider: (providerId?: AgentProviderId) => AgentProvider
+  getAgentProvider: () => AgentProvider
   getAgentStatus: (provider: AgentProvider, backend?: RepositoryBackend) => TerminalStatus
 } {
   function createAgentStatus(
-    providerId: AgentProviderId,
     commandPath: string | null,
-    backend: RepositoryBackend,
     messages: {
       unavailable: string
       available: string
     }
   ): TerminalStatus {
-    const descriptor = getAgentProviderDescriptor(providerId)
     const defaultCwd = dependencies.getDefaultCwd()
 
     if (!commandPath) {
       return {
         available: false,
-        providerId,
-        label: descriptor.label,
+        label: COPILOT_LABEL,
         defaultCwd,
-        message:
-          backend.kind === 'wsl'
-            ? `${messages.unavailable} Checked inside WSL distro "${backend.distro}".`
-            : messages.unavailable
+        message: messages.unavailable
       }
     }
 
     return {
       available: true,
-      providerId,
-      label: descriptor.label,
+      label: COPILOT_LABEL,
       commandPath,
       defaultCwd,
-      message:
-        backend.kind === 'wsl'
-          ? `${messages.available} Resolved inside WSL distro "${backend.distro}".`
-          : messages.available
+      message: messages.available
     }
   }
 
-  const agentProviders = createCliAgentProviders({
-    createStatus: (providerId, backend, spec) =>
-      createAgentStatus(
-        providerId,
-        resolveProviderCommand(spec.cliName, backend),
-        backend,
-        spec.statusMessages
-      ),
+  const agentProvider = createCopilotCliProvider({
+    createStatus: (_backend, spec) =>
+      createAgentStatus(resolveCommandOnPath(spec.cliName), spec.statusMessages),
     buildCommand,
     ensureTaskmasterHookConfig,
     getTaskmasterHookEventsDir: dependencies.getTaskmasterHookEventsDir,
     createHookFileReader,
-    createCodexSessionReader,
     hookFiles: {
       sessionStartEnvName: TASKMASTER_SESSION_START_FILE_ENV,
       userPromptEnvName: TASKMASTER_USER_PROMPT_FILE_ENV
@@ -133,9 +84,8 @@ export function createTerminalAgentRuntime(dependencies: TerminalAgentRuntimeDep
   })
 
   return {
-    getAgentProvider: (providerId?: AgentProviderId): AgentProvider =>
-      agentProviders[getLlmCliProviderSpec(providerId).id],
+    getAgentProvider: (): AgentProvider => agentProvider,
     getAgentStatus: (provider: AgentProvider, backend?: RepositoryBackend): TerminalStatus =>
-      provider.getStatus(backend)
+      provider.getStatus(backend ?? createNativeBackend())
   }
 }

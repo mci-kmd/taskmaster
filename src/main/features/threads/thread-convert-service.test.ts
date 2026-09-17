@@ -59,9 +59,8 @@ function createThread(overrides: Partial<PersistedThread> = {}): PersistedThread
 
 function createState(thread: PersistedThread = createThread()): PersistedAppState {
   return {
-    version: 13,
+    version: 14,
     settings: {
-      agentProviderId: 'copilot',
       globalFlagsInput: '',
       terminalFontFamilyInput: '',
       taskTagsInput: ''

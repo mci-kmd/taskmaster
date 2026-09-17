@@ -1,9 +1,9 @@
 import type {
   PersistedAppState,
   PersistedRepository,
+  PersistedSettings,
   PersistedThread
 } from '../../../shared/app-types'
-import { DEFAULT_AGENT_PROVIDER_ID } from '../../../shared/agent-providers'
 import { createNativeBackend } from '../../backends/repository-backend'
 import { DEFAULT_TASK_TAGS_INPUT } from '../settings/settings-values'
 import { normalizePersistedState, STATE_VERSION } from './app-state-values'
@@ -20,8 +20,21 @@ type LegacyThreadV2 = Omit<
 >
 type LegacyThreadV4 = Omit<PersistedThread, 'lastUserMessage' | 'resumeSessionId'>
 type LegacyThreadV5 = Omit<PersistedThread, 'lastUserMessage'>
-type LegacySettingsV9 = Omit<PersistedAppState['settings'], 'agentProviderId'>
-type LegacyRepositoryV12 = Omit<PersistedRepository, 'solutionFilePath'>
+type LegacySettingsWithProvider = PersistedSettings & Record<string, unknown>
+type LegacyRepositoryBackend =
+  | PersistedRepository['backend']
+  | {
+      kind: 'wsl'
+      distro: string
+      windowsPath: string
+      linuxPath: string
+    }
+type LegacyRepositoryV13 = Omit<PersistedRepository, 'backend'> & {
+  backend: LegacyRepositoryBackend
+}
+type LegacyRepositoryV12 = Omit<PersistedRepository, 'backend' | 'solutionFilePath'> & {
+  backend: LegacyRepositoryBackend
+}
 type LegacyRepositoryV11 = Omit<LegacyRepositoryV12, 'newWorktreeSetupCommand'>
 type LegacyRepositoryV10 = Omit<LegacyRepositoryV12, 'backend' | 'newWorktreeSetupCommand'>
 type LegacyRepositoryV8 = Omit<
@@ -47,19 +60,27 @@ type LegacyRepositoryV3 = Omit<
 >
 type LegacyAppStateV12 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 12
+  settings: LegacySettingsWithProvider
   repositories: LegacyRepositoryV12[]
+}
+type LegacyAppStateV13 = Omit<PersistedAppState, 'version' | 'settings' | 'repositories'> & {
+  version: 13
+  settings: LegacySettingsWithProvider
+  repositories: LegacyRepositoryV13[]
 }
 type LegacyAppStateV11 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 11
+  settings: LegacySettingsWithProvider
   repositories: LegacyRepositoryV11[]
 }
 type LegacyAppStateV10 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 10
+  settings: LegacySettingsWithProvider
   repositories: LegacyRepositoryV10[]
 }
 type LegacyAppStateV9 = Omit<PersistedAppState, 'version' | 'settings' | 'repositories'> & {
   version: 9
-  settings: LegacySettingsV9
+  settings: PersistedSettings
   repositories: LegacyRepositoryV10[]
 }
 type LegacyAppStateV8 = Omit<PersistedAppState, 'version' | 'repositories'> & {
@@ -101,6 +122,7 @@ type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
 
 type MigratedInput =
   | PersistedAppState
+  | LegacyAppStateV13
   | LegacyAppStateV12
   | LegacyAppStateV11
   | LegacyAppStateV10
@@ -118,7 +140,6 @@ export function createDefaultState(): PersistedAppState {
   return {
     version: STATE_VERSION,
     settings: {
-      agentProviderId: DEFAULT_AGENT_PROVIDER_ID,
       globalFlagsInput: '',
       terminalFontFamilyInput: '',
       taskTagsInput: DEFAULT_TASK_TAGS_INPUT
@@ -132,32 +153,92 @@ export function createDefaultState(): PersistedAppState {
   }
 }
 
+function migrateSettings(
+  settings: PersistedSettings | LegacySettingsWithProvider
+): PersistedSettings {
+  return {
+    globalFlagsInput: settings.globalFlagsInput,
+    terminalFontFamilyInput: settings.terminalFontFamilyInput,
+    taskTagsInput: settings.taskTagsInput
+  }
+}
+
+function migrateRepositoryBackend<
+  Repository extends { path: string; backend: LegacyRepositoryBackend }
+>(
+  repository: Repository
+): Omit<Repository, 'backend'> & { backend: PersistedRepository['backend'] } {
+  return {
+    ...repository,
+    path: repository.backend.kind === 'wsl' ? repository.backend.windowsPath : repository.path,
+    backend: createNativeBackend()
+  }
+}
+
+function migrateThreadWorktreePaths<
+  Repository extends { id: string; backend: LegacyRepositoryBackend }
+>(repositories: Repository[], threads: PersistedThread[]): PersistedThread[] {
+  const backendByRepositoryId = new Map(
+    repositories.map((repository) => [repository.id, repository.backend])
+  )
+
+  return threads.map((thread) => {
+    const backend = backendByRepositoryId.get(thread.repositoryId)
+    if (backend?.kind !== 'wsl' || !thread.worktreePath?.startsWith('/')) {
+      return thread
+    }
+
+    const suffix = thread.worktreePath.replaceAll('\\', '/').split('/').filter(Boolean).join('\\')
+    return {
+      ...thread,
+      worktreePath: `\\\\wsl.localhost\\${backend.distro}${suffix ? `\\${suffix}` : ''}`
+    }
+  })
+}
+
 export function migrateAppState(parsed: unknown): PersistedAppState {
   const state = parsed as MigratedInput
   if (state.version === STATE_VERSION) {
     return normalizePersistedState(state)
   }
 
-  if (state.version === 12) {
+  if (state.version === 13) {
+    const repositories = state.repositories.map(migrateRepositoryBackend)
     return normalizePersistedState({
       ...state,
       version: STATE_VERSION,
-      repositories: state.repositories.map((repository) => ({
-        ...repository,
-        solutionFilePath: null
-      }))
+      settings: migrateSettings(state.settings),
+      repositories,
+      threads: migrateThreadWorktreePaths(state.repositories, state.threads)
+    })
+  }
+
+  if (state.version === 12) {
+    const repositories = state.repositories.map((repository) => ({
+      ...migrateRepositoryBackend(repository),
+      solutionFilePath: null
+    }))
+    return normalizePersistedState({
+      ...state,
+      version: STATE_VERSION,
+      settings: migrateSettings(state.settings),
+      repositories,
+      threads: migrateThreadWorktreePaths(state.repositories, state.threads)
     })
   }
 
   if (state.version === 11) {
+    const repositories = state.repositories.map((repository) => ({
+      ...migrateRepositoryBackend(repository),
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null
+    }))
     return normalizePersistedState({
       ...state,
       version: STATE_VERSION,
-      repositories: state.repositories.map((repository) => ({
-        ...repository,
-        solutionFilePath: null,
-        newWorktreeSetupCommand: null
-      }))
+      settings: migrateSettings(state.settings),
+      repositories,
+      threads: migrateThreadWorktreePaths(state.repositories, state.threads)
     })
   }
 
@@ -165,6 +246,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
     return normalizePersistedState({
       ...state,
       version: STATE_VERSION,
+      settings: migrateSettings(state.settings),
       repositories: state.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),
@@ -178,10 +260,6 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
     return normalizePersistedState({
       ...state,
       version: STATE_VERSION,
-      settings: {
-        ...state.settings,
-        agentProviderId: DEFAULT_AGENT_PROVIDER_ID
-      },
       repositories: state.repositories.map((repository) => ({
         ...repository,
         backend: createNativeBackend(),

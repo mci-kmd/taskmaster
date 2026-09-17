@@ -3,16 +3,11 @@ import '@xterm/xterm/css/xterm.css'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import type {
-  AgentProviderId,
   AppSettingsSnapshot,
   TerminalKind,
   TerminalStatus,
   ThreadSnapshot
 } from '../../../shared/app-types'
-import {
-  DEFAULT_AGENT_PROVIDER_ID,
-  getAgentProviderDescriptor
-} from '../../../shared/agent-providers'
 import {
   consumeTrackedUserInput,
   isMissingResumeSessionError,
@@ -41,7 +36,6 @@ export type ThreadTerminalHandle = {
 
 type ThreadTerminalProps = {
   kind: TerminalKind
-  agentProviderId?: AgentProviderId
   thread: ThreadSnapshot
   settings: AppSettingsSnapshot
   agentStatus: TerminalStatus | null
@@ -495,20 +489,9 @@ function isTextEntryElement(element: HTMLElement | null): boolean {
 
 const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
   function ThreadTerminal(
-    {
-      kind,
-      agentProviderId = DEFAULT_AGENT_PROVIDER_ID,
-      thread,
-      settings,
-      agentStatus,
-      visible,
-      launchKey,
-      onStateChange,
-      onRefresh
-    },
+    { kind, thread, settings, agentStatus, visible, launchKey, onStateChange, onRefresh },
     ref
   ) {
-    const agentProvider = getAgentProviderDescriptor(agentProviderId)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const terminalRef = useRef<Terminal | null>(null)
     const terminalIdRef = useRef<string | null>(null)
@@ -516,8 +499,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const threadRef = useRef(thread)
     const settingsRef = useRef(settings)
     const agentStatusRef = useRef(agentStatus)
-    const agentProviderRef = useRef(agentProvider)
-    const latestAgentProviderRef = useRef(agentProvider)
     const onRefreshRef = useRef(onRefresh)
     const onStateChangeRef = useRef(onStateChange)
     const visibleRef = useRef(visible)
@@ -582,13 +563,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     useEffect(() => {
       agentStatusRef.current = agentStatus
     }, [agentStatus])
-
-    useEffect(() => {
-      latestAgentProviderRef.current = agentProvider
-      if (!terminalIdRef.current) {
-        agentProviderRef.current = agentProvider
-      }
-    }, [agentProvider])
 
     useEffect(() => {
       onRefreshRef.current = onRefresh
@@ -677,8 +651,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         const currentThread = threadRef.current
         const currentSettings = settingsRef.current
-        const launchAgentProvider = latestAgentProviderRef.current
-        agentProviderRef.current = launchAgentProvider
         if (!currentThread || !currentSettings) {
           setPhase('error')
           setErrorMessage('Missing thread or settings.')
@@ -687,7 +659,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
         const result = await api.terminal.create({
           kind: isAgentTerminal ? 'agent' : 'shell',
-          agentProviderId: isAgentTerminal ? launchAgentProvider.id : undefined,
           threadId: currentThread.id,
           threadMode: currentThread.mode,
           branchName: currentThread.branchName,
@@ -786,7 +757,6 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       await api.terminal.kill(id)
       terminalIdRef.current = null
       launchAttemptRef.current = null
-      agentProviderRef.current = latestAgentProviderRef.current
       pendingStyledOutputRef.current.current = ''
       pendingStyledOutputRef.current.insideToolBlock = false
       trackedUserInputRef.current = {
@@ -871,10 +841,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           launchAttemptRef.current.buffer += payload.data
         }
         let styled: string
-        if (
-          kindRef.current !== 'agent' ||
-          !agentProviderRef.current.capabilities.usesCopilotTerminalStyling
-        ) {
+        if (kindRef.current !== 'agent') {
           styled = payload.data
         } else {
           styled = styleTerminalOutput(payload.data, pendingStyledOutputRef.current)
@@ -900,11 +867,9 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         const attempt = launchAttemptRef.current
         terminalIdRef.current = null
         launchAttemptRef.current = null
-        agentProviderRef.current = latestAgentProviderRef.current
 
         if (
           kindRef.current === 'agent' &&
-          agentProviderRef.current.capabilities.canRetryMissingResumeSession &&
           attempt &&
           attempt.mode === 'resume' &&
           !attempt.retriedFromMissingSession &&
@@ -1011,32 +976,13 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         if (kindRef.current !== 'agent') {
           return
         }
-        const capabilities = agentProviderRef.current.capabilities
-        const activeTerminalId = terminalIdRef.current
-        if (activeTerminalId && capabilities.supportsClipboardImagePathPaste) {
-          const result = await api.terminal.saveClipboardImage(activeTerminalId)
-          if (result.ok) {
-            pasteTerminalText(` ${result.path} `)
-            return
-          }
-          pasteTerminalText(` [image paste failed: ${result.error}] `)
-          return
-        }
-
-        if (!capabilities.supportsClipboardImagePasteShortcut) {
-          return
-        }
 
         focusTerminalInput(term)
         markTrackedInputDirty()
         forwardTerminalInput('\x1bv', null)
       }
       const clipboardHasImage = async (): Promise<boolean> => {
-        const supportsImagePaste =
-          kindRef.current === 'agent' &&
-          (agentProviderRef.current.capabilities.supportsClipboardImagePathPaste ||
-            agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut)
-        return supportsImagePaste && (await api.terminal.hasClipboardImage())
+        return kindRef.current === 'agent' && (await api.terminal.hasClipboardImage())
       }
       const pasteClipboard = async (): Promise<void> => {
         try {
@@ -1054,12 +1000,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
       const pasteEventHasImage = (event: ClipboardEvent): boolean =>
         Array.from(event.clipboardData?.items ?? []).some((item) => item.type.startsWith('image/'))
       const handlePaste = (event: ClipboardEvent): void => {
-        if (
-          kindRef.current === 'agent' &&
-          (agentProviderRef.current.capabilities.supportsClipboardImagePathPaste ||
-            agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut) &&
-          pasteEventHasImage(event)
-        ) {
+        if (kindRef.current === 'agent' && pasteEventHasImage(event)) {
           event.preventDefault()
           event.stopPropagation()
           void pasteClipboardImage()
@@ -1126,11 +1067,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         }
 
         // Shift-Enter: backslash+CR is Copilot's documented multiline trick
-        if (
-          agentProviderRef.current.capabilities.usesBackslashEnterForMultiline &&
-          onlyShift &&
-          e.key === 'Enter'
-        ) {
+        if (onlyShift && e.key === 'Enter') {
           trackPromptLineBreak()
           forwardTerminalInput('\\\r', null)
           return cancelHandledKey()

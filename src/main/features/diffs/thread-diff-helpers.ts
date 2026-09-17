@@ -10,13 +10,11 @@ import type {
 import { THREAD_DIFF_WORKTREE_REF } from '../../../shared/app-types'
 import { tryGit, tryGitAsync } from '../../backends/git-client'
 import {
-  buildNativeCommand,
   createNativeBackend,
   getDirname,
   joinPath,
   normalizePath,
   resolvePath,
-  spawnSyncBackendCommand,
   backendPathExists
 } from '../../backends/repository-backend'
 import { isPathInsideRepository } from '../repositories/repository-path-utils'
@@ -379,24 +377,6 @@ function directoryContainsProjectMarker(path: string, backend: RepositoryBackend
     return true
   }
 
-  if (backend.kind === 'wsl') {
-    const result = spawnSyncBackendCommand(
-      backend,
-      buildNativeCommand('find', [
-        path,
-        '-maxdepth',
-        '1',
-        '-type',
-        'f',
-        '-name',
-        '*.csproj',
-        '-print',
-        '-quit'
-      ])
-    )
-    return result.ok && result.stdout.length > 0
-  }
-
   return readdirSync(path, { withFileTypes: true }).some(
     (entry) => entry.isFile() && extname(entry.name).toLowerCase() === '.csproj'
   )
@@ -432,11 +412,7 @@ function findDiffProjectForPath(
     visitedDirectories.push(normalizedDirectory)
     if (directoryContainsProjectMarker(normalizedDirectory, backend)) {
       const projectRootPath =
-        normalizedDirectory === normalizedCwd
-          ? ''
-          : backend.kind === 'wsl'
-            ? normalizedDirectory.slice(normalizedCwd.length + 1)
-            : relative(cwd, normalizedDirectory)
+        normalizedDirectory === normalizedCwd ? '' : relative(cwd, normalizedDirectory)
       const project = {
         rootPath: normalizeDiffProjectPath(projectRootPath)
       }

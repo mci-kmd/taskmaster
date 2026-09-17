@@ -52,7 +52,6 @@ import { createSettingsService } from './features/settings/settings-service'
 import { parseGlobalFlags } from './features/settings/global-flags'
 import {
   clampSidebarWidth,
-  normalizeAgentProviderId,
   normalizeTerminalFontFamilyInput,
   resolveTerminalFontFamily
 } from './features/settings/settings-values'
@@ -77,9 +76,7 @@ import { getRunningThreadIds, hasSessionsForThread, killSessionsForThread } from
 import {
   createNativeBackend,
   getBasename,
-  isSameRepositoryPath,
-  parseWslUncPath,
-  toUiPath
+  isSameRepositoryPath
 } from './backends/repository-backend'
 import { registerAppStateIpcHandlers } from './ipc/app-state-ipc'
 import { electronUi } from './platform/electron-ui'
@@ -142,7 +139,6 @@ const settingsService = createSettingsService({
   ensureState,
   saveState,
   successResult,
-  normalizeAgentProviderId,
   normalizeTerminalFontFamilyInput,
   clampSidebarWidth
 })
@@ -155,12 +151,10 @@ const repositoryService = createRepositoryService({
   failureResult,
   createId: randomUUID,
   nowIso,
-  platform: process.platform,
   selectRepositoryDirectory: electronUi.selectRepositoryDirectory,
   confirmInitializeRepository: electronUi.confirmInitializeRepository,
   pickRepositoryFaviconFile: electronUi.pickRepositoryFaviconFile,
   pickRepositorySolutionFile: electronUi.pickRepositorySolutionFile,
-  parseWslUncPath,
   createNativeBackend,
   resolveGitRoot,
   initializeGitRepository: (path, backend) => {
@@ -168,7 +162,6 @@ const repositoryService = createRepositoryService({
   },
   isSameRepositoryPath,
   getBasename,
-  toUiPath,
   validateRepositoryFaviconInput,
   validateRepositoryFaviconAbsolutePath,
   validateRepositoryRunCommandInput,
@@ -198,8 +191,7 @@ const threadGitContextService = createThreadGitContextService({
 const threadWorkspaceService = createThreadWorkspaceService({
   resolveThreadGitContext: threadGitContextService.resolveThreadGitContext,
   openPath: electronUi.openPath,
-  openExternal: electronUi.openExternal,
-  getHomePath: electronUi.getHomePath
+  openExternal: electronUi.openExternal
 })
 const threadRunService = createThreadRunService({
   findThread,

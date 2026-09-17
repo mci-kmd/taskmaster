@@ -1,5 +1,4 @@
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
-export type AgentProviderId = 'copilot' | 'codex'
 export type TerminalKind = 'agent' | 'shell'
 export type ProjectTaskTag = string
 
@@ -14,8 +13,7 @@ export interface RepositoryWorktreeOption {
   path: string
 }
 
-export type RepositoryBackend =
-  { kind: 'native' } | { kind: 'wsl'; distro: string; windowsPath: string; linuxPath: string }
+export type RepositoryBackend = { kind: 'native' }
 
 export type AgentLaunchMode = 'new' | 'resume'
 
@@ -38,7 +36,6 @@ export interface TerminalCreateRequest {
   cols: number
   rows: number
   kind?: TerminalKind
-  agentProviderId?: AgentProviderId
   agentLaunch?: AgentLaunchRequest
   cwd?: string
   executionCwd?: string
@@ -52,7 +49,6 @@ export interface TerminalCreateRequest {
 
 export interface TerminalStatus {
   available: boolean
-  providerId?: AgentProviderId
   label?: string
   commandPath?: string
   defaultCwd: string
@@ -73,8 +69,6 @@ export interface TerminalLaunchFailure {
 
 export type TerminalLaunchResult = TerminalLaunchSuccess | TerminalLaunchFailure
 
-export type TerminalClipboardImageResult = { ok: true; path: string } | { ok: false; error: string }
-
 export interface TerminalDataEvent {
   terminalId: string
   data: string
@@ -89,24 +83,21 @@ export type TerminalSessionStartSource = 'startup' | 'resume' | 'new'
 
 export interface TerminalSessionStartEvent {
   terminalId: string
-  providerId?: AgentProviderId
   sessionId: string
   source: TerminalSessionStartSource
 }
 
 export interface TerminalUserPromptEvent {
   terminalId: string
-  providerId?: AgentProviderId
   sessionId: string
   prompt: string
 }
 
 export interface TerminalApi {
-  getStatus: (providerId?: AgentProviderId, backend?: RepositoryBackend) => Promise<TerminalStatus>
+  getStatus: (backend?: RepositoryBackend) => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
   kill: (terminalId: string) => Promise<boolean>
   hasClipboardImage: () => Promise<boolean>
-  saveClipboardImage: (terminalId: string) => Promise<TerminalClipboardImageResult>
   readClipboardText: () => Promise<string>
   input: (terminalId: string, data: string) => void
   resize: (terminalId: string, cols: number, rows: number) => void
@@ -117,7 +108,6 @@ export interface TerminalApi {
 }
 
 export interface PersistedSettings {
-  agentProviderId: AgentProviderId
   globalFlagsInput: string
   terminalFontFamilyInput: string
   taskTagsInput: string
@@ -156,7 +146,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 13
+  version: 14
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -396,7 +386,6 @@ export interface CreateThreadInput {
 }
 
 export interface UpdateSettingsInput {
-  agentProviderId: AgentProviderId
   globalFlagsInput: string
   terminalFontFamilyInput: string
   taskTagsInput: string

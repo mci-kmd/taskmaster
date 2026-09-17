@@ -65,7 +65,6 @@ export function createThreadWorkspaceService(dependencies: {
   resolveThreadGitContext: (threadId: string) => ThreadGitContext
   openPath: (path: string) => Promise<string>
   openExternal: (url: string) => Promise<void>
-  getHomePath: () => string
 }): {
   openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
   openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
@@ -104,26 +103,6 @@ export function createThreadWorkspaceService(dependencies: {
     }
 
     try {
-      if (context.repository.backend.kind === 'wsl') {
-        try {
-          await dependencies.openExternal(buildVscodeWorkspaceUri(cwd))
-          return { ok: true }
-        } catch {
-          // Fall back to the VS Code CLI below.
-        }
-
-        const codePath = resolveCommandOnPath('code')
-        if (!codePath) {
-          return { ok: false, error: 'VS Code is unavailable: code CLI was not found on PATH.' }
-        }
-
-        await spawnDetachedProcess(
-          buildVscodeLaunchCommand(codePath, cwd),
-          dependencies.getHomePath()
-        )
-        return { ok: true }
-      }
-
       await dependencies.openExternal(buildVscodeWorkspaceUri(cwd))
       return { ok: true }
     } catch (uriError) {
@@ -162,13 +141,6 @@ export function createThreadWorkspaceService(dependencies: {
       return {
         ok: false,
         error: 'Opening a solution in Visual Studio is only supported on Windows.'
-      }
-    }
-
-    if (context.repository.backend.kind === 'wsl') {
-      return {
-        ok: false,
-        error: 'Opening a solution in Visual Studio is not supported for WSL repositories.'
       }
     }
 

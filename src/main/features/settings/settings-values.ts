@@ -4,10 +4,6 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN
 } from '../../../shared/app-types'
-import {
-  DEFAULT_AGENT_PROVIDER_ID,
-  getAgentProviderDescriptor
-} from '../../../shared/agent-providers'
 import { DEFAULT_PROJECT_TASK_TAGS } from '../../../shared/task-tags'
 
 export const DEFAULT_TERMINAL_FONT_FAMILY =
@@ -16,16 +12,6 @@ export const DEFAULT_TASK_TAGS_INPUT = DEFAULT_PROJECT_TASK_TAGS.join('\n')
 
 export function normalizeTerminalFontFamilyInput(value: string | null | undefined): string {
   return value?.trim() ?? ''
-}
-
-export function normalizeAgentProviderId(
-  value: unknown
-): PersistedAppState['settings']['agentProviderId'] {
-  if (typeof value !== 'string') {
-    return DEFAULT_AGENT_PROVIDER_ID
-  }
-
-  return getAgentProviderDescriptor(value as PersistedAppState['settings']['agentProviderId']).id
 }
 
 export function resolveTerminalFontFamily(settings: PersistedAppState['settings']): string {

@@ -74,8 +74,7 @@ describe('thread workspace service', () => {
         thread: createThread()
       }),
       openPath,
-      openExternal: vi.fn(),
-      getHomePath: () => repoPath
+      openExternal: vi.fn()
     })
 
     const result = await service.openThreadSolutionInVisualStudio('thread-1')
@@ -90,45 +89,5 @@ describe('thread workspace service', () => {
 
     expect(result).toEqual({ ok: true })
     expect(openPath).toHaveBeenCalledWith(solutionPath)
-  })
-
-  it('rejects WSL repositories for Visual Studio launch', async () => {
-    const repoPath = createTempRepo()
-    const openPath = vi.fn().mockResolvedValue('')
-    const service = createThreadWorkspaceService({
-      resolveThreadGitContext: () => ({
-        ok: true,
-        cwd: '\\\\wsl$\\Ubuntu\\repo',
-        repository: {
-          ...createRepository(repoPath),
-          backend: {
-            kind: 'wsl',
-            distro: 'Ubuntu',
-            windowsPath: '\\\\wsl$\\Ubuntu\\repo',
-            linuxPath: '/repo'
-          }
-        },
-        thread: createThread()
-      }),
-      openPath,
-      openExternal: vi.fn(),
-      getHomePath: () => repoPath
-    })
-
-    const result = await service.openThreadSolutionInVisualStudio('thread-1')
-
-    if (process.platform !== 'win32') {
-      expect(result).toEqual({
-        ok: false,
-        error: 'Opening a solution in Visual Studio is only supported on Windows.'
-      })
-      return
-    }
-
-    expect(result).toEqual({
-      ok: false,
-      error: 'Opening a solution in Visual Studio is not supported for WSL repositories.'
-    })
-    expect(openPath).not.toHaveBeenCalled()
   })
 })

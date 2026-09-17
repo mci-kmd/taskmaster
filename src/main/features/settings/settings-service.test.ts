@@ -6,7 +6,6 @@ describe('settings service', () => {
     const saveState = vi.fn()
     const state = {
       settings: {
-        agentProviderId: 'copilot' as const,
         globalFlagsInput: '',
         terminalFontFamilyInput: '',
         taskTagsInput: ''
@@ -20,13 +19,11 @@ describe('settings service', () => {
       ensureState: () => state,
       saveState,
       successResult: () => ({ ok: true }),
-      normalizeAgentProviderId: () => 'codex',
       normalizeTerminalFontFamilyInput: (value) => value.trim(),
       clampSidebarWidth: (value) => value
     })
 
     const result = service.updateSettings({
-      agentProviderId: 'copilot',
       globalFlagsInput: '  --model gpt-5  ',
       terminalFontFamilyInput: '  JetBrains Mono  ',
       taskTagsInput: ' bug \n feature '
@@ -34,7 +31,6 @@ describe('settings service', () => {
 
     expect(result.ok).toBe(true)
     expect(state.settings).toMatchObject({
-      agentProviderId: 'codex',
       globalFlagsInput: '--model gpt-5',
       terminalFontFamilyInput: 'JetBrains Mono',
       taskTagsInput: 'bug\nfeature'
@@ -46,7 +42,6 @@ describe('settings service', () => {
     const saveState = vi.fn()
     const state = {
       settings: {
-        agentProviderId: 'copilot' as const,
         globalFlagsInput: '',
         terminalFontFamilyInput: '',
         taskTagsInput: ''
@@ -61,7 +56,6 @@ describe('settings service', () => {
       ensureState: () => state,
       saveState,
       successResult: () => ({ ok: true }),
-      normalizeAgentProviderId: (value) => value as 'copilot',
       normalizeTerminalFontFamilyInput: (value) => value,
       clampSidebarWidth: () => 320
     })
