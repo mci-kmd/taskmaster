@@ -5,6 +5,7 @@ import { spawn } from 'child_process'
 import {
   app,
   clipboard,
+  nativeImage,
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -390,33 +391,45 @@ function createSession(
   }
 }
 
-function saveClipboardImageForSession(
+async function saveClipboardImageForSession(
   event: IpcMainInvokeEvent,
   terminalId: string
-): TerminalClipboardImageResult {
+): Promise<TerminalClipboardImageResult> {
   const session = getOwnedSession(event, terminalId)
   if (!session) {
     return { ok: false, error: 'Terminal session not found.' }
   }
 
-  const image = clipboard.readImage()
-  if (image.isEmpty()) {
-    return { ok: false, error: 'No image is currently available on the Windows clipboard.' }
-  }
-
-  const filename = `clipboard-${Date.now()}-${randomUUID()}.png`
-  const directory =
-    session.backend.kind === 'wsl'
-      ? '/tmp/taskmaster-clipboard-images'
-      : join(app.getPath('temp'), 'taskmaster-clipboard-images')
-  const targetPath =
-    session.backend.kind === 'wsl' ? `${directory}/${filename}` : join(directory, filename)
-  const windowsDirectory =
-    session.backend.kind === 'wsl' ? toUiPath(session.backend, directory) : directory
-  const windowsPath =
-    session.backend.kind === 'wsl' ? toUiPath(session.backend, targetPath) : targetPath
-
   try {
+    const items = await clipboard.read()
+    const clipboardItem = items.find((item) => item.types.some((type) => type.startsWith('image/')))
+    const imageType = clipboardItem?.types.find((type) => type.startsWith('image/'))
+    if (!clipboardItem || !imageType) {
+      return { ok: false, error: 'No image is currently available on the Windows clipboard.' }
+    }
+
+    const payload = await clipboardItem.getType(imageType)
+    if (!(payload instanceof Blob)) {
+      return { ok: false, error: 'The Windows clipboard image format is not supported.' }
+    }
+
+    const image = nativeImage.createFromBuffer(Buffer.from(await payload.arrayBuffer()))
+    if (image.isEmpty()) {
+      return { ok: false, error: 'The Windows clipboard image format is not supported.' }
+    }
+
+    const filename = `clipboard-${Date.now()}-${randomUUID()}.png`
+    const directory =
+      session.backend.kind === 'wsl'
+        ? '/tmp/taskmaster-clipboard-images'
+        : join(app.getPath('temp'), 'taskmaster-clipboard-images')
+    const targetPath =
+      session.backend.kind === 'wsl' ? `${directory}/${filename}` : join(directory, filename)
+    const windowsDirectory =
+      session.backend.kind === 'wsl' ? toUiPath(session.backend, directory) : directory
+    const windowsPath =
+      session.backend.kind === 'wsl' ? toUiPath(session.backend, targetPath) : targetPath
+
     mkdirSync(windowsDirectory, { recursive: true })
     writeFileSync(windowsPath, image.toPNG())
     return { ok: true, path: targetPath }

@@ -152,7 +152,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.terminal.status, providerId, backend),
     create: (request: TerminalCreateRequest) => invokeIpc(IPC_CHANNELS.terminal.create, request),
     kill: (terminalId: string) => invokeIpc(IPC_CHANNELS.terminal.kill, terminalId),
-    hasClipboardImage: () => !clipboard.readImage().isEmpty(),
+    hasClipboardImage: async () =>
+      (await clipboard.read()).some((item) => item.types.some((type) => type.startsWith('image/'))),
     saveClipboardImage: (terminalId: string) =>
       invokeIpc(IPC_CHANNELS.terminal.saveClipboardImage, terminalId),
     readClipboardText: () => clipboard.readText(),

@@ -174,7 +174,7 @@ export function parseNameStatusOutput(
   const files: ThreadDiffFileSummary[] = []
   const tokens = stdout.split('\0')
 
-  for (let index = 0; index < tokens.length; ) {
+  for (let index = 0; index < tokens.length;) {
     const statusToken = tokens[index++]
     if (!statusToken) {
       continue

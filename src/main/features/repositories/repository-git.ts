@@ -29,8 +29,7 @@ const LOADING_BRANCH_LABEL = 'Loading...'
 const PRIMARY_BRANCH_FALLBACKS = ['main', 'master'] as const
 
 type ExistingBranchTargetResolution =
-  | { ok: true; target: ExistingBranchTarget | null }
-  | { ok: false; error: string }
+  { ok: true; target: ExistingBranchTarget | null } | { ok: false; error: string }
 
 function parseLines(stdout: string): string[] {
   return stdout

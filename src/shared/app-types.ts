@@ -15,8 +15,7 @@ export interface RepositoryWorktreeOption {
 }
 
 export type RepositoryBackend =
-  | { kind: 'native' }
-  | { kind: 'wsl'; distro: string; windowsPath: string; linuxPath: string }
+  { kind: 'native' } | { kind: 'wsl'; distro: string; windowsPath: string; linuxPath: string }
 
 export type AgentLaunchMode = 'new' | 'resume'
 
@@ -106,9 +105,9 @@ export interface TerminalApi {
   getStatus: (providerId?: AgentProviderId, backend?: RepositoryBackend) => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
   kill: (terminalId: string) => Promise<boolean>
-  hasClipboardImage: () => boolean
+  hasClipboardImage: () => Promise<boolean>
   saveClipboardImage: (terminalId: string) => Promise<TerminalClipboardImageResult>
-  readClipboardText: () => string
+  readClipboardText: () => Promise<string>
   input: (terminalId: string, data: string) => void
   resize: (terminalId: string, cols: number, rows: number) => void
   onData: (callback: (payload: TerminalDataEvent) => void) => () => void
@@ -339,10 +338,7 @@ export type ThreadDiffFileSaveResult =
 export type SidebarContextMenuKind = 'repository' | 'thread'
 
 export type SidebarContextMenuAction =
-  | 'new-thread'
-  | 'edit'
-  | 'convert-to-worktree'
-  | 'close-thread'
+  'new-thread' | 'edit' | 'convert-to-worktree' | 'close-thread'
 
 export interface SidebarContextMenuRequest {
   kind: SidebarContextMenuKind

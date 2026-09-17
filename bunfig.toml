@@ -1,6 +1,5 @@
 [install]
 minimumReleaseAge = 259200
-minimumReleaseAgeExcludes = ["@types/node", "typescript"]
 
 [install.lockfile]
 save = true

@@ -154,7 +154,7 @@ function buildVisibleTextMap(raw: string): VisibleTextMap {
   let plain = ''
   const rawIndexByVisibleIndex: number[] = []
 
-  for (let index = 0; index < raw.length; ) {
+  for (let index = 0; index < raw.length;) {
     const char = raw[index]
     if (char !== '\x1b') {
       rawIndexByVisibleIndex.push(index)
@@ -264,7 +264,7 @@ function applyVisibleStyle(
   }
 
   let styled = `${rawContent.slice(0, rawStart)}${prefix}`
-  for (let index = rawStart; index < rawContent.length; ) {
+  for (let index = rawStart; index < rawContent.length;) {
     const nextEscape = rawContent.indexOf('\x1b', index)
     if (nextEscape === -1) {
       styled += rawContent.slice(index)
@@ -424,7 +424,7 @@ function readEscapeSequence(
 function styleTerminalOutput(incoming: string, state: StyledOutputState): string {
   let output = ''
 
-  for (let index = 0; index < incoming.length; ) {
+  for (let index = 0; index < incoming.length;) {
     const char = incoming[index]
     if (char !== '\x1b') {
       const nextEscape = incoming.indexOf('\x1b', index)
@@ -1031,17 +1031,25 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         markTrackedInputDirty()
         forwardTerminalInput('\x1bv', null)
       }
-      const clipboardHasImage = (): boolean =>
-        kindRef.current === 'agent' &&
-        (agentProviderRef.current.capabilities.supportsClipboardImagePathPaste ||
-          agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut) &&
-        api.terminal.hasClipboardImage()
-      const pasteClipboard = (): void => {
-        if (clipboardHasImage()) {
-          void pasteClipboardImage()
-          return
+      const clipboardHasImage = async (): Promise<boolean> => {
+        const supportsImagePaste =
+          kindRef.current === 'agent' &&
+          (agentProviderRef.current.capabilities.supportsClipboardImagePathPaste ||
+            agentProviderRef.current.capabilities.supportsClipboardImagePasteShortcut)
+        return supportsImagePaste && (await api.terminal.hasClipboardImage())
+      }
+      const pasteClipboard = async (): Promise<void> => {
+        try {
+          if (await clipboardHasImage()) {
+            await pasteClipboardImage()
+            return
+          }
+          pasteTerminalText(await api.terminal.readClipboardText())
+        } catch (error) {
+          pasteTerminalText(
+            ` [clipboard read failed: ${error instanceof Error ? error.message : String(error)}] `
+          )
         }
-        pasteTerminalText(api.terminal.readClipboardText())
       }
       const pasteEventHasImage = (event: ClipboardEvent): boolean =>
         Array.from(event.clipboardData?.items ?? []).some((item) => item.type.startsWith('image/'))
@@ -1105,11 +1113,11 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
           return true
         }
         if (onlyCtrl && (e.key === 'v' || e.key === 'V')) {
-          pasteClipboard()
+          void pasteClipboard()
           return cancelHandledKey()
         }
         if (onlyShift && e.key === 'Insert') {
-          pasteClipboard()
+          void pasteClipboard()
           return cancelHandledKey()
         }
 
