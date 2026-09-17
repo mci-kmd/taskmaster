@@ -89,4 +89,12 @@ describe('architecture guardrails', () => {
 
     expect(offenders.map(relativeSourcePath)).toEqual([])
   })
+
+  it('keeps clipboard access out of the preload process', () => {
+    const preloadSource = readFileSync(resolve(SOURCE_ROOT, 'preload/index.ts'), 'utf8')
+
+    expect(preloadSource).not.toMatch(
+      /import\s+(?:[\s\S]*?\bclipboard\b[\s\S]*?)from ['"]electron['"]/u
+    )
+  })
 })

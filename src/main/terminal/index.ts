@@ -4,6 +4,7 @@ import { join } from 'path'
 import { spawn } from 'child_process'
 import {
   app,
+  clipboard,
   webContents,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -415,6 +416,13 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
     session.ptyProcess.kill()
     return true
   })
+
+  handleIpc(IPC_CHANNELS.terminal.hasClipboardImage, async () => {
+    const items = await clipboard.read()
+    return items.some((item) => item.types.some((type) => type.startsWith('image/')))
+  })
+
+  handleIpc(IPC_CHANNELS.terminal.readClipboardText, () => clipboard.readText())
 
   onIpc(IPC_CHANNELS.terminal.input, (event, payload: { terminalId: string; data: string }) => {
     const session = getOwnedSession(event, payload.terminalId)

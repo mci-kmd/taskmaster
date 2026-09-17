@@ -22,7 +22,9 @@ describe('IPC channel contracts', () => {
       expect.arrayContaining([
         'app-state:get-snapshot',
         'native-menu:show-sidebar-context-menu',
-        'terminal:create'
+        'terminal:create',
+        'terminal:has-clipboard-image',
+        'terminal:read-clipboard-text'
       ])
     )
   })

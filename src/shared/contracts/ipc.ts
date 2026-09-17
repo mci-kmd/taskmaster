@@ -84,6 +84,8 @@ export const IPC_CHANNELS = {
     status: 'terminal:status',
     create: 'terminal:create',
     kill: 'terminal:kill',
+    hasClipboardImage: 'terminal:has-clipboard-image',
+    readClipboardText: 'terminal:read-clipboard-text',
     input: 'terminal:input',
     resize: 'terminal:resize',
     data: 'terminal:data',
@@ -186,6 +188,8 @@ export type IpcInvokeDefinitions = {
   }
   'terminal:create': { request: [TerminalCreateRequest]; response: TerminalLaunchResult }
   'terminal:kill': { request: [string]; response: boolean }
+  'terminal:has-clipboard-image': { request: []; response: boolean }
+  'terminal:read-clipboard-text': { request: []; response: string }
 }
 
 export type IpcSendDefinitions = {
