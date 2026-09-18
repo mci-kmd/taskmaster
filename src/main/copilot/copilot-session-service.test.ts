@@ -11,6 +11,8 @@ const harness = vi.hoisted(() => ({
   abort: vi.fn(),
   disconnect: vi.fn(),
   setModel: vi.fn(),
+  getCurrentModel: vi.fn(),
+  listModels: vi.fn(),
   createSession: vi.fn(),
   broadcast: vi.fn(),
   unsubscribe: vi.fn()
@@ -32,7 +34,7 @@ vi.mock('./copilot-sdk-manager', () => ({
           stop = vi.fn()
           getAuthStatus = async (): Promise<unknown> => ({ isAuthenticated: true })
           getStatus = async (): Promise<unknown> => ({ version: 'test' })
-          listModels = async (): Promise<unknown[]> => []
+          listModels = harness.listModels
           createSession = harness.createSession
           resumeSession = harness.createSession
         }
@@ -82,6 +84,9 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 beforeEach(() => {
   vi.clearAllMocks()
   harness.getEvents.mockResolvedValue([])
+  harness.getCurrentModel.mockResolvedValue({ modelId: 'model' })
+  harness.listModels.mockResolvedValue([])
+  harness.setModel.mockResolvedValue(undefined)
   harness.send.mockResolvedValue('message-id')
   harness.abort.mockResolvedValue(undefined)
   harness.disconnect.mockResolvedValue(undefined)
@@ -95,7 +100,7 @@ beforeEach(() => {
       disconnect: harness.disconnect,
       setModel: harness.setModel,
       rpc: {
-        model: { getCurrent: async () => ({ modelId: 'model' }) },
+        model: { getCurrent: harness.getCurrentModel },
         mode: { get: async () => 'plan' }
       },
       on: (listener: (event: SessionEvent) => void) => {
@@ -274,4 +279,72 @@ it('does not append buffered deltas to a finalized message already present in hi
   const result = await starting
   expect(result.snapshot?.timeline).toMatchObject([{ content: 'Hello there' }])
   expect(result.snapshot?.timeline[0]).not.toHaveProperty('streaming', true)
+})
+
+it('uses the model default when resetting effort and reports the runtime settings', async () => {
+  harness.listModels.mockResolvedValue([
+    {
+      id: 'model',
+      name: 'Model',
+      capabilities: { supports: { vision: true } },
+      supportedReasoningEfforts: ['low', 'high'],
+      defaultReasoningEffort: 'high'
+    }
+  ])
+  const service = setup()
+  await service.start('thread')
+  harness.getCurrentModel.mockResolvedValue({ modelId: 'model', reasoningEffort: 'high' })
+  const result = await service.setModel({
+    threadId: 'thread',
+    model: 'model',
+    reasoningEffort: null
+  })
+  expect(harness.setModel).toHaveBeenCalledWith('model', {
+    reasoningEffort: 'high',
+    reasoningSummary: 'concise'
+  })
+  expect(result.snapshot).toMatchObject({ model: 'model', reasoningEffort: 'high' })
+})
+
+it('does not claim a model selection took effect when the runtime kept the existing settings', async () => {
+  const service = setup()
+  await service.start('thread')
+  harness.getCurrentModel.mockResolvedValue({ modelId: 'model', reasoningEffort: 'low' })
+  const result = await service.setModel({
+    threadId: 'thread',
+    model: 'requested-model',
+    reasoningEffort: 'high'
+  })
+  expect(result.ok).toBe(false)
+  expect(result.error).toContain('not applied')
+  expect(result.snapshot).toMatchObject({ model: 'model', reasoningEffort: 'low' })
+})
+
+it('prevents sending while model settings are still being applied', async () => {
+  const service = setup()
+  await service.start('thread')
+  const pending = deferred<void>()
+  harness.setModel.mockReturnValueOnce(pending.promise)
+  const changing = service.setModel({ threadId: 'thread', model: 'model', reasoningEffort: null })
+  await vi.waitFor(() => expect(harness.setModel).toHaveBeenCalled())
+  const sending = await service.send({
+    threadId: 'thread',
+    prompt: 'Hello',
+    attachments: [],
+    agentMode: 'interactive'
+  })
+  expect(sending.ok).toBe(false)
+  expect(harness.send).not.toHaveBeenCalled()
+  pending.resolve(undefined)
+  await changing
+  expect(
+    (
+      await service.send({
+        threadId: 'thread',
+        prompt: 'Hello',
+        attachments: [],
+        agentMode: 'interactive'
+      })
+    ).ok
+  ).toBe(true)
 })

@@ -261,3 +261,186 @@ describe('Copilot session composer', () => {
     expect(screen.queryByRole('button', { name: '↓ Jump to latest' })).toBeNull()
   })
 })
+
+describe('Copilot session settings and surrounding controls', () => {
+  it('applies a model and its default effort, shows progress, and preserves the draft', async () => {
+    const a = thread()
+    const initial = snapshot(a.id)
+    initial.models.push({
+      id: 'other',
+      name: 'Other model',
+      supportsVision: false,
+      supportedReasoningEfforts: ['medium', 'high'],
+      defaultReasoningEffort: 'medium'
+    })
+    mock.getSession.mockResolvedValue(initial)
+    const pending = deferred<{ ok: boolean; snapshot: CopilotSessionSnapshot }>()
+    mock.setModel.mockReturnValue(pending.promise)
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: 'Keep my draft' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'other' }
+    })
+    expect(mock.setModel).toHaveBeenCalledWith({
+      threadId: a.id,
+      model: 'other',
+      reasoningEffort: 'medium'
+    })
+    expect(screen.getByText('Applying model settings…')).toBeTruthy()
+    expect(send().disabled).toBe(true)
+    const applied = { ...initial, model: 'other', reasoningEffort: 'medium' as const }
+    await act(async () => pending.resolve({ ok: true, snapshot: applied }))
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(
+      'other'
+    )
+    expect(
+      (screen.getByRole('combobox', { name: 'Reasoning effort' }) as HTMLSelectElement).value
+    ).toBe('medium')
+    expect(input().value).toBe('Keep my draft')
+    mock.setModel.mockResolvedValue({ ok: true, snapshot: { ...applied, reasoningEffort: 'high' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Reasoning effort' }), {
+      target: { value: 'high' }
+    })
+    await waitFor(() =>
+      expect(mock.setModel).toHaveBeenLastCalledWith({
+        threadId: a.id,
+        model: 'other',
+        reasoningEffort: 'high'
+      })
+    )
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('combobox', { name: 'Reasoning effort' }) as HTMLSelectElement).value
+      ).toBe('high')
+    )
+  })
+
+  it('retains the active model after a failed change and hides unsupported reasoning controls', async () => {
+    const a = thread()
+    const initial = snapshot(a.id)
+    initial.models.push({
+      id: 'plain',
+      name: 'Plain model',
+      supportsVision: false,
+      supportedReasoningEfforts: [],
+      defaultReasoningEffort: null
+    })
+    mock.getSession.mockResolvedValue(initial)
+    mock.setModel.mockResolvedValueOnce({
+      ok: false,
+      error: 'Model unavailable',
+      snapshot: initial
+    })
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'plain' }
+    })
+    await screen.findByRole('alert')
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(
+      'model'
+    )
+    expect(screen.getByRole('combobox', { name: 'Reasoning effort' })).toBeTruthy()
+    mock.setModel.mockResolvedValueOnce({
+      ok: true,
+      snapshot: { ...initial, model: 'plain', reasoningEffort: null }
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'plain' }
+    })
+    await waitFor(() =>
+      expect(screen.queryByRole('combobox', { name: 'Reasoning effort' })).toBeNull()
+    )
+    expect(mock.setModel).toHaveBeenLastCalledWith({
+      threadId: a.id,
+      model: 'plain',
+      reasoningEffort: null
+    })
+  })
+
+  it('keeps an unavailable current model visible instead of silently showing another model', async () => {
+    const a = thread()
+    mock.getSession.mockResolvedValue(snapshot(a.id, { model: 'legacy-model', models: [] }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
+    expect(model.value).toBe('legacy-model')
+    expect(model.disabled).toBe(true)
+    expect(model.selectedOptions[0].textContent).toBe('legacy-model')
+  })
+
+  it('uses the selected mode for the next message and follows subsequent runtime mode changes', async () => {
+    const a = thread()
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Agent mode' }), {
+      target: { value: 'plan' }
+    })
+    fireEvent.change(input(), { target: { value: 'Plan this feature' } })
+    mock.send.mockImplementation(async () => {
+      act(() => listener({ snapshot: snapshot(a.id, { phase: 'running', agentMode: 'plan' }) }))
+      return { ok: true }
+    })
+    fireEvent.click(send())
+    await waitFor(() => expect(input().value).toBe(''))
+    expect(mock.send).toHaveBeenCalledWith({
+      threadId: a.id,
+      prompt: 'Plan this feature',
+      attachments: [],
+      agentMode: 'plan'
+    })
+    act(() =>
+      listener({ snapshot: snapshot(a.id, { phase: 'running', agentMode: 'interactive' }) })
+    )
+    expect((screen.getByRole('combobox', { name: 'Agent mode' }) as HTMLSelectElement).value).toBe(
+      'interactive'
+    )
+  })
+
+  it('keeps Stop available during file selection and prevents duplicate aborts', async () => {
+    const a = thread()
+    const picker = deferred<{ ok: boolean; cancelled: boolean }>()
+    const abort = deferred<boolean>()
+    mock.getSession.mockResolvedValue(snapshot(a.id, { phase: 'running' }))
+    mock.pickAttachments.mockReturnValue(picker.promise)
+    mock.abort.mockReturnValue(abort.promise)
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await screen.findByText('Working…')
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files' }))
+    const stop = screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement
+    expect(stop.disabled).toBe(false)
+    fireEvent.click(stop)
+    fireEvent.click(screen.getByRole('button', { name: 'Stopping…' }))
+    expect(mock.abort).toHaveBeenCalledTimes(1)
+    act(() => listener({ snapshot: snapshot(a.id) }))
+    expect(send().disabled).toBe(true)
+    await act(async () => {
+      abort.resolve(true)
+      picker.resolve({ ok: false, cancelled: true })
+    })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Stopping…' })).toBeNull()
+  })
+
+  it('offers a retry after Stop fails', async () => {
+    const a = thread()
+    mock.getSession.mockResolvedValue(snapshot(a.id, { phase: 'running' }))
+    mock.abort.mockRejectedValueOnce(new Error('Stop failed'))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('Stop failed')
+    expect((screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('does not let a late update check replace newer connection status', async () => {
+    const check = deferred<{ installedVersion: string }>()
+    mock.checkForSdkUpdate.mockReturnValue(check.promise)
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    const onStatus = mock.onSdkStatus.mock.calls[0][0]
+    act(() => onStatus({ status: { installedVersion: '2.0.0', runtimeVersion: 'current' } }))
+    await act(async () => check.resolve({ installedVersion: '1.0.0' }))
+    expect(screen.getByText('Copilot').getAttribute('title')).toContain('2.0.0')
+  })
+})

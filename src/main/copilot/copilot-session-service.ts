@@ -60,6 +60,7 @@ type ActiveSession = {
   session: CopilotSession
   snapshot: CopilotSessionSnapshot
   pending: PendingInteraction[]
+  modelChangePending: boolean
   unsubscribe: () => void
 }
 
@@ -640,6 +641,7 @@ export function createCopilotSessionService(dependencies: {
         session: null as unknown as CopilotSession,
         snapshot,
         pending: [],
+        modelChangePending: false,
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder)
@@ -824,6 +826,12 @@ export function createCopilotSessionService(dependencies: {
       const active = sessions.get(input.threadId)
       if (!active) return { ok: false, error: 'Copilot session did not start.' }
 
+      if (active.modelChangePending)
+        return {
+          ok: false,
+          error: 'Wait for the model settings to finish updating.',
+          snapshot: active.snapshot
+        }
       if (active.snapshot.phase !== 'idle' || active.pending.length) {
         return {
           ok: false,
@@ -880,6 +888,12 @@ export function createCopilotSessionService(dependencies: {
       if (!startResult.ok) return startResult
       const active = sessions.get(input.threadId)
       if (!active) return { ok: false, error: 'Copilot session did not start.' }
+      if (active.modelChangePending)
+        return {
+          ok: false,
+          error: 'Wait for the model settings to finish updating.',
+          snapshot: active.snapshot
+        }
       if (active.snapshot.phase !== 'idle' || active.pending.length) {
         return {
           ok: false,
@@ -887,18 +901,34 @@ export function createCopilotSessionService(dependencies: {
           snapshot: active.snapshot
         }
       }
+      active.modelChangePending = true
       try {
+        const selected = active.snapshot.models.find((model) => model.id === input.model)
+        const effort = input.reasoningEffort ?? selected?.defaultReasoningEffort ?? undefined
         await active.session.setModel(input.model, {
-          reasoningEffort: input.reasoningEffort ?? undefined,
-          reasoningSummary: input.reasoningEffort ? 'concise' : 'none'
+          reasoningEffort: effort,
+          reasoningSummary: effort ? 'concise' : 'none'
         })
+        // The runtime may normalize the model/effort or defer a change. Display what
+        // actually took effect, rather than presenting the requested settings as fact.
+        const current = await active.session.rpc.model.getCurrent()
         updateSnapshot(active, {
-          model: input.model,
-          reasoningEffort: input.reasoningEffort
+          model: current.modelId ?? null,
+          reasoningEffort: (current.reasoningEffort as CopilotReasoningEffort | undefined) ?? null
         })
+        if (current.modelId !== input.model || (effort && current.reasoningEffort !== effort)) {
+          return {
+            ok: false,
+            error:
+              'Copilot has not applied the requested model settings. The controls show the settings currently in use.',
+            snapshot: active.snapshot
+          }
+        }
         return { ok: true, snapshot: active.snapshot }
       } catch (error) {
         return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
+      } finally {
+        active.modelChangePending = false
       }
     },
     respond: (input) => {

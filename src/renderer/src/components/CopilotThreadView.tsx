@@ -13,6 +13,7 @@ import type { ThreadSessionState } from './TerminalSessions'
 import Button from './ui/Button'
 import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
+import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimelineItem from './copilot/SessionTimelineItem'
 import { useSessionDraft } from './copilot/session-drafts'
 import '../assets/copilot-session.css'
@@ -55,6 +56,8 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   const agentMode = draft.agentMode ?? session?.agentMode ?? 'interactive'
   const [busy, setBusy] = useState<string | null>(null)
   const busyRef = useRef(false)
+  const [stopping, setStopping] = useState(false)
+  const stoppingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const followOutput = useRef(true)
@@ -105,14 +108,14 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   useEffect(() => {
     mounted.current = true
     let cancelled = false
-    let receivedStatus = false
+    let statusRevision = 0
     const unsubscribeSession = api.copilot.onSession(({ snapshot }) => {
       if (snapshot.threadId !== thread.id) return
       sessionRevision.current++
       updateSession(snapshot)
     })
     const unsubscribeStatus = api.copilot.onSdkStatus(({ status }) => {
-      receivedStatus = true
+      statusRevision++
       setSdk(status)
     })
     const revision = sessionRevision.current
@@ -133,15 +136,16 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
     void api.copilot
       .getSdkStatus()
       .then((status) => {
-        if (!cancelled && !receivedStatus) setSdk(status)
+        if (!cancelled && statusRevision === 0) setSdk(status)
       })
       .catch((cause) => {
         if (!cancelled) setError(message(cause))
       })
+    const updateCheckRevision = statusRevision
     void api.copilot
       .checkForSdkUpdate()
       .then((status) => {
-        if (!cancelled) setSdk(status)
+        if (!cancelled && statusRevision === updateCheckRevision) setSdk(status)
       })
       .catch(() => {
         /* Update checks must not prevent the conversation from loading. */
@@ -180,16 +184,19 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   }, [prompt])
 
   const addFiles = (files: File[]): void => {
+    if (busyRef.current) {
+      setError('Wait for the current action to finish, then attach your files again.')
+      return
+    }
     void run('attachments', async () => {
       const next = await Promise.all(files.map(fileToAttachment))
       updateDraft((current) => ({ ...current, attachments: [...current.attachments, ...next] }))
     })
   }
   const running = session?.phase === 'running'
-  const ready = session?.phase === 'idle' && !session.pendingInteraction
-  const selectedModel = session?.models.find((model) => model.id === session.model)
+  const ready = session?.phase === 'idle' && !session.pendingInteraction && !stopping
   const send = (): void => {
-    if (!ready || (!prompt.trim() && !attachments.length)) return
+    if (!ready || stoppingRef.current || (!prompt.trim() && !attachments.length)) return
     void run('send', async () => {
       const revision = sessionRevision.current
       const result = await api.copilot.send({
@@ -229,6 +236,21 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
       promptRef.current?.focus()
     })
   }
+  const stop = async (): Promise<void> => {
+    if (stoppingRef.current) return
+    stoppingRef.current = true
+    setStopping(true)
+    setError(null)
+    try {
+      if (!(await api.copilot.abort(thread.id)))
+        throw new Error('This session is no longer running.')
+    } catch (cause) {
+      if (mounted.current) setError(message(cause))
+    } finally {
+      stoppingRef.current = false
+      if (mounted.current) setStopping(false)
+    }
+  }
   const changeModel = (model: string, reasoningEffort: CopilotReasoningEffort | null): void => {
     void run('model', async () => {
       const revision = sessionRevision.current
@@ -238,17 +260,23 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
       )
     })
   }
-  const status = session?.pendingInteraction
-    ? 'Needs your input'
-    : running
-      ? 'Working…'
-      : session?.phase === 'idle'
-        ? 'Ready'
-        : session?.phase === 'error' || (error && !session)
-          ? 'Could not connect'
-          : session?.phase === 'disconnected'
-            ? 'Disconnected'
-            : 'Connecting…'
+  const status = stopping
+    ? 'Stopping…'
+    : busy === 'start'
+      ? 'Reconnecting…'
+      : session?.pendingInteraction
+        ? 'Needs your input'
+        : running
+          ? 'Working…'
+          : session?.phase === 'idle'
+            ? 'Ready'
+            : session?.phase === 'error' || (error && !session)
+              ? session?.sessionId
+                ? 'Session error'
+                : 'Could not connect'
+              : session?.phase === 'disconnected'
+                ? 'Disconnected'
+                : 'Connecting…'
 
   return (
     <section
@@ -290,7 +318,15 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         </span>
         {sdk?.updateAvailable ? (
           <Button
-            disabled={Boolean(busy) || running || sdk.updateState === 'installing'}
+            disabled={
+              Boolean(busy) ||
+              running ||
+              stopping ||
+              Boolean(session?.pendingInteraction) ||
+              session?.phase === 'connecting' ||
+              sdk.updateState === 'installing'
+            }
+            title={`Update Copilot to ${sdk.latestVersion ?? 'the latest version'}`}
             size="sm"
             variant="ghost"
             onClick={() =>
@@ -369,9 +405,9 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         ) : null}
       </div>
       <div className="tm-session-bottom">
-        {error || session?.error || sdk?.updateError ? (
+        {error || session?.error ? (
           <div className="tm-session-error" role="alert">
-            <span>{error ?? session?.error ?? sdk?.updateError}</span>
+            <span>{error ?? session?.error}</span>
             {error && error !== session?.error && error !== sdk?.updateError ? (
               <Button
                 size="sm"
@@ -391,6 +427,11 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             </Button>
           </div>
         ) : null}
+        {sdk?.updateError ? (
+          <div className="tm-session-notice tm-session-notice--warning mb-3" role="status">
+            Copilot update: {sdk.updateError}
+          </div>
+        ) : null}
         <div className="tm-session-composer">
           {session?.pendingInteraction ? (
             <div
@@ -403,7 +444,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
                 key={session.pendingInteraction.id}
                 threadId={thread.id}
                 onRespond={respond}
-                busy={Boolean(busy)}
+                busy={Boolean(busy) || stopping}
               />
             </div>
           ) : null}
@@ -479,80 +520,48 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             >
               ＋<span className="sr-only"> Attach files</span>
             </Button>
-            <select
-              aria-label="Agent mode"
-              value={agentMode}
-              onChange={(event) =>
-                updateDraft((current) => ({
-                  ...current,
-                  agentMode: event.target.value as typeof agentMode
-                }))
-              }
-              title="Mode for your next message"
-            >
-              <option value="interactive">Interactive</option>
-              <option value="plan">Plan</option>
-              <option value="autopilot">Autopilot</option>
-            </select>
-            <select
-              aria-label="Model"
-              disabled={!ready || Boolean(busy)}
-              value={session?.model ?? ''}
-              onChange={(event) =>
-                changeModel(
-                  event.target.value,
-                  session?.models.find((model) => model.id === event.target.value)
-                    ?.defaultReasoningEffort ?? null
-                )
-              }
-            >
-              {!session?.model ? (
-                <option value="">Choose model</option>
-              ) : !selectedModel ? (
-                <option value={session.model}>{session.model}</option>
-              ) : null}
-              {session?.models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
-            {selectedModel?.supportedReasoningEfforts.length ? (
+            <label className="tm-session-setting" title="Mode for your next message">
+              <span>Mode</span>
               <select
-                aria-label="Reasoning effort"
-                title="Reasoning effort"
-                disabled={!ready || Boolean(busy)}
-                value={session?.reasoningEffort ?? ''}
-                onChange={(event) => {
-                  if (session?.model)
-                    changeModel(
-                      session.model,
-                      (event.target.value || null) as CopilotReasoningEffort | null
-                    )
-                }}
+                aria-label="Agent mode"
+                value={agentMode}
+                onChange={(event) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    agentMode: event.target.value as typeof agentMode
+                  }))
+                }
+                title="Mode for your next message"
               >
-                <option value="">Default effort</option>
-                {selectedModel.supportedReasoningEfforts.map((effort) => (
-                  <option value={effort} key={effort}>
-                    {effort}
-                  </option>
-                ))}
+                <option value="interactive">Interactive</option>
+                <option value="plan">Plan</option>
+                <option value="autopilot">Autopilot</option>
               </select>
-            ) : null}
+            </label>
+            <SessionModelControls
+              session={session}
+              disabled={!ready || Boolean(busy)}
+              busy={busy === 'model'}
+              disabledReason={
+                running
+                  ? 'Stop the current response or wait for it to finish before changing models'
+                  : session?.pendingInteraction
+                    ? 'Respond to the pending request before changing models'
+                    : busy
+                      ? 'Wait for the current action to finish'
+                      : 'Connect to Copilot to change models'
+              }
+              onChange={changeModel}
+            />
             <div className="ml-auto flex items-center gap-2">
-              {running || session?.pendingInteraction ? (
+              {running || session?.pendingInteraction || stopping ? (
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={Boolean(busy)}
-                  onClick={() =>
-                    void run('stop', async () => {
-                      if (!(await api.copilot.abort(thread.id)))
-                        throw new Error('This session is no longer running.')
-                    })
-                  }
+                  disabled={stopping}
+                  onClick={() => void stop()}
                 >
-                  {busy === 'stop' ? 'Stopping…' : 'Stop'}
+                  {stopping ? 'Stopping…' : 'Stop'}
                 </Button>
               ) : null}
               <Button
@@ -574,11 +583,15 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         <div className="tm-session-hint">
           {busy === 'attachments'
             ? 'Adding attachments…'
-            : agentMode === 'plan'
-              ? 'Plan mode · Explore and plan before making changes'
-              : agentMode === 'autopilot'
-                ? 'Autopilot · Copilot continues autonomously'
-                : 'Enter to send · Shift + Enter for a new line'}
+            : session?.pendingInteraction
+              ? 'Respond to Copilot’s request above, or stop the response'
+              : running
+                ? `Copilot is working · Your next message will use ${agentMode} mode`
+                : agentMode === 'plan'
+                  ? 'Plan mode · Explore and plan before making changes'
+                  : agentMode === 'autopilot'
+                    ? 'Autopilot · Copilot continues autonomously'
+                    : 'Enter to send · Shift + Enter for a new line'}
         </div>
       </div>
       {dragging ? <div className="tm-session-drop">Drop files to attach</div> : null}

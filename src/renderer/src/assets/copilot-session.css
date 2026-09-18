@@ -408,3 +408,22 @@
     animation: none;
   }
 }
+
+.tm-session-setting {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 6px;
+  background: var(--color-surface);
+  padding-left: 7px;
+}
+.tm-session-setting > span {
+  color: var(--color-fg-subtle);
+  font-size: 10px;
+}
+.tm-session-control-status {
+  color: var(--color-fg-muted);
+  font-size: 11px;
+}
