@@ -59,7 +59,7 @@ type PendingInteraction = {
 type ActiveSession = {
   session: CopilotSession
   snapshot: CopilotSessionSnapshot
-  pending: PendingInteraction | null
+  pending: PendingInteraction[]
   unsubscribe: () => void
 }
 
@@ -188,6 +188,20 @@ function timelineItemFromEvent(event: SessionEvent): CopilotTimelineItem | null 
   }
 }
 
+function mergeTimelineItem(
+  previous: CopilotTimelineItem,
+  next: CopilotTimelineItem
+): CopilotTimelineItem {
+  if (previous.type === 'tool' && next.type === 'tool') {
+    return {
+      ...next,
+      title: next.title === 'Tool' ? previous.title : next.title,
+      detail: next.detail || previous.detail
+    }
+  }
+  return next
+}
+
 function normalizeElicitationSchema(
   context: ElicitationContext
 ): Extract<CopilotInteraction, { kind: 'elicitation' }>['schema'] {
@@ -301,7 +315,7 @@ export function createCopilotSessionService(dependencies: {
     const index = active.snapshot.timeline.findIndex((existing) => existing.id === item.id)
     const timeline = [...active.snapshot.timeline]
     if (index >= 0) {
-      timeline[index] = item
+      timeline[index] = mergeTimelineItem(timeline[index], item)
     } else {
       timeline.push(item)
     }
@@ -313,21 +327,36 @@ export function createCopilotSessionService(dependencies: {
     interaction: CopilotInteraction
   ): Promise<CopilotInteractionResponse> =>
     new Promise((resolve) => {
-      if (active.pending) {
-        active.pending.resolve({
-          threadId: active.snapshot.threadId,
-          interactionId: active.pending.interaction.id,
-          action: 'cancel'
-        })
-      }
-      active.pending = { interaction, resolve }
-      updateSnapshot(active, { pendingInteraction: interaction })
+      active.pending.push({ interaction, resolve })
+      if (active.pending.length === 1) updateSnapshot(active, { pendingInteraction: interaction })
     })
 
   const clearInteraction = (active: ActiveSession, interactionId: string): void => {
-    if (active.pending?.interaction.id !== interactionId) return
-    active.pending = null
+    if (!active.pending.some((pending) => pending.interaction.id === interactionId)) return
+    active.pending = active.pending.filter((pending) => pending.interaction.id !== interactionId)
+    updateSnapshot(active, { pendingInteraction: active.pending[0]?.interaction ?? null })
+  }
+
+  const cancelInteractions = (active: ActiveSession): void => {
+    const pending = active.pending.splice(0)
+    for (const item of pending)
+      item.resolve({
+        threadId: active.snapshot.threadId,
+        interactionId: item.interaction.id,
+        action: 'cancel'
+      })
     updateSnapshot(active, { pendingInteraction: null })
+  }
+
+  const finishActivity = (active: ActiveSession): void => {
+    updateSnapshot(active, {
+      timeline: active.snapshot.timeline.map((item) => {
+        if (item.type === 'tool' && item.status === 'running')
+          return { ...item, status: 'cancelled' }
+        if ('streaming' in item && item.streaming) return { ...item, streaming: false }
+        return item
+      })
+    })
   }
 
   const permissionHandler = (active: ActiveSession) => {
@@ -494,10 +523,24 @@ export function createCopilotSessionService(dependencies: {
           reasoningEffort: (event.data.reasoningEffort as CopilotReasoningEffort | null) ?? null
         })
         break
+      case 'assistant.turn_start':
+        updateSnapshot(active, { phase: 'running', error: null })
+        break
+      case 'session.mode_changed':
+        if (['interactive', 'plan', 'autopilot'].includes(event.data.newMode)) {
+          updateSnapshot(active, {
+            agentMode: event.data.newMode as CopilotSessionSnapshot['agentMode']
+          })
+        }
+        break
       case 'session.idle':
-        updateSnapshot(active, { phase: 'idle' })
+        finishActivity(active)
+        cancelInteractions(active)
+        updateSnapshot(active, { phase: 'idle', error: null })
         break
       case 'session.error':
+        finishActivity(active)
+        cancelInteractions(active)
         updateSnapshot(active, { phase: 'error', error: event.data.message })
         break
     }
@@ -596,7 +639,7 @@ export function createCopilotSessionService(dependencies: {
       const placeholder: ActiveSession = {
         session: null as unknown as CopilotSession,
         snapshot,
-        pending: null,
+        pending: [],
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder)
@@ -617,39 +660,85 @@ export function createCopilotSessionService(dependencies: {
         ...placeholder.snapshot,
         sessionId: session.sessionId,
         models,
-        phase: 'idle'
+        phase: 'connecting'
       }
-      placeholder.unsubscribe = session.on((event) => handleEvent(placeholder, event))
+      const bufferedEvents: SessionEvent[] = []
+      let hydrated = false
+      placeholder.unsubscribe = session.on((event) => {
+        if (hydrated) handleEvent(placeholder, event)
+        else bufferedEvents.push(event)
+      })
       sessions.set(threadId, placeholder)
       dependencies.onSessionStarted(threadId, session.sessionId)
 
-      const [history, currentModel] = await Promise.all([
+      const [history, currentModel, currentMode] = await Promise.all([
         session.getEvents(),
-        session.rpc.model.getCurrent()
+        session.rpc.model.getCurrent(),
+        session.rpc.mode.get()
       ])
       const timeline: CopilotTimelineItem[] = []
       for (const event of history) {
+        if (event.agentId) continue
         const item = timelineItemFromEvent(event)
         if (!item) continue
         const index = timeline.findIndex((existingItem) => existingItem.id === item.id)
         if (index >= 0) {
-          timeline[index] = item
+          timeline[index] = mergeTimelineItem(timeline[index], item)
         } else {
           timeline.push(item)
         }
       }
       placeholder.snapshot = {
         ...placeholder.snapshot,
+        phase: 'idle',
+        agentMode: ['interactive', 'plan', 'autopilot'].includes(currentMode)
+          ? (currentMode as CopilotSessionSnapshot['agentMode'])
+          : 'interactive',
         model: currentModel.modelId ?? null,
         reasoningEffort:
           (currentModel.reasoningEffort as CopilotReasoningEffort | undefined) ?? null,
         timeline
+      }
+      if (operation.cancelled) {
+        cancelInteractions(placeholder)
+        placeholder.unsubscribe()
+        await session.disconnect()
+        sessions.delete(threadId)
+        broadcastSession({ ...placeholder.snapshot, phase: 'disconnected' })
+        return { ok: false, error: 'Copilot session start was cancelled.' }
+      }
+      hydrated = true
+      const historyIds = new Set(history.map((event) => event.id))
+      const completedItems = new Set(
+        timeline
+          .filter(
+            (item) =>
+              item.type === 'assistant' ||
+              item.type === 'reasoning' ||
+              (item.type === 'tool' && item.status !== 'running')
+          )
+          .map((item) => item.id)
+      )
+      for (const event of bufferedEvents) {
+        if (historyIds.has(event.id)) continue
+        // A persisted final message already contains its transient streaming deltas.
+        const streamedItemId =
+          event.type === 'assistant.message_delta'
+            ? `assistant:${event.data.messageId}`
+            : event.type === 'assistant.reasoning_delta'
+              ? `reasoning:${event.data.reasoningId}`
+              : event.type === 'tool.execution_partial_result'
+                ? `tool:${event.data.toolCallId}`
+                : null
+        if (streamedItemId && completedItems.has(streamedItemId)) continue
+        handleEvent(placeholder, event)
       }
       broadcastSession(placeholder.snapshot)
       return { ok: true, snapshot: placeholder.snapshot }
     } catch (error) {
       const active = sessions.get(threadId)
       if (active) {
+        cancelInteractions(active)
         active.unsubscribe()
         await active.session.disconnect().catch(() => undefined)
         sessions.delete(threadId)
@@ -668,10 +757,10 @@ export function createCopilotSessionService(dependencies: {
         error: 'The Copilot SDK is being updated. Try again when the update finishes.'
       })
     }
-    const existing = sessions.get(threadId)
-    if (existing) return Promise.resolve({ ok: true, snapshot: existing.snapshot })
     const starting = startingThreads.get(threadId)
     if (starting) return starting.promise
+    const existing = sessions.get(threadId)
+    if (existing) return Promise.resolve({ ok: true, snapshot: existing.snapshot })
 
     const operation = {
       cancelled: false,
@@ -724,7 +813,10 @@ export function createCopilotSessionService(dependencies: {
         sdkUpdateInProgress = false
       }
     },
-    start,
+    start: async (threadId) => {
+      if (sessions.get(threadId)?.snapshot.phase === 'error') await stopThread(threadId)
+      return start(threadId)
+    },
     getSession: (threadId) => sessions.get(threadId)?.snapshot ?? null,
     send: async (input) => {
       const startResult = await start(input.threadId)
@@ -732,6 +824,15 @@ export function createCopilotSessionService(dependencies: {
       const active = sessions.get(input.threadId)
       if (!active) return { ok: false, error: 'Copilot session did not start.' }
 
+      if (active.snapshot.phase !== 'idle' || active.pending.length) {
+        return {
+          ok: false,
+          error: 'Wait for Copilot to finish or stop the current response.',
+          snapshot: active.snapshot
+        }
+      }
+      if (!input.prompt.trim() && !input.attachments.length)
+        return { ok: false, error: 'Enter a message or attach a file.' }
       updateSnapshot(active, {
         phase: 'running',
         agentMode: input.agentMode,
@@ -759,6 +860,8 @@ export function createCopilotSessionService(dependencies: {
         return { ok: true, snapshot: active.snapshot }
       } catch (error) {
         const message = errorMessage(error)
+        finishActivity(active)
+        cancelInteractions(active)
         updateSnapshot(active, { phase: 'error', error: message })
         return { ok: false, error: message, snapshot: active.snapshot }
       }
@@ -766,7 +869,10 @@ export function createCopilotSessionService(dependencies: {
     abort: async (threadId) => {
       const active = sessions.get(threadId)
       if (!active) return false
+      cancelInteractions(active)
       await active.session.abort()
+      finishActivity(active)
+      updateSnapshot(active, { phase: 'idle', error: null })
       return true
     },
     setModel: async (input: CopilotSetModelInput) => {
@@ -774,6 +880,13 @@ export function createCopilotSessionService(dependencies: {
       if (!startResult.ok) return startResult
       const active = sessions.get(input.threadId)
       if (!active) return { ok: false, error: 'Copilot session did not start.' }
+      if (active.snapshot.phase !== 'idle' || active.pending.length) {
+        return {
+          ok: false,
+          error: 'Wait for Copilot to finish before changing the model.',
+          snapshot: active.snapshot
+        }
+      }
       try {
         await active.session.setModel(input.model, {
           reasoningEffort: input.reasoningEffort ?? undefined,
@@ -790,8 +903,16 @@ export function createCopilotSessionService(dependencies: {
     },
     respond: (input) => {
       const active = sessions.get(input.threadId)
-      if (!active?.pending || active.pending.interaction.id !== input.interactionId) return false
-      active.pending.resolve(input)
+      const pending = active?.pending[0]
+      if (!active || !pending || pending.interaction.id !== input.interactionId) return false
+      if (pending.interaction.kind === 'permission') {
+        if (!['approve-once', 'approve-session', 'reject', 'cancel'].includes(input.action))
+          return false
+        if (input.action === 'approve-session' && !pending.interaction.allowSessionApproval)
+          return false
+      } else if (!['accept', 'decline', 'cancel'].includes(input.action)) return false
+      clearInteraction(active, input.interactionId)
+      pending.resolve(input)
       return true
     },
     pickAttachments: async () => {
@@ -822,11 +943,7 @@ export function createCopilotSessionService(dependencies: {
       }
       await Promise.allSettled([...startingThreads.values()].map((operation) => operation.promise))
       for (const active of sessions.values()) {
-        active.pending?.resolve({
-          threadId: active.snapshot.threadId,
-          interactionId: active.pending.interaction.id,
-          action: 'cancel'
-        })
+        cancelInteractions(active)
         active.unsubscribe()
         await active.session.disconnect()
       }
@@ -846,11 +963,8 @@ export function createCopilotSessionService(dependencies: {
     }
     const active = sessions.get(threadId)
     if (!active) return
-    active.pending?.resolve({
-      threadId,
-      interactionId: active.pending.interaction.id,
-      action: 'cancel'
-    })
+    cancelInteractions(active)
+    finishActivity(active)
     active.unsubscribe()
     await active.session.disconnect()
     sessions.delete(threadId)
