@@ -35,7 +35,7 @@ vi.mock('./thread-worktree-utils', () => ({
 
 function createState(thread: PersistedThread): PersistedAppState {
   return {
-    version: 14,
+    version: 15,
     settings: {
       globalFlagsInput: '',
       terminalFontFamilyInput: '',

@@ -4,7 +4,7 @@ import { createSnapshotService } from './snapshot-service'
 describe('snapshot service', () => {
   it('builds repository, thread, and settings snapshots from dependencies', () => {
     const state = {
-      version: 14 as const,
+      version: 15 as const,
       settings: {
         globalFlagsInput: '--model gpt-5',
         terminalFontFamilyInput: '',
@@ -91,7 +91,7 @@ describe('snapshot service', () => {
 
   it('builds async refreshed snapshots without forcing sync git refreshes', async () => {
     const state = {
-      version: 14 as const,
+      version: 15 as const,
       settings: {
         globalFlagsInput: '',
         terminalFontFamilyInput: '',
@@ -171,7 +171,7 @@ describe('snapshot service', () => {
 
   it('prioritizes startup git refreshes for repositories with recent thread activity', async () => {
     const state = {
-      version: 14 as const,
+      version: 15 as const,
       settings: {
         globalFlagsInput: '',
         terminalFontFamilyInput: '',

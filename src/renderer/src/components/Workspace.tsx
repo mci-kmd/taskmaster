@@ -31,6 +31,11 @@ import { composeThreadTitle } from '../lib/title'
 import { COPILOT_LABEL } from '../../../shared/copilot'
 import { getRendererApi } from '../shared/api/client'
 import { useBranchStatus } from '../shared/hooks/use-branch-status'
+import CopilotThreadView from './CopilotThreadView'
+import {
+  mergeCopilotThreadSessionState,
+  toCopilotThreadSessionState
+} from '../lib/copilot-thread-status'
 
 const api = getRendererApi()
 const LazyThreadDiffView = lazy(() => import('./ThreadDiffView'))
@@ -238,11 +243,14 @@ export default function Workspace({
   const terminalSessionsRef = useRef<TerminalSessionsHandle | null>(null)
   const [agentStatus, setAgentStatus] = useState<TerminalStatus | null>(null)
   const [copilotSessions, setCopilotSessions] = useState<SessionMap>(new Map())
+  const [customCopilotSessions, setCustomCopilotSessions] = useState<SessionMap>(new Map())
   const [terminalSessions, setTerminalSessions] = useState<SessionMap>(new Map())
   const [threadViewSelections, setThreadViewSelections] = useState<
     Map<string, ThreadWorkspaceViewId>
   >(new Map())
   const autoLaunchedRef = useRef<Set<string>>(new Set())
+  const selectedCustomThreadId =
+    selectedThread?.agentInterface === 'custom' ? selectedThread.id : null
   const threadViewOptions = useMemo(() => buildThreadViewOptions(COPILOT_LABEL), [])
   const threadViewControlWidthPx = threadViewOptions.length * 88
   const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
@@ -258,22 +266,52 @@ export default function Workspace({
     }
   }, [selectedRepository?.backend])
 
-  const handleCopilotSessionsChange = useCallback(
-    (next: SessionMap): void => {
-      setCopilotSessions(next)
-      onSessionsChange(next)
-    },
-    [onSessionsChange]
-  )
+  const handleCopilotSessionsChange = useCallback((next: SessionMap): void => {
+    setCopilotSessions(next)
+  }, [])
 
   const handleTerminalSessionsChange = useCallback((next: SessionMap): void => {
     setTerminalSessions(next)
   }, [])
 
+  const handleCustomCopilotSessionChange = useCallback(
+    (threadId: string, state: ThreadSessionState): void => {
+      setCustomCopilotSessions((current) => {
+        const next = new Map(current)
+        next.set(
+          threadId,
+          mergeCopilotThreadSessionState(
+            current.get(threadId),
+            state,
+            selectedCustomThreadId === threadId
+          )
+        )
+        return next
+      })
+    },
+    [selectedCustomThreadId]
+  )
+
+  useEffect(() => {
+    return api.copilot.onSession(({ snapshot }) => {
+      handleCustomCopilotSessionChange(snapshot.threadId, toCopilotThreadSessionState(snapshot))
+    })
+  }, [handleCustomCopilotSessionChange])
+
+  useEffect(() => {
+    const combined = new Map(copilotSessions)
+    for (const [threadId, state] of customCopilotSessions) {
+      combined.set(threadId, state)
+    }
+    onSessionsChange(combined)
+  }, [copilotSessions, customCopilotSessions, onSessionsChange])
+
   const selectedCopilotSession: ThreadSessionState = useMemo(() => {
     if (!selectedThread) return IDLE_STATE
-    return copilotSessions.get(selectedThread.id) ?? IDLE_STATE
-  }, [copilotSessions, selectedThread])
+    return selectedThread.agentInterface === 'custom'
+      ? (customCopilotSessions.get(selectedThread.id) ?? IDLE_STATE)
+      : (copilotSessions.get(selectedThread.id) ?? IDLE_STATE)
+  }, [copilotSessions, customCopilotSessions, selectedThread])
 
   const selectedTerminalSession: ThreadSessionState = useMemo(() => {
     if (!selectedThread) return IDLE_STATE
@@ -320,6 +358,10 @@ export default function Workspace({
   useEffect(() => {
     if (!autoLaunchThreadId) return
     if (!selectedThread || selectedThread.id !== autoLaunchThreadId) return
+    if (selectedThread.agentInterface !== 'cli') {
+      onAutoLaunchHandled()
+      return
+    }
     if (autoLaunchedRef.current.has(autoLaunchThreadId)) {
       onAutoLaunchHandled()
       return
@@ -497,7 +539,9 @@ export default function Workspace({
           }`}
         >
           <div className="flex min-h-0 flex-1 flex-col gap-3">
-            {selectedThread && selectedView === 'copilot' ? (
+            {selectedThread &&
+            selectedView === 'copilot' &&
+            selectedThread.agentInterface === 'cli' ? (
               <section className="shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3">
                 <div className="text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
                   Most recent user message
@@ -519,7 +563,11 @@ export default function Workspace({
                 onRefresh={onRefresh}
                 onSessionsChange={handleCopilotSessionsChange}
                 ref={copilotSessionsRef}
-                selectedThreadId={selectedView === 'copilot' ? (selectedThread?.id ?? null) : null}
+                selectedThreadId={
+                  selectedView === 'copilot' && selectedThread?.agentInterface === 'cli'
+                    ? (selectedThread?.id ?? null)
+                    : null
+                }
                 settings={settings}
                 threads={threads}
               />
@@ -535,12 +583,26 @@ export default function Workspace({
                 threads={threads}
               />
 
-              {selectedThread && selectedView === 'copilot' && !copilotRunning ? (
+              {selectedThread &&
+              selectedView === 'copilot' &&
+              selectedThread.agentInterface === 'cli' &&
+              !copilotRunning ? (
                 <div className="absolute inset-0">
                   <LaunchPanel
                     copilotStatus={activeAgentStatus}
                     onLaunch={handleLaunchCopilot}
                     session={selectedCopilotSession}
+                    thread={selectedThread}
+                  />
+                </div>
+              ) : null}
+
+              {selectedThread &&
+              selectedView === 'copilot' &&
+              selectedThread.agentInterface === 'custom' ? (
+                <div className="absolute inset-0">
+                  <CopilotThreadView
+                    onSessionChange={handleCustomCopilotSessionChange}
                     thread={selectedThread}
                   />
                 </div>

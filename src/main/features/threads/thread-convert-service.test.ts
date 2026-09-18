@@ -59,7 +59,7 @@ function createThread(overrides: Partial<PersistedThread> = {}): PersistedThread
 
 function createState(thread: PersistedThread = createThread()): PersistedAppState {
   return {
-    version: 14,
+    version: 15,
     settings: {
       globalFlagsInput: '',
       terminalFontFamilyInput: '',

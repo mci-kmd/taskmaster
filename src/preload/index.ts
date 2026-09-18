@@ -1,7 +1,12 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   BranchStatusRequest,
+  CopilotInteractionResponse,
+  CopilotSendInput,
+  CopilotSessionEvent,
+  CopilotSdkStatusEvent,
+  CopilotSetModelInput,
   CreateThreadInput,
   CreateRepositoryTaskInput,
   CompleteRepositoryTaskInput,
@@ -164,6 +169,23 @@ const api = {
       onIpc(IPC_CHANNELS.terminal.sessionStart, callback),
     onUserPrompt: (callback: (payload: TerminalUserPromptEvent) => void) =>
       onIpc(IPC_CHANNELS.terminal.userPrompt, callback)
+  },
+  copilot: {
+    getSdkStatus: () => invokeIpc(IPC_CHANNELS.copilot.getSdkStatus),
+    checkForSdkUpdate: () => invokeIpc(IPC_CHANNELS.copilot.checkForSdkUpdate),
+    updateSdk: () => invokeIpc(IPC_CHANNELS.copilot.updateSdk),
+    start: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.start, threadId),
+    getSession: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.getSession, threadId),
+    send: (input: CopilotSendInput) => invokeIpc(IPC_CHANNELS.copilot.send, input),
+    abort: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.abort, threadId),
+    setModel: (input: CopilotSetModelInput) => invokeIpc(IPC_CHANNELS.copilot.setModel, input),
+    respond: (input: CopilotInteractionResponse) => invokeIpc(IPC_CHANNELS.copilot.respond, input),
+    pickAttachments: () => invokeIpc(IPC_CHANNELS.copilot.pickAttachments),
+    getPathForFile: (file: unknown) => webUtils.getPathForFile(file as File),
+    onSession: (callback: (payload: CopilotSessionEvent) => void) =>
+      onIpc(IPC_CHANNELS.copilot.session, callback),
+    onSdkStatus: (callback: (payload: CopilotSdkStatusEvent) => void) =>
+      onIpc(IPC_CHANNELS.copilot.sdkStatus, callback)
   }
 }
 

@@ -17,7 +17,7 @@ import { normalizeRepositoryScript, normalizeRunCommand } from '../repositories/
 import { normalizeTrackedText } from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
-export const STATE_VERSION = 14 as const
+export const STATE_VERSION = 15 as const
 
 function sameRepositoryBackend(
   left: RepositoryBackend,
@@ -33,14 +33,17 @@ function sameRepositoryBackend(
 export function normalizePersistedThread(thread: PersistedThread): PersistedThread {
   const latestCopilotTitle = normalizeCopilotTitle(thread, thread.latestCopilotTitle)
   const lastUserMessage = normalizeTrackedText(thread.lastUserMessage ?? null)
+  const agentInterface = thread.agentInterface === 'custom' ? 'custom' : 'cli'
 
   return latestCopilotTitle === thread.latestCopilotTitle &&
-    lastUserMessage === thread.lastUserMessage
+    lastUserMessage === thread.lastUserMessage &&
+    agentInterface === thread.agentInterface
     ? thread
     : {
         ...thread,
         latestCopilotTitle,
-        lastUserMessage
+        lastUserMessage,
+        agentInterface
       }
 }
 

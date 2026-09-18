@@ -3,6 +3,7 @@ import type {
   AppSnapshot,
   BranchStatusRequest,
   BranchStatusSnapshot,
+  CopilotApi,
   CreateThreadInput,
   CreateRepositoryTaskInput,
   CompleteRepositoryTaskInput,
@@ -85,6 +86,7 @@ declare global {
     electron: ElectronAPI
     api: {
       terminal: TerminalApi
+      copilot: CopilotApi
       appState: AppStateApi
     }
   }

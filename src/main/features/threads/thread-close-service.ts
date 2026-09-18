@@ -230,7 +230,7 @@ export function createThreadCloseService(dependencies: {
   successResult: () => MutationResult
   failureResult: (error: string, cancelled?: boolean) => MutationResult
   stopThreadRunSession: (threadId: string) => boolean
-  killSessionsForThread: (threadId: string) => void
+  killSessionsForThread: (threadId: string) => void | Promise<void>
   showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResult>
 }): {
   closeThread: (threadId: string) => Promise<MutationResult>
@@ -253,13 +253,13 @@ export function createThreadCloseService(dependencies: {
         let closeWarning: string | null = null
         const repositoryPath = getRepositoryExecutionPath(repository)
         let didStopThreadProcesses = false
-        const stopThreadProcesses = (): void => {
+        const stopThreadProcesses = async (): Promise<void> => {
           if (didStopThreadProcesses) {
             return
           }
 
           didStopThreadProcesses = true
-          dependencies.killSessionsForThread(threadId)
+          await dependencies.killSessionsForThread(threadId)
           dependencies.stopThreadRunSession(threadId)
         }
 
@@ -287,7 +287,7 @@ export function createThreadCloseService(dependencies: {
               }
             }
 
-            stopThreadProcesses()
+            await stopThreadProcesses()
             try {
               removeWorktree(thread, repositoryPath, repository.backend, dirty, branchOwned)
               worktreeCleanupCompleted = true
@@ -346,7 +346,7 @@ export function createThreadCloseService(dependencies: {
           }
         }
 
-        stopThreadProcesses()
+        await stopThreadProcesses()
         state.threads = state.threads.filter((item) => item.id !== thread.id)
         if (state.ui.selectedThreadId === thread.id) {
           state.ui.selectedThreadId = null

@@ -17,6 +17,7 @@ import {
   type AppSnapshot,
   type CreateRepositoryTaskInput,
   type RepositorySnapshot,
+  type ThreadAgentInterface,
   type ThreadMode,
   type ThreadSnapshot,
   type UpdateSettingsInput,
@@ -295,6 +296,7 @@ export default function App(): React.JSX.Element {
   const handleCreateThread = useCallback(
     async (input: {
       mode: ThreadMode
+      agentInterface: ThreadAgentInterface
       title?: string
       branchName?: string
       useCurrentBranch?: boolean
@@ -309,6 +311,7 @@ export default function App(): React.JSX.Element {
         const result = await api.appState.createThread({
           repositoryId: selectedRepository.id,
           mode: input.mode,
+          agentInterface: input.agentInterface,
           title: input.title,
           branchName: input.branchName,
           useCurrentBranch: input.useCurrentBranch
@@ -323,7 +326,7 @@ export default function App(): React.JSX.Element {
           setRepositoryViewId(null)
           const newThreadId = result.snapshot.selectedThreadId
           const newThread = findThreadById(result.snapshot, newThreadId)
-          if (newThread && !newThread.hasLaunched) {
+          if (newThread && !newThread.hasLaunched && newThread.agentInterface === 'cli') {
             setAutoLaunchThreadId(newThreadId)
           }
         } else if (!result.cancelled) {

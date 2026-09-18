@@ -1,6 +1,9 @@
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
+export type ThreadAgentInterface = 'cli' | 'custom'
 export type TerminalKind = 'agent' | 'shell'
 export type ProjectTaskTag = string
+export type CopilotReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type CopilotAgentMode = 'interactive' | 'plan' | 'autopilot'
 
 export interface RepositoryBranchOption {
   value: string
@@ -134,6 +137,7 @@ export interface PersistedThread {
   latestCopilotTitle: string | null
   lastUserMessage: string | null
   mode: ThreadMode
+  agentInterface?: ThreadAgentInterface
   branchName: string
   worktreePath: string | null
   ownsBranch?: boolean
@@ -146,7 +150,7 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 14
+  version: 15
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -379,10 +383,184 @@ export type OpenThreadSolutionInVisualStudioResult = OpenThreadLocationResult
 export interface CreateThreadInput {
   repositoryId: string
   mode: ThreadMode
+  agentInterface?: ThreadAgentInterface
   title?: string
   branchName?: string
   /** When true, base the new branch / worktree on the repo's current HEAD instead of its primary branch. */
   useCurrentBranch?: boolean
+}
+
+export interface CopilotModelOption {
+  id: string
+  name: string
+  supportsVision: boolean
+  supportedReasoningEfforts: CopilotReasoningEffort[]
+  defaultReasoningEffort: CopilotReasoningEffort | null
+}
+
+export interface CopilotAttachment {
+  id: string
+  type: 'file' | 'blob'
+  displayName: string
+  path?: string
+  data?: string
+  mimeType?: string
+}
+
+export type CopilotTimelineItem =
+  | {
+      id: string
+      type: 'user' | 'assistant' | 'reasoning'
+      content: string
+      timestamp: string
+      streaming?: boolean
+      model?: string
+      attachments?: string[]
+    }
+  | {
+      id: string
+      type: 'tool'
+      title: string
+      detail: string
+      timestamp: string
+      status: 'running' | 'complete' | 'failed'
+    }
+  | {
+      id: string
+      type: 'notice'
+      content: string
+      timestamp: string
+      tone: 'info' | 'warning' | 'error'
+    }
+
+export type CopilotInteraction =
+  | {
+      id: string
+      kind: 'permission'
+      title: string
+      description: string
+      allowSessionApproval: boolean
+    }
+  | {
+      id: string
+      kind: 'user-input'
+      title: string
+      description: string
+      choices: string[]
+      allowFreeform: boolean
+    }
+  | {
+      id: string
+      kind: 'elicitation'
+      title: string
+      description: string
+      mode: 'form' | 'url'
+      url?: string
+      schema?: {
+        properties: Record<
+          string,
+          {
+            type: 'string' | 'number' | 'integer' | 'boolean' | 'array'
+            title?: string
+            description?: string
+            default?: string | number | boolean | string[]
+            options?: string[]
+          }
+        >
+        required: string[]
+      }
+    }
+
+export interface CopilotSessionSnapshot {
+  threadId: string
+  sessionId: string | null
+  title: string | null
+  phase: 'disconnected' | 'connecting' | 'idle' | 'running' | 'error'
+  model: string | null
+  reasoningEffort: CopilotReasoningEffort | null
+  agentMode: CopilotAgentMode
+  models: CopilotModelOption[]
+  timeline: CopilotTimelineItem[]
+  pendingInteraction: CopilotInteraction | null
+  error: string | null
+}
+
+export interface CopilotSdkStatus {
+  bundledVersion: string
+  installedVersion: string
+  latestVersion: string | null
+  source: 'bundled' | 'managed'
+  updateAvailable: boolean
+  updateState: 'idle' | 'checking' | 'installing' | 'error'
+  updateError: string | null
+  authenticated: boolean | null
+  authLabel: string | null
+  runtimeVersion: string | null
+  blockingThreads: CopilotSdkUpdateBlocker[]
+}
+
+export interface CopilotSdkUpdateBlocker {
+  threadId: string
+  title: string
+}
+
+export interface CopilotStartResult {
+  ok: boolean
+  snapshot?: CopilotSessionSnapshot
+  error?: string
+}
+
+export interface CopilotSendInput {
+  threadId: string
+  prompt: string
+  attachments: CopilotAttachment[]
+  agentMode: CopilotAgentMode
+}
+
+export interface CopilotSetModelInput {
+  threadId: string
+  model: string
+  reasoningEffort: CopilotReasoningEffort | null
+}
+
+export interface CopilotInteractionResponse {
+  threadId: string
+  interactionId: string
+  action: 'approve-once' | 'approve-session' | 'reject' | 'accept' | 'decline' | 'cancel'
+  value?: string
+  values?: Record<string, string | number | boolean | string[]>
+  wasFreeform?: boolean
+}
+
+export interface CopilotPickAttachmentsResult {
+  ok: boolean
+  attachments?: CopilotAttachment[]
+  cancelled?: boolean
+  error?: string
+}
+
+export interface CopilotSessionEvent {
+  snapshot: CopilotSessionSnapshot
+}
+
+export interface CopilotSdkStatusEvent {
+  status: CopilotSdkStatus
+}
+
+export interface CopilotApi {
+  getSdkStatus: () => Promise<CopilotSdkStatus>
+  checkForSdkUpdate: () => Promise<CopilotSdkStatus>
+  updateSdk: () => Promise<CopilotSdkStatus>
+  start: (threadId: string) => Promise<CopilotStartResult>
+  getSession: (threadId: string) => Promise<CopilotSessionSnapshot | null>
+  send: (input: CopilotSendInput) => Promise<CopilotStartResult>
+  abort: (threadId: string) => Promise<boolean>
+  setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
+  respond: (input: CopilotInteractionResponse) => Promise<boolean>
+  pickAttachments: () => Promise<CopilotPickAttachmentsResult>
+  getPathForFile: (file: unknown) => string
+  onSession: (callback: (payload: CopilotSessionEvent) => void) => () => void
+  onSdkStatus: (callback: (payload: CopilotSdkStatusEvent) => void) => () => void
 }
 
 export interface UpdateSettingsInput {

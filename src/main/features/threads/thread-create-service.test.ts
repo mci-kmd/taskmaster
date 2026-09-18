@@ -51,7 +51,7 @@ vi.mock('./thread-worktree-utils', () => ({
 
 function createState(): PersistedAppState {
   return {
-    version: 14,
+    version: 15,
     settings: {
       globalFlagsInput: '',
       terminalFontFamilyInput: '',
@@ -140,6 +140,7 @@ describe('createThreadCreateService', () => {
     const result = harness.createThread({
       repositoryId: 'repo-1',
       mode: 'active-branch',
+      agentInterface: 'cli',
       title: 'Thread'
     })
 
@@ -154,6 +155,19 @@ describe('createThreadCreateService', () => {
     })
     expect(harness.saveState).toHaveBeenCalledOnce()
     expect(harness.updateSelection).toHaveBeenCalledWith('repo-1', 'thread-1')
+  })
+
+  it('persists the custom Copilot interface choice', () => {
+    const harness = createHarness()
+
+    const result = harness.createThread({
+      repositoryId: 'repo-1',
+      mode: 'active-branch',
+      agentInterface: 'custom'
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(harness.state.threads[0]?.agentInterface).toBe('custom')
   })
 
   it('checks out an existing branch instead of creating a new one', () => {

@@ -6,8 +6,19 @@ import iconPng from '../../resources/icon.png?asset'
 import { isDevMode } from '../shared/runtime-mode'
 import { resolveDevUserDataPath } from './dev-user-data-path'
 import { registerTerminalIpc } from './terminal'
-import { initializeAppState, markThreadLaunched, registerAppStateIpc } from './app-state'
+import {
+  initializeAppState,
+  markCopilotSessionStarted,
+  markThreadLaunched,
+  registerAppStateIpc,
+  resolveCopilotThread,
+  setCopilotThreadController,
+  updateCopilotLastUserMessage,
+  updateCopilotThreadTitle
+} from './app-state'
 import { registerNativeMenuIpc } from './native-menu'
+import { createCopilotSessionService } from './copilot/copilot-session-service'
+import { registerCopilotIpc } from './copilot/copilot-ipc'
 
 const devUserDataPath = resolveDevUserDataPath(app.getPath('appData'), isDevMode)
 if (devUserDataPath) {
@@ -56,6 +67,26 @@ app.whenReady().then(() => {
   registerNativeMenuIpc()
   registerTerminalIpc({
     onThreadStart: markThreadLaunched
+  })
+  const copilotSessionService = createCopilotSessionService({
+    resolveThread: resolveCopilotThread,
+    onSessionStarted: markCopilotSessionStarted,
+    onTitleChanged: updateCopilotThreadTitle,
+    onUserMessage: updateCopilotLastUserMessage
+  })
+  setCopilotThreadController({
+    stop: copilotSessionService.stopThread,
+    has: copilotSessionService.hasSession
+  })
+  registerCopilotIpc(copilotSessionService)
+  let copilotShutdownComplete = false
+  app.on('before-quit', (event) => {
+    if (copilotShutdownComplete) return
+    event.preventDefault()
+    void copilotSessionService.shutdown().finally(() => {
+      copilotShutdownComplete = true
+      app.quit()
+    })
   })
 
   app.on('browser-window-created', (_, window) => {

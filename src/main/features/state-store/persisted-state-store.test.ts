@@ -9,7 +9,7 @@ const tempDirs: string[] = []
 
 function createState(): PersistedAppState {
   return {
-    version: 14,
+    version: 15,
     settings: {
       globalFlagsInput: '',
       terminalFontFamilyInput: '',

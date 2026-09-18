@@ -24,8 +24,19 @@ import { composeThreadTitle } from '../lib/title'
 import { useNow } from '../lib/useNow'
 import { getRendererApi } from '../shared/api/client'
 import { isDevMode } from '../../../shared/runtime-mode'
+import type { CopilotThreadStatus } from './ThreadTerminal'
 
 const api = getRendererApi()
+
+const CUSTOM_THREAD_STATUS: Record<CopilotThreadStatus, { label: string; className: string }> = {
+  idle: { label: 'idle', className: 'text-[var(--color-fg-faint)]' },
+  working: { label: 'working', className: 'text-[var(--color-info)]' },
+  input: { label: 'input', className: 'text-[#c4a7ff]' },
+  done: { label: 'done', className: 'text-[var(--color-fg)]' },
+  connecting: { label: 'connecting', className: 'text-[var(--color-warning)]' },
+  error: { label: 'error', className: 'text-[var(--color-danger)]' },
+  disconnected: { label: 'disconnected', className: 'text-[var(--color-fg-faint)]' }
+}
 
 type SidebarProps = {
   snapshot: AppSnapshot
@@ -287,9 +298,13 @@ export default function Sidebar({
                       const session = sessions.get(thread.id)
                       const composedTitle = composeThreadTitle(thread, session?.runtimeTitle)
                       const phase = session?.phase
-                      const isLaunching = phase === 'launching'
-                      const isRunning = thread.isRunning || phase === 'running'
+                      const isCustom = thread.agentInterface === 'custom'
+                      const isLaunching = !isCustom && phase === 'launching'
+                      const isRunning = !isCustom && (thread.isRunning || phase === 'running')
                       const threadModeTooltip = getThreadModeTooltip(thread)
+                      const customStatus = isCustom
+                        ? CUSTOM_THREAD_STATUS[session?.copilotStatus ?? 'idle']
+                        : null
 
                       return (
                         <li key={thread.id}>
@@ -313,7 +328,13 @@ export default function Sidebar({
                             }}
                             onClick={() => onSelectThread(thread.id)}
                             title={`${composedTitle} · ${thread.displayBranchName}${
-                              isRunning ? ' · running' : isLaunching ? ' · launching' : ''
+                              customStatus
+                                ? ` · ${customStatus.label}`
+                                : isRunning
+                                  ? ' · running'
+                                  : isLaunching
+                                    ? ' · launching'
+                                    : ''
                             }\n${thread.cwd}`}
                             type="button"
                           >
@@ -353,6 +374,13 @@ export default function Sidebar({
                                 <span className="text-[var(--color-fg-faint)]">·</span>
                                 <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
                               </span>
+                              {customStatus ? (
+                                <span
+                                  className={`mt-0.5 block text-[10.5px] font-medium ${customStatus.className}`}
+                                >
+                                  {customStatus.label}
+                                </span>
+                              ) : null}
                             </span>
                           </button>
                         </li>

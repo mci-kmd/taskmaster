@@ -4,10 +4,15 @@ import Button from '../ui/Button'
 import Checkbox from '../ui/Checkbox'
 import { Field, TextInput } from '../ui/Field'
 import SegmentedControl from '../ui/SegmentedControl'
-import type { RepositorySnapshot, ThreadMode } from '../../../../shared/app-types'
+import type {
+  RepositorySnapshot,
+  ThreadAgentInterface,
+  ThreadMode
+} from '../../../../shared/app-types'
 
 type SubmitInput = {
   mode: ThreadMode
+  agentInterface: ThreadAgentInterface
   title?: string
   branchName?: string
   useCurrentBranch?: boolean
@@ -89,6 +94,7 @@ function NewThreadForm({
   onSubmit
 }: NewThreadFormProps): React.JSX.Element {
   const [mode, setMode] = useState<DialogMode>('branch')
+  const [agentInterface, setAgentInterface] = useState<ThreadAgentInterface>('cli')
   const [title, setTitle] = useState('')
   const [branchName, setBranchName] = useState('')
   const [useCurrentBranch, setUseCurrentBranch] = useState(false)
@@ -111,6 +117,7 @@ function NewThreadForm({
       trimmedBranchName || (mode === 'branch' ? repository.primaryBranch : undefined)
     await onSubmit({
       mode: mode === 'worktree' ? 'worktree' : 'active-branch',
+      agentInterface,
       title: title.trim() || undefined,
       branchName: submittedBranchName || undefined,
       useCurrentBranch: showBaseField ? effectiveUseCurrent : undefined
@@ -156,6 +163,33 @@ function NewThreadForm({
             }
           ]}
           value={mode}
+        />
+      </Field>
+
+      <Field
+        hint={
+          agentInterface === 'custom'
+            ? 'Uses the Copilot SDK with Taskmaster-owned chat, prompts, and model controls.'
+            : 'Uses the existing Copilot terminal interface.'
+        }
+        label="Copilot interface"
+      >
+        <SegmentedControl<ThreadAgentInterface>
+          ariaLabel="Copilot interface"
+          onChange={setAgentInterface}
+          options={[
+            {
+              value: 'cli',
+              label: 'CLI',
+              description: 'Current terminal experience'
+            },
+            {
+              value: 'custom',
+              label: 'Custom UI',
+              description: 'SDK-powered preview'
+            }
+          ]}
+          value={agentInterface}
         />
       </Field>
 

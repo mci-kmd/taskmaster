@@ -99,6 +99,8 @@ const findRepository = (
 const nowIso = (): string => new Date().toISOString()
 
 let threadRunServiceRef: ReturnType<typeof createThreadRunService> | null = null
+let stopCopilotThread: (threadId: string) => Promise<void> = async () => undefined
+let hasCopilotSession: (threadId: string) => boolean = () => false
 
 const snapshotService = createSnapshotService({
   ensureState,
@@ -217,7 +219,9 @@ const threadConvertService = createThreadConvertService({
   successResult,
   failureResult,
   hasRunningProcesses: (threadId) =>
-    hasSessionsForThread(threadId) || threadRunService.getRunningThreadIds().has(threadId),
+    hasSessionsForThread(threadId) ||
+    hasCopilotSession(threadId) ||
+    threadRunService.getRunningThreadIds().has(threadId),
   refreshRepositoryGitState: (repository) => {
     repositoryGitStateService.getRepositoryGitState(repository, true)
   }
@@ -228,7 +232,10 @@ const threadCloseService = createThreadCloseService({
   successResult,
   failureResult,
   stopThreadRunSession: threadRunService.stopThreadRunSession,
-  killSessionsForThread,
+  killSessionsForThread: async (threadId) => {
+    killSessionsForThread(threadId)
+    await stopCopilotThread(threadId)
+  },
   showMessageBox: electronUi.showMessageBox
 })
 const branchStatusService = createBranchStatusService({
@@ -302,4 +309,43 @@ export function registerAppStateIpc(): void {
 
 export function markThreadLaunched(threadId: string): void {
   threadStateService.markThreadLaunched(threadId)
+}
+
+export function setCopilotThreadController(controller: {
+  stop: (threadId: string) => Promise<void>
+  has: (threadId: string) => boolean
+}): void {
+  stopCopilotThread = controller.stop
+  hasCopilotSession = controller.has
+}
+
+export function resolveCopilotThread(threadId: string): {
+  thread: NonNullable<ReturnType<typeof findThread>>
+  cwd: string
+} | null {
+  const thread = findThread(threadId)
+  if (!thread) return null
+  const repository = findRepository(thread.repositoryId)
+  if (!repository) return null
+  return {
+    thread,
+    cwd: getThreadExecutionCwd(thread, repository)
+  }
+}
+
+export function markCopilotSessionStarted(threadId: string, sessionId: string): void {
+  const thread = findThread(threadId)
+  threadStateService.updateThreadResumeSession({
+    threadId,
+    sessionId,
+    source: thread?.resumeSessionId ? 'resume' : 'new'
+  })
+}
+
+export function updateCopilotThreadTitle(threadId: string, title: string): void {
+  threadStateService.updateThreadCopilotTitle({ threadId, title })
+}
+
+export function updateCopilotLastUserMessage(threadId: string, message: string): void {
+  threadStateService.updateThreadLastUserMessage({ threadId, message })
 }

@@ -2,6 +2,42 @@ import { describe, expect, it } from 'vitest'
 import { migrateAppState } from './app-state-migrations'
 
 describe('app state migrations', () => {
+  it('defaults version 14 threads to the CLI interface', () => {
+    const migrated = migrateAppState({
+      version: 14,
+      settings: {
+        globalFlagsInput: '',
+        terminalFontFamilyInput: '',
+        taskTagsInput: 'bug'
+      },
+      repositories: [],
+      threads: [
+        {
+          id: 'thread-1',
+          repositoryId: 'repo-1',
+          customTitle: null,
+          latestCopilotTitle: null,
+          lastUserMessage: null,
+          mode: 'active-branch',
+          branchName: 'main',
+          worktreePath: null,
+          sessionName: 'session-1',
+          resumeSessionId: null,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastActivityAt: '2026-01-01T00:00:00.000Z',
+          hasLaunched: false
+        }
+      ],
+      ui: {
+        selectedRepositoryId: null,
+        selectedThreadId: null
+      }
+    })
+
+    expect(migrated.version).toBe(15)
+    expect(migrated.threads[0]?.agentInterface).toBe('cli')
+  })
+
   it('drops obsolete settings and converts legacy repository paths in version 13 state', () => {
     const migrated = migrateAppState({
       version: 13,
@@ -54,7 +90,8 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(14)
+    expect(migrated.version).toBe(15)
+    expect(migrated.threads[0]?.agentInterface).toBe('cli')
     expect(migrated.settings).not.toHaveProperty('obsoleteProvider')
     expect(migrated.repositories[0]?.backend).toEqual({ kind: 'native' })
     expect(migrated.threads[0]?.worktreePath).toBe(
@@ -91,7 +128,7 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(14)
+    expect(migrated.version).toBe(15)
     expect(migrated.repositories[0]?.solutionFilePath).toBeNull()
   })
 })

@@ -2,6 +2,15 @@ import type {
   AppSnapshot,
   BranchStatusRequest,
   BranchStatusSnapshot,
+  CopilotInteractionResponse,
+  CopilotPickAttachmentsResult,
+  CopilotSdkStatus,
+  CopilotSdkStatusEvent,
+  CopilotSendInput,
+  CopilotSessionEvent,
+  CopilotSessionSnapshot,
+  CopilotSetModelInput,
+  CopilotStartResult,
   CompleteRepositoryTaskInput,
   CreateRepositoryTaskInput,
   CreateThreadInput,
@@ -92,6 +101,20 @@ export const IPC_CHANNELS = {
     exit: 'terminal:exit',
     sessionStart: 'terminal:session-start',
     userPrompt: 'terminal:user-prompt'
+  },
+  copilot: {
+    getSdkStatus: 'copilot:get-sdk-status',
+    checkForSdkUpdate: 'copilot:check-for-sdk-update',
+    updateSdk: 'copilot:update-sdk',
+    start: 'copilot:start',
+    getSession: 'copilot:get-session',
+    send: 'copilot:send',
+    abort: 'copilot:abort',
+    setModel: 'copilot:set-model',
+    respond: 'copilot:respond',
+    pickAttachments: 'copilot:pick-attachments',
+    session: 'copilot:session',
+    sdkStatus: 'copilot:sdk-status'
   }
 } as const
 
@@ -190,6 +213,16 @@ export type IpcInvokeDefinitions = {
   'terminal:kill': { request: [string]; response: boolean }
   'terminal:has-clipboard-image': { request: []; response: boolean }
   'terminal:read-clipboard-text': { request: []; response: string }
+  'copilot:get-sdk-status': { request: []; response: CopilotSdkStatus }
+  'copilot:check-for-sdk-update': { request: []; response: CopilotSdkStatus }
+  'copilot:update-sdk': { request: []; response: CopilotSdkStatus }
+  'copilot:start': { request: [string]; response: CopilotStartResult }
+  'copilot:get-session': { request: [string]; response: CopilotSessionSnapshot | null }
+  'copilot:send': { request: [CopilotSendInput]; response: CopilotStartResult }
+  'copilot:abort': { request: [string]; response: boolean }
+  'copilot:set-model': { request: [CopilotSetModelInput]; response: CopilotStartResult }
+  'copilot:respond': { request: [CopilotInteractionResponse]; response: boolean }
+  'copilot:pick-attachments': { request: []; response: CopilotPickAttachmentsResult }
 }
 
 export type IpcSendDefinitions = {
@@ -204,6 +237,8 @@ export type IpcEventDefinitions = {
   'terminal:exit': { payload: TerminalExitEvent }
   'terminal:session-start': { payload: TerminalSessionStartEvent }
   'terminal:user-prompt': { payload: TerminalUserPromptEvent }
+  'copilot:session': { payload: CopilotSessionEvent }
+  'copilot:sdk-status': { payload: CopilotSdkStatusEvent }
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeDefinitions

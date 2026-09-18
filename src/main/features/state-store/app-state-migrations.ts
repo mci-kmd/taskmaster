@@ -20,6 +20,7 @@ type LegacyThreadV2 = Omit<
 >
 type LegacyThreadV4 = Omit<PersistedThread, 'lastUserMessage' | 'resumeSessionId'>
 type LegacyThreadV5 = Omit<PersistedThread, 'lastUserMessage'>
+type LegacyThreadV14 = Omit<PersistedThread, 'agentInterface'>
 type LegacySettingsWithProvider = PersistedSettings & Record<string, unknown>
 type LegacyRepositoryBackend =
   | PersistedRepository['backend']
@@ -67,6 +68,10 @@ type LegacyAppStateV13 = Omit<PersistedAppState, 'version' | 'settings' | 'repos
   version: 13
   settings: LegacySettingsWithProvider
   repositories: LegacyRepositoryV13[]
+}
+type LegacyAppStateV14 = Omit<PersistedAppState, 'version' | 'threads'> & {
+  version: 14
+  threads: LegacyThreadV14[]
 }
 type LegacyAppStateV11 = Omit<PersistedAppState, 'version' | 'repositories'> & {
   version: 11
@@ -122,6 +127,7 @@ type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
 
 type MigratedInput =
   | PersistedAppState
+  | LegacyAppStateV14
   | LegacyAppStateV13
   | LegacyAppStateV12
   | LegacyAppStateV11
@@ -200,6 +206,17 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
   const state = parsed as MigratedInput
   if (state.version === STATE_VERSION) {
     return normalizePersistedState(state)
+  }
+
+  if (state.version === 14) {
+    return normalizePersistedState({
+      ...state,
+      version: STATE_VERSION,
+      threads: state.threads.map((thread) => ({
+        ...thread,
+        agentInterface: 'cli'
+      }))
+    })
   }
 
   if (state.version === 13) {

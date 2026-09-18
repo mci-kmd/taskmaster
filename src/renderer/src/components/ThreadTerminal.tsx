@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { Terminal } from '@xterm/xterm'
 import type {
   AppSettingsSnapshot,
+  CopilotSessionSnapshot,
   TerminalKind,
   TerminalStatus,
   ThreadSnapshot
@@ -19,6 +20,8 @@ import { getRendererApi } from '../shared/api/client'
 const api = getRendererApi()
 
 export type SessionPhase = 'initializing' | 'idle' | 'launching' | 'running' | 'stopped' | 'error'
+export type CopilotThreadStatus =
+  'idle' | 'working' | 'input' | 'done' | 'connecting' | 'error' | 'disconnected'
 
 export type ThreadSessionState = {
   phase: SessionPhase
@@ -26,6 +29,8 @@ export type ThreadSessionState = {
   errorMessage: string | null
   runtimeTitle: string | null
   lastUserMessage: string | null
+  copilotStatus?: CopilotThreadStatus
+  copilotPhase?: CopilotSessionSnapshot['phase']
 }
 
 export type ThreadTerminalHandle = {

@@ -3,6 +3,7 @@ import type {
   MutationResult,
   PersistedAppState,
   PersistedThread,
+  ThreadAgentInterface,
   ThreadMode
 } from '../../../shared/app-types'
 import { runGit } from '../../backends/git-client'
@@ -31,6 +32,7 @@ function createThreadRecord(
   },
   repositoryId: string,
   mode: ThreadMode,
+  agentInterface: ThreadAgentInterface,
   branchName: string,
   customTitle: string | null,
   worktreePath: string | null,
@@ -48,6 +50,7 @@ function createThreadRecord(
     latestCopilotTitle: null,
     lastUserMessage: null,
     mode,
+    agentInterface,
     branchName,
     worktreePath,
     ownsBranch: ownership.ownsBranch,
@@ -80,6 +83,7 @@ export function createThreadCreateService(dependencies: {
       }
 
       const customTitle = normalizeCustomTitle(input.title)
+      const agentInterface = input.agentInterface ?? 'cli'
       const repositoryPath = getRepositoryExecutionPath(repository)
 
       if (input.mode === 'worktree') {
@@ -96,6 +100,7 @@ export function createThreadCreateService(dependencies: {
             dependencies,
             repository.id,
             'worktree',
+            agentInterface,
             existingWorktree.branchName,
             customTitle,
             existingWorktree.path,
@@ -202,6 +207,7 @@ export function createThreadCreateService(dependencies: {
           dependencies,
           repository.id,
           'worktree',
+          agentInterface,
           branchName,
           customTitle,
           worktreePath,
@@ -225,6 +231,7 @@ export function createThreadCreateService(dependencies: {
           dependencies,
           repository.id,
           'active-branch',
+          agentInterface,
           currentBranchLabel,
           customTitle,
           null,
@@ -274,6 +281,7 @@ export function createThreadCreateService(dependencies: {
           dependencies,
           repository.id,
           'active-branch',
+          agentInterface,
           targetBranchName,
           customTitle,
           null,
@@ -313,6 +321,7 @@ export function createThreadCreateService(dependencies: {
         dependencies,
         repository.id,
         'new-branch',
+        agentInterface,
         requestedBranchName,
         customTitle,
         null,
