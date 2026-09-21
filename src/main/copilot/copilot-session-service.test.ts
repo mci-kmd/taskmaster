@@ -1,9 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionConfig, SessionEvent } from '@github/copilot-sdk'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type {
+  CopilotClientOptions,
+  PermissionRequest,
+  SessionConfig,
+  SessionEvent
+} from '@github/copilot-sdk'
 import type { PersistedThread } from '../../shared/app-types'
 import { createCopilotSessionService } from './copilot-session-service'
 
 const harness = vi.hoisted(() => ({
+  clientOptions: null as CopilotClientOptions | null,
+  clientCount: 0,
   config: null as SessionConfig | null,
   listener: null as ((event: SessionEvent) => void) | null,
   getEvents: vi.fn(),
@@ -14,6 +21,8 @@ const harness = vi.hoisted(() => ({
   getCurrentModel: vi.fn(),
   listModels: vi.fn(),
   createSession: vi.fn(),
+  ping: vi.fn(),
+  forceStop: vi.fn(),
   broadcast: vi.fn(),
   unsubscribe: vi.fn()
 }))
@@ -28,10 +37,17 @@ vi.mock('./copilot-sdk-manager', () => ({
     setRuntimeStatus = vi.fn()
     loadSdk = async (): Promise<unknown> => ({
       version: 'test',
+      runtimePath: 'C:\\runtime\\copilot-runtime.exe',
       module: {
         CopilotClient: class {
+          constructor(options: CopilotClientOptions) {
+            harness.clientOptions = options
+            harness.clientCount += 1
+          }
           start = vi.fn()
           stop = vi.fn()
+          forceStop = harness.forceStop
+          ping = harness.ping
           getAuthStatus = async (): Promise<unknown> => ({ isAuthenticated: true })
           getStatus = async (): Promise<unknown> => ({ version: 'test' })
           listModels = harness.listModels
@@ -55,7 +71,7 @@ function event(type: string, data: unknown, extra = {}): SessionEvent {
 function emit(type: string, data: unknown): void {
   harness.listener!(event(type, data))
 }
-function setup(): ReturnType<typeof createCopilotSessionService> {
+function setup(globalFlags: string[] = []): ReturnType<typeof createCopilotSessionService> {
   return createCopilotSessionService({
     resolveThread: (id) => ({
       thread: {
@@ -64,7 +80,8 @@ function setup(): ReturnType<typeof createCopilotSessionService> {
         resumeSessionId: null,
         latestCopilotTitle: null
       } as PersistedThread,
-      cwd: '/project'
+      cwd: '/project',
+      globalFlags
     }),
     onSessionStarted: vi.fn(),
     onTitleChanged: vi.fn(),
@@ -81,11 +98,29 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   }
 }
 
+function shellPermissionRequest(managedApprovalRequired = false): PermissionRequest {
+  return {
+    kind: 'shell',
+    intention: 'Check status',
+    fullCommandText: 'git status',
+    canOfferSessionApproval: true,
+    commands: [{ identifier: 'git', readOnly: true }],
+    hasWriteFileRedirection: false,
+    possiblePaths: [],
+    possibleUrls: [],
+    managedApprovalRequired
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  harness.clientOptions = null
+  harness.clientCount = 0
   harness.getEvents.mockResolvedValue([])
   harness.getCurrentModel.mockResolvedValue({ modelId: 'model' })
   harness.listModels.mockResolvedValue([])
+  harness.ping.mockResolvedValue({ message: 'pong', timestamp: '' })
+  harness.forceStop.mockResolvedValue(undefined)
   harness.setModel.mockResolvedValue(undefined)
   harness.send.mockResolvedValue('message-id')
   harness.abort.mockResolvedValue(undefined)
@@ -111,7 +146,83 @@ beforeEach(() => {
   })
 })
 
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe('Copilot session interactions', () => {
+  it('removes inherited Copilot CLI Git prompt restrictions from the runtime', async () => {
+    vi.stubEnv('COPILOT_CLI', '1')
+    vi.stubEnv('COPILOT_AGENT_SESSION_ID', 'parent-session')
+    vi.stubEnv('GCM_INTERACTIVE', 'Never')
+    vi.stubEnv('GIT_TERMINAL_PROMPT', '0')
+    vi.stubEnv('GIT_ASKPASS', '')
+    vi.stubEnv('GIT_CONFIG_COUNT', '1')
+    vi.stubEnv('GIT_CONFIG_KEY_0', 'credential.interactive')
+    vi.stubEnv('GIT_CONFIG_VALUE_0', 'never')
+
+    const service = setup()
+    await service.start('thread')
+
+    const env = harness.clientOptions?.env
+    expect(env).toBeDefined()
+    for (const key of [
+      'COPILOT_CLI',
+      'COPILOT_AGENT_SESSION_ID',
+      'GCM_INTERACTIVE',
+      'GIT_TERMINAL_PROMPT',
+      'GIT_ASKPASS',
+      'GIT_CONFIG_COUNT',
+      'GIT_CONFIG_KEY_0',
+      'GIT_CONFIG_VALUE_0'
+    ]) {
+      expect(env).not.toHaveProperty(key)
+    }
+    expect(env?.COPILOT_CLI_PATH).toBe('C:\\runtime\\copilot-runtime.exe')
+  })
+
+  it('replaces a dead SDK client when reconnecting after startup fails', async () => {
+    harness.createSession.mockRejectedValueOnce(
+      new Error('fatal: Cannot prompt because user interactivity has been disabled.')
+    )
+    const service = setup()
+    expect((await service.start('thread')).ok).toBe(false)
+
+    harness.ping.mockRejectedValueOnce(new Error('Cannot call write after a stream was destroyed'))
+    const result = await service.start('thread')
+
+    expect(result.snapshot?.phase).toBe('idle')
+    expect(harness.clientCount).toBe(2)
+    expect(harness.forceStop).toHaveBeenCalledTimes(1)
+  })
+
+  it('honors --yolo while preserving managed-policy approval prompts', async () => {
+    const service = setup(['--yolo'])
+    await service.start('thread')
+
+    await expect(
+      harness.config!.onPermissionRequest!(shellPermissionRequest(), {
+        sessionId: 'session-id'
+      })
+    ).resolves.toEqual({ kind: 'approve-once' })
+    expect(service.getSession('thread')!.pendingInteraction).toBeNull()
+
+    const managedApproval = harness.config!.onPermissionRequest!(shellPermissionRequest(true), {
+      sessionId: 'session-id',
+      managedSettingsEnabled: true
+    })
+    const interaction = service.getSession('thread')!.pendingInteraction!
+    service.respond({
+      threadId: 'thread',
+      interactionId: interaction.id,
+      action: 'approve-once'
+    })
+    await expect(managedApproval).resolves.toEqual({
+      kind: 'approve-once',
+      approvedInteractively: true
+    })
+  })
+
   it('queues concurrent approvals, rejects duplicate responses, and preserves later requests', async () => {
     const service = setup()
     await service.start('thread')
@@ -200,9 +311,13 @@ describe('Copilot session interactions', () => {
     const service = setup()
     await service.start('thread')
     emit('session.error', { message: 'Connection lost' })
+    harness.disconnect.mockRejectedValueOnce(
+      new Error('Cannot call write after a stream was destroyed')
+    )
     const result = await service.start('thread')
     expect(harness.disconnect).toHaveBeenCalledTimes(1)
     expect(harness.createSession).toHaveBeenCalledTimes(2)
+    expect(harness.forceStop).toHaveBeenCalledTimes(1)
     expect(result.snapshot?.phase).toBe('idle')
   })
 })

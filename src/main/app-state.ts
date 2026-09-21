@@ -322,6 +322,7 @@ export function setCopilotThreadController(controller: {
 export function resolveCopilotThread(threadId: string): {
   thread: NonNullable<ReturnType<typeof findThread>>
   cwd: string
+  globalFlags: string[]
 } | null {
   const thread = findThread(threadId)
   if (!thread) return null
@@ -329,7 +330,8 @@ export function resolveCopilotThread(threadId: string): {
   if (!repository) return null
   return {
     thread,
-    cwd: getThreadExecutionCwd(thread, repository)
+    cwd: getThreadExecutionCwd(thread, repository),
+    globalFlags: parseGlobalFlags(ensureState().settings.globalFlagsInput)
   }
 }
 

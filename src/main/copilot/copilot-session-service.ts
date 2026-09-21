@@ -38,6 +38,7 @@ import { collectCopilotSdkUpdateBlockers } from './copilot-update-guard'
 type ThreadContext = {
   thread: PersistedThread
   cwd: string
+  globalFlags: string[]
 }
 
 type UserInputRequest = {
@@ -71,6 +72,31 @@ type StartOperation = {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function buildCopilotRuntimeEnv(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env = { ...environment }
+  if (env.COPILOT_CLI !== '1') return env
+
+  for (const key of Object.keys(env)) {
+    if (
+      key === 'COPILOT_CLI' ||
+      key === 'COPILOT_AGENT_SESSION_ID' ||
+      key === 'COPILOT_CLI_BINARY_VERSION' ||
+      key === 'COPILOT_CLI_RESOLVED_DIST_DIR' ||
+      key === 'COPILOT_LOADER_PID' ||
+      key === 'GCM_INTERACTIVE' ||
+      key === 'GIT_TERMINAL_PROMPT' ||
+      key === 'TASKMASTER_COPILOT_SESSION_START_FILE' ||
+      key === 'TASKMASTER_COPILOT_USER_PROMPT_FILE' ||
+      /^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/.test(key) ||
+      (key === 'GIT_ASKPASS' && !env[key])
+    ) {
+      delete env[key]
+    }
+  }
+
+  return env
 }
 
 function formatJson(value: unknown): string {
@@ -295,6 +321,20 @@ export function createCopilotSessionService(dependencies: {
   let models: CopilotModelOption[] = []
   let sdkUpdateInProgress = false
 
+  const discardClient = async (): Promise<void> => {
+    for (const active of sessions.values()) {
+      cancelInteractions(active)
+      active.unsubscribe()
+      broadcastSession({ ...active.snapshot, phase: 'disconnected' })
+    }
+    sessions.clear()
+    const staleClient = client
+    client = null
+    clientVersion = null
+    models = []
+    if (staleClient) await staleClient.forceStop().catch(() => undefined)
+  }
+
   const broadcastSession = (snapshot: CopilotSessionSnapshot): void => {
     for (const window of BrowserWindow.getAllWindows()) {
       sendIpc(window.webContents, IPC_CHANNELS.copilot.session, { snapshot })
@@ -360,8 +400,12 @@ export function createCopilotSessionService(dependencies: {
     })
   }
 
-  const permissionHandler = (active: ActiveSession) => {
+  const permissionHandler = (active: ActiveSession, approveAll: boolean) => {
     return async (request: PermissionRequest): Promise<PermissionRequestResult> => {
+      if (approveAll && request.managedApprovalRequired !== true) {
+        return { kind: 'approve-once' }
+      }
+
       const interaction: CopilotInteraction = {
         id: randomUUID(),
         kind: 'permission',
@@ -549,15 +593,25 @@ export function createCopilotSessionService(dependencies: {
 
   const ensureClient = async (): Promise<CopilotClient> => {
     const loaded = await sdkManager.loadSdk()
-    if (client && clientVersion === loaded.version) return client
     if (clientPromise) return clientPromise
 
     clientPromise = (async () => {
+      if (client && clientVersion === loaded.version) {
+        try {
+          await client.ping()
+          return client
+        } catch {
+          await discardClient()
+        }
+      }
       if (client) await client.stop()
+      const runtimeEnv = buildCopilotRuntimeEnv(process.env)
+      if (loaded.runtimePath) runtimeEnv.COPILOT_CLI_PATH = loaded.runtimePath
       const nextClient = new loaded.module.CopilotClient({
         mode: 'copilot-cli',
         useLoggedInUser: true,
         logLevel: 'warning',
+        env: runtimeEnv,
         clientInfo: {
           applicationName: 'Taskmaster',
           applicationVersion: app.getVersion(),
@@ -590,6 +644,7 @@ export function createCopilotSessionService(dependencies: {
         await nextClient.forceStop().catch(() => undefined)
         client = null
         clientVersion = null
+        models = []
         throw error
       }
     })()
@@ -644,7 +699,10 @@ export function createCopilotSessionService(dependencies: {
         modelChangePending: false,
         unsubscribe: () => undefined
       }
-      config.onPermissionRequest = permissionHandler(placeholder)
+      config.onPermissionRequest = permissionHandler(
+        placeholder,
+        context.globalFlags.includes('--yolo')
+      )
       config.onUserInputRequest = userInputHandler(placeholder)
       config.onElicitationRequest = elicitationHandler(placeholder)
       config.onExitPlanModeRequest = exitPlanModeHandler(placeholder)
@@ -996,12 +1054,16 @@ export function createCopilotSessionService(dependencies: {
     cancelInteractions(active)
     finishActivity(active)
     active.unsubscribe()
-    await active.session.disconnect()
     sessions.delete(threadId)
     broadcastSession({
       ...active.snapshot,
       phase: 'disconnected',
       pendingInteraction: null
     })
+    try {
+      await active.session.disconnect()
+    } catch {
+      await discardClient()
+    }
   }
 }

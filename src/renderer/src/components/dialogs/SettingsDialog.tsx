@@ -22,7 +22,7 @@ export default function SettingsDialog({
 }: SettingsDialogProps): React.JSX.Element {
   return (
     <Modal
-      description="Applied to every agent CLI launch in every thread."
+      description="Applied to every agent CLI launch. Custom UI also honors --yolo."
       onClose={onClose}
       open={open}
       title="Settings"

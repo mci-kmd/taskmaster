@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from 'fs/promises'
 import { createRequire } from 'module'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { pathToFileURL } from 'url'
 import { app } from 'electron'
 import { CopilotClient as BundledCopilotClient } from '@github/copilot-sdk'
@@ -16,6 +16,20 @@ type CopilotSdkModule = {
 
 type ActiveSdk = {
   version: string
+}
+
+function runtimePlatform(): string {
+  if (process.platform === 'linux') {
+    const report = process.report?.getReport() as
+      { header?: { glibcVersionRuntime?: unknown } } | undefined
+    const isMusl = report?.header?.glibcVersionRuntime === undefined
+    return `${isMusl ? 'linuxmusl' : 'linux'}-${process.arch}`
+  }
+  return `${process.platform}-${process.arch}`
+}
+
+function runtimeExecutableName(): string {
+  return process.platform === 'win32' ? 'copilot-runtime.exe' : 'copilot-runtime'
 }
 
 function parseVersion(version: string): [number, number, number] | null {
@@ -123,6 +137,27 @@ export class CopilotSdkManager {
     )
   }
 
+  private getRuntimePath(nodeModulesDirectory: string): string {
+    const platform = runtimePlatform()
+    return join(
+      nodeModulesDirectory,
+      '@github',
+      `copilot-sdk-${platform}`,
+      'prebuilds',
+      platform,
+      runtimeExecutableName()
+    )
+  }
+
+  private getBundledRuntimePath(): string | null {
+    if (!app.isPackaged) return null
+    return this.getRuntimePath(join(dirname(app.getAppPath()), 'app.asar.unpacked', 'node_modules'))
+  }
+
+  private getManagedRuntimePath(version: string): string {
+    return this.getRuntimePath(join(this.getManagedDirectory(version), 'node_modules'))
+  }
+
   async getStatus(): Promise<CopilotSdkStatus> {
     const active = await this.readActiveSdk()
     const installedVersion = active?.version ?? BUNDLED_VERSION
@@ -218,18 +253,27 @@ export class CopilotSdkManager {
     return this.emitStatus()
   }
 
-  async loadSdk(): Promise<{ module: CopilotSdkModule; version: string }> {
+  async loadSdk(): Promise<{
+    module: CopilotSdkModule
+    version: string
+    runtimePath: string | null
+  }> {
     const active = await this.readActiveSdk()
     if (!active) {
       return {
         module: { CopilotClient: BundledCopilotClient },
-        version: BUNDLED_VERSION
+        version: BUNDLED_VERSION,
+        runtimePath: this.getBundledRuntimePath()
       }
     }
 
     const moduleUrl = pathToFileURL(this.getManagedEntry(active.version)).href
     const loaded = (await import(moduleUrl)) as CopilotSdkModule
-    return { module: loaded, version: active.version }
+    return {
+      module: loaded,
+      version: active.version,
+      runtimePath: this.getManagedRuntimePath(active.version)
+    }
   }
 
   async setRuntimeStatus(input: {
