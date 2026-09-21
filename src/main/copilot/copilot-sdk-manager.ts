@@ -3,8 +3,12 @@ import { createRequire } from 'module'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { app } from 'electron'
-import { CopilotClient as BundledCopilotClient } from '@github/copilot-sdk'
+import {
+  CopilotClient as BundledCopilotClient,
+  RuntimeConnection as BundledRuntimeConnection
+} from '@github/copilot-sdk'
 import type { CopilotSdkStatus, CopilotSdkUpdateBlocker } from '../../shared/app-types'
+import { resolvePackagedCopilotRuntimePath } from './copilot-runtime-path'
 
 const BUNDLED_VERSION = '1.0.14'
 const SUPPORTED_MAJOR = 1
@@ -12,6 +16,7 @@ const REGISTRY_URL = 'https://registry.npmjs.org/@github%2Fcopilot-sdk/latest'
 
 type CopilotSdkModule = {
   CopilotClient: typeof BundledCopilotClient
+  RuntimeConnection: typeof BundledRuntimeConnection
 }
 
 type ActiveSdk = {
@@ -65,6 +70,13 @@ function runNpmInstall(targetDirectory: string, version: string): Promise<void> 
       omit: ['dev']
     })
     .then(() => undefined)
+}
+
+function linuxUsesMusl(): boolean {
+  if (process.platform !== 'linux') return false
+  const report = process.report?.getReport() as
+    { header?: { glibcVersionRuntime?: string } } | undefined
+  return report?.header?.glibcVersionRuntime === undefined
 }
 
 export class CopilotSdkManager {
@@ -218,18 +230,35 @@ export class CopilotSdkManager {
     return this.emitStatus()
   }
 
-  async loadSdk(): Promise<{ module: CopilotSdkModule; version: string }> {
+  async loadSdk(): Promise<{
+    module: CopilotSdkModule
+    version: string
+    runtimePath: string | null
+  }> {
     const active = await this.readActiveSdk()
     if (!active) {
+      const runtimePath = resolvePackagedCopilotRuntimePath(
+        app.getAppPath(),
+        process.platform,
+        process.arch,
+        linuxUsesMusl()
+      )
+      if (runtimePath && !(await pathExists(runtimePath))) {
+        throw new Error(`Bundled Copilot runtime not found at ${runtimePath}.`)
+      }
       return {
-        module: { CopilotClient: BundledCopilotClient },
-        version: BUNDLED_VERSION
+        module: {
+          CopilotClient: BundledCopilotClient,
+          RuntimeConnection: BundledRuntimeConnection
+        },
+        version: BUNDLED_VERSION,
+        runtimePath
       }
     }
 
     const moduleUrl = pathToFileURL(this.getManagedEntry(active.version)).href
     const loaded = (await import(moduleUrl)) as CopilotSdkModule
-    return { module: loaded, version: active.version }
+    return { module: loaded, version: active.version, runtimePath: null }
   }
 
   async setRuntimeStatus(input: {

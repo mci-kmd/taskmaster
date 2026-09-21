@@ -7,6 +7,7 @@ import { isDevMode } from '../shared/runtime-mode'
 import { resolveDevUserDataPath } from './dev-user-data-path'
 import { registerTerminalIpc } from './terminal'
 import {
+  getCopilotGlobalFlags,
   initializeAppState,
   markCopilotSessionStarted,
   markThreadLaunched,
@@ -70,6 +71,7 @@ app.whenReady().then(() => {
   })
   const copilotSessionService = createCopilotSessionService({
     resolveThread: resolveCopilotThread,
+    getGlobalFlags: getCopilotGlobalFlags,
     onSessionStarted: markCopilotSessionStarted,
     onTitleChanged: updateCopilotThreadTitle,
     onUserMessage: updateCopilotLastUserMessage

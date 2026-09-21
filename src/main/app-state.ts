@@ -333,6 +333,10 @@ export function resolveCopilotThread(threadId: string): {
   }
 }
 
+export function getCopilotGlobalFlags(): string[] {
+  return parseGlobalFlags(ensureState().settings.globalFlagsInput)
+}
+
 export function markCopilotSessionStarted(threadId: string, sessionId: string): void {
   const thread = findThread(threadId)
   threadStateService.updateThreadResumeSession({

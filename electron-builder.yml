@@ -11,6 +11,7 @@ files:
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
   - resources/**
+  - node_modules/@github/copilot-sdk-*/**
 win:
   executableName: taskmaster
   icon: build/icon.ico

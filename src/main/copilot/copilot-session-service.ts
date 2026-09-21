@@ -33,6 +33,7 @@ import type {
   SessionEvent
 } from '@github/copilot-sdk'
 import { CopilotSdkManager } from './copilot-sdk-manager'
+import { createCopilotRuntimeConnection } from './copilot-runtime-connection'
 import { collectCopilotSdkUpdateBlockers } from './copilot-update-guard'
 
 type ThreadContext = {
@@ -61,6 +62,11 @@ type ActiveSession = {
   snapshot: CopilotSessionSnapshot
   pending: PendingInteraction | null
   unsubscribe: () => void
+}
+
+type ClientEntry = {
+  client: CopilotClient
+  models: CopilotModelOption[]
 }
 
 type StartOperation = {
@@ -248,6 +254,7 @@ function permissionDescription(request: PermissionRequest): string {
 
 export function createCopilotSessionService(dependencies: {
   resolveThread: (threadId: string) => ThreadContext | null
+  getGlobalFlags: () => string[]
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
   onUserMessage: (threadId: string, message: string) => void
@@ -274,10 +281,8 @@ export function createCopilotSessionService(dependencies: {
   const sdkManager = new CopilotSdkManager()
   const sessions = new Map<string, ActiveSession>()
   const startingThreads = new Map<string, StartOperation>()
-  let client: CopilotClient | null = null
-  let clientVersion: string | null = null
-  let clientPromise: Promise<CopilotClient> | null = null
-  let models: CopilotModelOption[] = []
+  const clients = new Map<string, ClientEntry>()
+  const clientPromises = new Map<string, Promise<ClientEntry>>()
   let sdkUpdateInProgress = false
 
   const broadcastSession = (snapshot: CopilotSessionSnapshot): void => {
@@ -503,14 +508,21 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
-  const ensureClient = async (): Promise<CopilotClient> => {
+  const ensureClient = async (globalFlags: string[]): Promise<ClientEntry> => {
     const loaded = await sdkManager.loadSdk()
-    if (client && clientVersion === loaded.version) return client
-    if (clientPromise) return clientPromise
+    const key = JSON.stringify([loaded.version, globalFlags])
+    const existing = clients.get(key)
+    if (existing) return existing
+    const pending = clientPromises.get(key)
+    if (pending) return pending
 
-    clientPromise = (async () => {
-      if (client) await client.stop()
+    const clientPromise = (async (): Promise<ClientEntry> => {
       const nextClient = new loaded.module.CopilotClient({
+        connection: createCopilotRuntimeConnection(
+          loaded.module.RuntimeConnection,
+          loaded.runtimePath,
+          globalFlags
+        ),
         mode: 'copilot-cli',
         useLoggedInUser: true,
         logLevel: 'warning',
@@ -538,22 +550,23 @@ export function createCopilotSessionService(dependencies: {
             auth.statusMessage ?? 'Copilot is not signed in. Run the Copilot CLI login flow first.'
           )
         }
-        models = (await nextClient.listModels()).map(mapModel)
-        client = nextClient
-        clientVersion = loaded.version
-        return nextClient
+        const entry = {
+          client: nextClient,
+          models: (await nextClient.listModels()).map(mapModel)
+        }
+        clients.set(key, entry)
+        return entry
       } catch (error) {
         await nextClient.forceStop().catch(() => undefined)
-        client = null
-        clientVersion = null
         throw error
       }
     })()
+    clientPromises.set(key, clientPromise)
 
     try {
       return await clientPromise
     } finally {
-      clientPromise = null
+      clientPromises.delete(key)
     }
   }
 
@@ -578,7 +591,7 @@ export function createCopilotSessionService(dependencies: {
       model: null,
       reasoningEffort: null,
       agentMode: 'interactive',
-      models,
+      models: [],
       timeline: [],
       pendingInteraction: null,
       error: null
@@ -586,7 +599,7 @@ export function createCopilotSessionService(dependencies: {
     broadcastSession(snapshot)
 
     try {
-      const sdkClient = await ensureClient()
+      const entry = await ensureClient(dependencies.getGlobalFlags())
       const config: SessionConfig = {
         workingDirectory: context.cwd,
         streaming: true,
@@ -606,8 +619,8 @@ export function createCopilotSessionService(dependencies: {
       config.onAutoModeSwitchRequest = autoModeSwitchHandler(placeholder)
 
       const session = context.thread.resumeSessionId
-        ? await sdkClient.resumeSession(context.thread.resumeSessionId, config)
-        : await sdkClient.createSession(config)
+        ? await entry.client.resumeSession(context.thread.resumeSessionId, config)
+        : await entry.client.createSession(config)
       if (operation.cancelled) {
         await session.disconnect()
         return { ok: false, error: 'Copilot session start was cancelled.' }
@@ -616,7 +629,7 @@ export function createCopilotSessionService(dependencies: {
       placeholder.snapshot = {
         ...placeholder.snapshot,
         sessionId: session.sessionId,
-        models,
+        models: entry.models,
         phase: 'idle'
       }
       placeholder.unsubscribe = session.on((event) => handleEvent(placeholder, event))
@@ -714,11 +727,8 @@ export function createCopilotSessionService(dependencies: {
         for (const threadId of new Set([...sessions.keys(), ...startingThreads.keys()])) {
           await stopThread(threadId)
         }
-        if (client) {
-          await client.stop()
-          client = null
-          clientVersion = null
-        }
+        await Promise.all([...clients.values()].map(({ client }) => client.stop()))
+        clients.clear()
         return await sdkManager.installLatest()
       } finally {
         sdkUpdateInProgress = false
@@ -831,10 +841,8 @@ export function createCopilotSessionService(dependencies: {
         await active.session.disconnect()
       }
       sessions.clear()
-      if (client) {
-        await client.stop()
-        client = null
-      }
+      await Promise.all([...clients.values()].map(({ client }) => client.stop()))
+      clients.clear()
     }
   }
 
