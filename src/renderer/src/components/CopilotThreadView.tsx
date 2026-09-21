@@ -1,39 +1,33 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
-  CopilotAgentMode,
   CopilotAttachment,
-  CopilotInteraction,
   CopilotInteractionResponse,
   CopilotReasoningEffort,
   CopilotSdkStatus,
   CopilotSessionSnapshot,
-  CopilotTimelineItem,
+  CopilotStartResult,
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { getRendererApi } from '../shared/api/client'
 import type { ThreadSessionState } from './TerminalSessions'
 import Button from './ui/Button'
-import SegmentedControl from './ui/SegmentedControl'
 import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
+import InteractionPanel from './copilot/InteractionPanel'
+import SessionModelControls from './copilot/SessionModelControls'
+import SessionTimelineItem from './copilot/SessionTimelineItem'
+import { useSessionDraft } from './copilot/session-drafts'
+import '../assets/copilot-session.css'
 
 const api = getRendererApi()
-
 type Props = {
   thread: ThreadSnapshot
   onSessionChange: (threadId: string, state: ThreadSessionState) => void
 }
+const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 async function fileToAttachment(file: File): Promise<CopilotAttachment> {
   const path = api.copilot.getPathForFile(file)
-  if (path) {
-    return {
-      id: crypto.randomUUID(),
-      type: 'file',
-      path,
-      displayName: file.name
-    }
-  }
-
+  if (path) return { id: crypto.randomUUID(), type: 'file', path, displayName: file.name }
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.addEventListener('load', () => resolve(String(reader.result)))
@@ -49,681 +43,558 @@ async function fileToAttachment(file: File): Promise<CopilotAttachment> {
   }
 }
 
-function TimelineItem({ item }: { item: CopilotTimelineItem }): React.JSX.Element {
-  const copy = (): void => {
-    const text = item.type === 'tool' ? item.detail : item.content
-    void navigator.clipboard.writeText(text)
-  }
-
-  if (item.type === 'tool') {
-    return (
-      <article className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-3 py-2">
-          <span
-            className={`size-1.5 rounded-full ${
-              item.status === 'running'
-                ? 'tm-pulse-dot bg-[var(--color-warning)]'
-                : item.status === 'failed'
-                  ? 'bg-[var(--color-danger)]'
-                  : 'bg-[var(--color-positive)]'
-            }`}
-          />
-          <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--color-fg)]">
-            {item.title}
-          </span>
-          <button
-            className="text-[11px] text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]"
-            onClick={copy}
-            type="button"
-          >
-            Copy
-          </button>
-        </div>
-        {item.detail ? (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words px-3 py-2.5 font-mono text-[11.5px] leading-5 text-[var(--color-fg-muted)]">
-            {item.detail}
-          </pre>
-        ) : null}
-      </article>
-    )
-  }
-
-  if (item.type === 'notice') {
-    return (
-      <div
-        className={`rounded-md border px-3 py-2.5 text-[12px] leading-5 ${
-          item.tone === 'error'
-            ? 'border-[rgba(240,140,140,0.4)] bg-[rgba(240,140,140,0.07)] text-[var(--color-danger)]'
-            : item.tone === 'warning'
-              ? 'border-[rgba(245,201,122,0.35)] bg-[rgba(245,201,122,0.06)] text-[var(--color-warning)]'
-              : 'border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg-muted)]'
-        }`}
-      >
-        {item.content}
-      </div>
-    )
-  }
-
-  const user = item.type === 'user'
-  return (
-    <article
-      className={`group relative rounded-xl border px-4 py-3 ${
-        user
-          ? 'ml-auto max-w-[82%] border-[#35506d] bg-[#172536]'
-          : item.type === 'reasoning'
-            ? 'mr-auto max-w-[90%] border-[var(--color-border)] bg-[#171717]'
-            : 'mr-auto max-w-[90%] border-[var(--color-border)] bg-[var(--color-panel)]'
-      }`}
-    >
-      <div className="mb-2 flex items-center gap-2 text-[10.5px] uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-        <span>{user ? 'You' : item.type === 'reasoning' ? 'Reasoning' : 'Copilot'}</span>
-        {item.model ? <span className="normal-case tracking-normal">{item.model}</span> : null}
-        {item.streaming ? <span className="tm-pulse-dot">live</span> : null}
-        <button
-          className="ml-auto opacity-0 transition-opacity hover:text-[var(--color-fg)] group-hover:opacity-100 focus:opacity-100"
-          onClick={copy}
-          type="button"
-        >
-          Copy
-        </button>
-      </div>
-      <div
-        className={`whitespace-pre-wrap break-words text-[13px] leading-6 ${
-          item.type === 'reasoning'
-            ? 'font-mono text-[var(--color-fg-muted)]'
-            : 'text-[var(--color-fg)]'
-        }`}
-      >
-        {item.content}
-      </div>
-      {item.type === 'user' && item.attachments?.length ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {item.attachments.map((attachment) => (
-            <span
-              className="rounded border border-[#496987] bg-[#1c3146] px-2 py-1 font-mono text-[10.5px] text-[#bcd8f5]"
-              key={attachment}
-            >
-              {attachment}
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </article>
-  )
+// Key the entire session lifecycle, including pending async work, to its thread.
+export default function CopilotThreadView(props: Props): React.JSX.Element {
+  return <SessionView key={props.thread.id} {...props} />
 }
 
-function InteractionPanel({
-  interaction,
-  threadId,
-  onRespond
-}: {
-  interaction: CopilotInteraction
-  threadId: string
-  onRespond: (response: CopilotInteractionResponse) => void
-}): React.JSX.Element {
-  const [value, setValue] = useState('')
-  const [values, setValues] = useState<Record<string, string | number | boolean | string[]>>(() =>
-    Object.fromEntries(
-      Object.entries(
-        interaction.kind === 'elicitation' ? (interaction.schema?.properties ?? {}) : {}
-      )
-        .filter(([, field]) => field.default !== undefined)
-        .map(([name, field]) => [name, field.default!])
-    )
-  )
-
-  if (interaction.kind === 'permission') {
-    return (
-      <div className="border-t border-[var(--color-border)] bg-[#211e18] px-4 py-3">
-        <div className="text-[12.5px] font-medium text-[var(--color-warning)]">
-          {interaction.title}
-        </div>
-        <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words font-mono text-[11.5px] leading-5 text-[var(--color-fg-muted)]">
-          {interaction.description}
-        </pre>
-        <div className="mt-3 flex justify-end gap-2">
-          <Button
-            onClick={() =>
-              onRespond({
-                threadId,
-                interactionId: interaction.id,
-                action: 'reject'
-              })
-            }
-            size="sm"
-            variant="ghost"
-          >
-            Reject
-          </Button>
-          {interaction.allowSessionApproval ? (
-            <Button
-              onClick={() =>
-                onRespond({
-                  threadId,
-                  interactionId: interaction.id,
-                  action: 'approve-session'
-                })
-              }
-              size="sm"
-              variant="secondary"
-            >
-              Allow for session
-            </Button>
-          ) : null}
-          <Button
-            onClick={() =>
-              onRespond({
-                threadId,
-                interactionId: interaction.id,
-                action: 'approve-once'
-              })
-            }
-            size="sm"
-            variant="primary"
-          >
-            Allow once
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  if (interaction.kind === 'user-input') {
-    return (
-      <div className="border-t border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3">
-        <div className="text-[12.5px] font-medium">{interaction.description}</div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {interaction.choices.map((choice) => (
-            <Button
-              key={choice}
-              onClick={() =>
-                onRespond({
-                  threadId,
-                  interactionId: interaction.id,
-                  action: 'accept',
-                  value: choice,
-                  wasFreeform: false
-                })
-              }
-              size="sm"
-              variant="secondary"
-            >
-              {choice}
-            </Button>
-          ))}
-        </div>
-        {interaction.allowFreeform ? (
-          <form
-            className="mt-3 flex gap-2"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (!value.trim()) return
-              onRespond({
-                threadId,
-                interactionId: interaction.id,
-                action: 'accept',
-                value: value.trim(),
-                wasFreeform: true
-              })
-            }}
-          >
-            <input
-              autoFocus
-              className="min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
-              onChange={(event) => setValue(event.target.value)}
-              placeholder="Type an answer"
-              value={value}
-            />
-            <Button disabled={!value.trim()} size="sm" type="submit" variant="primary">
-              Answer
-            </Button>
-          </form>
-        ) : null}
-      </div>
-    )
-  }
-
-  const fields = Object.entries(interaction.schema?.properties ?? {})
-  return (
-    <form
-      className="border-t border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3"
-      onSubmit={(event) => {
-        event.preventDefault()
-        onRespond({
-          threadId,
-          interactionId: interaction.id,
-          action: 'accept',
-          values
-        })
-      }}
-    >
-      <div className="text-[12.5px] font-medium">{interaction.description}</div>
-      {interaction.mode === 'url' && interaction.url ? (
-        <Button
-          className="mt-3"
-          onClick={() => window.open(interaction.url, '_blank')}
-          size="sm"
-          type="button"
-          variant="secondary"
-        >
-          Open sign-in page
-        </Button>
-      ) : (
-        <div className="mt-3 grid gap-3">
-          {fields.map(([name, field]) => (
-            <label className="grid gap-1.5" key={name}>
-              <span className="text-[11.5px] text-[var(--color-fg-muted)]">
-                {field.title ?? name}
-              </span>
-              {field.type === 'boolean' ? (
-                <input
-                  checked={Boolean(values[name] ?? field.default)}
-                  onChange={(event) =>
-                    setValues((current) => ({ ...current, [name]: event.target.checked }))
-                  }
-                  type="checkbox"
-                />
-              ) : field.options ? (
-                <select
-                  className="tm-select rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
-                  multiple={field.type === 'array'}
-                  onChange={(event) => {
-                    const next =
-                      field.type === 'array'
-                        ? Array.from(event.target.selectedOptions, (option) => option.value)
-                        : event.target.value
-                    setValues((current) => ({ ...current, [name]: next }))
-                  }}
-                  value={
-                    field.type === 'array'
-                      ? ((values[name] as string[] | undefined) ?? [])
-                      : String(values[name] ?? field.default ?? '')
-                  }
-                >
-                  {field.type !== 'array' ? <option value="">Select</option> : null}
-                  {field.options.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
-                  defaultValue={String(field.default ?? '')}
-                  onChange={(event) =>
-                    setValues((current) => ({
-                      ...current,
-                      [name]:
-                        field.type === 'number' || field.type === 'integer'
-                          ? Number(event.target.value)
-                          : event.target.value
-                    }))
-                  }
-                  required={interaction.schema?.required.includes(name)}
-                  type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
-                />
-              )}
-              {field.description ? (
-                <span className="text-[10.5px] text-[var(--color-fg-subtle)]">
-                  {field.description}
-                </span>
-              ) : null}
-            </label>
-          ))}
-        </div>
-      )}
-      <div className="mt-3 flex justify-end gap-2">
-        <Button
-          onClick={() =>
-            onRespond({
-              threadId,
-              interactionId: interaction.id,
-              action: 'cancel'
-            })
-          }
-          size="sm"
-          type="button"
-          variant="ghost"
-        >
-          Cancel
-        </Button>
-        <Button size="sm" type="submit" variant="primary">
-          Continue
-        </Button>
-      </div>
-    </form>
-  )
-}
-
-export default function CopilotThreadView({ thread, onSessionChange }: Props): React.JSX.Element {
+function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   const [session, setSession] = useState<CopilotSessionSnapshot | null>(null)
   const [sdk, setSdk] = useState<CopilotSdkStatus | null>(null)
-  const [prompt, setPrompt] = useState('')
-  const [attachments, setAttachments] = useState<CopilotAttachment[]>([])
-  const [agentMode, setAgentMode] = useState<CopilotAgentMode>('interactive')
-  const [busy, setBusy] = useState(false)
-  const timelineRef = useRef<HTMLDivElement | null>(null)
+  const [draft, updateDraft] = useSessionDraft(thread.id)
+  const { prompt, attachments } = draft
+  const agentMode = draft.agentMode ?? session?.agentMode ?? 'interactive'
+  const [busy, setBusy] = useState<string | null>(null)
+  const busyRef = useRef(false)
+  const [stopping, setStopping] = useState(false)
+  const stoppingRef = useRef(false)
+  const [error, setError] = useState<string | null>(null)
+  const [atBottom, setAtBottom] = useState(true)
+  const followOutput = useRef(true)
+  const [dragging, setDragging] = useState(false)
+  const dragDepth = useRef(0)
+  const timelineRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const promptRef = useRef<HTMLTextAreaElement>(null)
+  const mounted = useRef(false)
+  const sessionRevision = useRef(0)
+  const onSessionChangeRef = useRef(onSessionChange)
+  onSessionChangeRef.current = onSessionChange
 
   const updateSession = useCallback(
     (next: CopilotSessionSnapshot): void => {
+      if (!mounted.current || next.threadId !== thread.id) return
       setSession(next)
-      onSessionChange(thread.id, toCopilotThreadSessionState(next))
+      onSessionChangeRef.current(thread.id, toCopilotThreadSessionState(next))
     },
-    [onSessionChange, thread.id]
+    [thread.id]
   )
 
+  const acceptResult = useCallback(
+    (result: CopilotStartResult, revision: number): void => {
+      if (!mounted.current) return
+      // Events are newer than an in-flight IPC response; never roll them back.
+      if (result.snapshot && revision === sessionRevision.current) updateSession(result.snapshot)
+      if (!result.ok) throw new Error(result.error ?? 'Copilot could not complete that action.')
+    },
+    [updateSession]
+  )
+
+  const run = useCallback(async (name: string, operation: () => Promise<void>): Promise<void> => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(name)
+    setError(null)
+    try {
+      await operation()
+    } catch (cause) {
+      if (mounted.current) setError(message(cause))
+    } finally {
+      busyRef.current = false
+      if (mounted.current) setBusy(null)
+    }
+  }, [])
+
   useEffect(() => {
-    const unsubscribeSession = api.copilot.onSession(({ snapshot }) => {
-      if (snapshot.threadId === thread.id) updateSession(snapshot)
-    })
-    const unsubscribeStatus = api.copilot.onSdkStatus(({ status }) => setSdk(status))
+    mounted.current = true
     let cancelled = false
-    void Promise.all([api.copilot.getSdkStatus(), api.copilot.getSession(thread.id)]).then(
-      ([status, existing]) => {
-        if (cancelled) return
-        setSdk(status)
-        if (existing) {
-          updateSession(existing)
-          return
-        }
-        void api.copilot.start(thread.id).then((result) => {
-          if (!cancelled && result.snapshot) updateSession(result.snapshot)
-        })
-      }
-    )
-    void api.copilot.checkForSdkUpdate().then((status) => {
-      if (cancelled) return
+    let statusRevision = 0
+    const unsubscribeSession = api.copilot.onSession(({ snapshot }) => {
+      if (snapshot.threadId !== thread.id) return
+      sessionRevision.current++
+      updateSession(snapshot)
+    })
+    const unsubscribeStatus = api.copilot.onSdkStatus(({ status }) => {
+      statusRevision++
       setSdk(status)
     })
+    const revision = sessionRevision.current
+    void (async () => {
+      try {
+        const existing = await api.copilot.getSession(thread.id)
+        if (cancelled) return
+        if (existing && existing.phase !== 'disconnected') {
+          if (revision === sessionRevision.current) updateSession(existing)
+        } else {
+          const result = await api.copilot.start(thread.id)
+          if (!cancelled) acceptResult(result, revision)
+        }
+      } catch (cause) {
+        if (!cancelled) setError(message(cause))
+      }
+    })()
+    void api.copilot
+      .getSdkStatus()
+      .then((status) => {
+        if (!cancelled && statusRevision === 0) setSdk(status)
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(message(cause))
+      })
+    const updateCheckRevision = statusRevision
+    void api.copilot
+      .checkForSdkUpdate()
+      .then((status) => {
+        if (!cancelled && statusRevision === updateCheckRevision) setSdk(status)
+      })
+      .catch(() => {
+        /* Update checks must not prevent the conversation from loading. */
+      })
     return () => {
       cancelled = true
+      mounted.current = false
       unsubscribeSession()
       unsubscribeStatus()
     }
-  }, [thread.id, updateSession])
+  }, [thread.id, updateSession, acceptResult])
 
-  useEffect(() => {
+  const jumpToLatest = useCallback(() => {
+    followOutput.current = true
+    setAtBottom(true)
     const element = timelineRef.current
     if (element) element.scrollTop = element.scrollHeight
-  }, [session?.timeline])
-
-  const selectedModel = useMemo(
-    () => session?.models.find((model) => model.id === session.model) ?? null,
-    [session]
-  )
-
-  const addFiles = useCallback(async (files: File[]): Promise<void> => {
-    const next = await Promise.all(files.map(fileToAttachment))
-    setAttachments((current) => [...current, ...next])
   }, [])
-
-  const send = useCallback(async (): Promise<void> => {
-    if (!session || busy || (!prompt.trim() && attachments.length === 0)) return
-    setBusy(true)
-    const result = await api.copilot.send({
-      threadId: thread.id,
-      prompt: prompt.trim(),
-      attachments,
-      agentMode
+  useLayoutEffect(() => {
+    if (followOutput.current) jumpToLatest()
+  }, [session?.timeline, session?.phase, session?.pendingInteraction, jumpToLatest])
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => {
+      if (followOutput.current) jumpToLatest()
     })
-    if (result.ok) {
-      setPrompt('')
-      setAttachments([])
+    if (contentRef.current) observer.observe(contentRef.current)
+    if (timelineRef.current) observer.observe(timelineRef.current)
+    return () => observer.disconnect()
+  }, [jumpToLatest])
+  useLayoutEffect(() => {
+    const element = promptRef.current
+    if (!element) return
+    element.style.height = 'auto'
+    element.style.height = `${Math.min(element.scrollHeight, 192)}px`
+  }, [prompt])
+
+  const addFiles = (files: File[]): void => {
+    if (busyRef.current) {
+      setError('Wait for the current action to finish, then attach your files again.')
+      return
     }
-    if (result.snapshot) updateSession(result.snapshot)
-    setBusy(false)
-  }, [agentMode, attachments, busy, prompt, session, thread.id, updateSession])
-
-  const respond = useCallback((response: CopilotInteractionResponse): void => {
-    void api.copilot.respond(response)
-  }, [])
-
-  const updateSdk = useCallback(async (): Promise<void> => {
-    const status = await api.copilot.updateSdk()
-    setSdk(status)
-    if (status.blockingThreads.length > 0) return
-    const result = await api.copilot.start(thread.id)
-    if (result.snapshot) updateSession(result.snapshot)
-  }, [thread.id, updateSession])
+    void run('attachments', async () => {
+      const next = await Promise.all(files.map(fileToAttachment))
+      updateDraft((current) => ({ ...current, attachments: [...current.attachments, ...next] }))
+    })
+  }
+  const running = session?.phase === 'running'
+  const ready = session?.phase === 'idle' && !session.pendingInteraction && !stopping
+  const send = (): void => {
+    if (!ready || stoppingRef.current || (!prompt.trim() && !attachments.length)) return
+    void run('send', async () => {
+      const revision = sessionRevision.current
+      const result = await api.copilot.send({
+        threadId: thread.id,
+        prompt: prompt.trim(),
+        attachments,
+        agentMode
+      })
+      acceptResult(result, revision)
+      if (result.ok) {
+        // Keep any draft changes made while this request was in flight.
+        updateDraft((current) => ({
+          ...current,
+          prompt: current.prompt === prompt ? '' : current.prompt,
+          agentMode: current.agentMode === draft.agentMode ? null : current.agentMode,
+          attachments: current.attachments.filter(
+            (item) => !attachments.some((sent) => sent.id === item.id)
+          )
+        }))
+        if (mounted.current) {
+          jumpToLatest()
+          promptRef.current?.focus()
+        }
+      }
+    })
+  }
+  const start = (): void => {
+    void run('start', async () => {
+      const revision = sessionRevision.current
+      acceptResult(await api.copilot.start(thread.id), revision)
+    })
+  }
+  const respond = (response: CopilotInteractionResponse): void => {
+    void run('respond', async () => {
+      if (!(await api.copilot.respond(response)))
+        throw new Error('This request is no longer available. Please try again.')
+      promptRef.current?.focus()
+    })
+  }
+  const stop = async (): Promise<void> => {
+    if (stoppingRef.current) return
+    stoppingRef.current = true
+    setStopping(true)
+    setError(null)
+    try {
+      if (!(await api.copilot.abort(thread.id)))
+        throw new Error('This session is no longer running.')
+    } catch (cause) {
+      if (mounted.current) setError(message(cause))
+    } finally {
+      stoppingRef.current = false
+      if (mounted.current) setStopping(false)
+    }
+  }
+  const changeModel = (model: string, reasoningEffort: CopilotReasoningEffort | null): void => {
+    void run('model', async () => {
+      const revision = sessionRevision.current
+      acceptResult(
+        await api.copilot.setModel({ threadId: thread.id, model, reasoningEffort }),
+        revision
+      )
+    })
+  }
+  const status = stopping
+    ? 'Stopping…'
+    : busy === 'start'
+      ? 'Reconnecting…'
+      : session?.pendingInteraction
+        ? 'Needs your input'
+        : running
+          ? 'Working…'
+          : session?.phase === 'idle'
+            ? 'Ready'
+            : session?.phase === 'error' || (error && !session)
+              ? session?.sessionId
+                ? 'Session error'
+                : 'Could not connect'
+              : session?.phase === 'disconnected'
+                ? 'Disconnected'
+                : 'Connecting…'
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#111315]">
-      <div className="flex min-h-11 items-center gap-3 border-b border-[var(--color-border)] bg-[#15191d] px-3">
-        <div className="flex items-center gap-2">
-          <span
-            className={`size-2 rounded-full ${
-              session?.phase === 'running'
-                ? 'tm-pulse-dot bg-[var(--color-warning)]'
-                : session?.phase === 'error'
-                  ? 'bg-[var(--color-danger)]'
-                  : session?.phase === 'idle'
-                    ? 'bg-[var(--color-positive)]'
-                    : 'bg-[var(--color-fg-faint)]'
-            }`}
-          />
-          <span className="text-[11.5px] text-[var(--color-fg-muted)]">
-            SDK {sdk?.installedVersion ?? '...'}
-          </span>
-          {sdk?.runtimeVersion ? (
-            <span className="text-[10.5px] text-[var(--color-fg-subtle)]">
-              runtime {sdk.runtimeVersion}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="ml-auto flex items-center gap-2">
-          {sdk?.updateAvailable ? (
-            <Button
-              disabled={sdk.updateState === 'installing'}
-              onClick={() => void updateSdk()}
-              size="sm"
-              title={`Install Copilot SDK ${sdk.latestVersion}`}
-              variant="secondary"
-            >
-              {sdk.updateState === 'installing' ? 'Updating…' : `Update ${sdk.latestVersion}`}
-            </Button>
-          ) : null}
-          <select
-            className="tm-select max-w-52 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-1 text-[11.5px]"
-            disabled={!session || session.phase === 'connecting'}
-            onChange={(event) => {
-              const model = session?.models.find((item) => item.id === event.target.value)
-              void api.copilot
-                .setModel({
-                  threadId: thread.id,
-                  model: event.target.value,
-                  reasoningEffort: model?.defaultReasoningEffort ?? null
-                })
-                .then((result) => {
-                  if (result.snapshot) updateSession(result.snapshot)
-                })
-            }}
-            title="Current model"
-            value={session?.model ?? ''}
-          >
-            {!session?.model ? <option value="">Select model</option> : null}
-            {session?.models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="tm-select rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-1 text-[11.5px]"
-            disabled={!selectedModel?.supportedReasoningEfforts.length}
-            onChange={(event) => {
-              if (!session?.model) return
-              void api.copilot
-                .setModel({
-                  threadId: thread.id,
-                  model: session.model,
-                  reasoningEffort: (event.target.value || null) as CopilotReasoningEffort | null
-                })
-                .then((result) => {
-                  if (result.snapshot) updateSession(result.snapshot)
-                })
-            }}
-            title="Reasoning effort"
-            value={session?.reasoningEffort ?? ''}
-          >
-            {!selectedModel?.supportedReasoningEfforts.length ? (
-              <option value="">No reasoning control</option>
-            ) : null}
-            {selectedModel?.supportedReasoningEfforts.map((effort) => (
-              <option key={effort} value={effort}>
-                {effort}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5" ref={timelineRef}>
-        <div className="mx-auto flex max-w-4xl flex-col gap-3">
-          {session?.timeline.length ? (
-            session.timeline.map((item) => <TimelineItem item={item} key={item.id} />)
-          ) : session?.phase === 'error' ? (
-            <div className="mx-auto mt-16 max-w-lg text-center">
-              <div className="text-[14px] font-medium text-[var(--color-danger)]">
-                Copilot could not start
-              </div>
-              <div className="mt-2 whitespace-pre-wrap text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-                {session.error}
-              </div>
-              <Button
-                className="mt-4"
-                onClick={() =>
-                  void api.copilot.start(thread.id).then((result) => {
-                    if (result.snapshot) updateSession(result.snapshot)
-                  })
-                }
-                size="sm"
-                variant="secondary"
-              >
-                Try again
-              </Button>
-            </div>
-          ) : (
-            <div className="mx-auto mt-20 max-w-lg text-center">
-              <div className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-[var(--color-info)]">
-                Custom UI preview
-              </div>
-              <h2 className="mt-3 text-[18px] font-medium">
-                Drive Copilot without leaving Taskmaster
-              </h2>
-              <p className="mt-2 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-                Messages, tool activity, approvals, questions, model controls, and attachments stay
-                in this thread.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {session?.pendingInteraction ? (
-        <InteractionPanel
-          interaction={session.pendingInteraction}
-          key={session.pendingInteraction.id}
-          onRespond={respond}
-          threadId={thread.id}
+    <section
+      className="tm-session"
+      aria-label="Copilot session"
+      onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes('Files')) return
+        event.preventDefault()
+        dragDepth.current++
+        setDragging(true)
+      }}
+      onDragLeave={(event) => {
+        event.preventDefault()
+        if (--dragDepth.current <= 0) {
+          dragDepth.current = 0
+          setDragging(false)
+        }
+      }}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        dragDepth.current = 0
+        setDragging(false)
+        if (event.dataTransfer.files.length) addFiles(Array.from(event.dataTransfer.files))
+      }}
+    >
+      <div className="tm-session-header">
+        <span
+          className={`tm-session-dot ${running ? 'tm-session-dot--running' : session?.phase === 'error' ? 'tm-session-dot--failed' : ''}`}
         />
-      ) : null}
-
-      <div
-        className="border-t border-[var(--color-border)] bg-[#15191d] p-3"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={(event) => {
-          event.preventDefault()
-          void addFiles(Array.from(event.dataTransfer.files))
-        }}
-      >
-        <div className="mx-auto max-w-4xl">
+        <span role="status">{status}</span>
+        <span
+          className="ml-auto text-[var(--color-fg-subtle)]"
+          title={`Copilot SDK ${sdk?.installedVersion ?? '…'}${sdk?.runtimeVersion ? ` · Runtime ${sdk.runtimeVersion}` : ''}`}
+        >
+          Copilot
+        </span>
+        {sdk?.updateAvailable ? (
+          <Button
+            disabled={
+              Boolean(busy) ||
+              running ||
+              stopping ||
+              Boolean(session?.pendingInteraction) ||
+              session?.phase === 'connecting' ||
+              sdk.updateState === 'installing'
+            }
+            title={`Update Copilot to ${sdk.latestVersion ?? 'the latest version'}`}
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              void run('update', async () => {
+                const status = await api.copilot.updateSdk()
+                if (mounted.current) setSdk(status)
+                if (status.blockingThreads.length)
+                  throw new Error(
+                    `Finish or stop these sessions before updating: ${status.blockingThreads.map((item) => item.title).join(', ')}`
+                  )
+                const revision = sessionRevision.current
+                acceptResult(await api.copilot.start(thread.id), revision)
+              })
+            }
+          >
+            {sdk.updateState === 'installing' ? 'Updating…' : 'Update available'}
+          </Button>
+        ) : null}
+      </div>
+      <div className="relative min-h-0 flex-1">
+        <div
+          className="tm-session-scroll"
+          ref={timelineRef}
+          role="region"
+          aria-label="Conversation"
+          tabIndex={0}
+          onScroll={() => {
+            const element = timelineRef.current
+            if (!element) return
+            const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 64
+            followOutput.current = bottom
+            setAtBottom(bottom)
+          }}
+        >
+          <div className="tm-session-transcript" ref={contentRef}>
+            {session?.timeline.length ? (
+              session.timeline.map((item) => <SessionTimelineItem item={item} key={item.id} />)
+            ) : (
+              <div className="tm-session-empty">
+                <span className="tm-session-empty-icon" aria-hidden="true">
+                  ✧
+                </span>
+                <h2>What would you like to work on?</h2>
+                <p>Ask a question, plan a change, or build something together.</p>
+                <div className="flex flex-wrap justify-center gap-2 mt-5">
+                  {['Explain this project', 'Find and fix a bug', 'Plan a change'].map(
+                    (suggestion) => (
+                      <Button
+                        key={suggestion}
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          updateDraft((current) => ({ ...current, prompt: suggestion }))
+                          promptRef.current?.focus()
+                        }}
+                      >
+                        {suggestion}
+                      </Button>
+                    )
+                  )}
+                </div>
+              </div>
+            )}
+            {running ? (
+              <div className="tm-session-working">
+                <span className="tm-pulse-dot">✧</span>
+                {session?.pendingInteraction ? 'Waiting for your response' : 'Copilot is working…'}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        {!atBottom ? (
+          <button type="button" className="tm-session-jump" onClick={jumpToLatest}>
+            ↓ Jump to latest
+          </button>
+        ) : null}
+      </div>
+      <div className="tm-session-bottom">
+        {error || session?.error ? (
+          <div className="tm-session-error" role="alert">
+            <span>{error ?? session?.error}</span>
+            {error && error !== session?.error && error !== sdk?.updateError ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setError(null)}
+                aria-label="Dismiss error"
+              >
+                Dismiss
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {session?.phase === 'error' || session?.phase === 'disconnected' || (!session && error) ? (
+          <div className="mb-3 flex justify-end">
+            <Button size="sm" disabled={Boolean(busy)} onClick={start}>
+              {busy === 'start' ? 'Reconnecting…' : 'Reconnect'}
+            </Button>
+          </div>
+        ) : null}
+        {sdk?.updateError ? (
+          <div className="tm-session-notice tm-session-notice--warning mb-3" role="status">
+            Copilot update: {sdk.updateError}
+          </div>
+        ) : null}
+        <div className="tm-session-composer">
+          {session?.pendingInteraction ? (
+            <div
+              className="tm-session-interaction"
+              role="region"
+              aria-label={session.pendingInteraction.title}
+            >
+              <InteractionPanel
+                interaction={session.pendingInteraction}
+                key={session.pendingInteraction.id}
+                threadId={thread.id}
+                onRespond={respond}
+                busy={Boolean(busy) || stopping}
+              />
+            </div>
+          ) : null}
           {attachments.length ? (
-            <div className="mb-2 flex flex-wrap gap-1.5">
+            <div className="tm-session-attachments">
               {attachments.map((attachment) => (
                 <button
-                  className="rounded-md border border-[#35506d] bg-[#172536] px-2 py-1 font-mono text-[10.5px] text-[#bcd8f5] hover:border-[#527ca6]"
-                  key={attachment.id}
-                  onClick={() =>
-                    setAttachments((current) => current.filter((item) => item.id !== attachment.id))
-                  }
-                  title="Remove attachment"
                   type="button"
+                  className="tm-session-attachment"
+                  key={attachment.id}
+                  aria-label={`Remove ${attachment.displayName}`}
+                  onClick={() =>
+                    updateDraft((current) => ({
+                      ...current,
+                      attachments: current.attachments.filter((item) => item.id !== attachment.id)
+                    }))
+                  }
                 >
-                  {attachment.displayName} ×
+                  {attachment.displayName}
+                  <span aria-hidden="true"> ×</span>
                 </button>
               ))}
             </div>
           ) : null}
           <textarea
-            className="block max-h-48 min-h-20 w-full resize-y rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-input)] px-3 py-2.5 text-[13px] leading-5 placeholder:text-[var(--color-fg-subtle)] focus:border-[#527ca6]"
-            disabled={!session || session.phase === 'connecting'}
-            onChange={(event) => setPrompt(event.target.value)}
+            ref={promptRef}
+            autoFocus
+            aria-label="Message Copilot"
+            rows={2}
+            value={prompt}
+            onChange={(event) =>
+              updateDraft((current) => ({ ...current, prompt: event.target.value }))
+            }
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
+              if (
+                event.key === 'Enter' &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing &&
+                event.keyCode !== 229
+              ) {
                 event.preventDefault()
-                void send()
+                send()
               }
             }}
             onPaste={(event) => {
               const files = Array.from(event.clipboardData.files)
-              if (files.length) void addFiles(files)
-            }}
-            placeholder="Ask Copilot. Paste text or files here."
-            value={prompt}
-          />
-          <div className="mt-2 flex items-center gap-2">
-            <div className="w-64">
-              <SegmentedControl<CopilotAgentMode>
-                ariaLabel="Agent mode"
-                onChange={setAgentMode}
-                options={[
-                  { value: 'interactive', label: 'Interactive', description: 'Ask before acting' },
-                  { value: 'plan', label: 'Plan', description: 'Plan without changes' },
-                  { value: 'autopilot', label: 'Autopilot', description: 'Continue autonomously' }
-                ]}
-                value={agentMode}
-              />
-            </div>
-            <Button
-              onClick={() =>
-                void api.copilot.pickAttachments().then((result) => {
-                  if (result.ok && result.attachments) {
-                    setAttachments((current) => [...current, ...result.attachments!])
-                  }
-                })
+              if (files.length) {
+                event.preventDefault()
+                addFiles(files)
               }
+            }}
+            placeholder={running ? 'Draft your next message…' : 'Ask Copilot anything…'}
+          />
+          <div className="tm-session-controls">
+            <Button
               size="sm"
               variant="ghost"
+              disabled={Boolean(busy)}
+              aria-label="Attach files"
+              title="Attach files (or drop them anywhere in this session)"
+              onClick={() =>
+                void run('attachments', async () => {
+                  const result = await api.copilot.pickAttachments()
+                  if (!result.ok && !result.cancelled)
+                    throw new Error(result.error ?? 'Could not attach files.')
+                  if (result.attachments)
+                    updateDraft((current) => ({
+                      ...current,
+                      attachments: [...current.attachments, ...result.attachments!]
+                    }))
+                })
+              }
             >
-              Attach files
+              ＋<span className="sr-only"> Attach files</span>
             </Button>
-            <div className="ml-auto flex gap-2">
-              {session?.phase === 'running' ? (
+            <label className="tm-session-setting" title="Mode for your next message">
+              <span>Mode</span>
+              <select
+                aria-label="Agent mode"
+                value={agentMode}
+                onChange={(event) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    agentMode: event.target.value as typeof agentMode
+                  }))
+                }
+                title="Mode for your next message"
+              >
+                <option value="interactive">Interactive</option>
+                <option value="plan">Plan</option>
+                <option value="autopilot">Autopilot</option>
+              </select>
+            </label>
+            <SessionModelControls
+              session={session}
+              disabled={!ready || Boolean(busy)}
+              busy={busy === 'model'}
+              disabledReason={
+                running
+                  ? 'Stop the current response or wait for it to finish before changing models'
+                  : session?.pendingInteraction
+                    ? 'Respond to the pending request before changing models'
+                    : busy
+                      ? 'Wait for the current action to finish'
+                      : 'Connect to Copilot to change models'
+              }
+              onChange={changeModel}
+            />
+            <div className="ml-auto flex items-center gap-2">
+              {running || session?.pendingInteraction || stopping ? (
                 <Button
-                  onClick={() => void api.copilot.abort(thread.id)}
                   size="sm"
                   variant="secondary"
+                  disabled={stopping}
+                  onClick={() => void stop()}
                 >
-                  Stop
+                  {stopping ? 'Stopping…' : 'Stop'}
                 </Button>
               ) : null}
               <Button
-                disabled={busy || !session || (!prompt.trim() && attachments.length === 0)}
-                onClick={() => void send()}
                 size="sm"
                 variant="primary"
+                disabled={Boolean(busy) || !ready || (!prompt.trim() && !attachments.length)}
+                title={
+                  running
+                    ? 'Send when Copilot finishes, or stop the current response'
+                    : 'Send message (Enter)'
+                }
+                onClick={send}
               >
-                Send
+                {busy === 'send' ? 'Sending…' : 'Send ↑'}
               </Button>
             </div>
           </div>
-          {sdk?.updateError ? (
-            <div className="mt-2 text-[11px] text-[var(--color-danger)]">{sdk.updateError}</div>
-          ) : null}
+        </div>
+        <div className="tm-session-hint">
+          {busy === 'attachments'
+            ? 'Adding attachments…'
+            : session?.pendingInteraction
+              ? 'Respond to Copilot’s request above, or stop the response'
+              : running
+                ? `Copilot is working · Your next message will use ${agentMode} mode`
+                : agentMode === 'plan'
+                  ? 'Plan mode · Explore and plan before making changes'
+                  : agentMode === 'autopilot'
+                    ? 'Autopilot · Copilot continues autonomously'
+                    : 'Enter to send · Shift + Enter for a new line'}
         </div>
       </div>
+      {dragging ? <div className="tm-session-drop">Drop files to attach</div> : null}
     </section>
   )
 }

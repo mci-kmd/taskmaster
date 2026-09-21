@@ -423,7 +423,7 @@ export type CopilotTimelineItem =
       title: string
       detail: string
       timestamp: string
-      status: 'running' | 'complete' | 'failed'
+      status: 'running' | 'complete' | 'failed' | 'cancelled'
     }
   | {
       id: string
