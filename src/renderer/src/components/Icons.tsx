@@ -124,6 +124,23 @@ export function CloseIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function CopyIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+      <path d="M10.5 5.5V4A1.5 1.5 0 0 0 9 2.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h1.5" />
+    </svg>
+  )
+}
+
+export function CheckIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="m3.5 8 3 3 6-6" />
+    </svg>
+  )
+}
+
 export function TrashIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

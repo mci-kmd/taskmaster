@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CopilotApi, CopilotSessionSnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import CopilotThreadView from './CopilotThreadView'
@@ -78,7 +78,10 @@ beforeEach(() => {
   mock.send.mockResolvedValue({ ok: true })
   mock.respond.mockResolvedValue(true)
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 describe('Copilot session composer', () => {
   it('keeps drafts and attachments per thread, including after changing views', async () => {
@@ -262,6 +265,251 @@ describe('Copilot session composer', () => {
   })
 })
 
+describe('Copilot session tool groups', () => {
+  it('hides empty reasoning without splitting calls and shows it when content arrives', async () => {
+    const a = thread()
+    const tool = {
+      id: 'one',
+      type: 'tool' as const,
+      title: 'Read file',
+      detail: 'File contents',
+      status: 'complete' as const,
+      timestamp: ''
+    }
+    const reasoning = {
+      id: 'reasoning',
+      type: 'reasoning' as const,
+      content: ' \n\t ',
+      timestamp: '',
+      streaming: true
+    }
+    const timeline = [
+      tool,
+      reasoning,
+      { ...tool, id: 'two' },
+      { ...reasoning, id: 'empty', content: '', streaming: false }
+    ]
+    mock.getSession.mockResolvedValue(snapshot(a.id, { timeline }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    expect(screen.queryByText('Reasoning')).toBeNull()
+    expect(screen.queryByText('Thinking…')).toBeNull()
+    expect(screen.getByRole('button', { name: /2 tool calls/ })).toBeTruthy()
+
+    act(() =>
+      listener({
+        snapshot: snapshot(a.id, {
+          timeline: timeline.map((item) =>
+            item.id === 'reasoning' ? { ...reasoning, content: 'Compare the two files.' } : item
+          )
+        })
+      })
+    )
+    expect(screen.getAllByRole('button', { name: /1 tool call/ })).toHaveLength(2)
+    const summary = screen.getByText('Thinking…')
+    fireEvent.click(summary)
+    expect(summary.closest('details')!.open).toBe(true)
+    expect(screen.getByText('Compare the two files.')).toBeTruthy()
+    expect(screen.queryByText('Reasoning')).toBeNull()
+  })
+
+  it('merges calls across empty assistant messages and restores a boundary when text streams in', async () => {
+    const a = thread()
+    const tool = (id: string): CopilotSessionSnapshot['timeline'][number] => ({
+      id,
+      type: 'tool',
+      title: 'Read file',
+      detail: 'File contents',
+      status: 'complete',
+      timestamp: ''
+    })
+    const empty = (id: string, content = ''): CopilotSessionSnapshot['timeline'][number] => ({
+      id,
+      type: 'assistant',
+      content,
+      model: 'model',
+      timestamp: '',
+      streaming: true
+    })
+    const timeline = [
+      empty('leading'),
+      tool('one'),
+      tool('two'),
+      empty('middle', ' \n\t '),
+      tool('three'),
+      tool('four'),
+      empty('trailing'),
+      tool('five')
+    ]
+    mock.getSession.mockResolvedValue(snapshot(a.id, { timeline }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    expect(screen.getAllByRole('button', { name: /tool calls/ })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: /5 tool calls/ })).toBeTruthy()
+    expect(screen.queryByRole('article', { name: 'Copilot message' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull()
+
+    const content = '  Here is what I found.\n'
+    act(() =>
+      listener({
+        snapshot: snapshot(a.id, {
+          timeline: timeline.map((item) => (item.id === 'middle' ? { ...item, content } : item))
+        })
+      })
+    )
+    expect(screen.getByRole('button', { name: /2 tool calls/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /3 tool calls/ })).toBeTruthy()
+    const message = screen.getByRole('article', { name: 'Copilot message' })
+    expect(within(message).getByText('Here is what I found.')).toBeTruthy()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    fireEvent.click(within(message).getByRole('button', { name: 'Copy message' }))
+    await screen.findByText('Copied')
+    expect(writeText).toHaveBeenCalledWith(content)
+  })
+
+  it('keeps attachment-only user messages as boundaries without offering to copy empty text', async () => {
+    const a = thread()
+    const tool = {
+      id: 'one',
+      type: 'tool' as const,
+      title: 'Read file',
+      detail: '',
+      status: 'complete' as const,
+      timestamp: ''
+    }
+    mock.getSession.mockResolvedValue(
+      snapshot(a.id, {
+        timeline: [
+          tool,
+          { id: 'user', type: 'user', content: ' \n ', attachments: ['notes.md'], timestamp: '' },
+          { ...tool, id: 'two', detail: ' \t ' }
+        ]
+      })
+    )
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    const message = screen.getByRole('article', { name: 'Your message' })
+    expect(within(message).getByText('notes.md')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Copy message' })).toBeNull()
+    const groups = screen.getAllByRole('button', { name: /1 tool call/ })
+    expect(groups).toHaveLength(2)
+    for (const group of groups) fireEvent.click(group)
+    expect(screen.queryByRole('button', { name: 'Copy output' })).toBeNull()
+  })
+
+  it('collapses consecutive calls without grouping across messages, reasoning, or notices', async () => {
+    const a = thread()
+    const tool = (id: string): CopilotSessionSnapshot['timeline'][number] => ({
+      id,
+      type: 'tool',
+      title: 'Read file',
+      detail: `Output ${id}`,
+      status: 'complete',
+      timestamp: ''
+    })
+    mock.getSession.mockResolvedValue(
+      snapshot(a.id, {
+        timeline: [
+          tool('one'),
+          tool('two'),
+          { id: 'assistant', type: 'assistant', content: 'Checking the result', timestamp: '' },
+          tool('three'),
+          { id: 'reasoning', type: 'reasoning', content: 'Consider the next step', timestamp: '' },
+          tool('four'),
+          {
+            id: 'notice',
+            type: 'notice',
+            tone: 'warning',
+            content: 'Check permissions',
+            timestamp: ''
+          },
+          tool('five'),
+          { id: 'user', type: 'user', content: 'Continue please', timestamp: '' },
+          tool('six')
+        ]
+      })
+    )
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    const conversation = screen.getByRole('region', { name: 'Conversation' })
+    const groups = within(conversation).getAllByRole('button', { name: /tool calls?/ })
+    expect(groups).toHaveLength(5)
+    expect(groups[0].textContent).toContain('2 tool callsRead file ×2Done')
+    expect(groups.every((group) => group.getAttribute('aria-expanded') === 'false')).toBe(true)
+    expect(screen.queryByText('Output one')).toBeNull()
+    const ordered = [
+      groups[0],
+      screen.getByText('Checking the result'),
+      groups[1],
+      screen.getByText('Reasoning'),
+      groups[2],
+      screen.getByText('Check permissions'),
+      groups[3],
+      screen.getByText('Continue please'),
+      groups[4]
+    ]
+    for (let index = 1; index < ordered.length; index++) {
+      expect(
+        ordered[index - 1].compareDocumentPosition(ordered[index]) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    }
+    fireEvent.click(groups[0])
+    const details = screen.getByRole('region', { name: 'Tool calls' })
+    expect(groups[0].getAttribute('aria-controls')).toBe(details.id)
+    const call = within(details).getByText('Output one').closest('details')!
+    expect(call.open).toBe(false)
+    fireEvent.click(call.querySelector('summary')!)
+    expect(call.open).toBe(true)
+    expect(within(call).getByRole('button', { name: 'Copy output' })).toBeTruthy()
+    fireEvent.click(groups[0])
+    expect(screen.queryByRole('region', { name: 'Tool calls' })).toBeNull()
+  })
+
+  it('preserves expansion as calls arrive and exposes running, failed, and stopped status', async () => {
+    const a = thread()
+    const first = {
+      id: 'one',
+      type: 'tool' as const,
+      title: 'Read file',
+      detail: 'File contents',
+      status: 'running' as const,
+      timestamp: ''
+    }
+    mock.getSession.mockResolvedValue(snapshot(a.id, { timeline: [first], phase: 'running' }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    const group = await screen.findByRole('button', { name: /1 tool call.*1 running/ })
+    fireEvent.click(group)
+    const next: CopilotSessionSnapshot['timeline'] = [
+      { ...first, status: 'complete' },
+      { ...first, id: 'two', title: 'Run tests', detail: 'Tests failed', status: 'failed' },
+      { ...first, id: 'three', title: 'Check types', detail: 'Checking', status: 'running' }
+    ]
+    act(() => listener({ snapshot: snapshot(a.id, { timeline: next, phase: 'running' }) }))
+    expect(
+      screen.getByRole('button', { name: /3 tool calls.*Check types.*1 running · 1 failed/ })
+    ).toBe(group)
+    expect(group.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('Tests failed').closest('details')!.open).toBe(true)
+    fireEvent.click(group)
+    act(() =>
+      listener({
+        snapshot: snapshot(a.id, {
+          timeline: next.map((item) =>
+            item.type === 'tool' && item.status === 'running'
+              ? { ...item, status: 'cancelled' }
+              : item
+          )
+        })
+      })
+    )
+    expect(group.getAttribute('aria-expanded')).toBe('false')
+    expect(group.textContent).toContain('1 failed · 1 stopped')
+    expect(group.textContent).not.toContain('running')
+  })
+})
+
 describe('Copilot session settings and surrounding controls', () => {
   it('applies a model and its default effort, shows progress, and preserves the draft', async () => {
     const a = thread()
@@ -441,6 +689,6 @@ describe('Copilot session settings and surrounding controls', () => {
     const onStatus = mock.onSdkStatus.mock.calls[0][0]
     act(() => onStatus({ status: { installedVersion: '2.0.0', runtimeVersion: 'current' } }))
     await act(async () => check.resolve({ installedVersion: '1.0.0' }))
-    expect(screen.getByText('Copilot').getAttribute('title')).toContain('2.0.0')
+    expect(screen.getByRole('status').getAttribute('title')).toContain('2.0.0')
   })
 })

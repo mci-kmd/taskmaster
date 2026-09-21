@@ -534,7 +534,7 @@ export default function Workspace({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
           aria-hidden={!hasThread}
-          className={`flex h-full flex-col p-5 transition-opacity duration-200 ${
+          className={`flex h-full flex-col ${selectedView === 'copilot' && selectedThread?.agentInterface === 'custom' ? '' : 'p-5'} transition-opacity duration-200 ${
             hasThread ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >

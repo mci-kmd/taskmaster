@@ -14,7 +14,7 @@ import Button from './ui/Button'
 import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
-import SessionTimelineItem from './copilot/SessionTimelineItem'
+import SessionTimeline from './copilot/SessionTimeline'
 import { useSessionDraft } from './copilot/session-drafts'
 import '../assets/copilot-session.css'
 
@@ -309,15 +309,15 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         <span
           className={`tm-session-dot ${running ? 'tm-session-dot--running' : session?.phase === 'error' ? 'tm-session-dot--failed' : ''}`}
         />
-        <span role="status">{status}</span>
         <span
-          className="ml-auto text-[var(--color-fg-subtle)]"
+          role="status"
           title={`Copilot SDK ${sdk?.installedVersion ?? '…'}${sdk?.runtimeVersion ? ` · Runtime ${sdk.runtimeVersion}` : ''}`}
         >
-          Copilot
+          {status}
         </span>
         {sdk?.updateAvailable ? (
           <Button
+            className="ml-auto"
             disabled={
               Boolean(busy) ||
               running ||
@@ -363,7 +363,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         >
           <div className="tm-session-transcript" ref={contentRef}>
             {session?.timeline.length ? (
-              session.timeline.map((item) => <SessionTimelineItem item={item} key={item.id} />)
+              <SessionTimeline items={session.timeline} />
             ) : (
               <div className="tm-session-empty">
                 <span className="tm-session-empty-icon" aria-hidden="true">
@@ -579,19 +579,6 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
               </Button>
             </div>
           </div>
-        </div>
-        <div className="tm-session-hint">
-          {busy === 'attachments'
-            ? 'Adding attachments…'
-            : session?.pendingInteraction
-              ? 'Respond to Copilot’s request above, or stop the response'
-              : running
-                ? `Copilot is working · Your next message will use ${agentMode} mode`
-                : agentMode === 'plan'
-                  ? 'Plan mode · Explore and plan before making changes'
-                  : agentMode === 'autopilot'
-                    ? 'Autopilot · Copilot continues autonomously'
-                    : 'Enter to send · Shift + Enter for a new line'}
         </div>
       </div>
       {dragging ? <div className="tm-session-drop">Drop files to attach</div> : null}

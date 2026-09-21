@@ -6,8 +6,6 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--color-panel);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
 }
 .tm-session-header {
   display: flex;
@@ -82,6 +80,15 @@
   background: var(--color-hover);
   color: var(--color-fg);
 }
+.tm-session-copy--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  cursor: pointer;
+}
 .tm-session-activity {
   min-width: 0;
   border: 1px solid var(--color-border);
@@ -115,6 +122,62 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin-top: 8px;
+}
+.tm-session-tool-group {
+  min-width: 0;
+}
+.tm-session-tool-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 4px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--color-fg-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.tm-session-tool-group-toggle:hover {
+  background: var(--color-hover);
+}
+.tm-session-tool-group-chevron {
+  color: var(--color-fg-subtle);
+}
+.tm-session-tool-group-toggle[aria-expanded='true'] .tm-session-tool-group-chevron {
+  transform: rotate(90deg);
+}
+.tm-session-tool-group-count {
+  flex-shrink: 0;
+}
+.tm-session-tool-group-summary {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg-subtle);
+}
+.tm-session-tool-group-status {
+  flex-shrink: 0;
+  max-width: 45%;
+  font-size: 11px;
+  color: var(--color-fg-subtle);
+}
+.tm-session-tool-group-status--failed {
+  color: var(--color-danger);
+}
+.tm-session-tool-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 360px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin-top: 4px;
+  padding: 2px 4px 2px 14px;
+  border-left: 1px solid var(--color-border);
 }
 .tm-session-working {
   display: flex;
@@ -198,12 +261,6 @@
 .tm-session-controls select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-.tm-session-hint {
-  margin-top: 8px;
-  text-align: center;
-  font-size: 10.5px;
-  color: var(--color-fg-subtle);
 }
 .tm-session-attachments {
   display: flex;

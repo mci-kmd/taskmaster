@@ -1,15 +1,18 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CheckIcon, CloseIcon, CopyIcon } from '../Icons'
 import { safeExternalUrl } from './safe-external-url'
 
 export function CopyButton({
   text,
-  label = 'Copy'
+  label = 'Copy',
+  iconOnly = false
 }: {
   text: string
   label?: string
-}): React.JSX.Element {
+  iconOnly?: boolean
+}): React.JSX.Element | null {
   const [status, setStatus] = useState<string | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(
@@ -18,11 +21,13 @@ export function CopyButton({
     },
     []
   )
+  if (!text.trim()) return null
   return (
     <button
       type="button"
-      className="tm-session-copy"
+      className={iconOnly ? 'tm-session-copy tm-session-copy--icon' : 'tm-session-copy'}
       aria-label={label}
+      title={status ?? label}
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(text)
@@ -34,7 +39,18 @@ export function CopyButton({
         timer.current = setTimeout(() => setStatus(null), 2000)
       }}
     >
-      <span aria-live="polite">{status ?? label}</span>
+      {iconOnly ? (
+        status === 'Copied' ? (
+          <CheckIcon aria-hidden="true" className="text-[var(--color-positive)]" />
+        ) : status === 'Copy failed' ? (
+          <CloseIcon aria-hidden="true" className="text-[var(--color-danger)]" />
+        ) : (
+          <CopyIcon aria-hidden="true" />
+        )
+      ) : null}
+      <span className={iconOnly ? 'sr-only' : undefined} aria-live="polite">
+        {status ?? label}
+      </span>
     </button>
   )
 }

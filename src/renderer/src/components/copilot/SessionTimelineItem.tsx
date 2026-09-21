@@ -67,11 +67,12 @@ export default memo(function SessionTimelineItem({
         </div>
       ) : null}
       <div className="tm-session-message-footer">
-        <span>
-          {user ? 'You' : 'Copilot'}
-          {item.model ? ` · ${item.model}` : ''}
-        </span>
-        <CopyButton text={item.content} label="Copy message" />
+        {user ? (
+          <span>You{item.model ? ` · ${item.model}` : ''}</span>
+        ) : item.model ? (
+          <span>{item.model}</span>
+        ) : null}
+        <CopyButton text={item.content} label="Copy message" iconOnly />
       </div>
     </article>
   )
