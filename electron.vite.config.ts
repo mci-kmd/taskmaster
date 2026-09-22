@@ -7,6 +7,9 @@ export default defineConfig({
   main: {},
   preload: {},
   renderer: {
+    build: {
+      minify: true
+    },
     server: {
       port: 5175,
       strictPort: true

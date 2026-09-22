@@ -327,7 +327,17 @@ export function createCopilotSessionService(dependencies: {
   let clientVersion: string | null = null
   let clientPromise: Promise<CopilotClient> | null = null
   let models: CopilotModelOption[] = []
+  let modelCatalogClient: CopilotClient | null = null
   let sdkUpdateInProgress = false
+
+  const stopClient = async (): Promise<void> => {
+    const stoppingClient = client
+    client = null
+    clientVersion = null
+    models = []
+    modelCatalogClient = null
+    if (stoppingClient) await stoppingClient.stop()
+  }
 
   const discardClient = async (): Promise<void> => {
     for (const active of sessions.values()) {
@@ -340,6 +350,7 @@ export function createCopilotSessionService(dependencies: {
     client = null
     clientVersion = null
     models = []
+    modelCatalogClient = null
     if (staleClient) await staleClient.forceStop().catch(() => undefined)
   }
 
@@ -600,20 +611,40 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  const discoverModels = (sdkClient: CopilotClient): void => {
+    if (modelCatalogClient === sdkClient) return
+    modelCatalogClient = sdkClient
+    // The catalog can take seconds to arrive. Resume the conversation using its
+    // current model while the optional picker metadata loads in the background.
+    void sdkClient
+      .listModels()
+      .then((catalog) => {
+        if (client !== sdkClient) return
+        models = catalog.map(mapModel)
+        for (const active of sessions.values()) updateSnapshot(active, { models })
+      })
+      .catch((error) => {
+        if (client !== sdkClient) return
+        modelCatalogClient = null
+        console.warn('Could not load Copilot model options:', error)
+      })
+  }
+
   const ensureClient = async (): Promise<CopilotClient> => {
-    const loaded = await sdkManager.loadSdk()
     if (clientPromise) return clientPromise
 
     clientPromise = (async () => {
+      const loaded = await sdkManager.loadSdk()
       if (client && clientVersion === loaded.version) {
         try {
           await client.ping()
+          discoverModels(client)
           return client
         } catch {
           await discardClient()
         }
       }
-      if (client) await client.stop()
+      await stopClient()
       const runtimeEnv = buildCopilotRuntimeEnv(process.env)
       if (loaded.runtimePath) runtimeEnv.COPILOT_CLI_PATH = loaded.runtimePath
       const nextClient = new loaded.module.CopilotClient({
@@ -645,9 +676,10 @@ export function createCopilotSessionService(dependencies: {
             auth.statusMessage ?? 'Copilot is not signed in. Run the Copilot CLI login flow first.'
           )
         }
-        models = (await nextClient.listModels()).map(mapModel)
         client = nextClient
         clientVersion = loaded.version
+        models = []
+        discoverModels(nextClient)
         return nextClient
       } catch (error) {
         await nextClient.forceStop().catch(() => undefined)
@@ -835,7 +867,10 @@ export function createCopilotSessionService(dependencies: {
     const starting = startingThreads.get(threadId)
     if (starting) return starting.promise
     const existing = sessions.get(threadId)
-    if (existing) return Promise.resolve({ ok: true, snapshot: existing.snapshot })
+    if (existing) {
+      if (client) discoverModels(client)
+      return Promise.resolve({ ok: true, snapshot: existing.snapshot })
+    }
 
     const operation = {
       cancelled: false,
@@ -878,11 +913,7 @@ export function createCopilotSessionService(dependencies: {
         for (const threadId of new Set([...sessions.keys(), ...startingThreads.keys()])) {
           await stopThread(threadId)
         }
-        if (client) {
-          await client.stop()
-          client = null
-          clientVersion = null
-        }
+        await stopClient()
         return await sdkManager.installLatest()
       } finally {
         sdkUpdateInProgress = false
@@ -1069,10 +1100,7 @@ export function createCopilotSessionService(dependencies: {
         await active.session.disconnect()
       }
       sessions.clear()
-      if (client) {
-        await client.stop()
-        client = null
-      }
+      await stopClient()
     }
   }
 

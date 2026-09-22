@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   CopilotClientOptions,
+  ModelInfo,
   PermissionRequest,
   SessionConfig,
   SessionEvent
@@ -160,6 +161,90 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe('background model discovery', () => {
+  const catalog = [
+    {
+      id: 'model',
+      name: 'Available model',
+      capabilities: { supports: { vision: true } }
+    }
+  ] as ModelInfo[]
+
+  it('opens threads and accepts prompts before the shared model catalog arrives', async () => {
+    const pending = deferred<ModelInfo[]>()
+    harness.listModels.mockReturnValueOnce(pending.promise)
+    const service = setup()
+    const [first, second] = await Promise.all([service.start('first'), service.start('second')])
+    expect(first.snapshot).toMatchObject({ phase: 'idle', models: [] })
+    expect(second.snapshot).toMatchObject({ phase: 'idle', models: [] })
+    expect(harness.listModels).toHaveBeenCalledTimes(1)
+    expect(
+      (
+        await service.send({
+          threadId: 'first',
+          prompt: 'Hello',
+          attachments: [],
+          agentMode: 'interactive'
+        })
+      ).ok
+    ).toBe(true)
+
+    pending.resolve(catalog)
+    await vi.waitFor(() => {
+      for (const id of ['first', 'second']) {
+        expect(service.getSession(id)?.models).toEqual([
+          expect.objectContaining({ id: 'model', name: 'Available model' })
+        ])
+      }
+    })
+    expect(service.getSession('first')?.phase).toBe('running')
+    expect(service.getSession('second')?.phase).toBe('idle')
+  })
+
+  it('keeps the conversation usable when discovery fails and retries on the next start', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      harness.listModels.mockRejectedValueOnce(new Error('Catalog unavailable'))
+      const service = setup()
+      expect((await service.start('thread')).snapshot?.phase).toBe('idle')
+      expect(warning).toHaveBeenCalled()
+      harness.listModels.mockResolvedValueOnce(catalog)
+      await service.start('thread')
+      await vi.waitFor(() => expect(service.getSession('thread')?.models).toHaveLength(1))
+      expect(harness.listModels).toHaveBeenCalledTimes(2)
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  it('ignores catalog results from a replaced SDK client', async () => {
+    const stale = deferred<ModelInfo[]>()
+    harness.listModels.mockReturnValueOnce(stale.promise)
+    const service = setup()
+    await service.start('first')
+    harness.ping.mockRejectedValueOnce(new Error('Runtime exited'))
+    await service.start('second')
+    expect(harness.clientCount).toBe(2)
+    stale.resolve(catalog)
+    await stale.promise
+    expect(service.getSession('second')?.models).toEqual([])
+    expect(service.getSession('first')).toBeNull()
+  })
+
+  it('can shut down while model discovery is pending without publishing late results', async () => {
+    const pending = deferred<ModelInfo[]>()
+    harness.listModels.mockReturnValueOnce(pending.promise)
+    const service = setup()
+    await service.start('thread')
+    await service.shutdown()
+    harness.broadcast.mockClear()
+    pending.resolve(catalog)
+    await pending.promise
+    expect(service.getSession('thread')).toBeNull()
+    expect(harness.broadcast).not.toHaveBeenCalled()
+  })
 })
 
 describe('Copilot session interactions', () => {

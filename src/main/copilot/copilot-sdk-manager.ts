@@ -3,7 +3,7 @@ import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { pathToFileURL } from 'url'
 import { app } from 'electron'
-import { CopilotClient as BundledCopilotClient } from '@github/copilot-sdk'
+import type { CopilotClient as BundledCopilotClient } from '@github/copilot-sdk'
 import type { CopilotSdkStatus, CopilotSdkUpdateBlocker } from '../../shared/app-types'
 
 const BUNDLED_VERSION = '1.0.14'
@@ -261,7 +261,7 @@ export class CopilotSdkManager {
     const active = await this.readActiveSdk()
     if (!active) {
       return {
-        module: { CopilotClient: BundledCopilotClient },
+        module: await import('@github/copilot-sdk'),
         version: BUNDLED_VERSION,
         runtimePath: this.getBundledRuntimePath()
       }

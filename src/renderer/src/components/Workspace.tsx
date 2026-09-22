@@ -31,7 +31,6 @@ import { composeThreadTitle } from '../lib/title'
 import { COPILOT_LABEL } from '../../../shared/copilot'
 import { getRendererApi } from '../shared/api/client'
 import { useBranchStatus } from '../shared/hooks/use-branch-status'
-import CopilotThreadView from './CopilotThreadView'
 import {
   mergeCopilotThreadSessionState,
   toCopilotThreadSessionState
@@ -39,6 +38,7 @@ import {
 
 const api = getRendererApi()
 const LazyThreadDiffView = lazy(() => import('./ThreadDiffView'))
+const LazyCopilotThreadView = lazy(() => import('./CopilotThreadView'))
 
 type WorkspaceProps = {
   threads: ThreadSnapshot[]
@@ -603,10 +603,18 @@ export default function Workspace({
               selectedView === 'copilot' &&
               selectedThread.agentInterface === 'custom' ? (
                 <div className="absolute inset-0">
-                  <CopilotThreadView
-                    onSessionChange={handleCustomCopilotSessionChange}
-                    thread={selectedThread}
-                  />
+                  <Suspense
+                    fallback={
+                      <div className="p-6 text-sm text-[var(--color-fg-muted)]" role="status">
+                        Opening thread…
+                      </div>
+                    }
+                  >
+                    <LazyCopilotThreadView
+                      onSessionChange={handleCustomCopilotSessionChange}
+                      thread={selectedThread}
+                    />
+                  </Suspense>
                 </div>
               ) : null}
 
