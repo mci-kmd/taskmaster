@@ -1,3 +1,5 @@
+export type ViewMode = 'projects' | 'inbox'
+
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
 export type ThreadAgentInterface = 'cli' | 'custom'
 export type TerminalKind = 'agent' | 'shell'
@@ -117,6 +119,8 @@ export interface PersistedSettings {
 }
 
 export interface PersistedRepository {
+  icon?: string
+  iconColor?: string
   id: string
   name: string
   path: string
@@ -131,6 +135,9 @@ export interface PersistedRepository {
 }
 
 export interface PersistedThread {
+  /** Older threads belong to the projects view. */
+  viewMode?: ViewMode
+  settledAt?: string | null
   id: string
   repositoryId: string
   customTitle: string | null
@@ -157,6 +164,10 @@ export interface PersistedAppState {
   ui: {
     selectedRepositoryId: string | null
     selectedThreadId: string | null
+    viewMode?: ViewMode
+    modeSelections?: Partial<
+      Record<ViewMode, { repositoryId: string | null; threadId: string | null }>
+    >
     sidebarWidth?: number
   }
 }
@@ -332,9 +343,16 @@ export type ThreadDiffFileSaveResult =
 export type SidebarContextMenuKind = 'repository' | 'thread'
 
 export type SidebarContextMenuAction =
-  'new-thread' | 'edit' | 'convert-to-worktree' | 'close-thread'
+  | 'new-thread'
+  | 'edit'
+  | 'convert-to-worktree'
+  | 'close-thread'
+  | 'settle-thread'
+  | 'unsettle-thread'
 
 export interface SidebarContextMenuRequest {
+  inboxThread?: boolean
+  settled?: boolean
   kind: SidebarContextMenuKind
   itemId: string
   x: number
@@ -351,6 +369,7 @@ export interface SidebarContextMenuActionEvent {
 }
 
 export interface AppSnapshot {
+  viewMode?: ViewMode
   repositories: RepositorySnapshot[]
   settings: AppSettingsSnapshot
   selectedRepositoryId: string | null
@@ -570,6 +589,8 @@ export interface UpdateSettingsInput {
 }
 
 export interface UpdateRepositoryInput {
+  icon?: string
+  iconColor?: string
   repositoryId: string
   faviconPath: string | null
   runCommand: string | null
@@ -604,10 +625,12 @@ export interface ThreadRunStateEvent {
 
 export interface UpdateThreadInput {
   threadId: string
-  customTitle: string | null
+  customTitle?: string | null
+  settled?: boolean
 }
 
 export interface UpdateUiInput {
+  viewMode?: ViewMode
   sidebarWidth?: number
 }
 

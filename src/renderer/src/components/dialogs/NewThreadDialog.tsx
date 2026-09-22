@@ -1,4 +1,5 @@
-import { useId, useState } from 'react'
+import Select from '../ui/Select'
+import { useState } from 'react'
 import Modal from '../Modal'
 import Button from '../ui/Button'
 import Checkbox from '../ui/Checkbox'
@@ -7,7 +8,8 @@ import SegmentedControl from '../ui/SegmentedControl'
 import type {
   RepositorySnapshot,
   ThreadAgentInterface,
-  ThreadMode
+  ThreadMode,
+  ViewMode
 } from '../../../../shared/app-types'
 
 type SubmitInput = {
@@ -21,6 +23,7 @@ type SubmitInput = {
 type DialogMode = 'branch' | 'worktree'
 
 type NewThreadDialogProps = {
+  viewMode: ViewMode
   open: boolean
   repository: RepositorySnapshot | null
   busy: boolean
@@ -31,6 +34,7 @@ type NewThreadDialogProps = {
 
 export default function NewThreadDialog({
   open,
+  viewMode,
   repository,
   busy,
   error,
@@ -51,6 +55,8 @@ export default function NewThreadDialog({
     >
       {repository ? (
         <NewThreadForm
+          key={`${repository.id}:${viewMode}`}
+          viewMode={viewMode}
           busy={busy}
           error={error}
           onCancel={onClose}
@@ -79,6 +85,7 @@ export default function NewThreadDialog({
 }
 
 type NewThreadFormProps = {
+  viewMode: ViewMode
   repository: RepositorySnapshot
   busy: boolean
   error: string | null
@@ -87,6 +94,7 @@ type NewThreadFormProps = {
 }
 
 function NewThreadForm({
+  viewMode,
   repository,
   busy,
   error,
@@ -94,12 +102,12 @@ function NewThreadForm({
   onSubmit
 }: NewThreadFormProps): React.JSX.Element {
   const [mode, setMode] = useState<DialogMode>('branch')
-  const [agentInterface, setAgentInterface] = useState<ThreadAgentInterface>('cli')
+  const [agentInterface, setAgentInterface] = useState<ThreadAgentInterface>(
+    viewMode === 'inbox' ? 'custom' : 'cli'
+  )
   const [title, setTitle] = useState('')
   const [branchName, setBranchName] = useState('')
   const [useCurrentBranch, setUseCurrentBranch] = useState(false)
-  const branchOptionsId = useId()
-  const worktreeOptionsId = useId()
 
   const trimmedBranchName = branchName.trim()
   const defaultBranchName = repository.primaryBranch ?? repository.currentBranch
@@ -166,32 +174,34 @@ function NewThreadForm({
         />
       </Field>
 
-      <Field
-        hint={
-          agentInterface === 'custom'
-            ? 'Uses the Copilot SDK with Taskmaster-owned chat, prompts, and model controls.'
-            : 'Uses the existing Copilot terminal interface.'
-        }
-        label="Copilot interface"
-      >
-        <SegmentedControl<ThreadAgentInterface>
-          ariaLabel="Copilot interface"
-          onChange={setAgentInterface}
-          options={[
-            {
-              value: 'cli',
-              label: 'CLI',
-              description: 'Current terminal experience'
-            },
-            {
-              value: 'custom',
-              label: 'Custom UI',
-              description: 'SDK-powered preview'
-            }
-          ]}
-          value={agentInterface}
-        />
-      </Field>
+      {viewMode !== 'inbox' ? (
+        <Field
+          hint={
+            agentInterface === 'custom'
+              ? 'Uses the Copilot SDK with Taskmaster-owned chat, prompts, and model controls.'
+              : 'Uses the existing Copilot terminal interface.'
+          }
+          label="Copilot interface"
+        >
+          <SegmentedControl<ThreadAgentInterface>
+            ariaLabel="Copilot interface"
+            onChange={setAgentInterface}
+            options={[
+              {
+                value: 'cli',
+                label: 'CLI',
+                description: 'Current terminal experience'
+              },
+              {
+                value: 'custom',
+                label: 'Custom UI',
+                description: 'SDK-powered preview'
+              }
+            ]}
+            value={agentInterface}
+          />
+        </Field>
+      ) : null}
 
       <Field hint={labelHint} label="Label">
         <TextInput
@@ -203,30 +213,26 @@ function NewThreadForm({
       </Field>
 
       <Field hint={branchHint} label={mode === 'worktree' ? 'Worktree branch' : 'Branch'}>
-        <TextInput
-          list={mode === 'worktree' ? worktreeOptionsId : branchOptionsId}
-          onChange={(event) => setBranchName(event.target.value)}
+        <Select
+          editable
+          aria-label={mode === 'worktree' ? 'Worktree branch' : 'Branch'}
+          onChange={setBranchName}
           placeholder={mode === 'worktree' ? 'feature/my-worktree' : defaultBranchName}
           value={branchName}
+          options={
+            mode === 'worktree'
+              ? repository.worktreeOptions.map((option) => ({
+                  value: option.branchName,
+                  label: option.branchName,
+                  description: option.path
+                }))
+              : repository.branchOptions.map((option) => ({
+                  value: option.value,
+                  label: option.value,
+                  description: option.label
+                }))
+          }
         />
-        <datalist id={branchOptionsId}>
-          {repository.branchOptions.map((option) => (
-            <option
-              key={`${option.kind}:${option.value}`}
-              label={option.label}
-              value={option.value}
-            />
-          ))}
-        </datalist>
-        <datalist id={worktreeOptionsId}>
-          {repository.worktreeOptions.map((option) => (
-            <option
-              key={`${option.branchName}:${option.path}`}
-              label={option.path}
-              value={option.branchName}
-            />
-          ))}
-        </datalist>
       </Field>
 
       {mode === 'branch' && !trimmedBranchName ? (

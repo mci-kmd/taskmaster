@@ -9,6 +9,7 @@ import { registerTerminalIpc } from './terminal'
 import {
   initializeAppState,
   markCopilotSessionStarted,
+  updateCopilotActivity,
   markThreadLaunched,
   registerAppStateIpc,
   resolveCopilotThread,
@@ -72,7 +73,8 @@ app.whenReady().then(() => {
     resolveThread: resolveCopilotThread,
     onSessionStarted: markCopilotSessionStarted,
     onTitleChanged: updateCopilotThreadTitle,
-    onUserMessage: updateCopilotLastUserMessage
+    onUserMessage: updateCopilotLastUserMessage,
+    onActivity: updateCopilotActivity
   })
   setCopilotThreadController({
     stop: copilotSessionService.stopThread,

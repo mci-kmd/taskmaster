@@ -1,3 +1,4 @@
+import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../shared/project-icons'
 import type {
   MutationResult,
   PersistedAppState,
@@ -147,6 +148,15 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         return dependencies.failureResult('Repository not found.')
       }
 
+      if (input.icon !== undefined && !PROJECT_ICONS.some((icon) => icon.id === input.icon)) {
+        return dependencies.failureResult('Invalid project icon.')
+      }
+      if (
+        input.iconColor !== undefined &&
+        !PROJECT_ICON_COLORS.some((color) => color.value === input.iconColor)
+      ) {
+        return dependencies.failureResult('Invalid project icon color.')
+      }
       const faviconValidation = dependencies.validateRepositoryFaviconInput(
         repository.path,
         input.faviconPath
@@ -183,6 +193,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       }
 
       if (
+        (input.icon === undefined || input.icon === repository.icon) &&
+        (input.iconColor === undefined || input.iconColor === repository.iconColor) &&
         repository.faviconPath === faviconValidation.path &&
         repository.runCommand === runCommandValidation.command &&
         repository.solutionFilePath === solutionFileValidation.path &&
@@ -192,6 +204,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         return dependencies.successResult()
       }
 
+      if (input.icon !== undefined) repository.icon = input.icon
+      if (input.iconColor !== undefined) repository.iconColor = input.iconColor
       repository.faviconPath = faviconValidation.path
       repository.runCommand = runCommandValidation.command
       repository.solutionFilePath = solutionFileValidation.path

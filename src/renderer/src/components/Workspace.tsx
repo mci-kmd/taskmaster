@@ -44,6 +44,7 @@ type WorkspaceProps = {
   threads: ThreadSnapshot[]
   selectedThread: ThreadSnapshot | null
   selectedRepository: RepositorySnapshot | null
+  showRepositoryTasks?: boolean
   settings: AppSettingsSnapshot
   hasRepositories: boolean
   autoLaunchThreadId: string | null
@@ -220,6 +221,7 @@ export default function Workspace({
   threads,
   selectedThread,
   selectedRepository,
+  showRepositoryTasks = true,
   settings,
   hasRepositories,
   autoLaunchThreadId,
@@ -629,7 +631,7 @@ export default function Workspace({
           </div>
         </div>
 
-        {!hasThread && selectedRepository ? (
+        {!hasThread && selectedRepository && showRepositoryTasks ? (
           <div className="absolute inset-0">
             <ProjectTaskManager
               busy={repositoryTaskBusy}
@@ -643,7 +645,7 @@ export default function Workspace({
           </div>
         ) : null}
 
-        {!hasThread && !selectedRepository ? (
+        {!hasThread && (!selectedRepository || !showRepositoryTasks) ? (
           <div className="absolute inset-0">
             <EmptyState
               hasRepositories={hasRepositories}

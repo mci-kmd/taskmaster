@@ -204,3 +204,27 @@ export function LogoMark(props: IconProps): React.JSX.Element {
     </svg>
   )
 }
+
+export function InboxIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M2 9 4 3h8l2 6v4H2V9Zm0 0h4l1 2h2l1-2h4" />
+    </svg>
+  )
+}
+
+export function PencilIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="m10.5 2.5 3 3M3 10l8-8a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2l-8 8-4 1 1-4Z" />
+    </svg>
+  )
+}
+
+export function TasksIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="m2 3.5 1 1 2-2M7 3.5h7M2 8l1 1 2-2M7 8h7M2 12.5l1 1 2-2M7 12.5h7" />
+    </svg>
+  )
+}

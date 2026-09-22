@@ -4,7 +4,8 @@ import type {
   PersistedAppState,
   PersistedThread,
   ThreadAgentInterface,
-  ThreadMode
+  ThreadMode,
+  ViewMode
 } from '../../../shared/app-types'
 import { runGit } from '../../backends/git-client'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
@@ -31,6 +32,7 @@ function createThreadRecord(
     nowIso: () => string
   },
   repositoryId: string,
+  viewMode: ViewMode,
   mode: ThreadMode,
   agentInterface: ThreadAgentInterface,
   branchName: string,
@@ -46,6 +48,7 @@ function createThreadRecord(
   return {
     id: dependencies.createId(),
     repositoryId,
+    viewMode,
     customTitle,
     latestCopilotTitle: null,
     lastUserMessage: null,
@@ -64,7 +67,7 @@ function createThreadRecord(
 }
 
 export function createThreadCreateService(dependencies: {
-  ensureState: () => Pick<PersistedAppState, 'repositories' | 'threads'>
+  ensureState: () => Pick<PersistedAppState, 'repositories' | 'threads' | 'ui'>
   updateSelection: (repositoryId: string | null, threadId: string | null) => void
   saveState: () => void
   successResult: () => MutationResult
@@ -82,8 +85,12 @@ export function createThreadCreateService(dependencies: {
         return dependencies.failureResult('Repository not found.')
       }
 
+      const viewMode = state.ui.viewMode ?? 'projects'
       const customTitle = normalizeCustomTitle(input.title)
-      const agentInterface = input.agentInterface ?? 'cli'
+      if (viewMode === 'inbox' && input.agentInterface === 'cli') {
+        return dependencies.failureResult('Inbox threads use the custom Copilot interface.')
+      }
+      const agentInterface = input.agentInterface ?? (viewMode === 'inbox' ? 'custom' : 'cli')
       const repositoryPath = getRepositoryExecutionPath(repository)
 
       if (input.mode === 'worktree') {
@@ -99,6 +106,7 @@ export function createThreadCreateService(dependencies: {
           const thread = createThreadRecord(
             dependencies,
             repository.id,
+            viewMode,
             'worktree',
             agentInterface,
             existingWorktree.branchName,
@@ -206,6 +214,7 @@ export function createThreadCreateService(dependencies: {
         const thread = createThreadRecord(
           dependencies,
           repository.id,
+          viewMode,
           'worktree',
           agentInterface,
           branchName,
@@ -230,6 +239,7 @@ export function createThreadCreateService(dependencies: {
         const thread = createThreadRecord(
           dependencies,
           repository.id,
+          viewMode,
           'active-branch',
           agentInterface,
           currentBranchLabel,
@@ -280,6 +290,7 @@ export function createThreadCreateService(dependencies: {
         const thread = createThreadRecord(
           dependencies,
           repository.id,
+          viewMode,
           'active-branch',
           agentInterface,
           targetBranchName,
@@ -320,6 +331,7 @@ export function createThreadCreateService(dependencies: {
       const thread = createThreadRecord(
         dependencies,
         repository.id,
+        viewMode,
         'new-branch',
         agentInterface,
         requestedBranchName,

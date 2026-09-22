@@ -11,6 +11,7 @@ import { createCopilotSessionService } from './copilot-session-service'
 const harness = vi.hoisted(() => ({
   clientOptions: null as CopilotClientOptions | null,
   clientCount: 0,
+  activity: vi.fn(),
   config: null as SessionConfig | null,
   listener: null as ((event: SessionEvent) => void) | null,
   getEvents: vi.fn(),
@@ -85,7 +86,8 @@ function setup(globalFlags: string[] = []): ReturnType<typeof createCopilotSessi
     }),
     onSessionStarted: vi.fn(),
     onTitleChanged: vi.fn(),
-    onUserMessage: vi.fn()
+    onUserMessage: vi.fn(),
+    onActivity: harness.activity
   })
 }
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -462,4 +464,15 @@ it('prevents sending while model settings are still being applied', async () => 
       })
     ).ok
   ).toBe(true)
+})
+
+it('records activity when a running turn completes, but not when opening an idle session', async () => {
+  const service = setup()
+  await service.start('thread-1')
+  emit('session.idle', {})
+  expect(harness.activity).not.toHaveBeenCalled()
+  emit('assistant.turn_start', { turnId: 'turn-1' })
+  emit('session.idle', {})
+  expect(harness.activity).toHaveBeenCalledExactlyOnceWith('thread-1')
+  await service.shutdown()
 })

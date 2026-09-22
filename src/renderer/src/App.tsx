@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getViewSnapshot } from './lib/view-snapshot'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import Toast, { type ToastTone } from './components/Toast'
@@ -21,6 +22,7 @@ import {
   type ThreadMode,
   type ThreadSnapshot,
   type UpdateSettingsInput,
+  type UpdateRepositoryInput,
   type UpdateRepositoryTaskInput
 } from '../../shared/app-types'
 
@@ -128,13 +130,16 @@ export default function App(): React.JSX.Element {
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null)
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
   const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
+  const [inboxProjectId, setInboxProjectId] = useState<string | null>(null)
   const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
   const [newThreadError, setNewThreadError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
   const selectionRequestIdRef = useRef(0)
   const handleSnapshotLoaded = useCallback((nextSnapshot: AppSnapshot): void => {
-    setCollapsedRepositoryIds(getDefaultCollapsedRepositoryIds(nextSnapshot))
+    setCollapsedRepositoryIds(
+      getDefaultCollapsedRepositoryIds(getViewSnapshot(nextSnapshot, 'projects'))
+    )
     setSidebarWidth(nextSnapshot.sidebarWidth)
   }, [])
   const handleMutationFeedback = useCallback(
@@ -155,10 +160,62 @@ export default function App(): React.JSX.Element {
     },
     []
   )
-  const { applyMutation, refreshSnapshot, setSnapshot, snapshot } = useAppSnapshot({
+  const {
+    applyMutation,
+    refreshSnapshot,
+    setSnapshot,
+    snapshot: fullSnapshot
+  } = useAppSnapshot({
     onSnapshotLoaded: handleSnapshotLoaded,
     onMutationFeedback: handleMutationFeedback
   })
+
+  const snapshot = useMemo(
+    () => (fullSnapshot ? getViewSnapshot(fullSnapshot) : null),
+    [fullSnapshot]
+  )
+
+  const handleToggleViewMode = useCallback(async (): Promise<void> => {
+    if (!fullSnapshot) return
+    ++selectionRequestIdRef.current
+    setBusyAction('switch-mode')
+    setInboxProjectId(null)
+    setRepositoryViewId(null)
+    setDialog(null)
+    try {
+      await applyMutation(
+        api.appState.updateUi({
+          viewMode: fullSnapshot.viewMode === 'inbox' ? 'projects' : 'inbox'
+        })
+      )
+    } catch (error) {
+      setFeedback({
+        tone: 'error',
+        message: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      setBusyAction(null)
+    }
+  }, [fullSnapshot, applyMutation])
+
+  const settlingThreadIds = useRef(new Set<string>())
+  const handleSettleThread = useCallback(
+    async (threadId: string, settled: boolean): Promise<void> => {
+      if (settlingThreadIds.current.has(threadId)) return
+      settlingThreadIds.current.add(threadId)
+      try {
+        await applyMutation(api.appState.updateThread({ threadId, settled }))
+      } catch (error) {
+        setFeedback({
+          tone: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        })
+      } finally {
+        settlingThreadIds.current.delete(threadId)
+      }
+    },
+    [applyMutation]
+  )
 
   const selectedRepository = useMemo(() => {
     if (!snapshot) {
@@ -169,8 +226,15 @@ export default function App(): React.JSX.Element {
       return snapshot.repositories.find((repository) => repository.id === repositoryViewId) ?? null
     }
 
+    if (snapshot.viewMode === 'inbox' && inboxProjectId) {
+      return (
+        snapshot.repositories.find((repository) => repository.id === inboxProjectId) ??
+        findSelectedRepository(snapshot)
+      )
+    }
+
     return findSelectedRepository(snapshot)
-  }, [repositoryViewId, snapshot])
+  }, [inboxProjectId, repositoryViewId, snapshot])
 
   const selectedThread = useMemo(() => {
     if (!snapshot || repositoryViewId) {
@@ -207,8 +271,8 @@ export default function App(): React.JSX.Element {
   }, [editingThreadId, snapshot])
 
   const allThreads = useMemo<ThreadSnapshot[]>(() => {
-    return snapshot ? snapshot.repositories.flatMap((repository) => repository.threads) : []
-  }, [snapshot])
+    return fullSnapshot ? fullSnapshot.repositories.flatMap((repository) => repository.threads) : []
+  }, [fullSnapshot])
 
   const handleSessionsChange = useCallback((next: SessionMap): void => {
     setSessions(next)
@@ -222,7 +286,12 @@ export default function App(): React.JSX.Element {
     setBusyAction('add-repository')
     const result = await applyMutation(api.appState.addRepository(), 'Repository added.')
     if (result.ok && result.snapshot?.selectedRepositoryId) {
-      setRepositoryViewId(result.snapshot.selectedRepositoryId)
+      if (result.snapshot.viewMode === 'inbox') {
+        setInboxProjectId(result.snapshot.selectedRepositoryId)
+        setRepositoryViewId(null)
+      } else {
+        setRepositoryViewId(result.snapshot.selectedRepositoryId)
+      }
     }
     setBusyAction(null)
   }, [applyMutation])
@@ -249,6 +318,11 @@ export default function App(): React.JSX.Element {
 
   const handleSelectRepository = useCallback(
     (repositoryId: string): void => {
+      if (snapshot?.viewMode === 'inbox') {
+        setInboxProjectId(repositoryId)
+        setRepositoryViewId(null)
+        return
+      }
       const requestId = ++selectionRequestIdRef.current
       setRepositoryViewId(repositoryId)
       setSnapshot((current) =>
@@ -262,11 +336,12 @@ export default function App(): React.JSX.Element {
         setSnapshot(nextSnapshot)
       })
     },
-    [setSnapshot]
+    [setSnapshot, snapshot?.viewMode]
   )
 
   const handleSelectThread = useCallback(
     (threadId: string): void => {
+      setInboxProjectId(null)
       const requestId = ++selectionRequestIdRef.current
       setRepositoryViewId(null)
       setSnapshot((current) => (current ? applyThreadSelection(current, threadId) : current))
@@ -322,7 +397,6 @@ export default function App(): React.JSX.Element {
         }
 
         if (result.ok && result.snapshot?.selectedThreadId) {
-          setFeedback({ tone: 'success', message: 'Thread created.' })
           setRepositoryViewId(null)
           const newThreadId = result.snapshot.selectedThreadId
           const newThread = findThreadById(result.snapshot, newThreadId)
@@ -416,14 +490,7 @@ export default function App(): React.JSX.Element {
   )
 
   const handleSaveRepository = useCallback(
-    async (input: {
-      repositoryId: string
-      faviconPath: string | null
-      runCommand: string | null
-      solutionFilePath: string | null
-      newWorktreeSetupCommand: string | null
-      postWorktreeRemoveCommand: string | null
-    }): Promise<boolean> => {
+    async (input: UpdateRepositoryInput): Promise<boolean> => {
       setBusyAction('save-repository')
       const result = await applyMutation(api.appState.updateRepository(input), 'Project updated.')
       setBusyAction(null)
@@ -649,9 +716,13 @@ export default function App(): React.JSX.Element {
           onCloseThread={(id) => void handleCloseThread(id)}
           onConvertThreadToWorktree={(id) => void handleConvertThreadToWorktree(id)}
           onEditRepository={handleOpenRepositoryEditor}
+          onOpenRepositoryTasks={setRepositoryViewId}
           onEditThread={handleOpenThreadEditor}
           onNewThread={handleOpenNewThreadDialog}
           onOpenSettings={() => setDialog('settings')}
+          onToggleViewMode={() => void handleToggleViewMode()}
+          onSettleThread={(id, settled) => void handleSettleThread(id, settled)}
+          switchingMode={busyAction === 'switch-mode'}
           onSelectRepository={(id) => void handleSelectRepository(id)}
           onSelectThread={(id) => void handleSelectThread(id)}
           onToggleRepository={handleToggleRepository}
@@ -691,13 +762,21 @@ export default function App(): React.JSX.Element {
           busyAction === 'update-task'
         }
         runCommandBusy={busyAction === 'run-command'}
-        selectedRepository={selectedRepository}
+        selectedRepository={
+          selectedThread
+            ? (snapshot.repositories.find(
+                (repository) => repository.id === selectedThread.repositoryId
+              ) ?? null)
+            : selectedRepository
+        }
+        showRepositoryTasks={snapshot.viewMode !== 'inbox' || repositoryViewId !== null}
         selectedThread={selectedThread}
         settings={snapshot.settings}
         threads={allThreads}
       />
 
       <NewThreadDialog
+        viewMode={snapshot.viewMode ?? 'projects'}
         busy={busyAction === 'create-thread'}
         error={newThreadError}
         onClose={handleCloseNewThreadDialog}

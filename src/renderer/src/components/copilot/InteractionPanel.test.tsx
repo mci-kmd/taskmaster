@@ -32,7 +32,8 @@ it('validates required choices, accepts decimals, and submits unchecked booleans
   )
   const form = screen.getByRole('button', { name: 'Continue' }).closest('form')!
   expect(form.checkValidity()).toBe(false)
-  fireEvent.change(screen.getByLabelText('choice'), { target: { value: 'B' } })
+  fireEvent.click(screen.getByRole('combobox', { name: 'choice' }))
+  fireEvent.click(screen.getByRole('option', { name: 'B' }))
   fireEvent.change(screen.getByLabelText('amount'), { target: { value: '2.5' } })
   fireEvent.change(screen.getByLabelText('optional'), { target: { value: '' } })
   expect(form.checkValidity()).toBe(true)

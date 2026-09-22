@@ -346,8 +346,18 @@ export function markCopilotSessionStarted(threadId: string, sessionId: string): 
 
 export function updateCopilotThreadTitle(threadId: string, title: string): void {
   threadStateService.updateThreadCopilotTitle({ threadId, title })
+  electronUi.broadcastThreadRunState(threadId)
 }
 
 export function updateCopilotLastUserMessage(threadId: string, message: string): void {
   threadStateService.updateThreadLastUserMessage({ threadId, message })
+  electronUi.broadcastThreadRunState(threadId)
+}
+
+export function updateCopilotActivity(threadId: string): void {
+  const thread = findThread(threadId)
+  if (!thread) return
+  thread.lastActivityAt = nowIso()
+  saveState()
+  electronUi.broadcastThreadRunState(threadId)
 }

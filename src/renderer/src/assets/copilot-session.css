@@ -246,22 +246,17 @@
   gap: 6px;
   padding: 8px 10px;
 }
-.tm-session-controls select {
-  max-width: min(220px, 100%);
-  min-width: 0;
-  color: var(--color-fg-muted);
-  font-size: 11.5px;
-  padding: 6px;
-  border-radius: 6px;
-  cursor: pointer;
+.tm-session-controls .tm-picker {
+  max-width: 220px;
 }
-.tm-session-controls select:hover {
-  background: var(--color-hover);
+.tm-session-controls .tm-picker-trigger {
+  border-color: transparent;
+  background: transparent;
 }
-.tm-session-controls select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+.tm-session-controls .tm-picker-trigger:hover:not(:disabled) {
+  background: var(--color-control-hover);
 }
+
 .tm-session-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -453,7 +448,7 @@
   .tm-session-bottom {
     padding: 0 10px 8px;
   }
-  .tm-session-controls select {
+  .tm-session-controls .tm-picker {
     max-width: 160px;
   }
   .tm-session-empty {

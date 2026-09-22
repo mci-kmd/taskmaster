@@ -1,5 +1,5 @@
 import Button from './ui/Button'
-import { LogoMark, PlusIcon } from './Icons'
+import { LogoMark, PlusIcon, PencilIcon } from './Icons'
 
 type EmptyStateProps = {
   hasRepository: boolean
@@ -49,7 +49,7 @@ export default function EmptyState({
               title={hasRepository ? 'Create a new thread (Ctrl+N)' : 'Select a repository first'}
               variant="primary"
             >
-              <PlusIcon width={12} height={12} strokeWidth={1.8} />
+              <PencilIcon width={12} height={12} strokeWidth={1.8} />
               New thread
             </Button>
           ) : (

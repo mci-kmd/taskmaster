@@ -22,7 +22,11 @@ describe('thread state service', () => {
     }
     const snapshot = { repositories: [], settings: {}, selectedRepositoryId: 'repo-1' } as never
     const service = createThreadStateService({
-      ensureState: () => ({ ui: { selectedRepositoryId: 'repo-1', selectedThreadId: null } }),
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: null }
+      }),
       findThread: () => thread,
       saveState,
       updateSelection,
@@ -62,7 +66,11 @@ describe('thread state service', () => {
       hasLaunched: false
     }
     const service = createThreadStateService({
-      ensureState: () => ({ ui: { selectedRepositoryId: 'repo-1', selectedThreadId: null } }),
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: null }
+      }),
       findThread: () => thread,
       saveState,
       updateSelection: () => {},

@@ -1,3 +1,4 @@
+import Select from '../ui/Select'
 import type {
   CopilotModelOption,
   CopilotReasoningEffort,
@@ -36,32 +37,29 @@ export default function SessionModelControls({
     <>
       <label className="tm-session-setting" title={modelTitle}>
         <span>Model</span>
-        <select
+        <Select
+          compact
           aria-label="Model"
           disabled={disabled || !session?.models.length}
           value={session?.model ?? ''}
-          onChange={(event) => {
-            const next = session?.models.find((model) => model.id === event.target.value)
+          placeholder={
+            session?.models.length ? 'Choose model' : session ? 'No models available' : 'Loading…'
+          }
+          onChange={(value) => {
+            const next = session?.models.find((model) => model.id === value)
             if (next) onChange(next.id, next.defaultReasoningEffort)
           }}
-        >
-          {!session?.model ? (
-            <option value="" disabled>
-              {session?.models.length
-                ? 'Choose model'
-                : session
-                  ? 'No models available'
-                  : 'Loading…'}
-            </option>
-          ) : !selected ? (
-            <option value={session.model}>{session.model}</option>
-          ) : null}
-          {session?.models.map((model) => (
-            <option key={model.id} value={model.id} title={modelDescription(model)}>
-              {model.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            ...(!selected && session?.model
+              ? [{ value: session.model, label: session.model }]
+              : []),
+            ...(session?.models.map((model) => ({
+              value: model.id,
+              label: model.name,
+              description: modelDescription(model)
+            })) ?? [])
+          ]}
+        />
       </label>
       {efforts.length ? (
         <label
@@ -69,33 +67,33 @@ export default function SessionModelControls({
           title={disabled ? disabledReason : 'How much reasoning Copilot uses for the next message'}
         >
           <span>Effort</span>
-          <select
+          <Select
+            compact
             aria-label="Reasoning effort"
             disabled={disabled}
             value={effort}
-            onChange={(event) => {
+            onChange={(value) => {
               if (session?.model)
-                onChange(
-                  session.model,
-                  (event.target.value || null) as CopilotReasoningEffort | null
-                )
+                onChange(session.model, (value || null) as CopilotReasoningEffort | null)
             }}
-          >
-            <option value="" disabled={!selected?.defaultReasoningEffort}>
-              Default
-              {selected?.defaultReasoningEffort ? ` (${selected.defaultReasoningEffort})` : ''}
-            </option>
-            {effort && !efforts.includes(effort) ? <option value={effort}>{effort}</option> : null}
-            {efforts.map((value) => (
-              <option key={value} value={value}>
-                {value === 'xhigh'
-                  ? 'Extra high'
-                  : value === 'max'
-                    ? 'Maximum'
-                    : value[0].toUpperCase() + value.slice(1)}
-              </option>
-            ))}
-          </select>
+            options={[
+              {
+                value: '',
+                label: `Default${selected?.defaultReasoningEffort ? ` (${selected.defaultReasoningEffort})` : ''}`,
+                disabled: !selected?.defaultReasoningEffort
+              },
+              ...(effort && !efforts.includes(effort) ? [{ value: effort, label: effort }] : []),
+              ...efforts.map((value) => ({
+                value,
+                label:
+                  value === 'xhigh'
+                    ? 'Extra high'
+                    : value === 'max'
+                      ? 'Maximum'
+                      : value[0].toUpperCase() + value.slice(1)
+              }))
+            ]}
+          />
         </label>
       ) : null}
       {busy ? (

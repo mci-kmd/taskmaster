@@ -179,6 +179,7 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
 
     return {
       repositories,
+      viewMode: state.ui.viewMode ?? 'projects',
       settings: {
         ...state.settings,
         parsedGlobalFlags: dependencies.parseGlobalFlags(state.settings.globalFlagsInput),

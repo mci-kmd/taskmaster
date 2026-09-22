@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react'
 
 type FieldShellProps = {
   label: string
@@ -37,25 +37,6 @@ const inputClass =
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>): React.JSX.Element {
   const { className = '', ...rest } = props
   return <input className={`${inputClass} ${className}`} {...rest} />
-}
-
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>): React.JSX.Element {
-  const { className = '', children, ...rest } = props
-  return (
-    <select
-      className={`${inputClass} tm-select appearance-none pr-8 ${className}`}
-      style={{
-        backgroundImage:
-          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%236b6b6b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4 6 4 4 4-4'/%3E%3C/svg%3E\")",
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'right 10px center',
-        colorScheme: 'dark'
-      }}
-      {...rest}
-    >
-      {children}
-    </select>
-  )
 }
 
 export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>): React.JSX.Element {

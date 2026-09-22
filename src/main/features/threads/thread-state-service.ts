@@ -10,7 +10,7 @@ import type {
 } from '../../../shared/app-types'
 
 type ThreadStateServiceDependencies = {
-  ensureState: () => Pick<PersistedAppState, 'ui'>
+  ensureState: () => Pick<PersistedAppState, 'ui' | 'repositories' | 'threads'>
   findThread: (threadId: string) => PersistedThread | undefined
   saveState: () => void
   updateSelection: (repositoryId: string | null, threadId: string | null) => void
@@ -42,6 +42,21 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
         return dependencies.failureResult('Thread not found.')
       }
 
+      const state = dependencies.ensureState()
+      if (input.settled !== undefined) {
+        if (thread.viewMode !== 'inbox' || typeof input.settled !== 'boolean') {
+          return dependencies.failureResult('Only inbox threads can be settled.')
+        }
+        thread.settledAt = input.settled ? (thread.settledAt ?? dependencies.nowIso()) : null
+        if (input.settled && state.ui.selectedThreadId === thread.id) {
+          const next = state.threads
+            .filter((item) => item.viewMode === 'inbox' && !item.settledAt)
+            .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0]
+          dependencies.updateSelection(next?.repositoryId ?? thread.repositoryId, next?.id ?? null)
+        }
+        dependencies.saveState()
+      }
+      if (input.customTitle === undefined) return dependencies.successResult()
       const customTitle = dependencies.normalizeCustomTitle(input.customTitle)
       if (thread.customTitle === customTitle) {
         return dependencies.successResult()

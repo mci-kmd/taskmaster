@@ -7,8 +7,17 @@ import type {
 } from '../../../shared/app-types'
 
 export function normalizeSelection(state: PersistedAppState): void {
-  const repositoryIds = new Set(state.repositories.map((repository) => repository.id))
-  const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const))
+  const repositories = state.repositories
+  const repositoryIds = new Set(repositories.map((repository) => repository.id))
+  const threadsById = new Map(
+    state.threads
+      .filter(
+        (thread) =>
+          repositoryIds.has(thread.repositoryId) &&
+          (thread.viewMode ?? 'projects') === (state.ui.viewMode ?? 'projects')
+      )
+      .map((thread) => [thread.id, thread] as const)
+  )
 
   if (state.ui.selectedRepositoryId && !repositoryIds.has(state.ui.selectedRepositoryId)) {
     state.ui.selectedRepositoryId = null
@@ -22,8 +31,8 @@ export function normalizeSelection(state: PersistedAppState): void {
     state.ui.selectedRepositoryId = threadsById.get(state.ui.selectedThreadId)?.repositoryId ?? null
   }
 
-  if (!state.ui.selectedRepositoryId && state.repositories.length > 0) {
-    state.ui.selectedRepositoryId = state.repositories[0].id
+  if (!state.ui.selectedRepositoryId && repositories.length > 0) {
+    state.ui.selectedRepositoryId = repositories[0].id
   }
 }
 
@@ -86,6 +95,12 @@ export function createPersistedStateStore(
     saveState,
     updateSelection: (repositoryId: string | null, threadId: string | null): void => {
       const state = ensureState()
+      const thread = state.threads.find((item) => item.id === threadId)
+      if (thread && (thread.viewMode ?? 'projects') !== (state.ui.viewMode ?? 'projects')) {
+        state.ui.modeSelections ??= {}
+        state.ui.modeSelections[thread.viewMode ?? 'projects'] = { repositoryId, threadId }
+        return
+      }
       state.ui.selectedRepositoryId = repositoryId
       state.ui.selectedThreadId = threadId
     },

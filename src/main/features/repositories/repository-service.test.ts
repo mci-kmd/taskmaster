@@ -54,6 +54,44 @@ function createTestRepositoryService(
 }
 
 describe('repository service', () => {
+  it('reuses the configured project when its folder is added from inbox', async () => {
+    const project = createTestRepository({ icon: 'code', runCommand: 'bun dev' })
+    const state = {
+      repositories: [project],
+      ui: { selectedRepositoryId: null, selectedThreadId: null, viewMode: 'inbox' as const }
+    }
+    const select = vi.fn()
+    const service = createTestRepositoryService({
+      ensureState: () => state,
+      updateSelection: select,
+      selectRepositoryDirectory: async () => ({ canceled: false, filePaths: [project.path] }),
+      resolveGitRoot: () => project.path,
+      isSameRepositoryPath: () => true
+    })
+    await service.addRepository()
+    expect(state.repositories).toEqual([project])
+    expect(select).toHaveBeenCalledWith(project.id, null)
+    expect(project).toMatchObject({ icon: 'code', runCommand: 'bun dev' })
+  })
+
+  it('saves icon-only edits and rejects unknown icon or color values', () => {
+    const repository = createTestRepository()
+    const service = createTestRepositoryService({ findRepository: () => repository })
+    const input = {
+      repositoryId: repository.id,
+      faviconPath: null,
+      runCommand: null,
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null,
+      postWorktreeRemoveCommand: null
+    }
+    expect(service.updateRepository({ ...input, icon: 'code', iconColor: '#7aa2f7' }).ok).toBe(true)
+    expect(repository).toMatchObject({ icon: 'code', iconColor: '#7aa2f7' })
+    expect(service.updateRepository({ ...input, icon: 'unknown' }).ok).toBe(false)
+    expect(service.updateRepository({ ...input, iconColor: 'unknown' }).ok).toBe(false)
+    expect(repository.icon).toBe('code')
+  })
+
   it('updates repository settings when validated values change', () => {
     const saveState = vi.fn()
     const repository = createTestRepository()

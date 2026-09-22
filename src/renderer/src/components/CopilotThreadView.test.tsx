@@ -83,6 +83,11 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+function chooseOption(label: string, option: string): void {
+  fireEvent.click(screen.getByRole('combobox', { name: label }))
+  fireEvent.click(screen.getByRole('option', { name: option }))
+}
+
 describe('Copilot session composer', () => {
   it('keeps drafts and attachments per thread, including after changing views', async () => {
     const a = thread(),
@@ -152,7 +157,7 @@ describe('Copilot session composer', () => {
     fireEvent.keyDown(input(), { key: 'Enter' })
     expect(mock.send).not.toHaveBeenCalled()
     expect(send().disabled).toBe(true)
-    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).disabled).toBe(
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).disabled).toBe(
       true
     )
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
@@ -202,9 +207,7 @@ describe('Copilot session composer', () => {
     mock.respond.mockRejectedValue(new Error('Response failed'))
     render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
     await ready()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Reasoning effort' }), {
-      target: { value: 'high' }
-    })
+    chooseOption('Reasoning effort', 'High')
     expect((await screen.findByRole('alert')).textContent).toContain('Model unavailable')
     act(() =>
       listener({
@@ -527,9 +530,7 @@ describe('Copilot session settings and surrounding controls', () => {
     render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
     await ready()
     fireEvent.change(input(), { target: { value: 'Keep my draft' } })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
-      target: { value: 'other' }
-    })
+    chooseOption('Model', 'Other model')
     expect(mock.setModel).toHaveBeenCalledWith({
       threadId: a.id,
       model: 'other',
@@ -539,17 +540,15 @@ describe('Copilot session settings and surrounding controls', () => {
     expect(send().disabled).toBe(true)
     const applied = { ...initial, model: 'other', reasoningEffort: 'medium' as const }
     await act(async () => pending.resolve({ ok: true, snapshot: applied }))
-    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).value).toBe(
       'other'
     )
     expect(
-      (screen.getByRole('combobox', { name: 'Reasoning effort' }) as HTMLSelectElement).value
+      (screen.getByRole('combobox', { name: 'Reasoning effort' }) as HTMLButtonElement).value
     ).toBe('medium')
     expect(input().value).toBe('Keep my draft')
     mock.setModel.mockResolvedValue({ ok: true, snapshot: { ...applied, reasoningEffort: 'high' } })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Reasoning effort' }), {
-      target: { value: 'high' }
-    })
+    chooseOption('Reasoning effort', 'High')
     await waitFor(() =>
       expect(mock.setModel).toHaveBeenLastCalledWith({
         threadId: a.id,
@@ -559,7 +558,7 @@ describe('Copilot session settings and surrounding controls', () => {
     )
     await waitFor(() =>
       expect(
-        (screen.getByRole('combobox', { name: 'Reasoning effort' }) as HTMLSelectElement).value
+        (screen.getByRole('combobox', { name: 'Reasoning effort' }) as HTMLButtonElement).value
       ).toBe('high')
     )
   })
@@ -582,11 +581,9 @@ describe('Copilot session settings and surrounding controls', () => {
     })
     render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
     await ready()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
-      target: { value: 'plain' }
-    })
+    chooseOption('Model', 'Plain model')
     await screen.findByRole('alert')
-    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement).value).toBe(
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).value).toBe(
       'model'
     )
     expect(screen.getByRole('combobox', { name: 'Reasoning effort' })).toBeTruthy()
@@ -594,9 +591,7 @@ describe('Copilot session settings and surrounding controls', () => {
       ok: true,
       snapshot: { ...initial, model: 'plain', reasoningEffort: null }
     })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
-      target: { value: 'plain' }
-    })
+    chooseOption('Model', 'Plain model')
     await waitFor(() =>
       expect(screen.queryByRole('combobox', { name: 'Reasoning effort' })).toBeNull()
     )
@@ -612,19 +607,17 @@ describe('Copilot session settings and surrounding controls', () => {
     mock.getSession.mockResolvedValue(snapshot(a.id, { model: 'legacy-model', models: [] }))
     render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
     await ready()
-    const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLSelectElement
+    const model = screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement
     expect(model.value).toBe('legacy-model')
     expect(model.disabled).toBe(true)
-    expect(model.selectedOptions[0].textContent).toBe('legacy-model')
+    expect(model.textContent).toBe('legacy-model')
   })
 
   it('uses the selected mode for the next message and follows subsequent runtime mode changes', async () => {
     const a = thread()
     render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
     await ready()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Agent mode' }), {
-      target: { value: 'plan' }
-    })
+    chooseOption('Agent mode', 'Plan')
     fireEvent.change(input(), { target: { value: 'Plan this feature' } })
     mock.send.mockImplementation(async () => {
       act(() => listener({ snapshot: snapshot(a.id, { phase: 'running', agentMode: 'plan' }) }))
@@ -641,7 +634,7 @@ describe('Copilot session settings and surrounding controls', () => {
     act(() =>
       listener({ snapshot: snapshot(a.id, { phase: 'running', agentMode: 'interactive' }) })
     )
-    expect((screen.getByRole('combobox', { name: 'Agent mode' }) as HTMLSelectElement).value).toBe(
+    expect((screen.getByRole('combobox', { name: 'Agent mode' }) as HTMLButtonElement).value).toBe(
       'interactive'
     )
   })

@@ -1,3 +1,4 @@
+import Select from '../ui/Select'
 import { useState } from 'react'
 import type { CopilotInteraction, CopilotInteractionResponse } from '../../../../shared/app-types'
 import Button from '../ui/Button'
@@ -191,30 +192,29 @@ export default function InteractionPanel({
                     type="checkbox"
                   />
                 ) : field.options ? (
-                  <select
-                    className="tm-select rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
-                    required={interaction.schema?.required.includes(name)}
-                    multiple={field.type === 'array'}
-                    onChange={(event) => {
-                      const next =
-                        field.type === 'array'
-                          ? Array.from(event.target.selectedOptions, (option) => option.value)
-                          : event.target.value
-                      setValues((current) => ({ ...current, [name]: next }))
-                    }}
-                    value={
-                      field.type === 'array'
-                        ? ((values[name] as string[] | undefined) ?? [])
-                        : String(values[name] ?? field.default ?? '')
-                    }
-                  >
-                    {field.type !== 'array' ? <option value="">Select</option> : null}
-                    {field.options.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+                  field.type === 'array' ? (
+                    <Select
+                      multiple
+                      aria-label={field.title ?? name}
+                      disabled={busy}
+                      required={interaction.schema?.required.includes(name)}
+                      options={field.options.map((option) => ({ value: option, label: option }))}
+                      value={(values[name] as string[] | undefined) ?? []}
+                      onChange={(next) => setValues((current) => ({ ...current, [name]: next }))}
+                    />
+                  ) : (
+                    <Select
+                      aria-label={field.title ?? name}
+                      disabled={busy}
+                      required={interaction.schema?.required.includes(name)}
+                      options={[
+                        { value: '', label: 'Select' },
+                        ...field.options.map((option) => ({ value: option, label: option }))
+                      ]}
+                      value={String(values[name] ?? field.default ?? '')}
+                      onChange={(next) => setValues((current) => ({ ...current, [name]: next }))}
+                    />
+                  )
                 ) : (
                   <input
                     className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"

@@ -1,3 +1,4 @@
+import Select from './ui/Select'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
   CopilotAttachment,
@@ -522,21 +523,20 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             </Button>
             <label className="tm-session-setting" title="Mode for your next message">
               <span>Mode</span>
-              <select
+              <Select
+                compact
                 aria-label="Agent mode"
                 value={agentMode}
-                onChange={(event) =>
-                  updateDraft((current) => ({
-                    ...current,
-                    agentMode: event.target.value as typeof agentMode
-                  }))
+                onChange={(value) =>
+                  updateDraft((current) => ({ ...current, agentMode: value as typeof agentMode }))
                 }
                 title="Mode for your next message"
-              >
-                <option value="interactive">Interactive</option>
-                <option value="plan">Plan</option>
-                <option value="autopilot">Autopilot</option>
-              </select>
+                options={[
+                  { value: 'interactive', label: 'Interactive' },
+                  { value: 'plan', label: 'Plan' },
+                  { value: 'autopilot', label: 'Autopilot' }
+                ]}
+              />
             </label>
             <SessionModelControls
               session={session}

@@ -53,9 +53,24 @@ function buildSidebarContextMenuTemplate(
   }
 
   template.push({
-    click: () => sendAction(event, request, 'close-thread'),
-    enabled: request.closeThreadEnabled,
-    label: request.closeThreadEnabled ? 'Close thread' : 'Closing...'
+    click: () =>
+      sendAction(
+        event,
+        request,
+        request.inboxThread
+          ? request.settled
+            ? 'unsettle-thread'
+            : 'settle-thread'
+          : 'close-thread'
+      ),
+    enabled: request.inboxThread || request.closeThreadEnabled,
+    label: request.inboxThread
+      ? request.settled
+        ? 'Unsettle thread'
+        : 'Settle thread'
+      : request.closeThreadEnabled
+        ? 'Close thread'
+        : 'Closing...'
   })
   return template
 }

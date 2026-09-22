@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import type {
   AppSnapshot,
   RepositorySnapshot,
@@ -11,13 +11,16 @@ import {
   BranchIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  FolderIcon,
   GearIcon,
+  FolderIcon,
+  InboxIcon,
   LogoMark,
   PlusIcon,
   ThreadIcon,
   WorktreeIcon
 } from './Icons'
+import ProjectIcon from './ProjectIcon'
+import InboxThreads from './InboxThreads'
 import Button from './ui/Button'
 import { formatRelativeTime } from '../lib/time'
 import { composeThreadTitle } from '../lib/title'
@@ -50,47 +53,17 @@ type SidebarProps = {
   onSelectThread: (id: string) => void
   onAddRepository: () => void
   onEditRepository: (id: string) => void
+  onOpenRepositoryTasks: (id: string) => void
   onEditThread: (id: string) => void
   onNewThread: (repositoryId: string) => void
   onOpenSettings: () => void
+  onToggleViewMode: () => void
+  onSettleThread: (id: string, settled: boolean) => void
+  switchingMode: boolean
   onConvertThreadToWorktree: (id: string) => void
   onCloseThread: (id: string) => void
   convertingThread: boolean
   closingThread: boolean
-}
-
-function RepositoryListIcon({
-  repository,
-  selected
-}: {
-  repository: RepositorySnapshot
-  selected: boolean
-}): React.JSX.Element {
-  const [imageFailed, setImageFailed] = useState(false)
-
-  if (repository.faviconUrl && !imageFailed) {
-    return (
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        <img
-          alt=""
-          className="size-4 rounded-[4px] object-contain"
-          draggable={false}
-          onError={() => setImageFailed(true)}
-          src={repository.faviconUrl}
-        />
-      </span>
-    )
-  }
-
-  return (
-    <span className="flex size-4 shrink-0 items-center justify-center">
-      <FolderIcon
-        className={selected ? 'text-[var(--color-fg)]' : 'text-[var(--color-fg-subtle)]'}
-        width={13}
-        height={13}
-      />
-    </span>
-  )
 }
 
 export default function Sidebar({
@@ -105,9 +78,13 @@ export default function Sidebar({
   onSelectThread,
   onAddRepository,
   onEditRepository,
+  onOpenRepositoryTasks,
   onEditThread,
   onNewThread,
   onOpenSettings,
+  onToggleViewMode,
+  onSettleThread,
+  switchingMode,
   onConvertThreadToWorktree,
   onCloseThread,
   convertingThread,
@@ -143,11 +120,23 @@ export default function Sidebar({
         return
       }
 
+      if (payload.action === 'settle-thread' || payload.action === 'unsettle-thread') {
+        onSettleThread(payload.itemId, payload.action === 'settle-thread')
+        return
+      }
+
       if (payload.action === 'close-thread') {
         onCloseThread(payload.itemId)
       }
     },
-    [onCloseThread, onConvertThreadToWorktree, onEditRepository, onEditThread, onNewThread]
+    [
+      onSettleThread,
+      onCloseThread,
+      onConvertThreadToWorktree,
+      onEditRepository,
+      onEditThread,
+      onNewThread
+    ]
   )
 
   useEffect(() => {
@@ -170,32 +159,56 @@ export default function Sidebar({
 
   return (
     <aside className="flex min-h-0 w-full min-w-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-panel)]">
-      <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--color-border)] px-4">
-        <div className="flex items-center gap-2 text-[var(--color-fg)]">
+      <div className="flex h-12 shrink-0 items-center justify-between gap-1 border-b border-[var(--color-border)] px-3">
+        <div className="flex min-w-0 items-center gap-2 text-[var(--color-fg)]">
           <LogoMark className="text-[var(--color-fg)]" />
           <div className="flex items-center gap-2">
             <span className="text-[13.5px] font-medium tracking-tight">Taskmaster</span>
             {isDevMode ? (
               <span className="rounded-full border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/12 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--color-warning)]">
-                Dev Mode
+                Dev
               </span>
             ) : null}
           </div>
         </div>
-        <Button
-          aria-label="Open settings"
-          iconOnly
-          onClick={onOpenSettings}
-          size="sm"
-          title="Settings"
-          variant="ghost"
-        >
-          <GearIcon width={14} height={14} />
-        </Button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            aria-label={
+              snapshot.viewMode === 'inbox' ? 'Switch to projects view' : 'Switch to inbox view'
+            }
+            aria-pressed={snapshot.viewMode === 'inbox'}
+            iconOnly
+            disabled={switchingMode || busyAddRepository}
+            onClick={onToggleViewMode}
+            size="sm"
+            title={
+              snapshot.viewMode === 'inbox' ? 'Switch to projects view' : 'Switch to inbox view'
+            }
+            variant="ghost"
+          >
+            {snapshot.viewMode === 'inbox' ? (
+              <InboxIcon width={14} height={14} />
+            ) : (
+              <FolderIcon width={14} height={14} />
+            )}
+          </Button>
+          <Button
+            aria-label="Open settings"
+            iconOnly
+            onClick={onOpenSettings}
+            size="sm"
+            title="Settings"
+            variant="ghost"
+          >
+            <GearIcon width={14} height={14} />
+          </Button>
+        </div>
       </div>
 
-      <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
-        <div className="mb-1.5 flex items-center justify-between px-2">
+      <nav
+        className={`min-h-0 flex-1 px-2 py-3 ${snapshot.viewMode === 'inbox' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
+      >
+        <div className="mb-1.5 flex shrink-0 items-center justify-between px-2">
           <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
             <span>Repositories</span>
             <span className="text-[var(--color-fg-faint)]">·</span>
@@ -232,166 +245,194 @@ export default function Sidebar({
           </div>
         ) : null}
 
-        <ul className="space-y-0.5">
-          {snapshot.repositories.map((repository) => {
-            const isCollapsed = collapsedRepositoryIds.has(repository.id)
-            const isSelectedRepo = repository.id === selectedRepository?.id
+        {snapshot.viewMode === 'inbox' ? (
+          <InboxThreads
+            repositories={snapshot.repositories}
+            selectedRepository={selectedRepository}
+            selectedThread={selectedThread}
+            sessions={sessions}
+            onSelectRepository={onSelectRepository}
+            onSelectThread={onSelectThread}
+            onNewThread={onNewThread}
+            onEditRepository={onEditRepository}
+            onOpenRepositoryTasks={onOpenRepositoryTasks}
+            onEditThread={onEditThread}
+            onSettleThread={onSettleThread}
+            onContextMenu={(thread, x, y) =>
+              showContextMenu({
+                kind: 'thread',
+                itemId: thread.id,
+                x,
+                y,
+                convertToWorktreeVisible: thread.mode !== 'worktree',
+                convertToWorktreeEnabled: !convertingThread,
+                closeThreadEnabled: false,
+                inboxThread: true,
+                settled: Boolean(thread.settledAt)
+              })
+            }
+          />
+        ) : (
+          <ul className="space-y-0.5">
+            {snapshot.repositories.map((repository) => {
+              const isCollapsed = collapsedRepositoryIds.has(repository.id)
+              const isSelectedRepo = repository.id === selectedRepository?.id
 
-            return (
-              <li key={repository.id}>
-                <div
-                  className={`group flex items-center gap-1 rounded-md px-1.5 py-1.5 transition ${
-                    isSelectedRepo && !selectedThread
-                      ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
-                      : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
-                  }`}
-                  onContextMenu={(event) => {
-                    event.preventDefault()
-                    showContextMenu({
-                      kind: 'repository',
-                      itemId: repository.id,
-                      x: event.clientX,
-                      y: event.clientY,
-                      convertToWorktreeVisible: false,
-                      convertToWorktreeEnabled: false,
-                      closeThreadEnabled: false
-                    })
-                  }}
-                >
-                  <button
-                    aria-label={isCollapsed ? 'Expand repository' : 'Collapse repository'}
-                    className="grid size-5 place-items-center rounded text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]"
-                    onClick={() => onToggleRepository(repository.id)}
-                    title={isCollapsed ? 'Expand' : 'Collapse'}
-                    type="button"
+              return (
+                <li key={repository.id}>
+                  <div
+                    className={`group flex items-center gap-1 rounded-md px-1.5 py-1.5 transition ${
+                      isSelectedRepo && !selectedThread
+                        ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
+                        : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
+                    }`}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      showContextMenu({
+                        kind: 'repository',
+                        itemId: repository.id,
+                        x: event.clientX,
+                        y: event.clientY,
+                        convertToWorktreeVisible: false,
+                        convertToWorktreeEnabled: false,
+                        closeThreadEnabled: false
+                      })
+                    }}
                   >
-                    {isCollapsed ? (
-                      <ChevronRightIcon width={12} height={12} />
-                    ) : (
-                      <ChevronDownIcon width={12} height={12} />
-                    )}
-                  </button>
-                  <button
-                    className="flex min-w-0 flex-1 items-center gap-1.5"
-                    onClick={() => onSelectRepository(repository.id)}
-                    title={`${repository.name} — ${repository.path}`}
-                    type="button"
-                  >
-                    <RepositoryListIcon
-                      key={`${repository.id}:${repository.faviconUrl ?? 'folder'}`}
-                      repository={repository}
-                      selected={isSelectedRepo}
-                    />
-                    <span className="truncate text-[13px] font-medium">{repository.name}</span>
-                  </button>
-                </div>
+                    <button
+                      aria-label={isCollapsed ? 'Expand repository' : 'Collapse repository'}
+                      className="grid size-5 place-items-center rounded text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]"
+                      onClick={() => onToggleRepository(repository.id)}
+                      title={isCollapsed ? 'Expand' : 'Collapse'}
+                      type="button"
+                    >
+                      {isCollapsed ? (
+                        <ChevronRightIcon width={12} height={12} />
+                      ) : (
+                        <ChevronDownIcon width={12} height={12} />
+                      )}
+                    </button>
+                    <button
+                      className="flex min-w-0 flex-1 items-center gap-1.5"
+                      onClick={() => onSelectRepository(repository.id)}
+                      title={`${repository.name} — ${repository.path}`}
+                      type="button"
+                    >
+                      <ProjectIcon
+                        key={`${repository.id}:${repository.faviconUrl ?? 'folder'}`}
+                        repository={repository}
+                      />
+                      <span className="truncate text-[13px] font-medium">{repository.name}</span>
+                    </button>
+                  </div>
 
-                {!isCollapsed ? (
-                  <ul className="mt-0.5 space-y-0.5 border-l border-[var(--color-border)] pl-3 ml-3.5">
-                    {repository.threads.length === 0 ? (
-                      <li className="px-2 py-1.5 text-[12px] text-[var(--color-fg-faint)]">
-                        No threads
-                      </li>
-                    ) : null}
-                    {repository.threads.map((thread) => {
-                      const isSelected = thread.id === selectedThread?.id
-                      const session = sessions.get(thread.id)
-                      const composedTitle = composeThreadTitle(thread, session?.runtimeTitle)
-                      const phase = session?.phase
-                      const isCustom = thread.agentInterface === 'custom'
-                      const isLaunching = !isCustom && phase === 'launching'
-                      const isRunning = !isCustom && (thread.isRunning || phase === 'running')
-                      const threadModeTooltip = getThreadModeTooltip(thread)
-                      const customStatus = isCustom
-                        ? CUSTOM_THREAD_STATUS[session?.copilotStatus ?? 'idle']
-                        : null
+                  {!isCollapsed ? (
+                    <ul className="mt-0.5 space-y-0.5 border-l border-[var(--color-border)] pl-3 ml-3.5">
+                      {repository.threads.length === 0 ? (
+                        <li className="px-2 py-1.5 text-[12px] text-[var(--color-fg-faint)]">
+                          No threads
+                        </li>
+                      ) : null}
+                      {repository.threads.map((thread) => {
+                        const isSelected = thread.id === selectedThread?.id
+                        const session = sessions.get(thread.id)
+                        const composedTitle = composeThreadTitle(thread, session?.runtimeTitle)
+                        const phase = session?.phase
+                        const isCustom = thread.agentInterface === 'custom'
+                        const isLaunching = !isCustom && phase === 'launching'
+                        const isRunning = !isCustom && (thread.isRunning || phase === 'running')
+                        const threadModeTooltip = getThreadModeTooltip(thread)
+                        const customStatus = isCustom
+                          ? CUSTOM_THREAD_STATUS[session?.copilotStatus ?? 'idle']
+                          : null
 
-                      return (
-                        <li key={thread.id}>
-                          <button
-                            className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
-                              isSelected
-                                ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
-                                : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
-                            }`}
-                            onContextMenu={(event) => {
-                              event.preventDefault()
-                              showContextMenu({
-                                kind: 'thread',
-                                itemId: thread.id,
-                                x: event.clientX,
-                                y: event.clientY,
-                                convertToWorktreeVisible: thread.mode !== 'worktree',
-                                convertToWorktreeEnabled: !convertingThread,
-                                closeThreadEnabled: !closingThread
-                              })
-                            }}
-                            onClick={() => onSelectThread(thread.id)}
-                            title={`${composedTitle} · ${thread.displayBranchName}${
-                              customStatus
-                                ? ` · ${customStatus.label}`
-                                : isRunning
-                                  ? ' · running'
-                                  : isLaunching
-                                    ? ' · launching'
-                                    : ''
-                            }\n${thread.cwd}`}
-                            type="button"
-                          >
-                            <span
-                              aria-hidden
-                              className={`size-1.5 shrink-0 rounded-full ${
-                                isRunning
-                                  ? 'bg-[var(--color-positive)] tm-pulse-dot'
-                                  : isLaunching
-                                    ? 'bg-[var(--color-info)] tm-pulse-dot'
-                                    : isSelected
-                                      ? 'bg-[var(--color-fg)]'
-                                      : 'bg-[var(--color-fg-faint)]'
+                        return (
+                          <li key={thread.id}>
+                            <button
+                              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
+                                isSelected
+                                  ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
+                                  : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
                               }`}
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[12.5px] font-medium">
-                                {composedTitle}
-                              </span>
-                              <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--color-fg-subtle)]">
-                                <span className="truncate font-mono">
-                                  {thread.displayBranchName}
+                              onContextMenu={(event) => {
+                                event.preventDefault()
+                                showContextMenu({
+                                  kind: 'thread',
+                                  itemId: thread.id,
+                                  x: event.clientX,
+                                  y: event.clientY,
+                                  convertToWorktreeVisible: thread.mode !== 'worktree',
+                                  convertToWorktreeEnabled: !convertingThread,
+                                  closeThreadEnabled: !closingThread
+                                })
+                              }}
+                              onClick={() => onSelectThread(thread.id)}
+                              title={`${composedTitle} · ${thread.displayBranchName}${
+                                customStatus
+                                  ? ` · ${customStatus.label}`
+                                  : isRunning
+                                    ? ' · running'
+                                    : isLaunching
+                                      ? ' · launching'
+                                      : ''
+                              }\n${thread.cwd}`}
+                              type="button"
+                            >
+                              <span
+                                aria-hidden
+                                className={`size-1.5 shrink-0 rounded-full ${
+                                  isRunning
+                                    ? 'bg-[var(--color-positive)] tm-pulse-dot'
+                                    : isLaunching
+                                      ? 'bg-[var(--color-info)] tm-pulse-dot'
+                                      : isSelected
+                                        ? 'bg-[var(--color-fg)]'
+                                        : 'bg-[var(--color-fg-faint)]'
+                                }`}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[12.5px] font-medium">
+                                  {composedTitle}
                                 </span>
-                                {threadModeTooltip ? (
+                                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--color-fg-subtle)]">
+                                  <span className="truncate font-mono">
+                                    {thread.displayBranchName}
+                                  </span>
+                                  {threadModeTooltip ? (
+                                    <span
+                                      aria-label={threadModeTooltip}
+                                      className="shrink-0 text-[var(--color-fg-subtle)]"
+                                      title={threadModeTooltip}
+                                    >
+                                      {thread.mode === 'worktree' ? (
+                                        <WorktreeIcon width={11} height={11} />
+                                      ) : (
+                                        <BranchIcon width={11} height={11} />
+                                      )}
+                                    </span>
+                                  ) : null}
+                                  <span className="text-[var(--color-fg-faint)]">·</span>
+                                  <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
+                                </span>
+                                {customStatus ? (
                                   <span
-                                    aria-label={threadModeTooltip}
-                                    className="shrink-0 text-[var(--color-fg-subtle)]"
-                                    title={threadModeTooltip}
+                                    className={`mt-0.5 block text-[10.5px] font-medium ${customStatus.className}`}
                                   >
-                                    {thread.mode === 'worktree' ? (
-                                      <WorktreeIcon width={11} height={11} />
-                                    ) : (
-                                      <BranchIcon width={11} height={11} />
-                                    )}
+                                    {customStatus.label}
                                   </span>
                                 ) : null}
-                                <span className="text-[var(--color-fg-faint)]">·</span>
-                                <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
                               </span>
-                              {customStatus ? (
-                                <span
-                                  className={`mt-0.5 block text-[10.5px] font-medium ${customStatus.className}`}
-                                >
-                                  {customStatus.label}
-                                </span>
-                              ) : null}
-                            </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                ) : null}
-              </li>
-            )
-          })}
-        </ul>
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </nav>
 
       <div className="flex shrink-0 items-center gap-2 border-t border-[var(--color-border)] px-4 py-2.5 text-[11px] text-[var(--color-fg-subtle)]">

@@ -1,3 +1,4 @@
+import Select from './ui/Select'
 import 'react-diff-view/style/index.css'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -28,7 +29,7 @@ import { ArrowRightIcon, RefreshIcon } from './Icons'
 import MonacoFileEditor from './MonacoFileEditor'
 import ResizeHandle from './ResizeHandle'
 import Button from './ui/Button'
-import { Field, Select } from './ui/Field'
+import { Field } from './ui/Field'
 import SegmentedControl from './ui/SegmentedControl'
 import { getRendererApi } from '../shared/api/client'
 import { getSkippedHunkInfo } from '../lib/diff-hunks'
@@ -1041,24 +1042,19 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                   <Select
                     disabled={!rangeOptions}
                     id="thread-diff-base-ref"
-                    onChange={(event) =>
-                      setSelectedRange((current) => ({
-                        ...current,
-                        baseRef: event.target.value
-                      }))
+                    aria-label="Base ref"
+                    onChange={(value) =>
+                      setSelectedRange((current) => ({ ...current, baseRef: value }))
                     }
                     value={selectedRange.baseRef}
-                  >
-                    {rangeOptions?.baseOptions.map((option) => (
-                      <option
-                        key={option.value}
-                        title={option.description ?? undefined}
-                        value={option.value}
-                      >
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
+                    options={
+                      rangeOptions?.baseOptions.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                        description: option.description ?? undefined
+                      })) ?? []
+                    }
+                  />
                 </Field>
               </div>
 
@@ -1075,24 +1071,19 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                   <Select
                     disabled={!rangeOptions}
                     id="thread-diff-head-ref"
-                    onChange={(event) =>
-                      setSelectedRange((current) => ({
-                        ...current,
-                        headRef: event.target.value
-                      }))
+                    aria-label="Compare ref"
+                    onChange={(value) =>
+                      setSelectedRange((current) => ({ ...current, headRef: value }))
                     }
                     value={selectedRange.headRef}
-                  >
-                    {rangeOptions?.headOptions.map((option) => (
-                      <option
-                        key={option.value}
-                        title={option.description ?? undefined}
-                        value={option.value}
-                      >
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
+                    options={
+                      rangeOptions?.headOptions.map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                        description: option.description ?? undefined
+                      })) ?? []
+                    }
+                  />
                 </Field>
               </div>
             </>

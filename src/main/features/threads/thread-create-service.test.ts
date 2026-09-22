@@ -134,6 +134,21 @@ describe('createThreadCreateService', () => {
     vi.mocked(createWorktree).mockReturnValue('/repo/.worktrees/feature-thread')
   })
 
+  it.each(['projects', 'inbox'] as const)(
+    'creates %s threads on the same shared project',
+    (viewMode) => {
+      const harness = createHarness()
+      harness.state.ui.viewMode = viewMode
+      expect(harness.createThread({ repositoryId: 'repo-1', mode: 'active-branch' }).ok).toBe(true)
+      expect(harness.state.repositories).toHaveLength(1)
+      expect(harness.state.threads[0]).toMatchObject({
+        repositoryId: 'repo-1',
+        viewMode,
+        agentInterface: viewMode === 'inbox' ? 'custom' : 'cli'
+      })
+    }
+  )
+
   it('creates a thread on the active branch when branch input is blank', () => {
     const harness = createHarness()
 

@@ -292,6 +292,7 @@ export function createCopilotSessionService(dependencies: {
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
   onUserMessage: (threadId: string, message: string) => void
+  onActivity?: (threadId: string) => void
 }): {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   checkForSdkUpdate: () => Promise<CopilotSdkStatus>
@@ -579,6 +580,7 @@ export function createCopilotSessionService(dependencies: {
         }
         break
       case 'session.idle':
+        if (active.snapshot.phase === 'running') dependencies.onActivity?.(active.snapshot.threadId)
         finishActivity(active)
         cancelInteractions(active)
         updateSnapshot(active, { phase: 'idle', error: null })

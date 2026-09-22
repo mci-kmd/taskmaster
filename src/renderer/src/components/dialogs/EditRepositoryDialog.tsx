@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../../shared/project-icons'
+import { ProjectGlyph } from '../ProjectIcon'
 import Modal from '../Modal'
 import Button from '../ui/Button'
 import { Field, TextArea, TextInput } from '../ui/Field'
@@ -12,6 +14,8 @@ type EditRepositoryDialogProps = {
   onBrowseFavicon: (repositoryId: string) => Promise<string | null>
   onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
   onSubmit: (input: {
+    icon: string
+    iconColor: string
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
@@ -80,6 +84,8 @@ type EditRepositoryFormProps = {
   onBrowseFavicon: (repositoryId: string) => Promise<string | null>
   onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
   onSubmit: (input: {
+    icon: string
+    iconColor: string
     repositoryId: string
     faviconPath: string | null
     runCommand: string | null
@@ -97,6 +103,8 @@ function EditRepositoryForm({
   onBrowseSolutionFile,
   onSubmit
 }: EditRepositoryFormProps): React.JSX.Element {
+  const [icon, setIcon] = useState(repository.icon ?? 'folder')
+  const [iconColor, setIconColor] = useState(repository.iconColor ?? 'default')
   const [faviconDraft, setFaviconDraft] = useState(repository.faviconPath ?? '')
   const [runCommandDraft, setRunCommandDraft] = useState(repository.runCommand ?? '')
   const [solutionFilePathDraft, setSolutionFilePathDraft] = useState(
@@ -110,6 +118,8 @@ function EditRepositoryForm({
   )
 
   const dirty =
+    icon !== (repository.icon ?? 'folder') ||
+    iconColor !== (repository.iconColor ?? 'default') ||
     faviconDraft !== (repository.faviconPath ?? '') ||
     runCommandDraft !== (repository.runCommand ?? '') ||
     solutionFilePathDraft !== (repository.solutionFilePath ?? '') ||
@@ -123,6 +133,8 @@ function EditRepositoryForm({
         event.preventDefault()
         if (!busy && dirty) {
           void onSubmit({
+            icon,
+            iconColor,
             repositoryId: repository.id,
             faviconPath: faviconDraft.trim() || null,
             runCommand: runCommandDraft.trim() || null,
@@ -133,6 +145,43 @@ function EditRepositoryForm({
         }
       }}
     >
+      <Field label="Project icon" hint="Used when no custom favicon is available.">
+        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Project icon">
+          {PROJECT_ICONS.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              aria-label={item.label}
+              aria-pressed={icon === item.id}
+              title={item.label}
+              onClick={() => setIcon(item.id)}
+              className={`grid size-8 place-items-center rounded-md border ${icon === item.id ? 'border-[var(--color-fg-muted)] bg-[var(--color-active)]' : 'border-[var(--color-border)] hover:bg-[var(--color-hover)]'}`}
+            >
+              <ProjectGlyph icon={item.id} color={iconColor} />
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Project icon color">
+          {PROJECT_ICON_COLORS.map((item) => (
+            <button
+              type="button"
+              key={item.value}
+              aria-label={item.label}
+              aria-pressed={iconColor === item.value}
+              title={item.label}
+              onClick={() => setIconColor(item.value)}
+              className={`grid size-6 place-items-center rounded-full border ${iconColor === item.value ? 'border-[var(--color-fg)]' : 'border-transparent'}`}
+            >
+              <span
+                className="size-3.5 rounded-full"
+                style={{
+                  backgroundColor: item.value === 'default' ? 'var(--color-fg-subtle)' : item.value
+                }}
+              />
+            </button>
+          ))}
+        </div>
+      </Field>
       <Field
         hint={`Use Browse to pick a file, or paste a relative path manually. Stored relative to ${repository.name}'s repo root so the same path works in worktrees too.`}
         label="Application favicon path"
@@ -220,7 +269,7 @@ function EditRepositoryForm({
       </Field>
 
       <Field
-        hint="Optional. Runs in the repository root after a worktree thread is removed and its branch is deleted. Supports the same tokens as the run command."
+        hint="Optional. Runs in the repository root after a worktree thread is removed in Projects and its branch is deleted. Settling inbox threads never runs this script. Supports the same tokens as the run command."
         label="Post-worktree-remove script"
       >
         <TextArea
@@ -242,13 +291,17 @@ function EditRepositoryForm({
           <Button
             disabled={
               busy ||
-              (faviconDraft.length === 0 &&
+              (icon === 'folder' &&
+                iconColor === 'default' &&
+                faviconDraft.length === 0 &&
                 runCommandDraft.length === 0 &&
                 solutionFilePathDraft.length === 0 &&
                 newWorktreeSetupCommandDraft.length === 0 &&
                 postWorktreeRemoveCommandDraft.length === 0)
             }
             onClick={() => {
+              setIcon('folder')
+              setIconColor('default')
               setFaviconDraft('')
               setRunCommandDraft('')
               setSolutionFilePathDraft('')
