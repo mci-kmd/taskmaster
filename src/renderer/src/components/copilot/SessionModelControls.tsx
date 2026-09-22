@@ -1,5 +1,5 @@
 import Select from '../ui/Select'
-import { modelFamily } from './model-families'
+import ModelPicker from './ModelPicker'
 import type {
   CopilotModelOption,
   CopilotReasoningEffort,
@@ -38,11 +38,10 @@ export default function SessionModelControls({
     <>
       <label className="tm-session-setting" title={modelTitle}>
         <span>Model</span>
-        <Select
-          compact
-          aria-label="Model"
-          disabled={disabled || !session?.models.length}
+        <ModelPicker
+          models={session?.models ?? []}
           value={session?.model ?? ''}
+          disabled={disabled || !session?.models.length}
           placeholder={
             session?.models.length ? 'Choose model' : session ? 'No models available' : 'Loading…'
           }
@@ -50,24 +49,6 @@ export default function SessionModelControls({
             const next = session?.models.find((model) => model.id === value)
             if (next) onChange(next.id, next.defaultReasoningEffort)
           }}
-          options={[
-            ...(!selected && session?.model
-              ? [
-                  {
-                    value: session.model,
-                    label: session.model,
-                    group: 'Current model',
-                    disabled: true
-                  }
-                ]
-              : []),
-            ...(session?.models.map((model) => ({
-              value: model.id,
-              label: model.name,
-              group: modelFamily(model),
-              description: `${model.supportsVision ? 'Supports images' : 'Text only'}${model.supportedReasoningEfforts.length ? ' · Adjustable reasoning' : ''}`
-            })) ?? [])
-          ]}
         />
       </label>
       {efforts.length ? (

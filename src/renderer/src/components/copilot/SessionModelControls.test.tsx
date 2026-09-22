@@ -34,85 +34,105 @@ const session: CopilotSessionSnapshot = {
 }
 afterEach(cleanup)
 
-describe('model picker families', () => {
-  it('groups an interleaved catalog, preserves within-family order, and keeps selection and reasoning defaults', () => {
+describe('nested model families', () => {
+  function renderPicker(current = session): ReturnType<typeof vi.fn> {
     const onChange = vi.fn()
     render(
       <SessionModelControls
-        session={session}
+        session={current}
         disabled={false}
         busy={false}
         disabledReason=""
         onChange={onChange}
       />
     )
-    const trigger = screen.getByRole('combobox', { name: 'Model' })
-    expect(trigger.textContent).toContain('GPT-5 mini')
-    fireEvent.click(trigger)
-    const list = screen.getByRole('listbox', { name: 'Model' })
-    expect(within(list).getAllByRole('group')).toHaveLength(4)
+    return onChange
+  }
+
+  it('shows only families initially and opens just the selected family’s models', () => {
+    const onChange = renderPicker()
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
+    const tree = screen.getByRole('tree', { name: 'Model families' })
     expect(
-      within(screen.getByRole('group', { name: 'Claude' }))
-        .getAllByRole('option')
-        .map((option) => option.getAttribute('aria-label'))
+      within(tree)
+        .getAllByRole('treeitem')
+        .map((row) => row.getAttribute('aria-label'))
+    ).toEqual(['Claude', 'GPT', 'Gemini', 'Other models'])
+    expect(screen.queryByRole('treeitem', { name: 'Claude Sonnet 4.5' })).toBeNull()
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
+    expect(
+      within(screen.getByRole('group', { name: 'Claude models' }))
+        .getAllByRole('treeitem')
+        .map((row) => row.getAttribute('aria-label'))
     ).toEqual(['Claude Sonnet 4.5', 'Claude Haiku 4.5'])
-    expect(
-      within(screen.getByRole('group', { name: 'GPT' }))
-        .getAllByRole('option')
-        .map((option) => option.getAttribute('aria-label'))
-    ).toEqual(['GPT-4.1', 'GPT-5 mini'])
-    expect(screen.getByRole('option', { name: 'GPT-5 mini' }).getAttribute('aria-selected')).toBe(
+    expect(screen.queryByRole('treeitem', { name: 'GPT-4.1' })).toBeNull()
+    fireEvent.pointerMove(screen.getByRole('treeitem', { name: 'GPT' }))
+    expect(screen.queryByRole('group', { name: 'Claude models' })).toBeNull()
+    expect(screen.getByRole('treeitem', { name: 'GPT-5 mini' }).getAttribute('aria-selected')).toBe(
       'true'
     )
+    fireEvent.click(screen.getByRole('treeitem', { name: 'GPT-4.1' }))
+    expect(onChange).toHaveBeenCalledWith('gpt-4.1', 'high')
+    expect(screen.queryByRole('tree')).toBeNull()
+  })
+
+  it('uses Right/Left to enter and leave a family, and Enter to select a model', () => {
+    const onChange = renderPicker()
+    const trigger = screen.getByRole('combobox', { name: 'Model' })
     fireEvent.keyDown(trigger, { key: 'ArrowDown' })
     expect(trigger.getAttribute('aria-activedescendant')).toBe(
-      screen.getByRole('option', { name: 'Gemini 2.5 Pro' }).id
+      screen.getByRole('treeitem', { name: 'GPT' }).id
     )
+    fireEvent.keyDown(trigger, { key: 'ArrowRight' })
+    expect(trigger.getAttribute('aria-activedescendant')).toBe(
+      screen.getByRole('treeitem', { name: 'GPT-5 mini' }).id
+    )
+    fireEvent.keyDown(trigger, { key: 'ArrowLeft' })
+    expect(screen.queryByRole('group', { name: 'GPT models' })).toBeNull()
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    fireEvent.keyDown(trigger, { key: 'Enter' })
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByRole('group', { name: 'Gemini models' })).toBeTruthy()
     fireEvent.keyDown(trigger, { key: 'Enter' })
     expect(onChange).toHaveBeenCalledWith('gemini-2.5-pro', 'high')
     expect(document.activeElement).toBe(trigger)
   })
 
-  it('retains unknown models and a missing active model without inventing available models', () => {
-    const onChange = vi.fn()
-    render(
-      <SessionModelControls
-        session={{ ...session, model: 'retired', models: [models[5]] }}
-        disabled={false}
-        busy={false}
-        disabledReason=""
-        onChange={onChange}
-      />
-    )
+  it('closes one nesting level with Escape and supports outside click and the back button', () => {
+    renderPicker()
+    const trigger = screen.getByRole('combobox', { name: 'Model' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(screen.queryByRole('group', { name: 'Claude models' })).toBeNull()
+    expect(screen.getByRole('tree')).toBeTruthy()
+    fireEvent.keyDown(trigger, { key: 'Escape' })
+    expect(screen.queryByRole('tree')).toBeNull()
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('treeitem', { name: 'GPT' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back to model families' }))
+    expect(screen.queryByRole('group', { name: 'GPT models' })).toBeNull()
+    fireEvent.pointerDown(document.body)
+    expect(screen.queryByRole('tree')).toBeNull()
+  })
+
+  it('keeps unknown models and a missing active model visible without selecting it', () => {
+    const onChange = renderPicker({ ...session, model: 'retired', models: [models[5]] })
     fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
-    const current = within(screen.getByRole('group', { name: 'Current model' })).getByRole(
-      'option',
-      { name: 'retired' }
-    )
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Current model' }))
+    const current = screen.getByRole('treeitem', { name: 'retired' })
     expect(current.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(current)
     expect(onChange).not.toHaveBeenCalled()
-    fireEvent.click(
-      within(screen.getByRole('group', { name: 'Other models' })).getByRole('option', {
-        name: 'Future model'
-      })
-    )
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Other models' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Future model' }))
     expect(onChange).toHaveBeenCalledWith('new-model', 'high')
   })
 
-  it('shows only the families actually available to the session', () => {
-    render(
-      <SessionModelControls
-        session={{ ...session, models: [models[1]] }}
-        disabled={false}
-        busy={false}
-        disabledReason=""
-        onChange={vi.fn()}
-      />
-    )
+  it('shows only available families, even with a single model', () => {
+    renderPicker({ ...session, model: 'gpt-4.1', models: [models[1]] })
     fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
-    expect(screen.queryByRole('group', { name: 'Claude' })).toBeNull()
-    expect(screen.queryByRole('group', { name: 'Gemini' })).toBeNull()
-    expect(screen.getByRole('group', { name: 'GPT' })).toBeTruthy()
+    expect(screen.getAllByRole('treeitem')).toHaveLength(1)
+    expect(screen.getByRole('treeitem', { name: 'GPT' })).toBeTruthy()
   })
 })

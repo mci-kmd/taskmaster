@@ -87,7 +87,12 @@ afterEach(() => {
 
 function chooseOption(label: string, option: string): void {
   fireEvent.click(screen.getByRole('combobox', { name: label }))
-  fireEvent.click(screen.getByRole('option', { name: option }))
+  if (label === 'Model') {
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Other models' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: option }))
+  } else {
+    fireEvent.click(screen.getByRole('option', { name: option }))
+  }
 }
 
 describe('Copilot session composer', () => {

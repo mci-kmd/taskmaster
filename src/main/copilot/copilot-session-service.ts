@@ -1,4 +1,5 @@
 import { expandSkillPrompt, listSessionSkills } from './copilot-skills'
+import { resumeOrCreateSession } from './session-resume'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
 import { app, BrowserWindow, dialog } from 'electron'
@@ -719,9 +720,12 @@ export function createCopilotSessionService(dependencies: {
       config.onExitPlanModeRequest = exitPlanModeHandler(placeholder)
       config.onAutoModeSwitchRequest = autoModeSwitchHandler(placeholder)
 
-      const session = context.thread.resumeSessionId
-        ? await sdkClient.resumeSession(context.thread.resumeSessionId, config)
-        : await sdkClient.createSession(config)
+      const session = await resumeOrCreateSession(
+        sdkClient,
+        context.thread,
+        config,
+        () => operation.cancelled
+      )
       if (operation.cancelled) {
         await session.disconnect()
         return { ok: false, error: 'Copilot session start was cancelled.' }
