@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { createCopilotCliProvider } from './cli-agent-providers'
 
 describe('Copilot CLI provider', () => {
-  it('reports status through the CLI status adapter', () => {
-    const createStatus = vi.fn(() => ({
+  it('reports status through the CLI status adapter', async () => {
+    const createStatus = vi.fn(async () => ({
       available: true,
       label: 'Copilot',
       defaultCwd: 'C:\\repo',
@@ -22,7 +22,7 @@ describe('Copilot CLI provider', () => {
       }
     })
 
-    expect(provider.getStatus()).toMatchObject({ available: true, label: 'Copilot' })
+    expect(await provider.getStatus()).toMatchObject({ available: true, label: 'Copilot' })
     expect(createStatus).toHaveBeenCalledWith(
       { kind: 'native' },
       expect.objectContaining({ cliName: 'copilot' })
@@ -31,7 +31,7 @@ describe('Copilot CLI provider', () => {
 
   it('builds launches with Copilot hook readers', () => {
     const provider = createCopilotCliProvider({
-      createStatus: () => ({
+      createStatus: async () => ({
         available: true,
         label: 'Copilot',
         defaultCwd: 'C:\\repo',

@@ -34,6 +34,29 @@ function setup(
 }
 
 describe('resuming an empty SDK session', () => {
+  it('applies model defaults only when creating a session, including empty-session recovery', async () => {
+    const { client, createSession, resumeSession, session } = setup()
+    const defaults = { model: 'last-model', reasoningEffort: 'high' as const }
+    await resumeOrCreateSession(
+      client,
+      { ...thread, resumeSessionId: null },
+      config,
+      () => false,
+      defaults
+    )
+    expect(createSession).toHaveBeenLastCalledWith({ ...config, ...defaults })
+    await resumeOrCreateSession(client, thread, config, () => false, defaults)
+    expect(createSession).toHaveBeenLastCalledWith({
+      ...config,
+      ...defaults,
+      sessionId: thread.resumeSessionId
+    })
+    createSession.mockClear()
+    resumeSession.mockResolvedValue(session)
+    await resumeOrCreateSession(client, thread, config, () => false, defaults)
+    expect(resumeSession).toHaveBeenLastCalledWith(thread.resumeSessionId, config)
+    expect(createSession).not.toHaveBeenCalled()
+  })
   it('recovers the missing event-log case using the same session ID and configuration', async () => {
     const { client, createSession, session } = setup()
     expect(await resumeOrCreateSession(client, thread, config, () => false)).toBe(session)

@@ -8,7 +8,7 @@ import {
   TASKMASTER_SESSION_START_FILE_ENV,
   TASKMASTER_USER_PROMPT_FILE_ENV
 } from './copilot-hooks'
-import { quoteCmdArgument, resolveCommandOnPath } from './command-utils'
+import { quoteCmdArgument, resolveCommandOnPathAsync } from './command-utils'
 import type { TerminalCommand } from './types'
 
 type TerminalAgentRuntimeDependencies = {
@@ -41,7 +41,7 @@ function buildCommand(
 
 export function createTerminalAgentRuntime(dependencies: TerminalAgentRuntimeDependencies): {
   getAgentProvider: () => AgentProvider
-  getAgentStatus: (provider: AgentProvider, backend?: RepositoryBackend) => TerminalStatus
+  getAgentStatus: (provider: AgentProvider, backend?: RepositoryBackend) => Promise<TerminalStatus>
 } {
   function createAgentStatus(
     commandPath: string | null,
@@ -71,8 +71,8 @@ export function createTerminalAgentRuntime(dependencies: TerminalAgentRuntimeDep
   }
 
   const agentProvider = createCopilotCliProvider({
-    createStatus: (_backend, spec) =>
-      createAgentStatus(resolveCommandOnPath(spec.cliName), spec.statusMessages),
+    createStatus: async (_backend, spec) =>
+      createAgentStatus(await resolveCommandOnPathAsync(spec.cliName), spec.statusMessages),
     buildCommand,
     ensureTaskmasterHookConfig,
     getTaskmasterHookEventsDir: dependencies.getTaskmasterHookEventsDir,
@@ -85,7 +85,9 @@ export function createTerminalAgentRuntime(dependencies: TerminalAgentRuntimeDep
 
   return {
     getAgentProvider: (): AgentProvider => agentProvider,
-    getAgentStatus: (provider: AgentProvider, backend?: RepositoryBackend): TerminalStatus =>
-      provider.getStatus(backend ?? createNativeBackend())
+    getAgentStatus: (
+      provider: AgentProvider,
+      backend?: RepositoryBackend
+    ): Promise<TerminalStatus> => provider.getStatus(backend ?? createNativeBackend())
   }
 }

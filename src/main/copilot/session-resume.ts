@@ -1,13 +1,17 @@
 import type { CopilotClient, CopilotSession, SessionConfig } from '@github/copilot-sdk'
-import type { PersistedThread } from '../../shared/app-types'
+import type { CopilotModelSelection, PersistedThread } from '../../shared/app-types'
 
 export async function resumeOrCreateSession(
   client: CopilotClient,
   thread: PersistedThread,
   config: SessionConfig,
-  cancelled: () => boolean
+  cancelled: () => boolean,
+  defaults?: CopilotModelSelection
 ): Promise<CopilotSession> {
-  if (!thread.resumeSessionId) return client.createSession(config)
+  const creationConfig = defaults
+    ? { ...config, model: defaults.model, reasoningEffort: defaults.reasoningEffort ?? undefined }
+    : config
+  if (!thread.resumeSessionId) return client.createSession(creationConfig)
   try {
     return await client.resumeSession(thread.resumeSessionId, config)
   } catch (error) {
@@ -24,6 +28,6 @@ export async function resumeOrCreateSession(
       `Failed to load session events: Session not found: ${thread.resumeSessionId}`
     )
     if (!emptyThread || !missingEvents || cancelled()) throw error
-    return client.createSession({ ...config, sessionId: thread.resumeSessionId })
+    return client.createSession({ ...creationConfig, sessionId: thread.resumeSessionId })
   }
 }

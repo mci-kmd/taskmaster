@@ -259,16 +259,18 @@ function getOwnedSession(
   return session
 }
 
-function createSession(
+async function createSession(
   event: IpcMainInvokeEvent,
   request: TerminalCreateRequest
-):
+): Promise<
   | { ok: true; terminalId: string; cwd: string; launchedCommand: string }
-  | { ok: false; error: string } {
+  | { ok: false; error: string }
+> {
   const kind = request.kind ?? 'agent'
   const backend = normalizeRepositoryBackend(request.backend)
   const provider = kind === 'agent' ? agentRuntime.getAgentProvider() : null
-  const status = provider ? agentRuntime.getAgentStatus(provider, backend) : null
+  const status = provider ? await agentRuntime.getAgentStatus(provider, backend) : null
+  if (event.sender.isDestroyed()) return { ok: false, error: 'The terminal window was closed.' }
   if (provider && (!status?.available || !status.commandPath)) {
     return {
       ok: false,

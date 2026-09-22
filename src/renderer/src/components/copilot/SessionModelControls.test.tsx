@@ -60,6 +60,8 @@ describe('nested model families', () => {
     ).toEqual(['Claude', 'GPT', 'Gemini', 'Other models'])
     expect(screen.queryByRole('treeitem', { name: 'Claude Sonnet 4.5' })).toBeNull()
     fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
+    expect(screen.queryByRole('button', { name: 'Back to model families' })).toBeNull()
+    expect(screen.queryByText(/Supports images|Text only|Adjustable reasoning/)).toBeNull()
     expect(
       within(screen.getByRole('group', { name: 'Claude models' }))
         .getAllByRole('treeitem')
@@ -98,7 +100,7 @@ describe('nested model families', () => {
     expect(document.activeElement).toBe(trigger)
   })
 
-  it('closes one nesting level with Escape and supports outside click and the back button', () => {
+  it('closes one nesting level with Escape and supports outside click', () => {
     renderPicker()
     const trigger = screen.getByRole('combobox', { name: 'Model' })
     fireEvent.click(trigger)
@@ -110,7 +112,7 @@ describe('nested model families', () => {
     expect(screen.queryByRole('tree')).toBeNull()
     fireEvent.click(trigger)
     fireEvent.click(screen.getByRole('treeitem', { name: 'GPT' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Back to model families' }))
+    fireEvent.keyDown(trigger, { key: 'ArrowLeft' })
     expect(screen.queryByRole('group', { name: 'GPT models' })).toBeNull()
     fireEvent.pointerDown(document.body)
     expect(screen.queryByRole('tree')).toBeNull()
@@ -134,5 +136,21 @@ describe('nested model families', () => {
     fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
     expect(screen.getAllByRole('treeitem')).toHaveLength(1)
     expect(screen.getByRole('treeitem', { name: 'GPT' })).toBeTruthy()
+  })
+
+  it('retains the chosen effort when switching to a model that supports it', () => {
+    const onChange = renderPicker({ ...session, reasoningEffort: 'low' })
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude Sonnet 4.5' }))
+    expect(onChange).toHaveBeenCalledWith('claude-sonnet-4.5', 'low')
+  })
+
+  it('falls back to the new model default when the previous effort is unsupported', () => {
+    const onChange = renderPicker({ ...session, reasoningEffort: 'max' })
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude Sonnet 4.5' }))
+    expect(onChange).toHaveBeenCalledWith('claude-sonnet-4.5', 'high')
   })
 })

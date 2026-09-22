@@ -297,15 +297,6 @@ export default function ModelPicker({
                 className="tm-picker-popup"
                 style={{ position: 'fixed', visibility: 'hidden' }}
               >
-                <button
-                  type="button"
-                  className="tm-model-submenu-back"
-                  onPointerDown={(event) => event.preventDefault()}
-                  onClick={collapse}
-                  aria-label="Back to model families"
-                >
-                  ‹ {expandedFamily}
-                </button>
                 {choices.map((model) => (
                   <div
                     key={model.id}
@@ -325,12 +316,6 @@ export default function ModelPicker({
                   >
                     <span className="tm-picker-option-text">
                       <span className="tm-picker-label">{model.name}</span>
-                      {!model.disabled && (
-                        <span className="tm-picker-description">
-                          {model.supportsVision ? 'Supports images' : 'Text only'}
-                          {model.supportedReasoningEfforts.length ? ' · Adjustable reasoning' : ''}
-                        </span>
-                      )}
                     </span>
                     <span className="tm-picker-check" aria-hidden="true">
                       {model.id === value ? '✓' : ''}

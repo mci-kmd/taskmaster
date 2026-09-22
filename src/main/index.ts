@@ -8,6 +8,8 @@ import { resolveDevUserDataPath } from './dev-user-data-path'
 import { registerTerminalIpc } from './terminal'
 import {
   initializeAppState,
+  getCopilotModelDefaults,
+  rememberCopilotModelSelection,
   markCopilotSessionStarted,
   updateCopilotActivity,
   markThreadLaunched,
@@ -70,6 +72,8 @@ app.whenReady().then(() => {
     onThreadStart: markThreadLaunched
   })
   const copilotSessionService = createCopilotSessionService({
+    getModelDefaults: getCopilotModelDefaults,
+    onModelSelected: rememberCopilotModelSelection,
     resolveThread: resolveCopilotThread,
     onSessionStarted: markCopilotSessionStarted,
     onTitleChanged: updateCopilotThreadTitle,

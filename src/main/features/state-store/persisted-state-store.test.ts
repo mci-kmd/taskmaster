@@ -4,6 +4,7 @@ import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PersistedAppState } from '../../../shared/app-types'
 import { createPersistedStateStore, normalizeSelection } from './persisted-state-store'
+import { migrateAppState } from './app-state-migrations'
 
 const tempDirs: string[] = []
 
@@ -31,6 +32,24 @@ afterEach(() => {
 })
 
 describe('persisted state store', () => {
+  it('preserves the global model and effort choice when reopening the state file', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'taskmaster-model-defaults-'))
+    tempDirs.push(directory)
+    const options = {
+      getStorePath: () => join(directory, 'state.json'),
+      createDefaultState: createState,
+      migrateState: migrateAppState
+    }
+    const store = createPersistedStateStore(options)
+    store.ensureState().settings.lastCopilotModelSelection = {
+      model: 'chosen-model',
+      reasoningEffort: 'high'
+    }
+    store.saveState()
+    expect(
+      createPersistedStateStore(options).ensureState().settings.lastCopilotModelSelection
+    ).toEqual({ model: 'chosen-model', reasoningEffort: 'high' })
+  })
   it('normalizes selection against current repositories and threads', () => {
     const state = createState()
     state.repositories.push({

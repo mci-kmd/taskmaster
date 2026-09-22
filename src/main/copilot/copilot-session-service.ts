@@ -8,6 +8,7 @@ import type {
   CopilotInteraction,
   CopilotInteractionResponse,
   CopilotModelOption,
+  CopilotModelSelection,
   CopilotReasoningEffort,
   CopilotSdkStatus,
   CopilotSendInput,
@@ -294,6 +295,8 @@ function permissionDescription(request: PermissionRequest): string {
 }
 
 export function createCopilotSessionService(dependencies: {
+  getModelDefaults?: () => CopilotModelSelection | null
+  onModelSelected?: (selection: CopilotModelSelection) => void
   resolveThread: (threadId: string) => ThreadContext | null
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
@@ -329,6 +332,8 @@ export function createCopilotSessionService(dependencies: {
   let models: CopilotModelOption[] = []
   let modelCatalogClient: CopilotClient | null = null
   let sdkUpdateInProgress = false
+  let modelSelectionRevision = 0
+  let rememberedModelSelectionRevision = 0
 
   const stopClient = async (): Promise<void> => {
     const stoppingClient = client
@@ -756,7 +761,8 @@ export function createCopilotSessionService(dependencies: {
         sdkClient,
         context.thread,
         config,
-        () => operation.cancelled
+        () => operation.cancelled,
+        dependencies.getModelDefaults?.() ?? undefined
       )
       if (operation.cancelled) {
         await session.disconnect()
@@ -1024,6 +1030,7 @@ export function createCopilotSessionService(dependencies: {
         }
       }
       active.modelChangePending = true
+      const selectionRevision = ++modelSelectionRevision
       try {
         const selected = active.snapshot.models.find((model) => model.id === input.model)
         const effort = input.reasoningEffort ?? selected?.defaultReasoningEffort ?? undefined
@@ -1045,6 +1052,13 @@ export function createCopilotSessionService(dependencies: {
               'Copilot has not applied the requested model settings. The controls show the settings currently in use.',
             snapshot: active.snapshot
           }
+        }
+        if (selectionRevision > rememberedModelSelectionRevision) {
+          dependencies.onModelSelected?.({
+            model: current.modelId,
+            reasoningEffort: active.snapshot.reasoningEffort
+          })
+          rememberedModelSelectionRevision = selectionRevision
         }
         return { ok: true, snapshot: active.snapshot }
       } catch (error) {

@@ -22,7 +22,7 @@ export type AgentLaunchPreparation = LlmProviderLaunchPreparation<
 export type AgentProvider = LlmProvider<HookFileReaderState, HookFileReaderState>
 
 export type CliAgentProviderDependencies = {
-  createStatus: (backend: RepositoryBackend, spec: LlmCliProviderSpec) => TerminalStatus
+  createStatus: (backend: RepositoryBackend, spec: LlmCliProviderSpec) => Promise<TerminalStatus>
   buildCommand: (
     commandPath: string,
     displayName: string,

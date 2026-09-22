@@ -1,10 +1,6 @@
 import Select from '../ui/Select'
 import ModelPicker from './ModelPicker'
-import type {
-  CopilotModelOption,
-  CopilotReasoningEffort,
-  CopilotSessionSnapshot
-} from '../../../../shared/app-types'
+import type { CopilotReasoningEffort, CopilotSessionSnapshot } from '../../../../shared/app-types'
 
 type Props = {
   session: CopilotSessionSnapshot | null
@@ -12,10 +8,6 @@ type Props = {
   busy: boolean
   disabledReason: string
   onChange: (model: string, effort: CopilotReasoningEffort | null) => void
-}
-
-function modelDescription(model: CopilotModelOption): string {
-  return `${model.name} · ${model.supportsVision ? 'Supports images' : 'Text only'}${model.supportedReasoningEfforts.length ? ' · Adjustable reasoning' : ''}`
 }
 
 export default function SessionModelControls({
@@ -30,9 +22,7 @@ export default function SessionModelControls({
   const effort = session?.reasoningEffort ?? ''
   const modelTitle = disabled
     ? disabledReason
-    : selected
-      ? modelDescription(selected)
-      : (session?.model ?? 'Choose a model for this conversation')
+    : (selected?.name ?? session?.model ?? 'Choose a model for this conversation')
 
   return (
     <>
@@ -47,7 +37,15 @@ export default function SessionModelControls({
           }
           onChange={(value) => {
             const next = session?.models.find((model) => model.id === value)
-            if (next) onChange(next.id, next.defaultReasoningEffort)
+            if (next) {
+              const previousEffort = session?.reasoningEffort
+              onChange(
+                next.id,
+                previousEffort && next.supportedReasoningEfforts.includes(previousEffort)
+                  ? previousEffort
+                  : next.defaultReasoningEffort
+              )
+            }
           }}
         />
       </label>

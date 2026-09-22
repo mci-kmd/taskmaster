@@ -843,16 +843,3 @@ select {
   font-weight: 600;
   letter-spacing: 0.04em;
 }
-
-.tm-model-submenu-back {
-  display: block;
-  width: 100%;
-  padding: 6px 9px;
-  text-align: left;
-  font-size: 11px;
-  color: var(--color-fg-muted);
-  border-radius: 4px;
-}
-.tm-model-submenu-back:hover {
-  background: var(--color-control-hover);
-}

@@ -3,6 +3,7 @@ import type {
   AppSnapshot,
   BranchStatusRequest,
   CompleteRepositoryTaskInput,
+  CopilotModelSelection,
   CreateRepositoryTaskInput,
   CreateThreadInput,
   MutationResult,
@@ -342,6 +343,15 @@ export function markCopilotSessionStarted(threadId: string, sessionId: string): 
     sessionId,
     source: thread?.resumeSessionId ? 'resume' : 'new'
   })
+}
+
+export function getCopilotModelDefaults(): CopilotModelSelection | null {
+  return ensureState().settings.lastCopilotModelSelection ?? null
+}
+
+export function rememberCopilotModelSelection(selection: CopilotModelSelection): void {
+  ensureState().settings.lastCopilotModelSelection = { ...selection }
+  saveState()
 }
 
 export function updateCopilotThreadTitle(threadId: string, title: string): void {

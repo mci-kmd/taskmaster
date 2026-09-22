@@ -256,17 +256,22 @@ export default function Workspace({
   const threadViewOptions = useMemo(() => buildThreadViewOptions(COPILOT_LABEL), [])
   const threadViewControlWidthPx = threadViewOptions.length * 88
   const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
+  const needsCliStatus = selectedThread?.agentInterface === 'cli'
+  const repositoryBackendKind = selectedRepository?.backend.kind
 
   useEffect(() => {
+    if (!needsCliStatus) return
     let cancelled = false
-    void api.terminal.getStatus(selectedRepository?.backend).then((status) => {
-      if (cancelled) return
-      setAgentStatus(status)
-    })
+    void api.terminal
+      .getStatus(repositoryBackendKind ? { kind: repositoryBackendKind } : undefined)
+      .then((status) => {
+        if (cancelled) return
+        setAgentStatus(status)
+      })
     return () => {
       cancelled = true
     }
-  }, [selectedRepository?.backend])
+  }, [needsCliStatus, repositoryBackendKind])
 
   const handleCopilotSessionsChange = useCallback((next: SessionMap): void => {
     setCopilotSessions(next)

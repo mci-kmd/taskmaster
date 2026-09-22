@@ -21,7 +21,7 @@ export type LlmProviderLaunchPreparation<
 }
 
 export type LlmProvider<SessionStartReader = unknown, UserPromptReader = unknown> = {
-  getStatus: (backend?: RepositoryBackend) => TerminalStatus
+  getStatus: (backend?: RepositoryBackend) => Promise<TerminalStatus>
   prepareLaunch: (
     commandPath: string,
     context: LlmProviderLaunchContext

@@ -6,7 +6,7 @@ import type {
   SessionConfig,
   SessionEvent
 } from '@github/copilot-sdk'
-import type { PersistedThread } from '../../shared/app-types'
+import type { CopilotModelSelection, PersistedThread } from '../../shared/app-types'
 import { createCopilotSessionService } from './copilot-session-service'
 
 const harness = vi.hoisted(() => ({
@@ -75,7 +75,10 @@ function event(type: string, data: unknown, extra = {}): SessionEvent {
 function emit(type: string, data: unknown): void {
   harness.listener!(event(type, data))
 }
-function setup(globalFlags: string[] = []): ReturnType<typeof createCopilotSessionService> {
+function setup(
+  globalFlags: string[] = [],
+  overrides: Partial<Parameters<typeof createCopilotSessionService>[0]> = {}
+): ReturnType<typeof createCopilotSessionService> {
   return createCopilotSessionService({
     resolveThread: (id) => ({
       thread: {
@@ -90,7 +93,8 @@ function setup(globalFlags: string[] = []): ReturnType<typeof createCopilotSessi
     onSessionStarted: vi.fn(),
     onTitleChanged: vi.fn(),
     onUserMessage: vi.fn(),
-    onActivity: harness.activity
+    onActivity: harness.activity,
+    ...overrides
   })
 }
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -161,6 +165,93 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+describe('global model defaults', () => {
+  it('uses the last confirmed choice for new threads in another project and after restart', async () => {
+    let saved: CopilotModelSelection | null = null
+    const preferences = {
+      getModelDefaults: () => saved,
+      onModelSelected: (value: CopilotModelSelection) => {
+        saved = value
+      },
+      resolveThread: (id: string) => ({
+        thread: {
+          id,
+          repositoryId: id,
+          agentInterface: 'custom',
+          resumeSessionId: null
+        } as PersistedThread,
+        cwd: `/projects/${id}`,
+        globalFlags: []
+      })
+    }
+    const service = setup([], preferences)
+    await service.start('first')
+    harness.getCurrentModel.mockResolvedValue({ modelId: 'chosen-model', reasoningEffort: 'high' })
+    expect(
+      (
+        await service.setModel({
+          threadId: 'first',
+          model: 'chosen-model',
+          reasoningEffort: 'high'
+        })
+      ).ok
+    ).toBe(true)
+    expect(saved).toEqual({ model: 'chosen-model', reasoningEffort: 'high' })
+    await service.start('second')
+    expect(harness.config).toMatchObject({
+      workingDirectory: '/projects/second',
+      model: 'chosen-model',
+      reasoningEffort: 'high'
+    })
+    await service.shutdown()
+    await setup([], preferences).start('third')
+    expect(harness.config).toMatchObject({
+      workingDirectory: '/projects/third',
+      model: 'chosen-model',
+      reasoningEffort: 'high'
+    })
+  })
+
+  it('does not remember rejected model changes or settings the runtime did not apply', async () => {
+    const onModelSelected = vi.fn()
+    const service = setup([], { onModelSelected })
+    await service.start('thread')
+    harness.setModel.mockRejectedValueOnce(new Error('Unavailable model'))
+    expect(
+      (await service.setModel({ threadId: 'thread', model: 'unavailable', reasoningEffort: null }))
+        .ok
+    ).toBe(false)
+    expect(
+      (
+        await service.setModel({
+          threadId: 'thread',
+          model: 'different-model',
+          reasoningEffort: 'high'
+        })
+      ).ok
+    ).toBe(false)
+    expect(onModelSelected).not.toHaveBeenCalled()
+  })
+
+  it('keeps the most recent choice when changes in separate threads finish out of order', async () => {
+    const onModelSelected = vi.fn()
+    const service = setup([], { onModelSelected })
+    await service.start('first')
+    await service.start('second')
+    const pending = deferred<void>()
+    harness.setModel.mockReturnValueOnce(pending.promise)
+    const first = service.setModel({ threadId: 'first', model: 'earlier', reasoningEffort: 'low' })
+    await vi.waitFor(() => expect(harness.setModel).toHaveBeenCalledTimes(1))
+    harness.getCurrentModel.mockResolvedValueOnce({ modelId: 'latest', reasoningEffort: 'high' })
+    await service.setModel({ threadId: 'second', model: 'latest', reasoningEffort: 'high' })
+    harness.getCurrentModel.mockResolvedValueOnce({ modelId: 'earlier', reasoningEffort: 'low' })
+    pending.resolve(undefined)
+    await first
+    expect(onModelSelected).toHaveBeenCalledTimes(1)
+    expect(onModelSelected).toHaveBeenCalledWith({ model: 'latest', reasoningEffort: 'high' })
+  })
 })
 
 describe('background model discovery', () => {

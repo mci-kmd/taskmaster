@@ -116,6 +116,12 @@ export interface PersistedSettings {
   globalFlagsInput: string
   terminalFontFamilyInput: string
   taskTagsInput: string
+  lastCopilotModelSelection?: CopilotModelSelection
+}
+
+export type CopilotModelSelection = {
+  model: string
+  reasoningEffort: CopilotReasoningEffort | null
 }
 
 export interface PersistedRepository {
