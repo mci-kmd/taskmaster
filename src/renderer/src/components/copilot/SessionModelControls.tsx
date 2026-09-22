@@ -1,4 +1,5 @@
 import Select from '../ui/Select'
+import { modelFamily } from './model-families'
 import type {
   CopilotModelOption,
   CopilotReasoningEffort,
@@ -51,12 +52,20 @@ export default function SessionModelControls({
           }}
           options={[
             ...(!selected && session?.model
-              ? [{ value: session.model, label: session.model }]
+              ? [
+                  {
+                    value: session.model,
+                    label: session.model,
+                    group: 'Current model',
+                    disabled: true
+                  }
+                ]
               : []),
             ...(session?.models.map((model) => ({
               value: model.id,
               label: model.name,
-              description: modelDescription(model)
+              group: modelFamily(model),
+              description: `${model.supportsVision ? 'Supports images' : 'Text only'}${model.supportedReasoningEfforts.length ? ' · Adjustable reasoning' : ''}`
             })) ?? [])
           ]}
         />

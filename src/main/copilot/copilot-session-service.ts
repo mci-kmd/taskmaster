@@ -1,3 +1,4 @@
+import { expandSkillPrompt, listSessionSkills } from './copilot-skills'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
 import { app, BrowserWindow, dialog } from 'electron'
@@ -9,6 +10,7 @@ import type {
   CopilotReasoningEffort,
   CopilotSdkStatus,
   CopilotSendInput,
+  CopilotSkillsResult,
   CopilotSessionSnapshot,
   CopilotSetModelInput,
   CopilotStartResult,
@@ -62,6 +64,7 @@ type ActiveSession = {
   snapshot: CopilotSessionSnapshot
   pending: PendingInteraction[]
   modelChangePending: boolean
+  sendRevision: number
   unsubscribe: () => void
 }
 
@@ -152,6 +155,8 @@ function getToolDetail(data: Record<string, unknown>): string {
 function timelineItemFromEvent(event: SessionEvent): CopilotTimelineItem | null {
   switch (event.type) {
     case 'user.message':
+      if (event.data.isAutopilotContinuation || (event.data.source && event.data.source !== 'user'))
+        return null
       return {
         id: `user:${event.data.messageId ?? event.id}`,
         type: 'user',
@@ -299,6 +304,7 @@ export function createCopilotSessionService(dependencies: {
   updateSdk: () => Promise<CopilotSdkStatus>
   start: (threadId: string) => Promise<CopilotStartResult>
   getSession: (threadId: string) => CopilotSessionSnapshot | null
+  listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
@@ -557,7 +563,7 @@ export function createCopilotSessionService(dependencies: {
 
     switch (event.type) {
       case 'user.message':
-        dependencies.onUserMessage(active.snapshot.threadId, event.data.content)
+        if (item) dependencies.onUserMessage(active.snapshot.threadId, event.data.content)
         break
       case 'session.title_changed':
         dependencies.onTitleChanged(active.snapshot.threadId, event.data.title)
@@ -690,6 +696,8 @@ export function createCopilotSessionService(dependencies: {
       const sdkClient = await ensureClient()
       const config: SessionConfig = {
         workingDirectory: context.cwd,
+        enableConfigDiscovery: true,
+        enableSkills: true,
         streaming: true,
         enableFileChangeTracking: true,
         askUserVariant: 'elicitation'
@@ -699,6 +707,7 @@ export function createCopilotSessionService(dependencies: {
         snapshot,
         pending: [],
         modelChangePending: false,
+        sendRevision: 0,
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(
@@ -880,6 +889,15 @@ export function createCopilotSessionService(dependencies: {
       return start(threadId)
     },
     getSession: (threadId) => sessions.get(threadId)?.snapshot ?? null,
+    listSkills: async (threadId) => {
+      const active = sessions.get(threadId)
+      if (!active) return { skills: [], error: 'Connect to Copilot to browse skills.' }
+      try {
+        return { skills: await listSessionSkills(active.session) }
+      } catch (error) {
+        return { skills: [], error: errorMessage(error) }
+      }
+    },
     send: async (input) => {
       const startResult = await start(input.threadId)
       if (!startResult.ok) return startResult
@@ -901,14 +919,19 @@ export function createCopilotSessionService(dependencies: {
       }
       if (!input.prompt.trim() && !input.attachments.length)
         return { ok: false, error: 'Enter a message or attach a file.' }
+      const sendRevision = ++active.sendRevision
       updateSnapshot(active, {
         phase: 'running',
         agentMode: input.agentMode,
         error: null
       })
       try {
+        const expanded = await expandSkillPrompt(active.session, input.prompt)
+        if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active) {
+          return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
+        }
         await active.session.send({
-          prompt: input.prompt,
+          ...expanded,
           attachments: input.attachments.map((attachment) =>
             attachment.type === 'file'
               ? {
@@ -928,6 +951,9 @@ export function createCopilotSessionService(dependencies: {
         return { ok: true, snapshot: active.snapshot }
       } catch (error) {
         const message = errorMessage(error)
+        if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active) {
+          return { ok: false, error: message, snapshot: active.snapshot }
+        }
         finishActivity(active)
         cancelInteractions(active)
         updateSnapshot(active, { phase: 'error', error: message })
@@ -937,6 +963,7 @@ export function createCopilotSessionService(dependencies: {
     abort: async (threadId) => {
       const active = sessions.get(threadId)
       if (!active) return false
+      active.sendRevision++
       cancelInteractions(active)
       await active.session.abort()
       finishActivity(active)

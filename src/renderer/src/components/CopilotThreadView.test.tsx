@@ -6,6 +6,7 @@ import CopilotThreadView from './CopilotThreadView'
 
 const mock = vi.hoisted(() => ({
   getSession: vi.fn(),
+  listSkills: vi.fn(),
   start: vi.fn(),
   send: vi.fn(),
   abort: vi.fn(),
@@ -59,7 +60,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
     resolve: (value) => resolve(value)
   }
 }
-const input = (): HTMLTextAreaElement => screen.getByRole('textbox', { name: 'Message Copilot' })
+const input = (): HTMLTextAreaElement => screen.getByRole('combobox', { name: 'Message Copilot' })
 const send = (): HTMLButtonElement => screen.getByRole('button', { name: 'Send ↑' })
 async function ready(): Promise<void> {
   await screen.findByText('Ready')
@@ -68,6 +69,7 @@ async function ready(): Promise<void> {
 beforeEach(() => {
   vi.resetAllMocks()
   mock.getSession.mockImplementation(async (id) => snapshot(id))
+  mock.listSkills.mockResolvedValue({ skills: [] })
   mock.getSdkStatus.mockResolvedValue(null)
   mock.checkForSdkUpdate.mockResolvedValue(null)
   mock.onSession.mockImplementation((callback) => {
@@ -684,4 +686,179 @@ describe('Copilot session settings and surrounding controls', () => {
     await act(async () => check.resolve({ installedVersion: '1.0.0' }))
     expect(screen.getByRole('status').getAttribute('title')).toContain('2.0.0')
   })
+})
+
+describe('prompt recall and skill completions', () => {
+  const skills = [
+    {
+      name: 'review',
+      commandName: 'review',
+      description: 'Review code changes',
+      source: 'project',
+      argumentHint: '[files]'
+    },
+    {
+      name: 'test',
+      commandName: 'test',
+      description: 'Run the test suite',
+      source: 'personal-copilot'
+    }
+  ]
+  const historyItems = [
+    { id: 'one', type: 'user' as const, content: 'First request', timestamp: '' },
+    { id: 'two', type: 'assistant' as const, content: 'An answer', timestamp: '' },
+    { id: 'three', type: 'user' as const, content: 'Second request', timestamp: '' },
+    { id: 'four', type: 'user' as const, content: 'Second request', timestamp: '' },
+    { id: 'five', type: 'user' as const, content: '', timestamp: '', attachments: ['image.png'] }
+  ]
+
+  it('recalls sent prompts in order, skips duplicates and attachments, and returns to an empty draft', async () => {
+    mock.getSession.mockImplementation(async (id) => snapshot(id, { timeline: historyItems }))
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input().value).toBe('Second request')
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input().value).toBe('First request')
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input().value).toBe('First request')
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    expect(input().value).toBe('Second request')
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    expect(input().value).toBe('')
+  })
+
+  it('protects edited drafts, attached files, modifier keys and IME from history navigation', async () => {
+    mock.getSession.mockImplementation(async (id) => snapshot(id, { timeline: historyItems }))
+    mock.pickAttachments.mockResolvedValue({
+      ok: true,
+      attachments: [{ id: 'a', type: 'file', path: '/notes', displayName: 'notes' }]
+    })
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.keyDown(input(), { key: 'ArrowUp', isComposing: true })
+    fireEvent.keyDown(input(), { key: 'ArrowUp', ctrlKey: true })
+    expect(input().value).toBe('')
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    fireEvent.change(input(), { target: { value: 'Edited recall' } })
+    input().setSelectionRange(0, 0)
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input().value).toBe('Edited recall')
+    fireEvent.change(input(), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files' }))
+    await screen.findByRole('button', { name: 'Remove notes' })
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input().value).toBe('')
+  })
+
+  it('uses restored session history and keeps recall isolated when switching threads', async () => {
+    const a = thread(),
+      b = thread()
+    mock.getSession.mockImplementation(async (id) =>
+      snapshot(id, { timeline: id === a.id ? historyItems : [] })
+    )
+    const view = render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input().value).toBe('Second request')
+    view.rerender(<CopilotThreadView thread={b} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input().value).toBe('')
+    fireEvent.change(input(), { target: { value: 'B draft' } })
+    view.rerender(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    expect(input().value).toBe('Second request')
+  })
+
+  it('filters skills by description, completes with Tab or Enter, and only sends on a later Enter', async () => {
+    mock.listSkills.mockResolvedValue({ skills })
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: '/suite' } })
+    const option = await screen.findByRole('option', { name: /\/test/ })
+    expect(option.textContent).toContain('personal copilot')
+    fireEvent.keyDown(input(), { key: 'Tab' })
+    expect(input().value).toBe('/test ')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(mock.send).not.toHaveBeenCalled()
+    fireEvent.change(input(), { target: { value: '/' } })
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(input().value).toBe('/test ')
+    expect(mock.send).not.toHaveBeenCalled()
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenCalledWith(expect.objectContaining({ prompt: '/test' }))
+    )
+  })
+
+  it('dismisses skills with Escape, keeps multiline editing, and replaces just the command token', async () => {
+    mock.listSkills.mockResolvedValue({ skills })
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: '$rev' } })
+    await screen.findByRole('option', { name: /\$review/ })
+    fireEvent.keyDown(input(), { key: 'Enter', isComposing: true })
+    expect(input().value).toBe('$rev')
+    fireEvent.keyDown(input(), { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(input().value).toBe('$rev')
+    fireEvent.change(input(), {
+      target: { value: '/rev existing arguments', selectionStart: 4, selectionEnd: 4 }
+    })
+    fireEvent.click(await screen.findByRole('option', { name: /\/review/ }))
+    expect(input().value).toBe('/review existing arguments')
+    expect(input().selectionStart).toBe(8)
+    fireEvent.keyDown(input(), { key: 'Enter', shiftKey: true })
+    expect(mock.send).not.toHaveBeenCalled()
+  })
+
+  it('shows loading, failure and empty states without losing the draft', async () => {
+    const loading = deferred<{ skills: typeof skills }>()
+    mock.listSkills.mockReturnValueOnce(loading.promise)
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: '/' } })
+    expect(screen.getByText('Loading skills…')).toBeTruthy()
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(mock.send).not.toHaveBeenCalled()
+    await act(async () => loading.resolve({ skills: [] }))
+    expect(screen.getByText('No skills available for this session.')).toBeTruthy()
+    expect(input().value).toBe('/')
+  })
+
+  it('does not show another thread’s skills from a late catalog response', async () => {
+    const a = thread(),
+      b = thread()
+    const loading = deferred<{ skills: typeof skills }>()
+    mock.listSkills.mockImplementation((id) =>
+      id === a.id ? loading.promise : Promise.resolve({ skills: [] })
+    )
+    const view = render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    view.rerender(<CopilotThreadView thread={b} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: '/' } })
+    await act(async () => loading.resolve({ skills }))
+    expect(screen.queryByRole('option', { name: /\/review/ })).toBeNull()
+    expect(screen.getByText('No skills available for this session.')).toBeTruthy()
+  })
+})
+
+it('completes inline dollar references while preserving the surrounding draft', async () => {
+  mock.listSkills.mockResolvedValue({
+    skills: [
+      { name: 'review', commandName: 'review', description: 'Review code', source: 'project' }
+    ]
+  })
+  render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+  await ready()
+  fireEvent.change(input(), {
+    target: { value: 'Please use $rev on this diff', selectionStart: 15, selectionEnd: 15 }
+  })
+  fireEvent.click(await screen.findByRole('option', { name: /\$review/ }))
+  expect(input().value).toBe('Please use $review on this diff')
+  expect(input().selectionStart).toBe(19)
+  expect(mock.send).not.toHaveBeenCalled()
 })

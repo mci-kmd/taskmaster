@@ -21,6 +21,8 @@ const harness = vi.hoisted(() => ({
   setModel: vi.fn(),
   getCurrentModel: vi.fn(),
   listModels: vi.fn(),
+  listSkills: vi.fn(),
+  invokeCommand: vi.fn(),
   createSession: vi.fn(),
   ping: vi.fn(),
   forceStop: vi.fn(),
@@ -120,6 +122,12 @@ beforeEach(() => {
   harness.clientCount = 0
   harness.getEvents.mockResolvedValue([])
   harness.getCurrentModel.mockResolvedValue({ modelId: 'model' })
+  harness.listSkills.mockResolvedValue({ skills: [] })
+  harness.invokeCommand.mockResolvedValue({
+    kind: 'agent-prompt',
+    prompt: 'Expanded instructions',
+    displayPrompt: '/review'
+  })
   harness.listModels.mockResolvedValue([])
   harness.ping.mockResolvedValue({ message: 'pong', timestamp: '' })
   harness.forceStop.mockResolvedValue(undefined)
@@ -138,7 +146,9 @@ beforeEach(() => {
       setModel: harness.setModel,
       rpc: {
         model: { getCurrent: harness.getCurrentModel },
-        mode: { get: async () => 'plan' }
+        mode: { get: async () => 'plan' },
+        skills: { list: harness.listSkills },
+        commands: { invoke: harness.invokeCommand }
       },
       on: (listener: (event: SessionEvent) => void) => {
         harness.listener = listener
@@ -475,4 +485,154 @@ it('records activity when a running turn completes, but not when opening an idle
   emit('session.idle', {})
   expect(harness.activity).toHaveBeenCalledExactlyOnceWith('thread-1')
   await service.shutdown()
+})
+
+describe('session skills and prompt history', () => {
+  const skill = {
+    name: 'review',
+    commandName: 'plugin:review',
+    description: 'Review changes',
+    source: 'plugin',
+    enabled: true,
+    userInvocable: true
+  }
+  const input = {
+    threadId: 'thread',
+    prompt: '/plugin:review the diff',
+    attachments: [],
+    agentMode: 'interactive' as const
+  }
+
+  it('discovers skills in the session context and excludes disabled or non-invocable skills', async () => {
+    harness.listSkills.mockResolvedValue({
+      skills: [
+        skill,
+        { ...skill },
+        { ...skill, commandName: 'disabled', enabled: false },
+        { ...skill, commandName: 'hidden', userInvocable: false }
+      ]
+    })
+    const service = setup()
+    await service.start('thread')
+    expect(harness.config).toMatchObject({
+      workingDirectory: '/project',
+      enableConfigDiscovery: true,
+      enableSkills: true
+    })
+    expect(await service.listSkills('thread')).toEqual({
+      skills: [
+        {
+          name: 'review',
+          commandName: 'plugin:review',
+          description: 'Review changes',
+          source: 'plugin'
+        }
+      ]
+    })
+    expect((await service.listSkills('missing')).error).toContain('Connect')
+  })
+
+  it('expands selected skills with arguments, retaining the original command and attachments', async () => {
+    harness.listSkills.mockResolvedValue({ skills: [skill] })
+    const service = setup()
+    const attachment = { id: 'a', type: 'file' as const, path: '/repo/file', displayName: 'file' }
+    expect((await service.send({ ...input, attachments: [attachment] })).ok).toBe(true)
+    expect(harness.invokeCommand).toHaveBeenCalledWith({ name: 'plugin:review', input: 'the diff' })
+    expect(harness.send).toHaveBeenCalledWith({
+      prompt: 'Expanded instructions',
+      displayPrompt: input.prompt,
+      agentMode: 'interactive',
+      attachments: [{ type: 'file', path: '/repo/file', displayName: 'file' }]
+    })
+  })
+
+  it('accepts the leading dollar skill syntax without executing arbitrary CLI commands', async () => {
+    harness.listSkills.mockResolvedValue({ skills: [skill] })
+    const service = setup()
+    await service.send({ ...input, prompt: '$plugin:review' })
+    expect(harness.invokeCommand).toHaveBeenCalledWith({ name: 'plugin:review', input: '' })
+    emit('session.idle', {})
+    await service.send({ ...input, prompt: '/clear' })
+    expect(harness.invokeCommand).toHaveBeenCalledTimes(1)
+    expect(harness.send).toHaveBeenLastCalledWith(expect.objectContaining({ prompt: '/clear' }))
+  })
+
+  it('reports catalog failures without breaking the conversation or silently sending a skill', async () => {
+    const service = setup()
+    await service.start('thread')
+    harness.listSkills.mockRejectedValueOnce(new Error('Catalog unavailable'))
+    expect(await service.listSkills('thread')).toEqual({ skills: [], error: 'Catalog unavailable' })
+    expect(service.getSession('thread')?.phase).toBe('idle')
+    harness.listSkills.mockRejectedValueOnce(new Error('Skill lookup failed'))
+    expect((await service.send(input)).error).toBe('Skill lookup failed')
+    expect(harness.send).not.toHaveBeenCalled()
+  })
+
+  it('rejects manually typed disabled skills before invoking or sending', async () => {
+    harness.listSkills.mockResolvedValue({ skills: [{ ...skill, enabled: false }] })
+    expect((await setup().send(input)).error).toContain('not available')
+    expect(harness.invokeCommand).not.toHaveBeenCalled()
+    expect(harness.send).not.toHaveBeenCalled()
+  })
+
+  it('does not send a skill after stopping while its expansion is pending', async () => {
+    harness.listSkills.mockResolvedValue({ skills: [skill] })
+    const expansion = deferred<unknown>()
+    harness.invokeCommand.mockReturnValueOnce(expansion.promise)
+    const service = setup()
+    await service.start('thread')
+    const sending = service.send(input)
+    await vi.waitFor(() => expect(harness.invokeCommand).toHaveBeenCalled())
+    await service.abort('thread')
+    expansion.resolve({ kind: 'agent-prompt', prompt: 'Instructions', displayPrompt: '/review' })
+    expect((await sending).ok).toBe(false)
+    expect(harness.send).not.toHaveBeenCalled()
+    expect(service.getSession('thread')?.phase).toBe('idle')
+  })
+
+  it('keeps injected context and autopilot continuations out of recalled user prompts', async () => {
+    harness.getEvents.mockResolvedValue([
+      event('user.message', { content: '/review', source: 'user' }),
+      event('user.message', { content: 'Hidden skill instructions', source: 'skill-review' }),
+      event('user.message', { content: 'Continue', isAutopilotContinuation: true })
+    ])
+    const service = setup()
+    const result = await service.start('thread')
+    expect(result.snapshot?.timeline).toEqual([
+      expect.objectContaining({ type: 'user', content: '/review' })
+    ])
+    emit('user.message', { content: 'More injected instructions', source: 'system' })
+    expect(service.getSession('thread')?.timeline).toHaveLength(1)
+  })
+})
+
+it('expands multiple inline skills once each and preserves the surrounding request', async () => {
+  harness.listSkills.mockResolvedValue({
+    skills: ['review', 'test'].map((name) => ({
+      name,
+      description: name,
+      source: 'project',
+      enabled: true,
+      userInvocable: true
+    }))
+  })
+  harness.invokeCommand.mockImplementation(async ({ name }) => ({
+    kind: 'agent-prompt',
+    prompt: `Instructions for ${name}`,
+    displayPrompt: `/${name}`
+  }))
+  const prompt = 'Use $review and $test, then $review again on this diff'
+  const service = setup()
+  expect(
+    (await service.send({ threadId: 'thread', prompt, attachments: [], agentMode: 'interactive' }))
+      .ok
+  ).toBe(true)
+  expect(harness.invokeCommand).toHaveBeenCalledTimes(2)
+  expect(harness.invokeCommand).toHaveBeenCalledWith({ name: 'review', input: prompt })
+  expect(harness.send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      prompt: `Instructions for review\n\nInstructions for test\n\n${prompt}`,
+      displayPrompt: prompt
+    })
+  )
 })

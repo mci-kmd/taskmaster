@@ -16,6 +16,7 @@ import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimeline from './copilot/SessionTimeline'
+import SessionPromptInput from './copilot/SessionPromptInput'
 import { useSessionDraft } from './copilot/session-drafts'
 import '../assets/copilot-session.css'
 
@@ -177,12 +178,6 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
     if (timelineRef.current) observer.observe(timelineRef.current)
     return () => observer.disconnect()
   }, [jumpToLatest])
-  useLayoutEffect(() => {
-    const element = promptRef.current
-    if (!element) return
-    element.style.height = 'auto'
-    element.style.height = `${Math.min(element.scrollHeight, 192)}px`
-  }, [prompt])
 
   const addFiles = (files: File[]): void => {
     if (busyRef.current) {
@@ -470,34 +465,19 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
               ))}
             </div>
           ) : null}
-          <textarea
-            ref={promptRef}
-            autoFocus
-            aria-label="Message Copilot"
-            rows={2}
-            value={prompt}
-            onChange={(event) =>
-              updateDraft((current) => ({ ...current, prompt: event.target.value }))
-            }
-            onKeyDown={(event) => {
-              if (
-                event.key === 'Enter' &&
-                !event.shiftKey &&
-                !event.nativeEvent.isComposing &&
-                event.keyCode !== 229
-              ) {
-                event.preventDefault()
-                send()
-              }
-            }}
-            onPaste={(event) => {
-              const files = Array.from(event.clipboardData.files)
-              if (files.length) {
-                event.preventDefault()
-                addFiles(files)
-              }
-            }}
-            placeholder={running ? 'Draft your next message…' : 'Ask Copilot anything…'}
+          <SessionPromptInput
+            threadId={thread.id}
+            sessionId={session?.sessionId ?? null}
+            connected={session?.phase === 'idle' || session?.phase === 'running'}
+            inputRef={promptRef}
+            prompt={prompt}
+            timeline={session?.timeline ?? []}
+            hasAttachments={attachments.length > 0}
+            hasInteraction={Boolean(session?.pendingInteraction)}
+            running={running}
+            onChange={(value) => updateDraft((current) => ({ ...current, prompt: value }))}
+            onSend={send}
+            onFiles={addFiles}
           />
           <div className="tm-session-controls">
             <Button

@@ -8,6 +8,10 @@ A personal Electron app for running an embedded LLM CLI inside the app and organ
 - View inbox threads across projects in activity order, with manual settle/unsettle and a collapsed Settled threads section
 - Create inbox threads using the custom Copilot interface and the same branch/worktree options; settling preserves sessions, branches, and worktrees without cleanup
 - Choose a predefined project icon and color as a fallback for custom favicons
+- Browse available Custom UI models grouped by family, preserving the active model and per-model reasoning settings
+- Recall sent Custom UI prompts with Up/Down from an empty composer; history stays within the thread and restores from its session
+- Browse Custom UI skills with `/` at the start of a message or `$` within it; filter by name or description, select with arrows and Enter/Tab, and dismiss with Escape
+- Discover project and personal Copilot skills from the session configuration and expand selected skills through the SDK when sending, retaining the original prompt in history
 - Add git repositories from a folder picker
 - Create persisted threads on the active branch, an existing branch, a new branch, or a worktree
 - Launch Copilot CLI inside the embedded terminal per selected thread

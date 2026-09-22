@@ -176,6 +176,7 @@ const api = {
     updateSdk: () => invokeIpc(IPC_CHANNELS.copilot.updateSdk),
     start: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.start, threadId),
     getSession: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.getSession, threadId),
+    listSkills: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.listSkills, threadId),
     send: (input: CopilotSendInput) => invokeIpc(IPC_CHANNELS.copilot.send, input),
     abort: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.abort, threadId),
     setModel: (input: CopilotSetModelInput) => invokeIpc(IPC_CHANNELS.copilot.setModel, input),

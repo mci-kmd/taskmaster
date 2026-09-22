@@ -18,6 +18,9 @@ export function registerCopilotIpc(service: CopilotSessionService): void {
   handleIpc(IPC_CHANNELS.copilot.getSession, (_event, threadId: string) =>
     service.getSession(threadId)
   )
+  handleIpc(IPC_CHANNELS.copilot.listSkills, (_event, threadId: string) =>
+    service.listSkills(threadId)
+  )
   handleIpc(IPC_CHANNELS.copilot.send, (_event, input: CopilotSendInput) => service.send(input))
   handleIpc(IPC_CHANNELS.copilot.abort, (_event, threadId: string) => service.abort(threadId))
   handleIpc(IPC_CHANNELS.copilot.setModel, (_event, input: CopilotSetModelInput) =>

@@ -7,6 +7,7 @@ import type {
   CopilotSdkStatus,
   CopilotSdkStatusEvent,
   CopilotSendInput,
+  CopilotSkillsResult,
   CopilotSessionEvent,
   CopilotSessionSnapshot,
   CopilotSetModelInput,
@@ -108,6 +109,7 @@ export const IPC_CHANNELS = {
     updateSdk: 'copilot:update-sdk',
     start: 'copilot:start',
     getSession: 'copilot:get-session',
+    listSkills: 'copilot:list-skills',
     send: 'copilot:send',
     abort: 'copilot:abort',
     setModel: 'copilot:set-model',
@@ -218,6 +220,7 @@ export type IpcInvokeDefinitions = {
   'copilot:update-sdk': { request: []; response: CopilotSdkStatus }
   'copilot:start': { request: [string]; response: CopilotStartResult }
   'copilot:get-session': { request: [string]; response: CopilotSessionSnapshot | null }
+  'copilot:list-skills': { request: [string]; response: CopilotSkillsResult }
   'copilot:send': { request: [CopilotSendInput]; response: CopilotStartResult }
   'copilot:abort': { request: [string]; response: boolean }
   'copilot:set-model': { request: [CopilotSetModelInput]; response: CopilotStartResult }

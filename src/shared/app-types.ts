@@ -529,6 +529,19 @@ export interface CopilotStartResult {
   error?: string
 }
 
+export interface CopilotSkill {
+  name: string
+  commandName: string
+  description: string
+  source: string
+  argumentHint?: string
+}
+
+export interface CopilotSkillsResult {
+  skills: CopilotSkill[]
+  error?: string
+}
+
 export interface CopilotSendInput {
   threadId: string
   prompt: string
@@ -572,6 +585,7 @@ export interface CopilotApi {
   updateSdk: () => Promise<CopilotSdkStatus>
   start: (threadId: string) => Promise<CopilotStartResult>
   getSession: (threadId: string) => Promise<CopilotSessionSnapshot | null>
+  listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useLayoutEffect,
@@ -14,6 +15,7 @@ import { ChevronDownIcon } from '../Icons'
 export type SelectOption = {
   value: string
   label: string
+  group?: string
   description?: string
   icon?: ReactNode
   disabled?: boolean
@@ -70,11 +72,21 @@ export default function Select(props: SelectProps): React.JSX.Element {
   const values = Array.isArray(props.value) ? props.value : [props.value]
   const selected = options.filter((option) => values.includes(option.value))
   const query = props.editable ? String(props.value).toLowerCase() : ''
-  const visibleOptions = props.editable
+  const filteredOptions = props.editable
     ? options.filter((option) =>
         `${option.label} ${option.value} ${option.description ?? ''}`.toLowerCase().includes(query)
       )
     : options
+  // Group in first-seen order, retaining the supplied order within each group.
+  // Keyboard navigation uses this same flattened order and skips the headings.
+  const groups = new Map<string | undefined, SelectOption[]>()
+  for (const option of filteredOptions) {
+    const group = groups.get(option.group)
+    if (group) group.push(option)
+    else groups.set(option.group, [option])
+  }
+  const visibleOptions = [...groups.values()].flat()
+  const optionIndexes = new Map(visibleOptions.map((option, index) => [option.value, index]))
   const enabledOptions = visibleOptions.filter((option) => !option.disabled)
   const activeIndex = visibleOptions.findIndex(
     (option) => option.value === activeValue && !option.disabled
@@ -159,7 +171,7 @@ export default function Select(props: SelectProps): React.JSX.Element {
       !event.altKey
     ) {
       event.preventDefault()
-      const now = Date.now()
+      const now = event.timeStamp
       search.current.text =
         now - search.current.time > 700 ? event.key : search.current.text + event.key
       search.current.time = now
@@ -228,6 +240,43 @@ export default function Select(props: SelectProps): React.JSX.Element {
         ?.querySelector(`[id="${listId}-${activeIndex}"]`)
         ?.scrollIntoView?.({ block: 'nearest' })
   }, [expanded, activeIndex, listId])
+
+  function renderOption(option: SelectOption): React.JSX.Element {
+    const index = optionIndexes.get(option.value)!
+    return (
+      <div
+        key={option.value}
+        id={`${listId}-${index}`}
+        role="option"
+        aria-label={option.label}
+        aria-selected={values.includes(option.value)}
+        aria-disabled={option.disabled || undefined}
+        data-highlighted={activeIndex === index}
+        className="tm-picker-option"
+        onPointerDown={(event) => event.preventDefault()}
+        title={option.description}
+        onPointerMove={() => {
+          if (!option.disabled) setActiveValue(option.value)
+        }}
+        onClick={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          choose(option)
+        }}
+      >
+        {option.icon ? <span className="tm-picker-icon">{option.icon}</span> : null}
+        <span className="tm-picker-option-text">
+          <span className="tm-picker-label">{option.label}</span>
+          {option.description ? (
+            <span className="tm-picker-description">{option.description}</span>
+          ) : null}
+        </span>
+        <span className="tm-picker-check" aria-hidden="true">
+          {values.includes(option.value) ? '✓' : ''}
+        </span>
+      </div>
+    )
+  }
 
   const accessibility = {
     id,
@@ -338,39 +387,23 @@ export default function Select(props: SelectProps): React.JSX.Element {
                 aria-labelledby={props['aria-labelledby']}
                 aria-multiselectable={props.multiple || undefined}
               >
-                {visibleOptions.map((option, index) => (
-                  <div
-                    key={option.value}
-                    id={`${listId}-${index}`}
-                    role="option"
-                    aria-label={option.label}
-                    aria-selected={values.includes(option.value)}
-                    aria-disabled={option.disabled || undefined}
-                    data-highlighted={activeIndex === index}
-                    className="tm-picker-option"
-                    onPointerDown={(event) => event.preventDefault()}
-                    title={option.description}
-                    onPointerMove={() => {
-                      if (!option.disabled) setActiveValue(option.value)
-                    }}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      choose(option)
-                    }}
-                  >
-                    {option.icon ? <span className="tm-picker-icon">{option.icon}</span> : null}
-                    <span className="tm-picker-option-text">
-                      <span className="tm-picker-label">{option.label}</span>
-                      {option.description ? (
-                        <span className="tm-picker-description">{option.description}</span>
-                      ) : null}
-                    </span>
-                    <span className="tm-picker-check" aria-hidden="true">
-                      {values.includes(option.value) ? '✓' : ''}
-                    </span>
-                  </div>
-                ))}
+                {[...groups].map(([group, options], index) =>
+                  group ? (
+                    <div
+                      key={group}
+                      className="tm-picker-group"
+                      role="group"
+                      aria-labelledby={`${listId}-group-${index}`}
+                    >
+                      <div className="tm-picker-group-label" id={`${listId}-group-${index}`}>
+                        {group}
+                      </div>
+                      {options.map(renderOption)}
+                    </div>
+                  ) : (
+                    <Fragment key="ungrouped">{options.map(renderOption)}</Fragment>
+                  )
+                )}
                 {!visibleOptions.length ? (
                   <div className="tm-picker-empty">
                     {props.editable
