@@ -12,6 +12,7 @@ import type {
 import { getRendererApi } from '../shared/api/client'
 import type { ThreadSessionState } from './TerminalSessions'
 import Button from './ui/Button'
+import { PaperclipIcon } from './Icons'
 import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
@@ -483,6 +484,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             <Button
               size="sm"
               variant="ghost"
+              iconOnly
               disabled={Boolean(busy)}
               aria-label="Attach files"
               title="Attach files (or drop them anywhere in this session)"
@@ -499,7 +501,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
                 })
               }
             >
-              ＋<span className="sr-only"> Attach files</span>
+              <PaperclipIcon aria-hidden="true" />
             </Button>
             <label className="tm-session-setting" title="Mode for your next message">
               <span>Mode</span>

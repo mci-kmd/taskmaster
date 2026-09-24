@@ -21,6 +21,14 @@ export function PlusIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function PaperclipIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="m10.2 5.1-5.4 5.4a1.5 1.5 0 0 0 2.1 2.1l6-6a2.8 2.8 0 0 0-4-4l-6 6a4 4 0 0 0 5.7 5.7l5.4-5.4" />
+    </svg>
+  )
+}
+
 export function FolderIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>
