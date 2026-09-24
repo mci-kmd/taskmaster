@@ -28,6 +28,7 @@ import { useNow } from '../lib/useNow'
 import { getRendererApi } from '../shared/api/client'
 import { isDevMode } from '../../../shared/runtime-mode'
 import type { CopilotThreadStatus } from './ThreadTerminal'
+import { inboxThreadMenuOptions } from '../../../shared/sidebar-thread-actions'
 
 const api = getRendererApi()
 
@@ -258,17 +259,15 @@ export default function Sidebar({
             onOpenRepositoryTasks={onOpenRepositoryTasks}
             onEditThread={onEditThread}
             onSettleThread={onSettleThread}
+            onConvertThreadToWorktree={onConvertThreadToWorktree}
+            convertingThread={convertingThread}
             onContextMenu={(thread, x, y) =>
               showContextMenu({
                 kind: 'thread',
                 itemId: thread.id,
                 x,
                 y,
-                convertToWorktreeVisible: thread.mode !== 'worktree',
-                convertToWorktreeEnabled: !convertingThread,
-                closeThreadEnabled: false,
-                inboxThread: true,
-                settled: Boolean(thread.settledAt)
+                ...inboxThreadMenuOptions(thread, convertingThread)
               })
             }
           />

@@ -826,8 +826,11 @@ select {
   color: var(--color-fg);
   outline: none;
 }
-.tm-action-menu-item:hover,
-.tm-action-menu-item:focus-visible {
+.tm-action-menu-item:disabled {
+  color: var(--color-fg-faint);
+}
+.tm-action-menu-item:not(:disabled):hover,
+.tm-action-menu-item:not(:disabled):focus-visible {
   background: var(--color-control-hover);
 }
 

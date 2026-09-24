@@ -7,7 +7,7 @@ export default function ActionMenu({
   children
 }: {
   label: string
-  items: Array<{ label: string; onSelect: () => void }>
+  items: Array<{ label: string; disabled?: boolean; onSelect: () => void }>
   children: ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -32,7 +32,7 @@ export default function ActionMenu({
     element.style.left = `${Math.max(8, Math.min(bounds.right - width, window.innerWidth - width - 8))}px`
     element.style.top = `${Math.max(8, Math.min(bounds.bottom + 4, window.innerHeight - height - 8))}px`
     element.style.visibility = 'visible'
-    menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
   }, [open])
 
   useEffect(() => {
@@ -96,7 +96,9 @@ export default function ActionMenu({
                 } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
                   event.preventDefault()
                   const buttons = Array.from(
-                    menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []
+                    menu.current?.querySelectorAll<HTMLButtonElement>(
+                      '[role="menuitem"]:not(:disabled)'
+                    ) ?? []
                   )
                   const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
                   const next =
@@ -116,6 +118,7 @@ export default function ActionMenu({
                   role="menuitem"
                   type="button"
                   className="tm-action-menu-item"
+                  disabled={item.disabled}
                   onClick={() => {
                     close(true)
                     item.onSelect()

@@ -73,6 +73,7 @@ const callbacks = (): Record<
   | 'onOpenRepositoryTasks'
   | 'onEditThread'
   | 'onSettleThread'
+  | 'onConvertThreadToWorktree'
   | 'onContextMenu',
   Mock<(...args: unknown[]) => void>
 > => ({
@@ -83,6 +84,7 @@ const callbacks = (): Record<
   onOpenRepositoryTasks: vi.fn(),
   onEditThread: vi.fn(),
   onSettleThread: vi.fn(),
+  onConvertThreadToWorktree: vi.fn(),
   onContextMenu: vi.fn()
 })
 afterEach(cleanup)
@@ -126,6 +128,7 @@ describe('inbox', () => {
         selectedRepository={repositories[0]}
         selectedThread={null}
         sessions={new Map()}
+        convertingThread={false}
         {...handlers}
       />
     )
@@ -141,7 +144,11 @@ describe('inbox', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Newest' }))
     expect(handlers.onEditThread).not.toHaveBeenCalled()
     const menu = screen.getByRole('menu')
-    expect(within(menu).getAllByRole('menuitem')).toHaveLength(1)
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Edit', 'Convert to work tree', 'Settle thread'])
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Edit' }))
     expect(handlers.onEditThread).toHaveBeenCalledWith('Newest')
     expect(screen.queryByRole('menu')).toBeNull()
@@ -167,6 +174,82 @@ describe('inbox', () => {
     )
     fireEvent.click(tasksButton)
     expect(handlers.onOpenRepositoryTasks).toHaveBeenCalledWith('Alpha')
+  })
+
+  it('matches inbox context actions for active, settled, worktree, and converting threads', () => {
+    const handlers = callbacks()
+    const { rerender } = render(
+      <InboxThreads
+        repositories={repositories}
+        selectedRepository={repositories[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        {...handlers}
+      />
+    )
+    const openMenu = (title: string): HTMLElement => {
+      fireEvent.click(screen.getByRole('button', { name: `Thread actions for ${title}` }))
+      return screen.getByRole('menu')
+    }
+    fireEvent.contextMenu(screen.getByText('Newest'), { clientX: 10, clientY: 20 })
+    expect(handlers.onContextMenu).toHaveBeenCalledWith(repositories[1].threads[0], 10, 20)
+    let menu = openMenu('Newest')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Convert to work tree' }))
+    expect(handlers.onConvertThreadToWorktree).toHaveBeenCalledWith('Newest')
+    menu = openMenu('Newest')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Settle thread' }))
+    expect(handlers.onSettleThread).toHaveBeenCalledWith('Newest', true)
+
+    fireEvent.click(screen.getByRole('button', { name: /Settled threads/ }))
+    menu = openMenu('Finished')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Edit', 'Convert to work tree', 'Unsettle thread'])
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Unsettle thread' }))
+    expect(handlers.onSettleThread).toHaveBeenCalledWith('Finished', false)
+
+    const worktree = { ...thread('Worktree', '2026-04-01'), mode: 'worktree' as const }
+    rerender(
+      <InboxThreads
+        repositories={[repository('Alpha', [worktree])]}
+        selectedRepository={repositories[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        {...handlers}
+      />
+    )
+    menu = openMenu('Worktree')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Edit', 'Settle thread'])
+    fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Worktree' }))
+    rerender(
+      <InboxThreads
+        repositories={repositories}
+        selectedRepository={repositories[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread
+        {...handlers}
+      />
+    )
+    menu = openMenu('Newest')
+    const converting = within(menu).getByRole('menuitem', { name: 'Converting...' })
+    expect((converting as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(converting)
+    expect(handlers.onConvertThreadToWorktree).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(menu, { key: 'End' })
+    expect(document.activeElement).toBe(
+      within(menu).getByRole('menuitem', { name: 'Settle thread' })
+    )
+    fireEvent.keyDown(menu, { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(within(menu).getByRole('menuitem', { name: 'Edit' }))
   })
 
   it('prefers a custom favicon and falls back to the colored project icon on failure', () => {

@@ -5,6 +5,7 @@ import {
   type MenuItemConstructorOptions
 } from 'electron'
 import type { SidebarContextMenuAction, SidebarContextMenuRequest } from '../shared/app-types'
+import { threadMenuActions } from '../shared/sidebar-thread-actions'
 import { IPC_CHANNELS } from '../shared/contracts/ipc'
 import { handleIpc, sendIpc } from './ipc/typed-ipc'
 
@@ -37,42 +38,11 @@ function buildSidebarContextMenuTemplate(
     ]
   }
 
-  const template: MenuItemConstructorOptions[] = [
-    {
-      click: () => sendAction(event, request, 'edit'),
-      label: 'Edit'
-    }
-  ]
-
-  if (request.convertToWorktreeVisible) {
-    template.push({
-      click: () => sendAction(event, request, 'convert-to-worktree'),
-      enabled: request.convertToWorktreeEnabled,
-      label: request.convertToWorktreeEnabled ? 'Convert to work tree' : 'Converting...'
-    })
-  }
-
-  template.push({
-    click: () =>
-      sendAction(
-        event,
-        request,
-        request.inboxThread
-          ? request.settled
-            ? 'unsettle-thread'
-            : 'settle-thread'
-          : 'close-thread'
-      ),
-    enabled: request.inboxThread || request.closeThreadEnabled,
-    label: request.inboxThread
-      ? request.settled
-        ? 'Unsettle thread'
-        : 'Settle thread'
-      : request.closeThreadEnabled
-        ? 'Close thread'
-        : 'Closing...'
-  })
-  return template
+  return threadMenuActions(request).map(({ action, label, enabled }) => ({
+    click: () => sendAction(event, request, action),
+    enabled,
+    label
+  }))
 }
 
 export function registerNativeMenuIpc(): void {
