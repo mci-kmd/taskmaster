@@ -316,11 +316,21 @@ describe('Copilot session tool groups', () => {
       })
     )
     expect(screen.getAllByRole('button', { name: /1 tool call/ })).toHaveLength(2)
-    const summary = screen.getByText('Thinking…')
-    fireEvent.click(summary)
-    expect(summary.closest('details')!.open).toBe(true)
+    expect(screen.getByText('Thinking…').closest('details')).toBeNull()
     expect(screen.getByText('Compare the two files.')).toBeTruthy()
-    expect(screen.queryByText('Reasoning')).toBeNull()
+    act(() =>
+      listener({
+        snapshot: snapshot(a.id, {
+          timeline: timeline.map((item) =>
+            item.id === 'reasoning'
+              ? { ...reasoning, content: 'Compare the two files and decide.', streaming: false }
+              : item
+          )
+        })
+      })
+    )
+    expect(screen.getByText('Reasoning').closest('details')).toBeNull()
+    expect(screen.getByText('Compare the two files and decide.')).toBeTruthy()
   })
 
   it('merges calls across empty assistant messages and restores a boundary when text streams in', async () => {

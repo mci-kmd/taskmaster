@@ -35,15 +35,15 @@ export default memo(function SessionTimelineItem({
   }
   if (item.type === 'reasoning') {
     return (
-      <details className="tm-session-activity">
-        <summary>
+      <div className="tm-session-activity tm-session-activity--reasoning">
+        <div className="tm-session-activity-heading">
           <span className={item.streaming ? 'tm-pulse-dot' : ''}>✧</span>
           <span>{item.streaming ? 'Thinking…' : 'Reasoning'}</span>
-        </summary>
+        </div>
         <div className="tm-session-activity-detail">
           <SessionMarkdown>{item.content}</SessionMarkdown>
         </div>
-      </details>
+      </div>
     )
   }
   const user = item.type === 'user'
