@@ -519,7 +519,7 @@ describe('Copilot session interactions', () => {
     expect(harness.broadcast.mock.calls.at(-1)?.[1].snapshot.phase).toBe('disconnected')
   })
 
-  it('blocks overlapping sends and model changes while a response runs', async () => {
+  it('blocks overlapping sends but queues model changes while a response runs', async () => {
     const service = setup()
     await service.start('thread')
     const input = {
@@ -532,8 +532,11 @@ describe('Copilot session interactions', () => {
     expect(results.map((result) => result.ok)).toEqual([true, false])
     expect(harness.send).toHaveBeenCalledTimes(1)
     expect(
-      (await service.setModel({ threadId: 'thread', model: 'another', reasoningEffort: null })).ok
-    ).toBe(false)
+      await service.setModel({ threadId: 'thread', model: 'another', reasoningEffort: null })
+    ).toMatchObject({
+      ok: true,
+      snapshot: { nextModelSelection: { model: 'another', reasoningEffort: null } }
+    })
     expect(harness.setModel).not.toHaveBeenCalled()
   })
 
@@ -692,6 +695,107 @@ it('prevents sending while model settings are still being applied', async () => 
       })
     ).ok
   ).toBe(true)
+})
+
+it('queues model and effort changes during a turn and applies the latest before the next prompt', async () => {
+  const onModelSelected = vi.fn()
+  const service = setup([], { onModelSelected })
+  await service.start('thread')
+  emit('assistant.turn_start', { turnId: 'turn-1' })
+  const first = await service.setModel({
+    threadId: 'thread',
+    model: 'next-model',
+    reasoningEffort: 'low'
+  })
+  expect(first).toMatchObject({
+    ok: true,
+    snapshot: {
+      phase: 'running',
+      model: 'model',
+      nextModelSelection: { model: 'next-model', reasoningEffort: 'low' }
+    }
+  })
+  expect(harness.setModel).not.toHaveBeenCalled()
+  await service.setModel({ threadId: 'thread', model: 'next-model', reasoningEffort: 'high' })
+  expect(service.getSession('thread')?.nextModelSelection).toEqual({
+    model: 'next-model',
+    reasoningEffort: 'high'
+  })
+  expect(onModelSelected).not.toHaveBeenCalled()
+  emit('session.idle', {})
+  expect(harness.setModel).not.toHaveBeenCalled()
+  harness.getCurrentModel.mockResolvedValue({ modelId: 'next-model', reasoningEffort: 'high' })
+  const sent = await service.send({
+    threadId: 'thread',
+    prompt: 'Next prompt',
+    attachments: [],
+    agentMode: 'interactive'
+  })
+  expect(sent.ok).toBe(true)
+  expect(harness.setModel).toHaveBeenCalledExactlyOnceWith('next-model', {
+    reasoningEffort: 'high',
+    reasoningSummary: 'concise'
+  })
+  expect(harness.setModel.mock.invocationCallOrder[0]).toBeLessThan(
+    harness.send.mock.invocationCallOrder[0]
+  )
+  expect(sent.snapshot).toMatchObject({
+    model: 'next-model',
+    reasoningEffort: 'high',
+    nextModelSelection: null
+  })
+  expect(onModelSelected).toHaveBeenCalledExactlyOnceWith({
+    model: 'next-model',
+    reasoningEffort: 'high'
+  })
+})
+
+it('retains a queued selection and the unsent prompt if applying it fails', async () => {
+  const service = setup()
+  await service.start('thread')
+  emit('assistant.turn_start', { turnId: 'turn-1' })
+  await service.setModel({ threadId: 'thread', model: 'unavailable', reasoningEffort: null })
+  emit('session.idle', {})
+  harness.setModel.mockRejectedValueOnce(new Error('Model unavailable'))
+  const result = await service.send({
+    threadId: 'thread',
+    prompt: 'Keep this prompt',
+    attachments: [],
+    agentMode: 'interactive'
+  })
+  expect(result).toMatchObject({
+    ok: false,
+    error: 'Model unavailable',
+    snapshot: {
+      phase: 'idle',
+      model: 'model',
+      nextModelSelection: { model: 'unavailable', reasoningEffort: null }
+    }
+  })
+  expect(harness.send).not.toHaveBeenCalled()
+  expect(service.getSession('thread')?.nextModelSelection?.model).toBe('unavailable')
+})
+
+it('does not send a prompt if the session is stopped while applying queued settings', async () => {
+  const service = setup()
+  await service.start('thread')
+  emit('assistant.turn_start', { turnId: 'turn-1' })
+  await service.setModel({ threadId: 'thread', model: 'next-model', reasoningEffort: 'low' })
+  emit('session.idle', {})
+  const pending = deferred<void>()
+  harness.setModel.mockReturnValueOnce(pending.promise)
+  harness.getCurrentModel.mockResolvedValue({ modelId: 'next-model', reasoningEffort: 'low' })
+  const sending = service.send({
+    threadId: 'thread',
+    prompt: 'Not sent',
+    attachments: [],
+    agentMode: 'interactive'
+  })
+  await vi.waitFor(() => expect(harness.setModel).toHaveBeenCalled())
+  await service.abort('thread')
+  pending.resolve(undefined)
+  expect((await sending).ok).toBe(false)
+  expect(harness.send).not.toHaveBeenCalled()
 })
 
 it('records activity when a running turn completes, but not when opening an idle session', async () => {

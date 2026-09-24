@@ -16,6 +16,7 @@ function snapshot(
     phase,
     model: null,
     reasoningEffort: null,
+    nextModelSelection: null,
     agentMode: 'interactive',
     models: [],
     timeline: [],

@@ -26,6 +26,7 @@ const session: CopilotSessionSnapshot = {
   phase: 'idle',
   model: 'gpt-5-mini',
   reasoningEffort: 'high',
+  nextModelSelection: null,
   agentMode: 'interactive',
   models,
   timeline: [],
@@ -152,5 +153,23 @@ describe('nested model families', () => {
     fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
     fireEvent.click(screen.getByRole('treeitem', { name: 'Claude Sonnet 4.5' }))
     expect(onChange).toHaveBeenCalledWith('claude-sonnet-4.5', 'high')
+  })
+
+  it('shows queued settings rather than the running turn’s model and effort', () => {
+    const onChange = renderPicker({
+      ...session,
+      phase: 'running',
+      nextModelSelection: { model: 'gpt-4.1', reasoningEffort: null }
+    })
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).value).toBe(
+      'gpt-4.1'
+    )
+    expect(
+      (screen.getByRole('combobox', { name: 'Reasoning effort' }) as HTMLButtonElement).value
+    ).toBe('')
+    expect(screen.getByText('For next message')).toBeTruthy()
+    fireEvent.click(screen.getByRole('combobox', { name: 'Reasoning effort' }))
+    fireEvent.click(screen.getByRole('option', { name: 'Low' }))
+    expect(onChange).toHaveBeenCalledWith('gpt-4.1', 'low')
   })
 })

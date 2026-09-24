@@ -758,6 +758,7 @@ export function createCopilotSessionService(dependencies: {
       phase: 'connecting',
       model: null,
       reasoningEffort: null,
+      nextModelSelection: null,
       agentMode: 'interactive',
       models,
       timeline: [],
@@ -927,6 +928,52 @@ export function createCopilotSessionService(dependencies: {
     return operation.promise
   }
 
+  const applyModelSelection = async (
+    active: ActiveSession,
+    selection: CopilotModelSelection
+  ): Promise<CopilotStartResult> => {
+    active.modelChangePending = true
+    const selectionRevision = ++modelSelectionRevision
+    try {
+      const selected = active.snapshot.models.find((model) => model.id === selection.model)
+      const effort = selection.reasoningEffort ?? selected?.defaultReasoningEffort ?? undefined
+      await active.session.setModel(selection.model, {
+        reasoningEffort: effort,
+        reasoningSummary: effort ? 'concise' : 'none'
+      })
+      // The runtime may normalize the model/effort or defer a change. Display what
+      // actually took effect, rather than presenting the requested settings as fact.
+      const current = await active.session.rpc.model.getCurrent()
+      if (sessions.get(active.snapshot.threadId) !== active)
+        return { ok: false, error: 'Session closed before model settings were applied.' }
+      updateSnapshot(active, {
+        model: current.modelId ?? null,
+        reasoningEffort: (current.reasoningEffort as CopilotReasoningEffort | undefined) ?? null,
+        nextModelSelection: null
+      })
+      if (current.modelId !== selection.model || (effort && current.reasoningEffort !== effort)) {
+        return {
+          ok: false,
+          error:
+            'Copilot has not applied the requested model settings. The controls show the settings currently in use.',
+          snapshot: active.snapshot
+        }
+      }
+      if (selectionRevision > rememberedModelSelectionRevision) {
+        dependencies.onModelSelected?.({
+          model: current.modelId,
+          reasoningEffort: active.snapshot.reasoningEffort
+        })
+        rememberedModelSelectionRevision = selectionRevision
+      }
+      return { ok: true, snapshot: active.snapshot }
+    } catch (error) {
+      return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
+    } finally {
+      active.modelChangePending = false
+    }
+  }
+
   return {
     getSdkStatus: () => sdkManager.getStatus(),
     checkForSdkUpdate: () => sdkManager.checkForUpdate(),
@@ -998,6 +1045,16 @@ export function createCopilotSessionService(dependencies: {
       if (!input.prompt.trim() && !input.attachments.length)
         return { ok: false, error: 'Enter a message or attach a file.' }
       const sendRevision = ++active.sendRevision
+      if (active.snapshot.nextModelSelection) {
+        const applied = await applyModelSelection(active, active.snapshot.nextModelSelection)
+        if (!applied.ok) return applied
+        if (
+          active.sendRevision !== sendRevision ||
+          sessions.get(input.threadId) !== active ||
+          active.snapshot.phase !== 'idle'
+        )
+          return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
+      }
       updateSnapshot(active, {
         phase: 'running',
         agentMode: input.agentMode,
@@ -1059,50 +1116,20 @@ export function createCopilotSessionService(dependencies: {
           error: 'Wait for the model settings to finish updating.',
           snapshot: active.snapshot
         }
+      if (active.snapshot.phase === 'running') {
+        updateSnapshot(active, {
+          nextModelSelection: { model: input.model, reasoningEffort: input.reasoningEffort }
+        })
+        return { ok: true, snapshot: active.snapshot }
+      }
       if (active.snapshot.phase !== 'idle' || active.pending.length) {
         return {
           ok: false,
-          error: 'Wait for Copilot to finish before changing the model.',
+          error: 'Connect to Copilot before changing the model.',
           snapshot: active.snapshot
         }
       }
-      active.modelChangePending = true
-      const selectionRevision = ++modelSelectionRevision
-      try {
-        const selected = active.snapshot.models.find((model) => model.id === input.model)
-        const effort = input.reasoningEffort ?? selected?.defaultReasoningEffort ?? undefined
-        await active.session.setModel(input.model, {
-          reasoningEffort: effort,
-          reasoningSummary: effort ? 'concise' : 'none'
-        })
-        // The runtime may normalize the model/effort or defer a change. Display what
-        // actually took effect, rather than presenting the requested settings as fact.
-        const current = await active.session.rpc.model.getCurrent()
-        updateSnapshot(active, {
-          model: current.modelId ?? null,
-          reasoningEffort: (current.reasoningEffort as CopilotReasoningEffort | undefined) ?? null
-        })
-        if (current.modelId !== input.model || (effort && current.reasoningEffort !== effort)) {
-          return {
-            ok: false,
-            error:
-              'Copilot has not applied the requested model settings. The controls show the settings currently in use.',
-            snapshot: active.snapshot
-          }
-        }
-        if (selectionRevision > rememberedModelSelectionRevision) {
-          dependencies.onModelSelected?.({
-            model: current.modelId,
-            reasoningEffort: active.snapshot.reasoningEffort
-          })
-          rememberedModelSelectionRevision = selectionRevision
-        }
-        return { ok: true, snapshot: active.snapshot }
-      } catch (error) {
-        return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
-      } finally {
-        active.modelChangePending = false
-      }
+      return applyModelSelection(active, input)
     },
     respond: (input) => {
       const active = sessions.get(input.threadId)

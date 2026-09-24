@@ -273,6 +273,17 @@
   color: var(--tm-ink);
 }
 
+.tm-performance__scale {
+  position: absolute;
+  top: 0;
+  right: 12px;
+  color: var(--color-fg-subtle);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
 .tm-performance__axis {
   display: flex;
   justify-content: space-between;

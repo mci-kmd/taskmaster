@@ -35,6 +35,7 @@ function snapshot(
     phase: 'idle',
     model: 'model',
     reasoningEffort: null,
+    nextModelSelection: null,
     agentMode: 'interactive',
     models: [
       {
@@ -168,7 +169,7 @@ describe('Copilot session composer', () => {
     expect(mock.send).not.toHaveBeenCalled()
     expect(send().disabled).toBe(true)
     expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).disabled).toBe(
-      true
+      false
     )
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
   })
@@ -534,6 +535,55 @@ describe('Copilot session tool groups', () => {
 })
 
 describe('Copilot session settings and surrounding controls', () => {
+  it('selects model and effort while working and marks them for the next message', async () => {
+    const a = thread()
+    const running = snapshot(a.id, {
+      phase: 'running',
+      models: [
+        ...snapshot(a.id).models,
+        {
+          id: 'other',
+          name: 'Other model',
+          supportsVision: false,
+          supportedReasoningEfforts: ['low', 'high'],
+          defaultReasoningEffort: 'low'
+        }
+      ]
+    })
+    mock.getSession.mockResolvedValue(running)
+    mock.setModel.mockImplementation(async ({ model, reasoningEffort }) => ({
+      ok: true,
+      snapshot: {
+        ...running,
+        nextModelSelection: { model, reasoningEffort }
+      }
+    }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await screen.findByText('Working…')
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).disabled).toBe(
+      false
+    )
+    chooseOption('Model', 'Other model')
+    await screen.findByText('For next message')
+    expect(mock.setModel).toHaveBeenCalledWith({
+      threadId: a.id,
+      model: 'other',
+      reasoningEffort: 'low'
+    })
+    expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).value).toBe(
+      'other'
+    )
+    chooseOption('Reasoning effort', 'High')
+    await waitFor(() =>
+      expect(mock.setModel).toHaveBeenLastCalledWith({
+        threadId: a.id,
+        model: 'other',
+        reasoningEffort: 'high'
+      })
+    )
+    expect(send().disabled).toBe(true)
+  })
+
   it('applies a model and its default effort, shows progress, and preserves the draft', async () => {
     const a = thread()
     const initial = snapshot(a.id)

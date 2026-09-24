@@ -17,12 +17,15 @@ export default function SessionModelControls({
   disabledReason,
   onChange
 }: Props): React.JSX.Element {
-  const selected = session?.models.find((model) => model.id === session.model)
+  const model = session?.nextModelSelection?.model ?? session?.model
+  const selected = session?.models.find((option) => option.id === model)
   const efforts = selected?.supportedReasoningEfforts ?? []
-  const effort = session?.reasoningEffort ?? ''
+  const effort = session?.nextModelSelection
+    ? (session.nextModelSelection.reasoningEffort ?? '')
+    : (session?.reasoningEffort ?? '')
   const modelTitle = disabled
     ? disabledReason
-    : (selected?.name ?? session?.model ?? 'Choose a model for this conversation')
+    : `Model for your next message${selected ? `: ${selected.name}` : ''}`
 
   return (
     <>
@@ -30,7 +33,7 @@ export default function SessionModelControls({
         <span>Model</span>
         <ModelPicker
           models={session?.models ?? []}
-          value={session?.model ?? ''}
+          value={model ?? ''}
           disabled={disabled || !session?.models.length}
           placeholder={
             session?.models.length ? 'Choose model' : session ? 'No models available' : 'Loading…'
@@ -38,7 +41,7 @@ export default function SessionModelControls({
           onChange={(value) => {
             const next = session?.models.find((model) => model.id === value)
             if (next) {
-              const previousEffort = session?.reasoningEffort
+              const previousEffort = effort
               onChange(
                 next.id,
                 previousEffort && next.supportedReasoningEfforts.includes(previousEffort)
@@ -61,8 +64,7 @@ export default function SessionModelControls({
             disabled={disabled}
             value={effort}
             onChange={(value) => {
-              if (session?.model)
-                onChange(session.model, (value || null) as CopilotReasoningEffort | null)
+              if (model) onChange(model, (value || null) as CopilotReasoningEffort | null)
             }}
             options={[
               {
@@ -87,6 +89,10 @@ export default function SessionModelControls({
       {busy ? (
         <span className="tm-session-control-status" role="status">
           Applying model settings…
+        </span>
+      ) : session?.nextModelSelection ? (
+        <span className="tm-session-control-status" role="status">
+          For next message
         </span>
       ) : null}
     </>

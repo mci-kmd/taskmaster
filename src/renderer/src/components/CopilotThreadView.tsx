@@ -522,16 +522,19 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             </label>
             <SessionModelControls
               session={session}
-              disabled={!ready || Boolean(busy)}
+              disabled={
+                (session?.phase !== 'idle' && session?.phase !== 'running') ||
+                (session?.phase === 'idle' && Boolean(session.pendingInteraction)) ||
+                Boolean(busy) ||
+                stopping
+              }
               busy={busy === 'model'}
               disabledReason={
-                running
-                  ? 'Stop the current response or wait for it to finish before changing models'
-                  : session?.pendingInteraction
-                    ? 'Respond to the pending request before changing models'
-                    : busy
-                      ? 'Wait for the current action to finish'
-                      : 'Connect to Copilot to change models'
+                session?.pendingInteraction && !running
+                  ? 'Respond to the pending request before changing models'
+                  : busy
+                    ? 'Wait for the current action to finish'
+                    : 'Connect to Copilot to change models'
               }
               onChange={changeModel}
             />

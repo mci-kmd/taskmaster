@@ -212,6 +212,114 @@ it('includes new samples when props change before the clock interval fires', asy
   expect(screen.getByRole('region', { name: 'New performance' })).toBeTruthy()
 })
 
+it('keeps completed intervals and their positions stable as samples and the clock advance', async () => {
+  vi.setSystemTime(new Date(now.getTime() + 60_000))
+  const history = [
+    sample('early', 'Alpha', 18, 10, 1000, 100),
+    sample('middle', 'Alpha', 16, 90, 1000, 300),
+    sample('late', 'Alpha', 14, 30, 1000, 200)
+  ]
+  const { rerender } = view(history)
+  fireEvent.click(screen.getByRole('button', { name: '1h' }))
+  const graph = screen
+    .getByRole('region', { name: 'Alpha performance' })
+    .querySelector('.tm-performance__metric--tps') as HTMLElement
+  const past = (): string[] =>
+    within(graph)
+      .getAllByRole('button', { name: /Alpha,/ })
+      .slice(0, 2)
+      .map((button) => button.getAttribute('aria-label')!)
+  const heights = (): string[] =>
+    Array.from(graph.querySelectorAll('.tm-performance__point'))
+      .slice(0, 2)
+      .map((point) => point.getAttribute('cy')!)
+  const original = past()
+  const originalHeights = heights()
+  expect(original[0]).toContain('50 tokens per second')
+  expect(original[1]).toContain('30 tokens per second')
+  expect(within(graph).getByText('0–50 tok/s')).toBeTruthy()
+  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' L')
+  const focused = within(graph).getAllByRole('button', { name: /Alpha,/ })[0]
+  act(() => focused.focus())
+  const focusedDetails = within(graph).getByRole('tooltip').textContent
+
+  await act(async () => {
+    vi.advanceTimersByTime(3 * 60_000)
+  })
+  expect(past()).toEqual(original)
+  expect(heights()).toEqual(originalHeights)
+
+  await act(async () => {
+    rerender(
+      <ModelPerformanceView
+        samples={[...history, sample('new', 'Alpha', -4, 20, 1000, 150)]}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+        onClose={onClose}
+      />
+    )
+  })
+  expect(past()).toEqual(original)
+  expect(heights()).toEqual(originalHeights)
+  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' L')
+
+  vi.setSystemTime(new Date(now.getTime() + 6 * 60_000))
+  await act(async () => {
+    rerender(
+      <ModelPerformanceView
+        samples={[
+          ...history,
+          sample('new', 'Alpha', -4, 20, 1000, 150),
+          sample('newer', 'Alpha', -6, 25, 1000, 150)
+        ]}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+        onClose={onClose}
+      />
+    )
+  })
+  expect(past()).toEqual(original)
+  expect(heights()).toEqual(originalHeights)
+  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' L')
+  expect(document.activeElement).toBe(focused)
+  expect(within(graph).getByRole('tooltip').textContent).toBe(focusedDetails)
+})
+
+it('labels a changed vertical scale without changing recorded interval metrics', async () => {
+  vi.setSystemTime(new Date(now.getTime() + 60_000))
+  const initial = sample('old', 'Alpha', 10, 50, 1000, 200)
+  const { rerender } = view([initial])
+  fireEvent.click(screen.getByRole('button', { name: '1h' }))
+  const graph = screen
+    .getByRole('region', { name: 'Alpha performance' })
+    .querySelector('.tm-performance__metric--tps') as HTMLElement
+  const recorded = within(graph)
+    .getByRole('button', { name: /Alpha,/ })
+    .getAttribute('aria-label')
+  expect(within(graph).getByText('0–50 tok/s')).toBeTruthy()
+
+  vi.setSystemTime(new Date(now.getTime() + 2 * 60_000))
+  await act(async () => {
+    rerender(
+      <ModelPerformanceView
+        samples={[initial, sample('new', 'Alpha', -2, 100, 1000, 300)]}
+        loading={false}
+        error={null}
+        onRetry={onRetry}
+        onClose={onClose}
+      />
+    )
+  })
+  expect(within(graph).getByText('0–100 tok/s')).toBeTruthy()
+  expect(
+    within(graph)
+      .getAllByRole('button', { name: /Alpha,/ })[0]
+      .getAttribute('aria-label')
+  ).toBe(recorded)
+})
+
 it('does not infer zero-duration TPS or unrecorded TTFT, and excludes future samples', () => {
   view([sample('1', 'No timing', 3, 200, 0, null), sample('2', 'Future', -5, 100, 1000, 50)])
   const model = screen.getByRole('region', { name: 'No timing performance' })

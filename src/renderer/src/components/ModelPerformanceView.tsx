@@ -20,6 +20,7 @@ const PERIODS: { key: Period; label: string; duration: number }[] = [
   { key: '1m', label: 'Past 30 days', duration: 30 * 24 * 60 * 60 * 1000 }
 ]
 const BUCKET_COUNT = 12
+type SampleBucket = { start: number; end: number; samples: ModelPerformanceSample[] }
 
 function formatValue(value: number, metric: Metric): string {
   return metric === 'tps'
@@ -54,14 +55,24 @@ function bucketSamples(
   samples: ModelPerformanceSample[],
   start: number,
   end: number
-): ModelPerformanceSample[][] {
-  const buckets: ModelPerformanceSample[][] = Array.from({ length: BUCKET_COUNT }, () => [])
+): SampleBucket[] {
+  const width = (end - start) / BUCKET_COUNT
+  // Align to fixed time boundaries, not the moving edge of the selected period.
+  const first = Math.floor(start / width) * width
+  const buckets: SampleBucket[] = Array.from(
+    { length: Math.ceil((end - first) / width) },
+    (_, index) => ({
+      start: first + index * width,
+      end: first + (index + 1) * width,
+      samples: []
+    })
+  )
   for (const sample of samples) {
     const index = Math.min(
-      BUCKET_COUNT - 1,
-      Math.floor(((Date.parse(sample.timestamp) - start) / (end - start)) * BUCKET_COUNT)
+      buckets.length - 1,
+      Math.floor((Date.parse(sample.timestamp) - first) / width)
     )
-    if (index >= 0) buckets[index].push(sample)
+    if (index >= 0 && index < buckets.length) buckets[index].samples.push(sample)
   }
   return buckets
 }
@@ -73,19 +84,19 @@ function Trend({
   end,
   model
 }: {
-  buckets: ModelPerformanceSample[][]
+  buckets: SampleBucket[]
   metric: Metric
   start: number
   end: number
   model: string
 }): React.JSX.Element {
-  const [activeIndex, setActiveIndex] = useState<number | null>(null)
-  const [focusIndex, setFocusIndex] = useState<number | null>(null)
+  const [activeStart, setActiveStart] = useState<number | null>(null)
+  const [focusStart, setFocusStart] = useState<number | null>(null)
   const hitRefs = useRef<(HTMLButtonElement | null)[]>([])
   const tooltipId = useId()
-  const filled = buckets.flatMap((bucket, index) => (bucket.length ? [index] : []))
-  const tabbable =
-    focusIndex !== null && filled.includes(focusIndex) ? focusIndex : (filled.at(-1) ?? null)
+  const filled = buckets.flatMap((bucket, index) => (bucket.samples.length ? [index] : []))
+  const focusIndex = buckets.findIndex((bucket) => bucket.start === focusStart)
+  const tabbable = filled.includes(focusIndex) ? focusIndex : (filled.at(-1) ?? null)
   const moveFocus = (event: React.KeyboardEvent, index: number): void => {
     const position = filled.indexOf(index)
     const target =
@@ -102,12 +113,18 @@ function Trend({
     event.preventDefault()
     hitRefs.current[target]?.focus()
   }
-  const values = buckets.map((bucket) => aggregate(bucket, metric))
+  const values = buckets.map((bucket) => aggregate(bucket.samples, metric))
   const max = Math.max(0, ...values.filter((value): value is number => value !== null))
+  const activeIndex =
+    activeStart === null ? null : buckets.findIndex((bucket) => bucket.start === activeStart)
+  const xAt = (time: number): number => 12 + ((time - start) / (end - start)) * 616
   const points = values.map((value, index) =>
     value === null
       ? null
-      : { x: ((index + 0.5) * 640) / BUCKET_COUNT, y: 72 - (value / (max || 1)) * 56 }
+      : {
+          x: xAt((Math.max(start, buckets[index].start) + Math.min(end, buckets[index].end)) / 2),
+          y: 72 - (value / (max || 1)) * 56
+        }
   )
   const segments: string[] = []
   let segment = ''
@@ -123,15 +140,6 @@ function Trend({
 
   const label = metric === 'tps' ? 'Tokens per second' : 'Time to first token'
   const unit = metric === 'tps' ? 'tokens per second' : 'milliseconds'
-  const description = values
-    .map((value, index) =>
-      value === null ? null : `interval ${index + 1}: ${formatValue(value, metric)} ${unit}`
-    )
-    .filter(Boolean)
-    .join('; ')
-  const active = activeIndex === null ? null : buckets[activeIndex]
-  const activeTps = active ? aggregate(active, 'tps') : null
-  const activeTtft = active ? aggregate(active, 'ttft') : null
   const rangeFormat = new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',
@@ -139,11 +147,20 @@ function Trend({
     minute: '2-digit'
   })
   const interval = (index: number): string =>
-    `${rangeFormat.format(start + (index * (end - start)) / BUCKET_COUNT)} – ${rangeFormat.format(start + ((index + 1) * (end - start)) / BUCKET_COUNT)}`
+    `${rangeFormat.format(Math.max(start, buckets[index].start))} – ${rangeFormat.format(Math.min(end, buckets[index].end))}`
+  const description = values
+    .map((value, index) =>
+      value === null ? null : `${interval(index)}: ${formatValue(value, metric)} ${unit}`
+    )
+    .filter(Boolean)
+    .join('; ')
+  const active = activeIndex === null || activeIndex < 0 ? null : buckets[activeIndex]
+  const activeTps = active ? aggregate(active.samples, 'tps') : null
+  const activeTtft = active ? aggregate(active.samples, 'ttft') : null
   const details = (index: number): string => {
-    const tps = aggregate(buckets[index], 'tps')
-    const ttft = aggregate(buckets[index], 'ttft')
-    return `${model}, ${interval(index)}. TPS: ${tps === null ? 'not recorded' : `${formatValue(tps, 'tps')} tokens per second`}. TTFT: ${ttft === null ? 'not recorded' : `${formatValue(ttft, 'ttft')} milliseconds`}. ${buckets[index].length} ${buckets[index].length === 1 ? 'call' : 'calls'}.`
+    const tps = aggregate(buckets[index].samples, 'tps')
+    const ttft = aggregate(buckets[index].samples, 'ttft')
+    return `${model}, ${interval(index)}. TPS: ${tps === null ? 'not recorded' : `${formatValue(tps, 'tps')} tokens per second`}. TTFT: ${ttft === null ? 'not recorded' : `${formatValue(ttft, 'ttft')} milliseconds`}. ${buckets[index].samples.length} ${buckets[index].samples.length === 1 ? 'call' : 'calls'}.`
   }
 
   return (
@@ -157,10 +174,7 @@ function Trend({
       >
         <path className="tm-performance__grid" d="M12 16H628 M12 44H628 M12 72H628" />
         {active && activeIndex !== null && (
-          <path
-            className="tm-performance__guide"
-            d={`M${((activeIndex + 0.5) * 640) / BUCKET_COUNT} 8V76`}
-          />
+          <path className="tm-performance__guide" d={`M${points[activeIndex]?.x ?? 0} 8V76`} />
         )}
         {segments.map((path, index) => (
           <path key={index} className="tm-performance__line" d={path} />
@@ -168,7 +182,7 @@ function Trend({
         {points.map((point, index) =>
           point ? (
             <circle
-              key={index}
+              key={buckets[index].start}
               className="tm-performance__point"
               cx={point.x}
               cy={point.y}
@@ -177,26 +191,34 @@ function Trend({
           ) : null
         )}
       </svg>
+      {values.some((value) => value !== null) ? (
+        <span className="tm-performance__scale" aria-hidden="true">
+          0–{formatValue(max, metric)} {metric === 'tps' ? 'tok/s' : 'ms'}
+        </span>
+      ) : null}
       {buckets.map((bucket, index) =>
-        bucket.length ? (
+        bucket.samples.length ? (
           <button
-            key={index}
+            key={bucket.start}
             ref={(element) => {
               hitRefs.current[index] = element
             }}
             className="tm-performance__chart-hit"
             type="button"
             tabIndex={index === tabbable ? 0 : -1}
-            style={{ left: `${(index / BUCKET_COUNT) * 100}%`, width: `${100 / BUCKET_COUNT}%` }}
+            style={{
+              left: `${(xAt(Math.max(start, bucket.start)) / 640) * 100}%`,
+              width: `${((xAt(Math.min(end, bucket.end)) - xAt(Math.max(start, bucket.start))) / 640) * 100}%`
+            }}
             aria-label={details(index)}
             aria-describedby={activeIndex === index ? tooltipId : undefined}
-            onMouseEnter={() => setActiveIndex(index)}
-            onMouseLeave={() => setActiveIndex(null)}
+            onMouseEnter={() => setActiveStart(bucket.start)}
+            onMouseLeave={() => setActiveStart(null)}
             onFocus={() => {
-              setFocusIndex(index)
-              setActiveIndex(index)
+              setFocusStart(bucket.start)
+              setActiveStart(bucket.start)
             }}
-            onBlur={() => setActiveIndex(null)}
+            onBlur={() => setActiveStart(null)}
             onKeyDown={(event) => moveFocus(event, index)}
           />
         ) : null
@@ -208,7 +230,7 @@ function Trend({
           role="tooltip"
           style={
             {
-              '--tm-tooltip-center': `${((activeIndex + 0.5) / BUCKET_COUNT) * 100}%`
+              '--tm-tooltip-center': `${((points[activeIndex]?.x ?? 0) / 640) * 100}%`
             } as React.CSSProperties
           }
         >
@@ -223,7 +245,7 @@ function Trend({
             <b>{activeTtft === null ? 'Not recorded' : `${formatValue(activeTtft, 'ttft')} ms`}</b>
           </div>
           <small>
-            {active.length} {active.length === 1 ? 'call' : 'calls'}
+            {active.samples.length} {active.samples.length === 1 ? 'call' : 'calls'}
           </small>
         </div>
       )}

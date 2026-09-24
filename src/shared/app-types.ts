@@ -503,6 +503,7 @@ export interface CopilotSessionSnapshot {
   phase: 'disconnected' | 'connecting' | 'idle' | 'running' | 'error'
   model: string | null
   reasoningEffort: CopilotReasoningEffort | null
+  nextModelSelection: CopilotModelSelection | null
   agentMode: CopilotAgentMode
   models: CopilotModelOption[]
   timeline: CopilotTimelineItem[]

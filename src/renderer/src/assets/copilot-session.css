@@ -124,6 +124,26 @@
   max-height: none;
   overflow: visible;
 }
+.tm-session-activity.tm-session-activity--reasoning {
+  border: 0;
+  border-radius: 0;
+}
+.tm-session-activity--reasoning .tm-session-activity-heading {
+  gap: 6px;
+  padding: 0 0 4px;
+  color: var(--color-fg-subtle);
+  font-size: 11px;
+}
+.tm-session-activity--reasoning .tm-session-activity-detail {
+  padding: 0 0 0 12px;
+  border-top: 0;
+  border-left: 2px solid var(--color-border);
+  color: var(--color-fg-muted);
+}
+.tm-session-activity--reasoning .tm-session-markdown {
+  font-size: 12.5px;
+  line-height: 1.65;
+}
 .tm-session-activity-detail > pre {
   font: 11.5px/1.7 var(--font-mono);
   white-space: pre-wrap;
