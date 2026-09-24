@@ -20,8 +20,16 @@ type LegacyThreadV2 = Omit<
 >
 type LegacyThreadV4 = Omit<PersistedThread, 'lastUserMessage' | 'resumeSessionId'>
 type LegacyThreadV5 = Omit<PersistedThread, 'lastUserMessage'>
-type LegacyThreadV14 = Omit<PersistedThread, 'agentInterface'>
+type LegacyThreadV14 = PersistedThread & {
+  agentInterface?: 'cli' | 'custom'
+  sessionName?: string
+  hasLaunched?: boolean
+}
 type LegacySettingsWithProvider = PersistedSettings & Record<string, unknown>
+type LegacyAppStateV15 = Omit<PersistedAppState, 'version' | 'threads'> & {
+  version: 15
+  threads: LegacyThreadV14[]
+}
 type LegacyRepositoryBackend =
   | PersistedRepository['backend']
   | {
@@ -127,6 +135,7 @@ type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
 
 type MigratedInput =
   | PersistedAppState
+  | LegacyAppStateV15
   | LegacyAppStateV14
   | LegacyAppStateV13
   | LegacyAppStateV12
@@ -146,7 +155,7 @@ export function createDefaultState(): PersistedAppState {
   return {
     version: STATE_VERSION,
     settings: {
-      globalFlagsInput: '',
+      yoloEnabled: true,
       terminalFontFamilyInput: '',
       taskTagsInput: DEFAULT_TASK_TAGS_INPUT
     },
@@ -163,10 +172,57 @@ function migrateSettings(
   settings: PersistedSettings | LegacySettingsWithProvider
 ): PersistedSettings {
   return {
-    globalFlagsInput: settings.globalFlagsInput,
+    yoloEnabled: true,
     terminalFontFamilyInput: settings.terminalFontFamilyInput,
-    taskTagsInput: settings.taskTagsInput
+    taskTagsInput: settings.taskTagsInput,
+    lastCopilotModelSelection: settings.lastCopilotModelSelection
   }
+}
+
+function normalizeMigratedState(state: PersistedAppState): PersistedAppState {
+  const threads = state.threads
+    .filter((thread) => (thread as LegacyThreadV14).agentInterface === 'custom')
+    .map((thread) => {
+      const {
+        agentInterface: _agentInterface,
+        sessionName: _sessionName,
+        hasLaunched: _hasLaunched,
+        ...rest
+      } = thread as LegacyThreadV14
+      void _agentInterface
+      void _sessionName
+      void _hasLaunched
+      return rest
+    })
+  const keptThreadIds = new Set(threads.map((thread) => thread.id))
+  const modeSelections = state.ui.modeSelections
+    ? Object.fromEntries(
+        Object.entries(state.ui.modeSelections).map(([mode, selection]) => [
+          mode,
+          selection && {
+            ...selection,
+            threadId:
+              selection.threadId && keptThreadIds.has(selection.threadId)
+                ? selection.threadId
+                : null
+          }
+        ])
+      )
+    : undefined
+
+  return normalizePersistedState({
+    ...state,
+    settings: migrateSettings(state.settings),
+    threads,
+    ui: {
+      ...state.ui,
+      selectedThreadId:
+        state.ui.selectedThreadId && keptThreadIds.has(state.ui.selectedThreadId)
+          ? state.ui.selectedThreadId
+          : null,
+      modeSelections
+    }
+  })
 }
 
 function migrateRepositoryBackend<
@@ -203,19 +259,26 @@ function migrateThreadWorktreePaths<
 }
 
 export function migrateAppState(parsed: unknown): PersistedAppState {
+  const migrated = migrateAppStateInternal(parsed)
+  return (parsed as { version?: number }).version === STATE_VERSION
+    ? migrated
+    : normalizeMigratedState(migrated)
+}
+
+function migrateAppStateInternal(parsed: unknown): PersistedAppState {
   const state = parsed as MigratedInput
   if (state.version === STATE_VERSION) {
     return normalizePersistedState(state)
   }
 
+  if (state.version === 15) {
+    return normalizePersistedState({ ...state, version: STATE_VERSION })
+  }
+
   if (state.version === 14) {
     return normalizePersistedState({
       ...state,
-      version: STATE_VERSION,
-      threads: state.threads.map((thread) => ({
-        ...thread,
-        agentInterface: 'cli'
-      }))
+      version: STATE_VERSION
     })
   }
 

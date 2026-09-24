@@ -51,9 +51,9 @@ vi.mock('./thread-worktree-utils', () => ({
 
 function createState(): PersistedAppState {
   return {
-    version: 15,
+    version: 16,
     settings: {
-      globalFlagsInput: '',
+      yoloEnabled: true,
       terminalFontFamilyInput: '',
       taskTagsInput: ''
     },
@@ -143,8 +143,7 @@ describe('createThreadCreateService', () => {
       expect(harness.state.repositories).toHaveLength(1)
       expect(harness.state.threads[0]).toMatchObject({
         repositoryId: 'repo-1',
-        viewMode,
-        agentInterface: viewMode === 'inbox' ? 'custom' : 'cli'
+        viewMode
       })
     }
   )
@@ -155,7 +154,6 @@ describe('createThreadCreateService', () => {
     const result = harness.createThread({
       repositoryId: 'repo-1',
       mode: 'active-branch',
-      agentInterface: 'cli',
       title: 'Thread'
     })
 
@@ -172,17 +170,16 @@ describe('createThreadCreateService', () => {
     expect(harness.updateSelection).toHaveBeenCalledWith('repo-1', 'thread-1')
   })
 
-  it('persists the custom Copilot interface choice', () => {
+  it('creates threads without a CLI interface choice', () => {
     const harness = createHarness()
 
     const result = harness.createThread({
       repositoryId: 'repo-1',
-      mode: 'active-branch',
-      agentInterface: 'custom'
+      mode: 'active-branch'
     })
 
     expect(result).toEqual({ ok: true })
-    expect(harness.state.threads[0]?.agentInterface).toBe('custom')
+    expect(harness.state.threads[0]).not.toHaveProperty('agentInterface')
   })
 
   it('checks out an existing branch instead of creating a new one', () => {

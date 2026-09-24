@@ -20,7 +20,6 @@ import {
   type ModelPerformanceSample,
   type CreateRepositoryTaskInput,
   type RepositorySnapshot,
-  type ThreadAgentInterface,
   type ThreadMode,
   type ThreadSnapshot,
   type UpdateSettingsInput,
@@ -131,7 +130,6 @@ export default function App(): React.JSX.Element {
   const [editingRepositoryId, setEditingRepositoryId] = useState<string | null>(null)
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null)
   const [collapsedRepositoryIds, setCollapsedRepositoryIds] = useState<Set<string>>(new Set())
-  const [autoLaunchThreadId, setAutoLaunchThreadId] = useState<string | null>(null)
   const [inboxProjectId, setInboxProjectId] = useState<string | null>(null)
   const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
   const [newThreadError, setNewThreadError] = useState<string | null>(null)
@@ -415,7 +413,6 @@ export default function App(): React.JSX.Element {
   const handleCreateThread = useCallback(
     async (input: {
       mode: ThreadMode
-      agentInterface: ThreadAgentInterface
       title?: string
       branchName?: string
       useCurrentBranch?: boolean
@@ -430,7 +427,6 @@ export default function App(): React.JSX.Element {
         const result = await api.appState.createThread({
           repositoryId: selectedRepository.id,
           mode: input.mode,
-          agentInterface: input.agentInterface,
           title: input.title,
           branchName: input.branchName,
           useCurrentBranch: input.useCurrentBranch
@@ -443,11 +439,6 @@ export default function App(): React.JSX.Element {
         if (result.ok && result.snapshot?.selectedThreadId) {
           setRepositoryViewId(null)
           setPerformanceOpen(false)
-          const newThreadId = result.snapshot.selectedThreadId
-          const newThread = findThreadById(result.snapshot, newThreadId)
-          if (newThread && !newThread.hasLaunched && newThread.agentInterface === 'cli') {
-            setAutoLaunchThreadId(newThreadId)
-          }
         } else if (!result.cancelled) {
           setNewThreadError(result.error ?? 'Thread creation failed.')
         }
@@ -796,10 +787,8 @@ export default function App(): React.JSX.Element {
       <div className="relative flex min-h-0 min-w-0 flex-1">
         <div className="flex min-h-0 min-w-0 flex-1" inert={performanceOpen}>
           <Workspace
-            autoLaunchThreadId={autoLaunchThreadId}
             hasRepositories={snapshot.repositories.length > 0}
             onAddRepository={() => void handleAddRepository()}
-            onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
             onCompleteRepositoryTask={handleCompleteRepositoryTask}
             onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
             onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}

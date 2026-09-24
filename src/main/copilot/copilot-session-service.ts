@@ -43,7 +43,7 @@ import { collectCopilotSdkUpdateBlockers } from './copilot-update-guard'
 type ThreadContext = {
   thread: PersistedThread
   cwd: string
-  globalFlags: string[]
+  yoloEnabled: boolean
 }
 
 type UserInputRequest = {
@@ -767,9 +767,6 @@ export function createCopilotSessionService(dependencies: {
 
     const context = dependencies.resolveThread(threadId)
     if (!context) return { ok: false, error: 'Thread not found.' }
-    if (context.thread.agentInterface !== 'custom') {
-      return { ok: false, error: 'This thread uses the Copilot CLI interface.' }
-    }
 
     const snapshot: CopilotSessionSnapshot = {
       threadId,
@@ -805,10 +802,7 @@ export function createCopilotSessionService(dependencies: {
         sendRevision: 0,
         unsubscribe: () => undefined
       }
-      config.onPermissionRequest = permissionHandler(
-        placeholder,
-        context.globalFlags.includes('--yolo')
-      )
+      config.onPermissionRequest = permissionHandler(placeholder, context.yoloEnabled)
       config.onUserInputRequest = userInputHandler(placeholder)
       config.onElicitationRequest = elicitationHandler(placeholder)
       config.onExitPlanModeRequest = exitPlanModeHandler(placeholder)

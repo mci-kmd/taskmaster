@@ -21,7 +21,7 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
   return {
     updateSettings: (input: UpdateSettingsInput): MutationResult => {
       const state = dependencies.ensureState()
-      state.settings.globalFlagsInput = input.globalFlagsInput.trim()
+      state.settings.yoloEnabled = input.yoloEnabled
       state.settings.terminalFontFamilyInput = dependencies.normalizeTerminalFontFamilyInput(
         input.terminalFontFamilyInput
       )

@@ -53,11 +53,9 @@ function createHarness(repoPath: string): ReturnType<typeof createThreadDiffServ
     mode: 'active-branch',
     branchName: 'main',
     worktreePath: null,
-    sessionName: 'session-1',
     resumeSessionId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
-    lastActivityAt: '2026-01-01T00:00:00.000Z',
-    hasLaunched: false
+    lastActivityAt: '2026-01-01T00:00:00.000Z'
   }
 
   return createThreadDiffService({

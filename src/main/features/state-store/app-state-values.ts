@@ -18,7 +18,7 @@ import { migrateSharedProjects } from './shared-project-migration'
 import { normalizeTrackedText } from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
-export const STATE_VERSION = 15 as const
+export const STATE_VERSION = 16 as const
 
 function sameRepositoryBackend(
   left: RepositoryBackend,
@@ -32,19 +32,16 @@ function sameRepositoryBackend(
 }
 
 export function normalizePersistedThread(thread: PersistedThread): PersistedThread {
-  const latestCopilotTitle = normalizeCopilotTitle(thread, thread.latestCopilotTitle)
+  const latestCopilotTitle = normalizeCopilotTitle(thread.latestCopilotTitle)
   const lastUserMessage = normalizeTrackedText(thread.lastUserMessage ?? null)
-  const agentInterface = thread.agentInterface === 'custom' ? 'custom' : 'cli'
 
   return latestCopilotTitle === thread.latestCopilotTitle &&
-    lastUserMessage === thread.lastUserMessage &&
-    agentInterface === thread.agentInterface
+    lastUserMessage === thread.lastUserMessage
     ? thread
     : {
         ...thread,
         latestCopilotTitle,
-        lastUserMessage,
-        agentInterface
+        lastUserMessage
       }
 }
 
@@ -91,6 +88,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
 export function normalizePersistedSettings(
   settings: PersistedAppState['settings']
 ): PersistedAppState['settings'] {
+  const yoloEnabled = typeof settings.yoloEnabled === 'boolean' ? settings.yoloEnabled : true
   const terminalFontFamilyInput = normalizeTerminalFontFamilyInput(settings.terminalFontFamilyInput)
   const currentTaskTagsInput =
     typeof (settings as { taskTagsInput?: unknown }).taskTagsInput === 'string'
@@ -101,11 +99,13 @@ export function normalizePersistedSettings(
       ? DEFAULT_TASK_TAGS_INPUT
       : normalizeTaskTagsInput(currentTaskTagsInput)
 
-  return terminalFontFamilyInput === settings.terminalFontFamilyInput &&
+  return yoloEnabled === settings.yoloEnabled &&
+    terminalFontFamilyInput === settings.terminalFontFamilyInput &&
     taskTagsInput === currentTaskTagsInput
     ? settings
     : {
         ...settings,
+        yoloEnabled,
         terminalFontFamilyInput,
         taskTagsInput
       }

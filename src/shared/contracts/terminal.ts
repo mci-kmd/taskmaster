@@ -6,6 +6,5 @@ export type {
   TerminalKind,
   TerminalLaunchFailure,
   TerminalLaunchResult,
-  TerminalLaunchSuccess,
-  TerminalStatus
+  TerminalLaunchSuccess
 } from '../app-types'

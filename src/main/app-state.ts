@@ -50,7 +50,6 @@ import {
   validateRepositoryRunCommandInput
 } from './features/repositories/repository-values'
 import { createSettingsService } from './features/settings/settings-service'
-import { parseGlobalFlags } from './features/settings/global-flags'
 import {
   clampSidebarWidth,
   normalizeTerminalFontFamilyInput,
@@ -73,7 +72,7 @@ import { createThreadStateService } from './features/threads/thread-state-servic
 import { normalizeCustomTitle, normalizeTrackedText } from './features/threads/thread-values'
 import { createThreadWorkspaceService } from './features/threads/thread-workspace-service'
 import { sanitizeUserFacingMessage } from './features/shared/user-facing-messages'
-import { getRunningThreadIds, hasSessionsForThread, killSessionsForThread } from './terminal'
+import { hasSessionsForThread, killSessionsForThread } from './terminal'
 import {
   createNativeBackend,
   getBasename,
@@ -105,14 +104,12 @@ let hasCopilotSession: (threadId: string) => boolean = () => false
 
 const snapshotService = createSnapshotService({
   ensureState,
-  getRunningThreadIds,
   getRunningRunThreadIds: () => threadRunServiceRef?.getRunningThreadIds() ?? new Set(),
   getRepositoryGitState: repositoryGitStateService.getRepositoryGitState,
   refreshRepositoryGitState: repositoryGitStateService.refreshRepositoryGitState,
   getThreadUiCwd,
   getThreadExecutionCwd,
   buildRepositoryFaviconUrl,
-  parseGlobalFlags,
   parseTaskTagsInput,
   resolveTerminalFontFamily,
   sidebarWidth: {
@@ -308,10 +305,6 @@ export function registerAppStateIpc(): void {
   })
 }
 
-export function markThreadLaunched(threadId: string): void {
-  threadStateService.markThreadLaunched(threadId)
-}
-
 export function setCopilotThreadController(controller: {
   stop: (threadId: string) => Promise<void>
   has: (threadId: string) => boolean
@@ -323,7 +316,7 @@ export function setCopilotThreadController(controller: {
 export function resolveCopilotThread(threadId: string): {
   thread: NonNullable<ReturnType<typeof findThread>>
   cwd: string
-  globalFlags: string[]
+  yoloEnabled: boolean
 } | null {
   const thread = findThread(threadId)
   if (!thread) return null
@@ -332,7 +325,7 @@ export function resolveCopilotThread(threadId: string): {
   return {
     thread,
     cwd: getThreadExecutionCwd(thread, repository),
-    globalFlags: parseGlobalFlags(ensureState().settings.globalFlagsInput)
+    yoloEnabled: ensureState().settings.yoloEnabled
   }
 }
 

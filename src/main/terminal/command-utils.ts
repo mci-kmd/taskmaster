@@ -1,6 +1,5 @@
 import { accessSync, constants as fsConstants, statSync } from 'fs'
-import { access, stat } from 'fs/promises'
-import { execFile, spawnSync } from 'child_process'
+import { spawnSync } from 'child_process'
 import { basename, delimiter, join } from 'path'
 import type { RepositoryBackend } from '../../shared/app-types'
 import { createNativeBackend } from '../backends/repository-backend'
@@ -26,16 +25,6 @@ function isExecutableFile(path: string): boolean {
   }
 }
 
-async function isExecutableFileAsync(path: string): Promise<boolean> {
-  try {
-    if (!(await stat(path)).isFile()) return false
-    if (process.platform !== 'win32') await access(path, fsConstants.X_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
 function pathEntries(): string[] {
   const fallback =
     process.platform === 'darwin'
@@ -50,32 +39,6 @@ function preferredWindowsCommand(output: string): string | null {
     .map((line) => line.trim())
     .filter(Boolean)
   return matches.find((match) => /\.(exe|cmd|bat|com)$/i.test(match)) ?? matches[0] ?? null
-}
-
-export async function resolveCommandOnPathAsync(commandName: string): Promise<string | null> {
-  if (commandName.includes('/') || commandName.includes('\\')) {
-    return (await isExecutableFileAsync(commandName)) ? commandName : null
-  }
-
-  if (process.platform === 'win32') {
-    return new Promise((resolve) => {
-      execFile(
-        'where.exe',
-        [commandName],
-        { encoding: 'utf8', windowsHide: true },
-        (error, stdout) => {
-          if (error) return resolve(null)
-          resolve(preferredWindowsCommand(stdout))
-        }
-      )
-    })
-  }
-
-  for (const entry of pathEntries()) {
-    const candidate = join(entry, commandName)
-    if (await isExecutableFileAsync(candidate)) return candidate
-  }
-  return null
 }
 
 export function resolveCommandOnPath(commandName: string): string | null {

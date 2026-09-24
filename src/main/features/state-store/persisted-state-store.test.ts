@@ -10,9 +10,9 @@ const tempDirs: string[] = []
 
 function createState(): PersistedAppState {
   return {
-    version: 15,
+    version: 16,
     settings: {
-      globalFlagsInput: '',
+      yoloEnabled: true,
       terminalFontFamilyInput: '',
       taskTagsInput: ''
     },
@@ -74,11 +74,9 @@ describe('persisted state store', () => {
       mode: 'active-branch',
       branchName: 'main',
       worktreePath: null,
-      sessionName: 'session',
       resumeSessionId: null,
       createdAt: '2026-01-01T00:00:00.000Z',
-      lastActivityAt: '2026-01-01T00:00:00.000Z',
-      hasLaunched: false
+      lastActivityAt: '2026-01-01T00:00:00.000Z'
     })
     state.ui.selectedThreadId = 'thread-1'
 

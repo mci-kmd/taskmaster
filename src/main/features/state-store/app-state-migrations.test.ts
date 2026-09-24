@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { migrateAppState } from './app-state-migrations'
+import { createDefaultState, migrateAppState } from './app-state-migrations'
 
 describe('app state migrations', () => {
-  it('defaults version 14 threads to the CLI interface', () => {
+  it('enables automatic approvals by default but preserves an explicit off setting', () => {
+    const initial = createDefaultState()
+    expect(initial.settings.yoloEnabled).toBe(true)
+    expect(
+      migrateAppState({
+        ...initial,
+        settings: { ...initial.settings, yoloEnabled: false }
+      }).settings.yoloEnabled
+    ).toBe(false)
+  })
+
+  it('discards version 14 terminal threads without migrating their sessions', () => {
     const migrated = migrateAppState({
       version: 14,
       settings: {
@@ -34,8 +45,9 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(15)
-    expect(migrated.threads[0]?.agentInterface).toBe('cli')
+    expect(migrated.version).toBe(16)
+    expect(migrated.threads).toEqual([])
+    expect(migrated.settings.yoloEnabled).toBe(true)
   })
 
   it('drops obsolete settings and converts legacy repository paths in version 13 state', () => {
@@ -90,13 +102,11 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(15)
-    expect(migrated.threads[0]?.agentInterface).toBe('cli')
+    expect(migrated.version).toBe(16)
+    expect(migrated.threads).toEqual([])
     expect(migrated.settings).not.toHaveProperty('obsoleteProvider')
     expect(migrated.repositories[0]?.backend).toEqual({ kind: 'native' })
-    expect(migrated.threads[0]?.worktreePath).toBe(
-      '\\\\wsl.localhost\\Ubuntu\\home\\me\\.taskmaster\\worktrees\\feature'
-    )
+    expect(migrated.settings.yoloEnabled).toBe(true)
   })
 
   it('adds a null solution file path when migrating version 12 state', () => {
@@ -128,7 +138,78 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(15)
+    expect(migrated.version).toBe(16)
     expect(migrated.repositories[0]?.solutionFilePath).toBeNull()
+  })
+
+  it('retains SDK sessions but drops CLI threads and obsolete flags from version 15', () => {
+    const migrated = migrateAppState({
+      version: 15,
+      settings: {
+        globalFlagsInput: '--model old',
+        terminalFontFamilyInput: '',
+        taskTagsInput: 'bug',
+        lastCopilotModelSelection: { model: 'gpt-5', reasoningEffort: null }
+      },
+      repositories: [],
+      threads: [
+        {
+          id: 'cli',
+          agentInterface: 'cli',
+          resumeSessionId: 'old-session',
+          repositoryId: 'repo',
+          mode: 'active-branch',
+          branchName: 'main',
+          worktreePath: null,
+          sessionName: 'cli',
+          customTitle: null,
+          latestCopilotTitle: null,
+          lastUserMessage: null,
+          createdAt: '2026-01-01T00:00:00Z',
+          lastActivityAt: '2026-01-01T00:00:00Z',
+          hasLaunched: true
+        },
+        {
+          id: 'sdk',
+          agentInterface: 'custom',
+          resumeSessionId: 'sdk-session',
+          repositoryId: 'repo',
+          mode: 'active-branch',
+          branchName: 'main',
+          worktreePath: null,
+          sessionName: 'sdk',
+          customTitle: null,
+          latestCopilotTitle: null,
+          lastUserMessage: null,
+          createdAt: '2026-01-01T00:00:00Z',
+          lastActivityAt: '2026-01-01T00:00:00Z',
+          hasLaunched: true
+        }
+      ],
+      ui: {
+        selectedRepositoryId: null,
+        selectedThreadId: 'cli',
+        modeSelections: {
+          projects: { repositoryId: 'repo', threadId: 'cli' },
+          inbox: { repositoryId: 'repo', threadId: 'sdk' }
+        }
+      }
+    })
+
+    expect(migrated.threads).toHaveLength(1)
+    expect(migrated.threads[0]).toMatchObject({ id: 'sdk', resumeSessionId: 'sdk-session' })
+    expect(migrated.threads[0]).not.toHaveProperty('agentInterface')
+    expect(migrated.threads[0]).not.toHaveProperty('sessionName')
+    expect(migrated.ui.selectedThreadId).toBeNull()
+    expect(migrated.ui.modeSelections).toEqual({
+      projects: { repositoryId: 'repo', threadId: null },
+      inbox: { repositoryId: 'repo', threadId: 'sdk' }
+    })
+    expect(migrated.settings).toEqual({
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: 'bug',
+      lastCopilotModelSelection: { model: 'gpt-5', reasoningEffort: null }
+    })
   })
 })

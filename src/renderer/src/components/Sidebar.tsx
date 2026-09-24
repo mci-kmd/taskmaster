@@ -354,13 +354,8 @@ export default function Sidebar({
                         const session = sessions.get(thread.id)
                         const composedTitle = composeThreadTitle(thread, session?.runtimeTitle)
                         const phase = session?.phase
-                        const isCustom = thread.agentInterface === 'custom'
-                        const isLaunching = !isCustom && phase === 'launching'
-                        const isRunning = !isCustom && (thread.isRunning || phase === 'running')
                         const threadModeTooltip = getThreadModeTooltip(thread)
-                        const customStatus = isCustom
-                          ? CUSTOM_THREAD_STATUS[session?.copilotStatus ?? 'idle']
-                          : null
+                        const customStatus = CUSTOM_THREAD_STATUS[session?.copilotStatus ?? 'idle']
 
                         return (
                           <li key={thread.id}>
@@ -383,23 +378,15 @@ export default function Sidebar({
                                 })
                               }}
                               onClick={() => onSelectThread(thread.id)}
-                              title={`${composedTitle} · ${thread.displayBranchName}${
-                                customStatus
-                                  ? ` · ${customStatus.label}`
-                                  : isRunning
-                                    ? ' · running'
-                                    : isLaunching
-                                      ? ' · launching'
-                                      : ''
-                              }\n${thread.cwd}`}
+                              title={`${composedTitle} · ${thread.displayBranchName}${` · ${customStatus.label}`}\n${thread.cwd}`}
                               type="button"
                             >
                               <span
                                 aria-hidden
                                 className={`size-1.5 shrink-0 rounded-full ${
-                                  isRunning
+                                  phase === 'running'
                                     ? 'bg-[var(--color-positive)] tm-pulse-dot'
-                                    : isLaunching
+                                    : phase === 'launching'
                                       ? 'bg-[var(--color-info)] tm-pulse-dot'
                                       : isSelected
                                         ? 'bg-[var(--color-fg)]'

@@ -8,7 +8,7 @@ describe('project task service', () => {
     const service = createProjectTaskService({
       ensureState: () => ({
         settings: {
-          globalFlagsInput: '',
+          yoloEnabled: true,
           terminalFontFamilyInput: '',
           taskTagsInput: 'bug'
         }
@@ -47,7 +47,7 @@ describe('project task service', () => {
     const service = createProjectTaskService({
       ensureState: () => ({
         settings: {
-          globalFlagsInput: '',
+          yoloEnabled: true,
           terminalFontFamilyInput: '',
           taskTagsInput: 'bug\nenhancement'
         }

@@ -77,19 +77,18 @@ function emit(type: string, data: unknown): void {
   harness.listener!(event(type, data))
 }
 function setup(
-  globalFlags: string[] = [],
+  yoloEnabled = true,
   overrides: Partial<Parameters<typeof createCopilotSessionService>[0]> = {}
 ): ReturnType<typeof createCopilotSessionService> {
   return createCopilotSessionService({
     resolveThread: (id) => ({
       thread: {
         id,
-        agentInterface: 'custom',
         resumeSessionId: null,
         latestCopilotTitle: null
       } as PersistedThread,
       cwd: '/project',
-      globalFlags
+      yoloEnabled
     }),
     onSessionStarted: vi.fn(),
     onTitleChanged: vi.fn(),
@@ -221,14 +220,13 @@ describe('global model defaults', () => {
         thread: {
           id,
           repositoryId: id,
-          agentInterface: 'custom',
           resumeSessionId: null
         } as PersistedThread,
         cwd: `/projects/${id}`,
-        globalFlags: []
+        yoloEnabled: true
       })
     }
-    const service = setup([], preferences)
+    const service = setup(true, preferences)
     await service.start('first')
     harness.getCurrentModel.mockResolvedValue({ modelId: 'chosen-model', reasoningEffort: 'high' })
     expect(
@@ -248,7 +246,7 @@ describe('global model defaults', () => {
       reasoningEffort: 'high'
     })
     await service.shutdown()
-    await setup([], preferences).start('third')
+    await setup(true, preferences).start('third')
     expect(harness.config).toMatchObject({
       workingDirectory: '/projects/third',
       model: 'chosen-model',
@@ -258,7 +256,7 @@ describe('global model defaults', () => {
 
   it('does not remember rejected model changes or settings the runtime did not apply', async () => {
     const onModelSelected = vi.fn()
-    const service = setup([], { onModelSelected })
+    const service = setup(true, { onModelSelected })
     await service.start('thread')
     harness.setModel.mockRejectedValueOnce(new Error('Unavailable model'))
     expect(
@@ -279,7 +277,7 @@ describe('global model defaults', () => {
 
   it('keeps the most recent choice when changes in separate threads finish out of order', async () => {
     const onModelSelected = vi.fn()
-    const service = setup([], { onModelSelected })
+    const service = setup(true, { onModelSelected })
     await service.start('first')
     await service.start('second')
     const pending = deferred<void>()
@@ -426,8 +424,8 @@ describe('Copilot session interactions', () => {
     expect(harness.forceStop).toHaveBeenCalledTimes(1)
   })
 
-  it('honors --yolo while preserving managed-policy approval prompts', async () => {
-    const service = setup(['--yolo'])
+  it('auto-approves when enabled while preserving managed-policy approval prompts', async () => {
+    const service = setup()
     await service.start('thread')
 
     await expect(
@@ -454,7 +452,7 @@ describe('Copilot session interactions', () => {
   })
 
   it('queues concurrent approvals, rejects duplicate responses, and preserves later requests', async () => {
-    const service = setup()
+    const service = setup(false)
     await service.start('thread')
     const first = harness.config!.onPermissionRequest!(
       { kind: 'read', intention: 'Read file', path: '/a' },
@@ -478,7 +476,7 @@ describe('Copilot session interactions', () => {
   })
 
   it('stops pending approvals and partial streams without leaving the view busy', async () => {
-    const service = setup()
+    const service = setup(false)
     await service.start('thread')
     await service.send({
       threadId: 'thread',
@@ -507,7 +505,7 @@ describe('Copilot session interactions', () => {
   })
 
   it('does not publish stale interaction state after a thread is stopped', async () => {
-    const service = setup()
+    const service = setup(false)
     await service.start('thread')
     const response = harness.config!.onPermissionRequest!(
       { kind: 'read', intention: 'Read file', path: '/a' },
@@ -541,11 +539,11 @@ describe('Copilot session interactions', () => {
   })
 
   it('names threads with a running response for the quit prompt', async () => {
-    const service = setup([], {
+    const service = setup(true, {
       resolveThread: (id) => ({
-        thread: { id, agentInterface: 'custom', customTitle: 'Fix login' } as PersistedThread,
+        thread: { id, customTitle: 'Fix login' } as PersistedThread,
         cwd: '/project',
-        globalFlags: []
+        yoloEnabled: true
       })
     })
     await service.start('thread')
@@ -720,7 +718,7 @@ it('prevents sending while model settings are still being applied', async () => 
 
 it('queues model and effort changes during a turn and applies the latest before the next prompt', async () => {
   const onModelSelected = vi.fn()
-  const service = setup([], { onModelSelected })
+  const service = setup(true, { onModelSelected })
   await service.start('thread')
   emit('assistant.turn_start', { turnId: 'turn-1' })
   const first = await service.setModel({

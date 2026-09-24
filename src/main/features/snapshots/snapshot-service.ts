@@ -21,7 +21,6 @@ type RepositoryGitSnapshotState = {
 
 type SnapshotServiceDependencies = {
   ensureState: () => PersistedAppState
-  getRunningThreadIds: () => Set<string>
   getRunningRunThreadIds: () => Set<string>
   getRepositoryGitState: (
     repository: PersistedRepository,
@@ -39,7 +38,6 @@ type SnapshotServiceDependencies = {
     repository: Pick<PersistedRepository, 'path' | 'backend'>
   ) => string
   buildRepositoryFaviconUrl: (repositoryPath: string, faviconPath: string | null) => string | null
-  parseGlobalFlags: (input: string) => string[]
   parseTaskTagsInput: (input: string) => string[]
   resolveTerminalFontFamily: (settings: PersistedAppState['settings']) => string
   sidebarWidth: {
@@ -111,7 +109,6 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
   function buildThreadSnapshot(
     repository: PersistedRepository,
     thread: PersistedThread,
-    runningThreadIds: Set<string>,
     runningRunThreadIds: Set<string>
   ): ThreadSnapshot {
     return {
@@ -121,7 +118,6 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
       backend: repository.backend,
       displayBranchName: thread.branchName,
       displayTitle: thread.customTitle ?? thread.branchName,
-      isRunning: runningThreadIds.has(thread.id),
       isRunCommandRunning: runningRunThreadIds.has(thread.id)
     }
   }
@@ -129,7 +125,6 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
   function buildRepositorySnapshot(
     repository: PersistedRepository,
     threads: PersistedThread[],
-    runningThreadIds: Set<string>,
     runningRunThreadIds: Set<string>,
     refreshGit: boolean,
     resolvedGitState?: RepositoryGitSnapshotState
@@ -138,9 +133,7 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
       resolvedGitState ?? dependencies.getRepositoryGitState(repository, refreshGit)
     const snapshotThreads = threads
       .filter((thread) => thread.repositoryId === repository.id)
-      .map((thread) =>
-        buildThreadSnapshot(repository, thread, runningThreadIds, runningRunThreadIds)
-      )
+      .map((thread) => buildThreadSnapshot(repository, thread, runningRunThreadIds))
       .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
 
     return {
@@ -160,7 +153,6 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
     options: BuildSnapshotOptions,
     gitStateByRepositoryId?: Map<string, RepositoryGitSnapshotState>
   ): AppSnapshot {
-    const runningThreadIds = dependencies.getRunningThreadIds()
     const runningRunThreadIds = dependencies.getRunningRunThreadIds()
     const refreshGit = options.refreshGit ?? false
 
@@ -169,7 +161,6 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
         buildRepositorySnapshot(
           repository,
           state.threads,
-          runningThreadIds,
           runningRunThreadIds,
           refreshGit,
           gitStateByRepositoryId?.get(repository.id)
@@ -182,7 +173,6 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
       viewMode: state.ui.viewMode ?? 'projects',
       settings: {
         ...state.settings,
-        parsedGlobalFlags: dependencies.parseGlobalFlags(state.settings.globalFlagsInput),
         parsedTaskTags: dependencies.parseTaskTagsInput(state.settings.taskTagsInput),
         resolvedTerminalFontFamily: dependencies.resolveTerminalFontFamily(state.settings)
       },

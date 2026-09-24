@@ -16,7 +16,6 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
-  RepositoryBackend,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
   ThreadDiffFileContentRequest,
@@ -32,8 +31,6 @@ import type {
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
-  TerminalSessionStartEvent,
-  TerminalUserPromptEvent,
   UpdateThreadLastUserMessageInput,
   UpdateRepositoryInput,
   UpdateThreadInput,
@@ -153,10 +150,8 @@ const api = {
       onIpc(IPC_CHANNELS.nativeMenu.sidebarContextMenuAction, callback)
   },
   terminal: {
-    getStatus: (backend?: RepositoryBackend) => invokeIpc(IPC_CHANNELS.terminal.status, backend),
     create: (request: TerminalCreateRequest) => invokeIpc(IPC_CHANNELS.terminal.create, request),
     kill: (terminalId: string) => invokeIpc(IPC_CHANNELS.terminal.kill, terminalId),
-    hasClipboardImage: () => invokeIpc(IPC_CHANNELS.terminal.hasClipboardImage),
     readClipboardText: () => invokeIpc(IPC_CHANNELS.terminal.readClipboardText),
     input: (terminalId: string, data: string) =>
       sendIpc(IPC_CHANNELS.terminal.input, { terminalId, data }),
@@ -165,11 +160,7 @@ const api = {
     onData: (callback: (payload: TerminalDataEvent) => void) =>
       onIpc(IPC_CHANNELS.terminal.data, callback),
     onExit: (callback: (payload: TerminalExitEvent) => void) =>
-      onIpc(IPC_CHANNELS.terminal.exit, callback),
-    onSessionStart: (callback: (payload: TerminalSessionStartEvent) => void) =>
-      onIpc(IPC_CHANNELS.terminal.sessionStart, callback),
-    onUserPrompt: (callback: (payload: TerminalUserPromptEvent) => void) =>
-      onIpc(IPC_CHANNELS.terminal.userPrompt, callback)
+      onIpc(IPC_CHANNELS.terminal.exit, callback)
   },
   copilot: {
     getSdkStatus: () => invokeIpc(IPC_CHANNELS.copilot.getSdkStatus),

@@ -6,7 +6,7 @@ describe('settings service', () => {
     const saveState = vi.fn()
     const state = {
       settings: {
-        globalFlagsInput: '',
+        yoloEnabled: true,
         terminalFontFamilyInput: '',
         taskTagsInput: ''
       },
@@ -24,14 +24,14 @@ describe('settings service', () => {
     })
 
     const result = service.updateSettings({
-      globalFlagsInput: '  --model gpt-5  ',
+      yoloEnabled: false,
       terminalFontFamilyInput: '  JetBrains Mono  ',
       taskTagsInput: ' bug \n feature '
     })
 
     expect(result.ok).toBe(true)
     expect(state.settings).toMatchObject({
-      globalFlagsInput: '--model gpt-5',
+      yoloEnabled: false,
       terminalFontFamilyInput: 'JetBrains Mono',
       taskTagsInput: 'bug\nfeature'
     })
@@ -42,7 +42,7 @@ describe('settings service', () => {
     const saveState = vi.fn()
     const state = {
       settings: {
-        globalFlagsInput: '',
+        yoloEnabled: true,
         terminalFontFamilyInput: '',
         taskTagsInput: ''
       },

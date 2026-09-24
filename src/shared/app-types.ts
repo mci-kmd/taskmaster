@@ -1,8 +1,7 @@
 export type ViewMode = 'projects' | 'inbox'
 
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
-export type ThreadAgentInterface = 'cli' | 'custom'
-export type TerminalKind = 'agent' | 'shell'
+export type TerminalKind = 'shell'
 export type ProjectTaskTag = string
 export type CopilotReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 export type CopilotAgentMode = 'interactive' | 'plan' | 'autopilot'
@@ -20,15 +19,6 @@ export interface RepositoryWorktreeOption {
 
 export type RepositoryBackend = { kind: 'native' }
 
-export type AgentLaunchMode = 'new' | 'resume'
-
-export interface AgentLaunchRequest {
-  mode: AgentLaunchMode
-  sessionName: string
-  resumeSessionId: string | null
-  globalFlags: string[]
-}
-
 export interface PersistedProjectTask {
   id: string
   title: string
@@ -41,23 +31,12 @@ export interface TerminalCreateRequest {
   cols: number
   rows: number
   kind?: TerminalKind
-  agentLaunch?: AgentLaunchRequest
   cwd?: string
   executionCwd?: string
   backend?: RepositoryBackend
-  /** @deprecated Agent arguments are now built by the selected provider. */
-  args?: string[]
   threadId?: string
   threadMode?: ThreadMode
   branchName?: string
-}
-
-export interface TerminalStatus {
-  available: boolean
-  label?: string
-  commandPath?: string
-  defaultCwd: string
-  message: string
 }
 
 export interface TerminalLaunchSuccess {
@@ -84,36 +63,18 @@ export interface TerminalExitEvent {
   exitCode: number
 }
 
-export type TerminalSessionStartSource = 'startup' | 'resume' | 'new'
-
-export interface TerminalSessionStartEvent {
-  terminalId: string
-  sessionId: string
-  source: TerminalSessionStartSource
-}
-
-export interface TerminalUserPromptEvent {
-  terminalId: string
-  sessionId: string
-  prompt: string
-}
-
 export interface TerminalApi {
-  getStatus: (backend?: RepositoryBackend) => Promise<TerminalStatus>
   create: (request: TerminalCreateRequest) => Promise<TerminalLaunchResult>
   kill: (terminalId: string) => Promise<boolean>
-  hasClipboardImage: () => Promise<boolean>
   readClipboardText: () => Promise<string>
   input: (terminalId: string, data: string) => void
   resize: (terminalId: string, cols: number, rows: number) => void
   onData: (callback: (payload: TerminalDataEvent) => void) => () => void
   onExit: (callback: (payload: TerminalExitEvent) => void) => () => void
-  onSessionStart: (callback: (payload: TerminalSessionStartEvent) => void) => () => void
-  onUserPrompt: (callback: (payload: TerminalUserPromptEvent) => void) => () => void
 }
 
 export interface PersistedSettings {
-  globalFlagsInput: string
+  yoloEnabled: boolean
   terminalFontFamilyInput: string
   taskTagsInput: string
   lastCopilotModelSelection?: CopilotModelSelection
@@ -150,20 +111,17 @@ export interface PersistedThread {
   latestCopilotTitle: string | null
   lastUserMessage: string | null
   mode: ThreadMode
-  agentInterface?: ThreadAgentInterface
   branchName: string
   worktreePath: string | null
   ownsBranch?: boolean
   ownsWorktree?: boolean
-  sessionName: string
   resumeSessionId: string | null
   createdAt: string
   lastActivityAt: string
-  hasLaunched: boolean
 }
 
 export interface PersistedAppState {
-  version: 15
+  version: 16
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
@@ -179,7 +137,6 @@ export interface PersistedAppState {
 }
 
 export interface AppSettingsSnapshot extends PersistedSettings {
-  parsedGlobalFlags: string[]
   parsedTaskTags: ProjectTaskTag[]
   resolvedTerminalFontFamily: string
 }
@@ -191,7 +148,6 @@ export interface ThreadSnapshot extends PersistedThread {
   displayBranchName: string
   /** Fallback label when no live or persisted Copilot title is available. */
   displayTitle: string
-  isRunning: boolean
   isRunCommandRunning: boolean
 }
 
@@ -408,7 +364,6 @@ export type OpenThreadSolutionInVisualStudioResult = OpenThreadLocationResult
 export interface CreateThreadInput {
   repositoryId: string
   mode: ThreadMode
-  agentInterface?: ThreadAgentInterface
   title?: string
   branchName?: string
   /** When true, base the new branch / worktree on the repo's current HEAD instead of its primary branch. */
@@ -621,7 +576,7 @@ export interface CopilotApi {
 }
 
 export interface UpdateSettingsInput {
-  globalFlagsInput: string
+  yoloEnabled: boolean
   terminalFontFamilyInput: string
   taskTagsInput: string
 }
@@ -680,7 +635,7 @@ export interface UpdateThreadCopilotTitleInput {
 export interface UpdateThreadResumeSessionInput {
   threadId: string
   sessionId: string
-  source: TerminalSessionStartSource
+  source: 'resume' | 'new'
 }
 
 export interface UpdateThreadLastUserMessageInput {

@@ -370,8 +370,8 @@ export default function ModelPerformanceView({
           <div className="tm-performance__state" role="status">
             <strong>No model activity in this period</strong>
             <span>
-              Run a model in Custom UI to collect samples. Past activity isn’t available; choose a
-              longer period for recent measurements.
+              Run a Copilot model to collect samples. Past activity isn’t available; choose a longer
+              period for recent measurements.
             </span>
           </div>
         ) : (
@@ -462,7 +462,7 @@ export default function ModelPerformanceView({
         <footer className="tm-performance__footer">
           TPS = total output tokens ÷ total duration (end-to-end), in seconds. TTFT averages
           recorded values only. Each point combines calls in its time interval; gaps indicate no
-          measurement. Samples come from new Custom UI calls only, not past history.
+          measurement. Samples come from new Copilot calls only, not past history.
         </footer>
       </div>
     </section>

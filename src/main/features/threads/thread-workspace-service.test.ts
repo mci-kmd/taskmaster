@@ -31,11 +31,9 @@ function createThread(): PersistedThread {
     mode: 'worktree',
     branchName: 'feature/thread',
     worktreePath: 'C:\\repo\\.worktrees\\feature-thread',
-    sessionName: 'session-1',
     resumeSessionId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
-    lastActivityAt: '2026-01-01T00:00:00.000Z',
-    hasLaunched: false
+    lastActivityAt: '2026-01-01T00:00:00.000Z'
   }
 }
 

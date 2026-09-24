@@ -14,24 +14,20 @@ function thread(id: string, activity: string, settledAt?: string): ThreadSnapsho
     viewMode: 'inbox',
     latestCopilotTitle: null,
     lastUserMessage: null,
-    sessionName: id,
     resumeSessionId: null,
     mode: 'active-branch',
     branchName: 'main',
     worktreePath: null,
     createdAt: activity,
-    hasLaunched: false,
     executionCwd: '/repo',
     backend: { kind: 'native' },
-    isRunning: false,
     isRunCommandRunning: false,
     customTitle: id,
     displayTitle: id,
     lastActivityAt: activity,
     settledAt,
     displayBranchName: 'main',
-    cwd: '/repo',
-    agentInterface: 'custom'
+    cwd: '/repo'
   }
 }
 function repository(id: string, threads: ThreadSnapshot[]): RepositorySnapshot {
@@ -101,10 +97,9 @@ describe('inbox', () => {
       selectedRepositoryId: shared.id,
       selectedThreadId: null,
       settings: {
-        globalFlagsInput: '',
+        yoloEnabled: true,
         terminalFontFamilyInput: '',
         taskTagsInput: '',
-        parsedGlobalFlags: [],
         parsedTaskTags: [],
         resolvedTerminalFontFamily: 'monospace'
       }
@@ -280,8 +275,6 @@ describe('inbox', () => {
     expect(screen.queryByText('CLI')).toBeNull()
     expect(screen.getByText('Worktree')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Create thread' }))
-    expect(onSubmit).toHaveBeenCalledWith(
-      expect.objectContaining({ agentInterface: 'custom', mode: 'active-branch' })
-    )
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ mode: 'active-branch' }))
   })
 })

@@ -12,7 +12,6 @@ import { createDefaultState, migrateAppState } from './app-state-migrations'
 import { createPersistedStateStore } from './persisted-state-store'
 import { createSettingsService } from '../settings/settings-service'
 import { createThreadStateService } from '../threads/thread-state-service'
-import { createThreadCreateService } from '../threads/thread-create-service'
 import { createThreadCloseService } from '../threads/thread-close-service'
 
 const repository = (id: string): PersistedRepository => ({
@@ -32,7 +31,6 @@ const thread = (id: string, repositoryId: string, inbox = false): PersistedThrea
   id,
   repositoryId,
   ...(inbox ? { viewMode: 'inbox' as const } : {}),
-  agentInterface: 'custom',
   customTitle: id,
   latestCopilotTitle: null,
   lastUserMessage: 'keep this',
@@ -41,11 +39,9 @@ const thread = (id: string, repositoryId: string, inbox = false): PersistedThrea
   worktreePath: `/worktrees/${id}`,
   ownsBranch: true,
   ownsWorktree: true,
-  sessionName: id,
   resumeSessionId: `session-${id}`,
   createdAt: '2026-01-01T00:00:00.000Z',
-  lastActivityAt: '2026-01-02T00:00:00.000Z',
-  hasLaunched: true
+  lastActivityAt: '2026-01-02T00:00:00.000Z'
 })
 const directories: string[] = []
 afterEach(() =>
@@ -92,7 +88,7 @@ function harness(): {
     buildSelectionSnapshot: () => ({}) as never,
     normalizeCustomTitle: (value) => value?.trim() ?? null,
     normalizeTrackedText: (value) => value,
-    normalizeCopilotTitle: (_thread, value) => value ?? null,
+    normalizeCopilotTitle: (value) => value ?? null,
     nowIso: () => '2026-01-03T00:00:00.000Z'
   })
   return { store, state, settings, threads, options, successResult, failureResult }
@@ -139,32 +135,19 @@ describe('independent inbox state', () => {
     expect(state.ui.selectedThreadId).toBe('legacy')
   })
 
-  it('does not let a background launch in another mode replace the current selection', () => {
-    const { state, threads, settings } = harness()
-    threads.markThreadLaunched('active')
+  it('does not let a background session update in another mode replace the current selection', () => {
+    const { state, store, threads, settings } = harness()
+    settings.updateUi({ viewMode: 'inbox' })
+    store.updateSelection('shared', 'active')
+    settings.updateUi({ viewMode: 'projects' })
+    threads.updateThreadResumeSession({
+      threadId: 'active',
+      sessionId: 'new-session',
+      source: 'new'
+    })
     expect(state.ui.selectedThreadId).toBe('legacy')
     settings.updateUi({ viewMode: 'inbox' })
     expect(state.ui.selectedThreadId).toBe('active')
-  })
-
-  it('rejects legacy CLI creation before doing any git work', () => {
-    const { store, settings, successResult, failureResult } = harness()
-    settings.updateUi({ viewMode: 'inbox' })
-    const create = createThreadCreateService({
-      ...store,
-      successResult,
-      failureResult,
-      nowIso: () => '',
-      createId: () => 'new'
-    })
-    expect(
-      create.createThread({
-        repositoryId: 'shared',
-        mode: 'worktree',
-        branchName: 'new',
-        agentInterface: 'cli'
-      })
-    ).toMatchObject({ ok: false, error: expect.stringContaining('custom') })
   })
 
   it('rejects destructive close on inbox threads before stopping processes or prompting', async () => {

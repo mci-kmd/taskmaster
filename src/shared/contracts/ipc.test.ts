@@ -23,7 +23,6 @@ describe('IPC channel contracts', () => {
         'app-state:get-snapshot',
         'native-menu:show-sidebar-context-menu',
         'terminal:create',
-        'terminal:has-clipboard-image',
         'terminal:read-clipboard-text'
       ])
     )

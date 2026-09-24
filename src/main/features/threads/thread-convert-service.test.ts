@@ -48,20 +48,18 @@ function createThread(overrides: Partial<PersistedThread> = {}): PersistedThread
     worktreePath: null,
     ownsBranch: true,
     ownsWorktree: false,
-    sessionName: 'repo-feature-thread',
     resumeSessionId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActivityAt: '2026-01-01T00:00:00.000Z',
-    hasLaunched: false,
     ...overrides
   }
 }
 
 function createState(thread: PersistedThread = createThread()): PersistedAppState {
   return {
-    version: 15,
+    version: 16,
     settings: {
-      globalFlagsInput: '',
+      yoloEnabled: true,
       terminalFontFamilyInput: '',
       taskTagsInput: ''
     },

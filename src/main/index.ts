@@ -16,7 +16,6 @@ import {
   rememberCopilotModelSelection,
   markCopilotSessionStarted,
   updateCopilotActivity,
-  markThreadLaunched,
   registerAppStateIpc,
   resolveCopilotThread,
   setCopilotThreadController,
@@ -105,9 +104,7 @@ app.whenReady().then(() => {
   initializeAppState()
   registerAppStateIpc()
   registerNativeMenuIpc()
-  registerTerminalIpc({
-    onThreadStart: markThreadLaunched
-  })
+  registerTerminalIpc()
   const performanceStore = createModelPerformanceStore(
     join(app.getPath('userData'), 'model-performance.json')
   )

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Modal from '../Modal'
 import Button from '../ui/Button'
+import Checkbox from '../ui/Checkbox'
 import { Field, TextArea, TextInput } from '../ui/Field'
 import type { AppSettingsSnapshot, UpdateSettingsInput } from '../../../../shared/app-types'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
@@ -22,7 +23,7 @@ export default function SettingsDialog({
 }: SettingsDialogProps): React.JSX.Element {
   return (
     <Modal
-      description="Applied to every agent CLI launch. Custom UI also honors --yolo."
+      description="Configure Copilot sessions and your workspace."
       onClose={onClose}
       open={open}
       title="Settings"
@@ -56,24 +57,18 @@ function SettingsForm({
   onCancel,
   onSubmit
 }: SettingsFormProps): React.JSX.Element {
-  const [draft, setDraft] = useState(settings.globalFlagsInput)
+  const [yoloEnabled, setYoloEnabled] = useState(settings.yoloEnabled)
   const [terminalFontFamilyDraft, setTerminalFontFamilyDraft] = useState(
     settings.terminalFontFamilyInput
   )
   const [taskTagsDraft, setTaskTagsDraft] = useState(settings.taskTagsInput)
 
-  const parsedPreview =
-    draft === settings.globalFlagsInput
-      ? settings.parsedGlobalFlags
-      : (draft.match(/("[^"]*"|'[^']*'|\S+)/g) ?? []).map((token) =>
-          token.replace(/^['"]|['"]$/g, '')
-        )
   const parsedTaskTagsPreview =
     taskTagsDraft === settings.taskTagsInput
       ? settings.parsedTaskTags
       : parseTaskTagsInput(taskTagsDraft)
   const dirty =
-    draft !== settings.globalFlagsInput ||
+    yoloEnabled !== settings.yoloEnabled ||
     terminalFontFamilyDraft !== settings.terminalFontFamilyInput ||
     taskTagsDraft !== settings.taskTagsInput
 
@@ -84,7 +79,7 @@ function SettingsForm({
         event.preventDefault()
         if (dirty && !busy) {
           void onSubmit({
-            globalFlagsInput: draft,
+            yoloEnabled,
             terminalFontFamilyInput: terminalFontFamilyDraft,
             taskTagsInput: taskTagsDraft
           })
@@ -92,14 +87,14 @@ function SettingsForm({
       }}
     >
       <Field
-        hint='Whitespace-separated CLI tokens. Use quotes to group, e.g. --model "gpt-5.5".'
-        label="Global Copilot flags"
+        hint="Automatically approve Copilot permission requests, except those that require approval by managed policy. Applies to new sessions."
+        label="Copilot permissions"
       >
-        <TextInput
+        <Checkbox
           autoFocus
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="--yolo"
-          value={draft}
+          checked={yoloEnabled}
+          label="Approve requests automatically"
+          onChange={setYoloEnabled}
         />
       </Field>
 
@@ -152,28 +147,6 @@ function SettingsForm({
           ) : (
             <span className="text-[12.5px] text-[var(--color-fg-subtle)]">
               No task tags configured.
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div>
-        <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-          Preview
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {parsedPreview.length > 0 ? (
-            parsedPreview.map((flag, index) => (
-              <span
-                className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-1 font-mono text-[11.5px] text-[var(--color-fg)]"
-                key={`${flag}-${index}`}
-              >
-                {flag}
-              </span>
-            ))
-          ) : (
-            <span className="text-[12.5px] text-[var(--color-fg-subtle)]">
-              No flags configured.
             </span>
           )}
         </div>

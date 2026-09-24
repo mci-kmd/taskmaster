@@ -1,4 +1,5 @@
 type CheckboxProps = {
+  autoFocus?: boolean
   checked: boolean
   disabled?: boolean
   onChange: (checked: boolean) => void
@@ -7,6 +8,7 @@ type CheckboxProps = {
 }
 
 export default function Checkbox({
+  autoFocus,
   checked,
   disabled,
   onChange,
@@ -21,6 +23,7 @@ export default function Checkbox({
       title={title}
     >
       <input
+        autoFocus={autoFocus}
         checked={checked}
         className="tm-checkbox__input"
         disabled={disabled}

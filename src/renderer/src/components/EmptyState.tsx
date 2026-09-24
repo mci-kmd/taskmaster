@@ -67,7 +67,7 @@ export default function EmptyState({
 
         <div className="mt-10 flex items-center gap-3 text-[11.5px] uppercase tracking-[0.16em] text-[var(--color-fg-faint)]">
           <span className="h-px w-8 bg-[var(--color-border)]" />
-          <span>Embedded agent CLI</span>
+          <span>Copilot conversations</span>
           <span className="h-px w-8 bg-[var(--color-border)]" />
         </div>
       </div>

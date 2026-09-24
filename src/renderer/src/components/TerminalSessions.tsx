@@ -9,12 +9,7 @@ import {
   useRef,
   useState
 } from 'react'
-import type {
-  AppSettingsSnapshot,
-  TerminalKind,
-  TerminalStatus,
-  ThreadSnapshot
-} from '../../../shared/app-types'
+import type { AppSettingsSnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { ThreadSessionState, ThreadTerminalHandle } from './ThreadTerminal'
 
 export type { SessionPhase, ThreadSessionState } from './ThreadTerminal'
@@ -29,11 +24,9 @@ export type TerminalSessionsHandle = {
 }
 
 type TerminalSessionsProps = {
-  kind: TerminalKind
   threads: ThreadSnapshot[]
   selectedThreadId: string | null
   settings: AppSettingsSnapshot
-  agentStatus: TerminalStatus | null
   onSessionsChange: (sessions: SessionMap) => void
   onRefresh: () => Promise<void>
 }
@@ -45,7 +38,7 @@ type LiveEntry = {
 
 const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProps>(
   function TerminalSessions(
-    { kind, threads, selectedThreadId, settings, agentStatus, onSessionsChange, onRefresh },
+    { threads, selectedThreadId, settings, onSessionsChange, onRefresh },
     ref
   ) {
     const [launchKeys, setLaunchKeys] = useState<Map<string, number>>(new Map())
@@ -127,8 +120,6 @@ const TerminalSessions = forwardRef<TerminalSessionsHandle, TerminalSessionsProp
         {liveEntries.map((entry) => (
           <Suspense fallback={null} key={entry.thread.id}>
             <LazyThreadTerminal
-              agentStatus={agentStatus}
-              kind={kind}
               launchKey={entry.launchKey}
               onRefresh={onRefresh}
               onStateChange={(state) => handleStateChange(entry.thread.id, state)}

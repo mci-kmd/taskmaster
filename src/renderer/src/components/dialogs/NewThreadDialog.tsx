@@ -5,16 +5,10 @@ import Button from '../ui/Button'
 import Checkbox from '../ui/Checkbox'
 import { Field, TextInput } from '../ui/Field'
 import SegmentedControl from '../ui/SegmentedControl'
-import type {
-  RepositorySnapshot,
-  ThreadAgentInterface,
-  ThreadMode,
-  ViewMode
-} from '../../../../shared/app-types'
+import type { RepositorySnapshot, ThreadMode, ViewMode } from '../../../../shared/app-types'
 
 type SubmitInput = {
   mode: ThreadMode
-  agentInterface: ThreadAgentInterface
   title?: string
   branchName?: string
   useCurrentBranch?: boolean
@@ -56,7 +50,6 @@ export default function NewThreadDialog({
       {repository ? (
         <NewThreadForm
           key={`${repository.id}:${viewMode}`}
-          viewMode={viewMode}
           busy={busy}
           error={error}
           onCancel={onClose}
@@ -85,7 +78,6 @@ export default function NewThreadDialog({
 }
 
 type NewThreadFormProps = {
-  viewMode: ViewMode
   repository: RepositorySnapshot
   busy: boolean
   error: string | null
@@ -94,7 +86,6 @@ type NewThreadFormProps = {
 }
 
 function NewThreadForm({
-  viewMode,
   repository,
   busy,
   error,
@@ -102,9 +93,6 @@ function NewThreadForm({
   onSubmit
 }: NewThreadFormProps): React.JSX.Element {
   const [mode, setMode] = useState<DialogMode>('branch')
-  const [agentInterface, setAgentInterface] = useState<ThreadAgentInterface>(
-    viewMode === 'inbox' ? 'custom' : 'cli'
-  )
   const [title, setTitle] = useState('')
   const [branchName, setBranchName] = useState('')
   const [useCurrentBranch, setUseCurrentBranch] = useState(false)
@@ -125,7 +113,6 @@ function NewThreadForm({
       trimmedBranchName || (mode === 'branch' ? repository.primaryBranch : undefined)
     await onSubmit({
       mode: mode === 'worktree' ? 'worktree' : 'active-branch',
-      agentInterface,
       title: title.trim() || undefined,
       branchName: submittedBranchName || undefined,
       useCurrentBranch: showBaseField ? effectiveUseCurrent : undefined
@@ -173,35 +160,6 @@ function NewThreadForm({
           value={mode}
         />
       </Field>
-
-      {viewMode !== 'inbox' ? (
-        <Field
-          hint={
-            agentInterface === 'custom'
-              ? 'Uses the Copilot SDK with Taskmaster-owned chat, prompts, and model controls.'
-              : 'Uses the existing Copilot terminal interface.'
-          }
-          label="Copilot interface"
-        >
-          <SegmentedControl<ThreadAgentInterface>
-            ariaLabel="Copilot interface"
-            onChange={setAgentInterface}
-            options={[
-              {
-                value: 'cli',
-                label: 'CLI',
-                description: 'Current terminal experience'
-              },
-              {
-                value: 'custom',
-                label: 'Custom UI',
-                description: 'SDK-powered preview'
-              }
-            ]}
-            value={agentInterface}
-          />
-        </Field>
-      ) : null}
 
       <Field hint={labelHint} label="Label">
         <TextInput

@@ -4,9 +4,9 @@ import { createSnapshotService } from './snapshot-service'
 describe('snapshot service', () => {
   it('builds repository, thread, and settings snapshots from dependencies', () => {
     const state = {
-      version: 15 as const,
+      version: 16 as const,
       settings: {
-        globalFlagsInput: '--model gpt-5',
+        yoloEnabled: true,
         terminalFontFamilyInput: '',
         taskTagsInput: 'bug'
       },
@@ -35,11 +35,9 @@ describe('snapshot service', () => {
           mode: 'active-branch' as const,
           branchName: 'main',
           worktreePath: null,
-          sessionName: 'session',
           resumeSessionId: null,
           createdAt: '2026-01-01T00:00:00.000Z',
-          lastActivityAt: '2026-01-01T00:00:00.000Z',
-          hasLaunched: false
+          lastActivityAt: '2026-01-01T00:00:00.000Z'
         }
       ],
       ui: {
@@ -51,7 +49,6 @@ describe('snapshot service', () => {
 
     const snapshots = createSnapshotService({
       ensureState: () => state,
-      getRunningThreadIds: () => new Set(['thread-1']),
       getRunningRunThreadIds: () => new Set<string>(),
       getRepositoryGitState: () => ({
         currentBranch: 'main',
@@ -68,7 +65,6 @@ describe('snapshot service', () => {
       getThreadUiCwd: () => 'C:\\repo',
       getThreadExecutionCwd: () => 'C:\\repo',
       buildRepositoryFaviconUrl: () => null,
-      parseGlobalFlags: (input) => input.split(' '),
       parseTaskTagsInput: (input) => input.split(' '),
       resolveTerminalFontFamily: () => 'monospace',
       sidebarWidth: {
@@ -83,17 +79,16 @@ describe('snapshot service', () => {
     expect(snapshot.sidebarWidth).toBe(560)
     expect(snapshot.repositories[0]?.threads[0]).toMatchObject({
       id: 'thread-1',
-      isRunning: true,
       cwd: 'C:\\repo'
     })
-    expect(snapshot.settings.parsedGlobalFlags).toEqual(['--model', 'gpt-5'])
+    expect(snapshot.settings.yoloEnabled).toBe(true)
   })
 
   it('builds async refreshed snapshots without forcing sync git refreshes', async () => {
     const state = {
-      version: 15 as const,
+      version: 16 as const,
       settings: {
-        globalFlagsInput: '',
+        yoloEnabled: true,
         terminalFontFamilyInput: '',
         taskTagsInput: ''
       },
@@ -123,7 +118,6 @@ describe('snapshot service', () => {
 
     const snapshots = createSnapshotService({
       ensureState: () => state,
-      getRunningThreadIds: () => new Set<string>(),
       getRunningRunThreadIds: () => new Set<string>(),
       getRepositoryGitState: (_repository, refreshGit) => {
         if (refreshGit) {
@@ -148,7 +142,6 @@ describe('snapshot service', () => {
       getThreadUiCwd: () => 'C:\\repo',
       getThreadExecutionCwd: () => 'C:\\repo',
       buildRepositoryFaviconUrl: () => null,
-      parseGlobalFlags: () => [],
       parseTaskTagsInput: () => [],
       resolveTerminalFontFamily: () => 'monospace',
       sidebarWidth: {
@@ -171,9 +164,9 @@ describe('snapshot service', () => {
 
   it('prioritizes startup git refreshes for repositories with recent thread activity', async () => {
     const state = {
-      version: 15 as const,
+      version: 16 as const,
       settings: {
-        globalFlagsInput: '',
+        yoloEnabled: true,
         terminalFontFamilyInput: '',
         taskTagsInput: ''
       },
@@ -241,11 +234,9 @@ describe('snapshot service', () => {
           mode: 'active-branch' as const,
           branchName: 'warm',
           worktreePath: null,
-          sessionName: 'session',
           resumeSessionId: null,
           createdAt: '2026-01-01T00:00:00.000Z',
-          lastActivityAt: '2026-01-02T00:00:00.000Z',
-          hasLaunched: false
+          lastActivityAt: '2026-01-02T00:00:00.000Z'
         },
         {
           id: 'thread-hot',
@@ -256,11 +247,9 @@ describe('snapshot service', () => {
           mode: 'active-branch' as const,
           branchName: 'hot',
           worktreePath: null,
-          sessionName: 'session',
           resumeSessionId: null,
           createdAt: '2026-01-01T00:00:00.000Z',
-          lastActivityAt: '2026-01-03T00:00:00.000Z',
-          hasLaunched: false
+          lastActivityAt: '2026-01-03T00:00:00.000Z'
         },
         {
           id: 'thread-dormant',
@@ -271,11 +260,9 @@ describe('snapshot service', () => {
           mode: 'active-branch' as const,
           branchName: 'dormant',
           worktreePath: null,
-          sessionName: 'session',
           resumeSessionId: null,
           createdAt: '2026-01-01T00:00:00.000Z',
-          lastActivityAt: '2026-01-01T00:00:00.000Z',
-          hasLaunched: false
+          lastActivityAt: '2026-01-01T00:00:00.000Z'
         }
       ],
       ui: {
@@ -287,7 +274,6 @@ describe('snapshot service', () => {
 
     const snapshots = createSnapshotService({
       ensureState: () => state,
-      getRunningThreadIds: () => new Set<string>(),
       getRunningRunThreadIds: () => new Set<string>(),
       getRepositoryGitState: () => ({
         currentBranch: 'Loading...',
@@ -307,7 +293,6 @@ describe('snapshot service', () => {
       getThreadUiCwd: () => 'C:\\repo',
       getThreadExecutionCwd: () => 'C:\\repo',
       buildRepositoryFaviconUrl: () => null,
-      parseGlobalFlags: () => [],
       parseTaskTagsInput: () => [],
       resolveTerminalFontFamily: () => 'monospace',
       sidebarWidth: {

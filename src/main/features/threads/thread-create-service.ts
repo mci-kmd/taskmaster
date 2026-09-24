@@ -3,7 +3,6 @@ import type {
   MutationResult,
   PersistedAppState,
   PersistedThread,
-  ThreadAgentInterface,
   ThreadMode,
   ViewMode
 } from '../../../shared/app-types'
@@ -17,7 +16,7 @@ import {
   listRepositoryWorktrees,
   resolveExistingBranchTarget
 } from '../repositories/repository-git'
-import { buildThreadSessionName, normalizeCustomTitle } from './thread-values'
+import { normalizeCustomTitle } from './thread-values'
 import {
   cleanupFailedWorktree,
   createWorktree,
@@ -34,11 +33,9 @@ function createThreadRecord(
   repositoryId: string,
   viewMode: ViewMode,
   mode: ThreadMode,
-  agentInterface: ThreadAgentInterface,
   branchName: string,
   customTitle: string | null,
   worktreePath: string | null,
-  repositoryName: string,
   ownership: {
     ownsBranch: boolean
     ownsWorktree: boolean
@@ -53,16 +50,13 @@ function createThreadRecord(
     latestCopilotTitle: null,
     lastUserMessage: null,
     mode,
-    agentInterface,
     branchName,
     worktreePath,
     ownsBranch: ownership.ownsBranch,
     ownsWorktree: ownership.ownsWorktree,
-    sessionName: buildThreadSessionName(repositoryName, dependencies.createId),
     resumeSessionId: null,
     createdAt,
-    lastActivityAt: createdAt,
-    hasLaunched: false
+    lastActivityAt: createdAt
   }
 }
 
@@ -87,10 +81,6 @@ export function createThreadCreateService(dependencies: {
 
       const viewMode = state.ui.viewMode ?? 'projects'
       const customTitle = normalizeCustomTitle(input.title)
-      if (viewMode === 'inbox' && input.agentInterface === 'cli') {
-        return dependencies.failureResult('Inbox threads use the custom Copilot interface.')
-      }
-      const agentInterface = input.agentInterface ?? (viewMode === 'inbox' ? 'custom' : 'cli')
       const repositoryPath = getRepositoryExecutionPath(repository)
 
       if (input.mode === 'worktree') {
@@ -108,11 +98,9 @@ export function createThreadCreateService(dependencies: {
             repository.id,
             viewMode,
             'worktree',
-            agentInterface,
             existingWorktree.branchName,
             customTitle,
             existingWorktree.path,
-            repository.name,
             {
               ownsBranch: false,
               ownsWorktree: false
@@ -216,11 +204,9 @@ export function createThreadCreateService(dependencies: {
           repository.id,
           viewMode,
           'worktree',
-          agentInterface,
           branchName,
           customTitle,
           worktreePath,
-          repository.name,
           {
             ownsBranch: true,
             ownsWorktree: true
@@ -241,11 +227,9 @@ export function createThreadCreateService(dependencies: {
           repository.id,
           viewMode,
           'active-branch',
-          agentInterface,
           currentBranchLabel,
           customTitle,
           null,
-          repository.name,
           {
             ownsBranch: false,
             ownsWorktree: false
@@ -292,11 +276,9 @@ export function createThreadCreateService(dependencies: {
           repository.id,
           viewMode,
           'active-branch',
-          agentInterface,
           targetBranchName,
           customTitle,
           null,
-          repository.name,
           {
             ownsBranch: false,
             ownsWorktree: false
@@ -333,11 +315,9 @@ export function createThreadCreateService(dependencies: {
         repository.id,
         viewMode,
         'new-branch',
-        agentInterface,
         requestedBranchName,
         customTitle,
         null,
-        repository.name,
         {
           ownsBranch: true,
           ownsWorktree: false

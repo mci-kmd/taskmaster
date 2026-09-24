@@ -1,13 +1,10 @@
 import type { PersistedThread } from './app-types'
 
-type CopilotTitleThread = Pick<PersistedThread, 'latestCopilotTitle' | 'sessionName'>
+type CopilotTitleThread = Pick<PersistedThread, 'latestCopilotTitle'>
 
-export function normalizeCopilotTitle(
-  thread: Pick<PersistedThread, 'sessionName'>,
-  title: string | null | undefined
-): string | null {
+export function normalizeCopilotTitle(title: string | null | undefined): string | null {
   const trimmedTitle = title?.trim()
-  if (!trimmedTitle || trimmedTitle === thread.sessionName) {
+  if (!trimmedTitle) {
     return null
   }
   return trimmedTitle
@@ -17,8 +14,5 @@ export function getCopilotTitle(
   thread: CopilotTitleThread,
   runtimeTitle: string | null | undefined
 ): string | null {
-  return (
-    normalizeCopilotTitle(thread, runtimeTitle) ??
-    normalizeCopilotTitle(thread, thread.latestCopilotTitle)
-  )
+  return normalizeCopilotTitle(runtimeTitle) ?? normalizeCopilotTitle(thread.latestCopilotTitle)
 }

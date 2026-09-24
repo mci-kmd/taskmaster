@@ -19,10 +19,7 @@ type ThreadStateServiceDependencies = {
   failureResult: (error: string, cancelled?: boolean) => MutationResult
   normalizeCustomTitle: (title: string | null | undefined) => string | null
   normalizeTrackedText: (value: string | null) => string | null
-  normalizeCopilotTitle: (
-    thread: Pick<PersistedThread, 'sessionName'>,
-    title: string | null | undefined
-  ) => string | null
+  normalizeCopilotTitle: (title: string | null | undefined) => string | null
   nowIso: () => string
 }
 
@@ -33,7 +30,6 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
   updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) => boolean
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
-  markThreadLaunched: (threadId: string) => void
 } {
   return {
     updateThread: (input: UpdateThreadInput): MutationResult => {
@@ -78,7 +74,7 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
         return false
       }
 
-      const normalizedTitle = dependencies.normalizeCopilotTitle(thread, trimmedTitle)
+      const normalizedTitle = dependencies.normalizeCopilotTitle(trimmedTitle)
       if (thread.latestCopilotTitle === normalizedTitle) {
         return true
       }
@@ -102,14 +98,12 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       const shouldClearTitle = input.source === 'new'
       if (
         thread.resumeSessionId === nextSessionId &&
-        (!shouldClearTitle || thread.latestCopilotTitle === null) &&
-        thread.hasLaunched
+        (!shouldClearTitle || thread.latestCopilotTitle === null)
       ) {
         return true
       }
 
       thread.resumeSessionId = nextSessionId
-      thread.hasLaunched = true
       if (shouldClearTitle) {
         thread.latestCopilotTitle = null
       }
@@ -159,17 +153,6 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       dependencies.updateSelection(thread.repositoryId, thread.id)
       dependencies.saveState()
       return dependencies.buildSelectionSnapshot()
-    },
-
-    markThreadLaunched: (threadId: string): void => {
-      const thread = dependencies.findThread(threadId)
-      if (!thread) {
-        return
-      }
-
-      thread.hasLaunched = true
-      dependencies.updateSelection(thread.repositoryId, thread.id)
-      dependencies.saveState()
     }
   }
 }

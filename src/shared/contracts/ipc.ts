@@ -27,7 +27,6 @@ import type {
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
   ThreadDiffFileSaveResult,
-  RepositoryBackend,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
   ThreadDiffPatchRequest,
@@ -40,9 +39,6 @@ import type {
   TerminalDataEvent,
   TerminalExitEvent,
   TerminalLaunchResult,
-  TerminalSessionStartEvent,
-  TerminalStatus,
-  TerminalUserPromptEvent,
   UpdateRepositoryInput,
   UpdateRepositoryTaskInput,
   UpdateSettingsInput,
@@ -93,17 +89,13 @@ export const IPC_CHANNELS = {
     sidebarContextMenuAction: 'native-menu:sidebar-context-menu-action'
   },
   terminal: {
-    status: 'terminal:status',
     create: 'terminal:create',
     kill: 'terminal:kill',
-    hasClipboardImage: 'terminal:has-clipboard-image',
     readClipboardText: 'terminal:read-clipboard-text',
     input: 'terminal:input',
     resize: 'terminal:resize',
     data: 'terminal:data',
-    exit: 'terminal:exit',
-    sessionStart: 'terminal:session-start',
-    userPrompt: 'terminal:user-prompt'
+    exit: 'terminal:exit'
   },
   copilot: {
     getSdkStatus: 'copilot:get-sdk-status',
@@ -211,13 +203,8 @@ export type IpcInvokeDefinitions = {
     request: [SidebarContextMenuRequest]
     response: boolean
   }
-  'terminal:status': {
-    request: [RepositoryBackend?]
-    response: TerminalStatus
-  }
   'terminal:create': { request: [TerminalCreateRequest]; response: TerminalLaunchResult }
   'terminal:kill': { request: [string]; response: boolean }
-  'terminal:has-clipboard-image': { request: []; response: boolean }
   'terminal:read-clipboard-text': { request: []; response: string }
   'copilot:get-sdk-status': { request: []; response: CopilotSdkStatus }
   'copilot:check-for-sdk-update': { request: []; response: CopilotSdkStatus }
@@ -243,8 +230,6 @@ export type IpcEventDefinitions = {
   'native-menu:sidebar-context-menu-action': { payload: SidebarContextMenuActionEvent }
   'terminal:data': { payload: TerminalDataEvent }
   'terminal:exit': { payload: TerminalExitEvent }
-  'terminal:session-start': { payload: TerminalSessionStartEvent }
-  'terminal:user-prompt': { payload: TerminalUserPromptEvent }
   'copilot:session': { payload: CopilotSessionEvent }
   'copilot:performance-sample': { payload: ModelPerformanceSampleEvent }
   'copilot:sdk-status': { payload: CopilotSdkStatusEvent }

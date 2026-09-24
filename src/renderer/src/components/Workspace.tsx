@@ -3,7 +3,6 @@ import type {
   AppSettingsSnapshot,
   CreateRepositoryTaskInput,
   RepositorySnapshot,
-  TerminalStatus,
   ThreadSnapshot,
   UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
@@ -12,7 +11,6 @@ import TerminalSessions, {
   type TerminalSessionsHandle,
   type ThreadSessionState
 } from './TerminalSessions'
-import LaunchPanel from './LaunchPanel'
 import EmptyState from './EmptyState'
 import ProjectTaskManager from './ProjectTaskManager'
 import Button from './ui/Button'
@@ -47,10 +45,8 @@ type WorkspaceProps = {
   showRepositoryTasks?: boolean
   settings: AppSettingsSnapshot
   hasRepositories: boolean
-  autoLaunchThreadId: string | null
   repositoryTaskBusy: boolean
   runCommandBusy: boolean
-  onAutoLaunchHandled: () => void
   onRefresh: () => Promise<void>
   onAddRepository: () => void
   onCreateRepositoryTask: (
@@ -224,10 +220,8 @@ export default function Workspace({
   showRepositoryTasks = true,
   settings,
   hasRepositories,
-  autoLaunchThreadId,
   repositoryTaskBusy,
   runCommandBusy,
-  onAutoLaunchHandled,
   onRefresh,
   onAddRepository,
   onCreateRepositoryTask,
@@ -241,41 +235,16 @@ export default function Workspace({
   onOpenSolutionInVisualStudio,
   onSessionsChange
 }: WorkspaceProps): React.JSX.Element {
-  const copilotSessionsRef = useRef<TerminalSessionsHandle | null>(null)
   const terminalSessionsRef = useRef<TerminalSessionsHandle | null>(null)
-  const [agentStatus, setAgentStatus] = useState<TerminalStatus | null>(null)
-  const [copilotSessions, setCopilotSessions] = useState<SessionMap>(new Map())
   const [customCopilotSessions, setCustomCopilotSessions] = useState<SessionMap>(new Map())
   const [terminalSessions, setTerminalSessions] = useState<SessionMap>(new Map())
   const [threadViewSelections, setThreadViewSelections] = useState<
     Map<string, ThreadWorkspaceViewId>
   >(new Map())
-  const autoLaunchedRef = useRef<Set<string>>(new Set())
-  const selectedCustomThreadId =
-    selectedThread?.agentInterface === 'custom' ? selectedThread.id : null
+  const selectedCustomThreadId = selectedThread?.id ?? null
   const threadViewOptions = useMemo(() => buildThreadViewOptions(COPILOT_LABEL), [])
   const threadViewControlWidthPx = threadViewOptions.length * 88
   const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
-  const needsCliStatus = selectedThread?.agentInterface === 'cli'
-  const repositoryBackendKind = selectedRepository?.backend.kind
-
-  useEffect(() => {
-    if (!needsCliStatus) return
-    let cancelled = false
-    void api.terminal
-      .getStatus(repositoryBackendKind ? { kind: repositoryBackendKind } : undefined)
-      .then((status) => {
-        if (cancelled) return
-        setAgentStatus(status)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [needsCliStatus, repositoryBackendKind])
-
-  const handleCopilotSessionsChange = useCallback((next: SessionMap): void => {
-    setCopilotSessions(next)
-  }, [])
 
   const handleTerminalSessionsChange = useCallback((next: SessionMap): void => {
     setTerminalSessions(next)
@@ -306,19 +275,13 @@ export default function Workspace({
   }, [handleCustomCopilotSessionChange])
 
   useEffect(() => {
-    const combined = new Map(copilotSessions)
-    for (const [threadId, state] of customCopilotSessions) {
-      combined.set(threadId, state)
-    }
-    onSessionsChange(combined)
-  }, [copilotSessions, customCopilotSessions, onSessionsChange])
+    onSessionsChange(customCopilotSessions)
+  }, [customCopilotSessions, onSessionsChange])
 
   const selectedCopilotSession: ThreadSessionState = useMemo(() => {
     if (!selectedThread) return IDLE_STATE
-    return selectedThread.agentInterface === 'custom'
-      ? (customCopilotSessions.get(selectedThread.id) ?? IDLE_STATE)
-      : (copilotSessions.get(selectedThread.id) ?? IDLE_STATE)
-  }, [copilotSessions, customCopilotSessions, selectedThread])
+    return customCopilotSessions.get(selectedThread.id) ?? IDLE_STATE
+  }, [customCopilotSessions, selectedThread])
 
   const selectedTerminalSession: ThreadSessionState = useMemo(() => {
     if (!selectedThread) return IDLE_STATE
@@ -332,10 +295,7 @@ export default function Workspace({
       : selectedView === 'copilot'
         ? selectedCopilotSession
         : IDLE_STATE
-  const activeAgentStatus = agentStatus
   const isRunning = activeSession.phase === 'running'
-  const copilotRunning = selectedCopilotSession.phase === 'running'
-  const cliAvailable = activeAgentStatus?.available ?? false
   const hasThread = Boolean(selectedThread)
   const hasRunCommand = Boolean(selectedRepository?.runCommand)
   const runCommandRunning = selectedThread?.isRunCommandRunning ?? false
@@ -350,42 +310,12 @@ export default function Workspace({
     ? selectedThread.displayBranchName
     : selectedRepository?.currentBranch
   const selectedThreadId = selectedThread?.id ?? null
-  const latestUserMessage =
-    selectedCopilotSession.lastUserMessage?.trim() ??
-    selectedThread?.lastUserMessage?.trim() ??
-    null
   const { branchStatusSummary, branchStatusTitle } = useBranchStatus({
     selectedRepository,
     selectedThread,
     selectedAgentSession: selectedCopilotSession,
     selectedTerminalSession: selectedTerminalSession
   })
-
-  // Auto-launch on freshly-created threads.
-  useEffect(() => {
-    if (!autoLaunchThreadId) return
-    if (!selectedThread || selectedThread.id !== autoLaunchThreadId) return
-    if (selectedThread.agentInterface !== 'cli') {
-      onAutoLaunchHandled()
-      return
-    }
-    if (autoLaunchedRef.current.has(autoLaunchThreadId)) {
-      onAutoLaunchHandled()
-      return
-    }
-    if (!cliAvailable) return
-    if (selectedCopilotSession.phase !== 'idle') return
-
-    autoLaunchedRef.current.add(autoLaunchThreadId)
-    onAutoLaunchHandled()
-    copilotSessionsRef.current?.start(autoLaunchThreadId)
-  }, [
-    autoLaunchThreadId,
-    cliAvailable,
-    onAutoLaunchHandled,
-    selectedCopilotSession.phase,
-    selectedThread
-  ])
 
   useEffect(() => {
     if (!selectedThreadId || selectedView !== 'terminal') {
@@ -412,11 +342,6 @@ export default function Workspace({
     },
     [selectedThread]
   )
-
-  const handleLaunchCopilot = useCallback((): void => {
-    if (!selectedThread) return
-    copilotSessionsRef.current?.start(selectedThread.id)
-  }, [selectedThread])
 
   const handleLaunchTerminal = useCallback((): void => {
     if (!selectedThread) return
@@ -541,47 +466,13 @@ export default function Workspace({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
           aria-hidden={!hasThread}
-          className={`flex h-full flex-col ${selectedView === 'copilot' && selectedThread?.agentInterface === 'custom' ? '' : 'p-5'} transition-opacity duration-200 ${
+          className={`flex h-full flex-col ${selectedView === 'copilot' ? '' : 'p-5'} transition-opacity duration-200 ${
             hasThread ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >
           <div className="flex min-h-0 flex-1 flex-col gap-3">
-            {selectedThread &&
-            selectedView === 'copilot' &&
-            selectedThread.agentInterface === 'cli' ? (
-              <section className="shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3">
-                <div className="text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
-                  Most recent user message
-                </div>
-                <div className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-[var(--color-fg)]">
-                  {latestUserMessage ? (
-                    latestUserMessage
-                  ) : (
-                    <span className="text-[var(--color-fg-muted)]">No user message yet.</span>
-                  )}
-                </div>
-              </section>
-            ) : null}
-
             <div className="relative min-h-0 flex-1">
               <TerminalSessions
-                agentStatus={activeAgentStatus}
-                kind="agent"
-                onRefresh={onRefresh}
-                onSessionsChange={handleCopilotSessionsChange}
-                ref={copilotSessionsRef}
-                selectedThreadId={
-                  selectedView === 'copilot' && selectedThread?.agentInterface === 'cli'
-                    ? (selectedThread?.id ?? null)
-                    : null
-                }
-                settings={settings}
-                threads={threads}
-              />
-
-              <TerminalSessions
-                agentStatus={activeAgentStatus}
-                kind="shell"
                 onRefresh={onRefresh}
                 onSessionsChange={handleTerminalSessionsChange}
                 ref={terminalSessionsRef}
@@ -590,23 +481,7 @@ export default function Workspace({
                 threads={threads}
               />
 
-              {selectedThread &&
-              selectedView === 'copilot' &&
-              selectedThread.agentInterface === 'cli' &&
-              !copilotRunning ? (
-                <div className="absolute inset-0">
-                  <LaunchPanel
-                    copilotStatus={activeAgentStatus}
-                    onLaunch={handleLaunchCopilot}
-                    session={selectedCopilotSession}
-                    thread={selectedThread}
-                  />
-                </div>
-              ) : null}
-
-              {selectedThread &&
-              selectedView === 'copilot' &&
-              selectedThread.agentInterface === 'custom' ? (
+              {selectedThread && selectedView === 'copilot' ? (
                 <div className="absolute inset-0">
                   <Suspense
                     fallback={
