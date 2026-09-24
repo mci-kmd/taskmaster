@@ -222,14 +222,6 @@ export function LogoMark(props: IconProps): React.JSX.Element {
   )
 }
 
-export function InboxIcon(props: IconProps): React.JSX.Element {
-  return (
-    <svg {...baseProps} {...props}>
-      <path d="M2 9 4 3h8l2 6v4H2V9Zm0 0h4l1 2h2l1-2h4" />
-    </svg>
-  )
-}
-
 export function PencilIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

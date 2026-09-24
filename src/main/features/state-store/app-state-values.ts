@@ -14,11 +14,10 @@ import {
 } from '../settings/settings-values'
 import { normalizeRepositorySolutionFilePath } from '../repositories/repository-solution-file-service'
 import { normalizeRepositoryScript, normalizeRunCommand } from '../repositories/repository-values'
-import { migrateSharedProjects } from './shared-project-migration'
 import { normalizeTrackedText } from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
-export const STATE_VERSION = 16 as const
+export const STATE_VERSION = 17 as const
 
 function sameRepositoryBackend(
   left: RepositoryBackend,
@@ -112,7 +111,6 @@ export function normalizePersistedSettings(
 }
 
 export function normalizePersistedState(state: PersistedAppState): PersistedAppState {
-  state = migrateSharedProjects(state)
   const settings = normalizePersistedSettings(state.settings)
   let didChange = settings !== state.settings
   const repositories = state.repositories.map((repository) => {

@@ -269,7 +269,7 @@ function EditRepositoryForm({
       </Field>
 
       <Field
-        hint="Optional. Runs in the repository root after a worktree thread is removed in Projects and its branch is deleted. Settling inbox threads never runs this script. Supports the same tokens as the run command."
+        hint="Optional. Runs in the repository root after an owned worktree thread is closed and its branch is deleted. Settling a thread never runs this script. Supports the same tokens as the run command."
         label="Post-worktree-remove script"
       >
         <TextArea

@@ -10,7 +10,7 @@ import { composeThreadTitle } from '../lib/title'
 import { formatRelativeTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
 import { getInboxThreads } from '../lib/inbox-threads'
-import { inboxThreadMenuOptions, threadMenuActions } from '../../../shared/sidebar-thread-actions'
+import { threadMenuOptions, threadMenuActions } from '../../../shared/sidebar-thread-actions'
 
 export default function InboxThreads({
   repositories,
@@ -24,8 +24,10 @@ export default function InboxThreads({
   onOpenRepositoryTasks,
   onEditThread,
   onSettleThread,
+  onCloseThread,
   onConvertThreadToWorktree,
   convertingThread,
+  closingThread,
   onContextMenu
 }: {
   repositories: RepositorySnapshot[]
@@ -39,8 +41,10 @@ export default function InboxThreads({
   onOpenRepositoryTasks: (id: string) => void
   onEditThread: (id: string) => void
   onSettleThread: (id: string, settled: boolean) => void
+  onCloseThread: (id: string) => void
   onConvertThreadToWorktree: (id: string) => void
   convertingThread: boolean
+  closingThread: boolean
   onContextMenu: (thread: ThreadSnapshot, x: number, y: number) => void
 }): React.JSX.Element {
   const [settledExpanded, setSettledExpanded] = useState(false)
@@ -107,18 +111,19 @@ export default function InboxThreads({
           </button>
           <ActionMenu
             label={`Thread actions for ${title}`}
-            items={threadMenuActions(inboxThreadMenuOptions(thread, convertingThread)).map(
-              ({ action, label, enabled }) => ({
-                label,
-                disabled: !enabled,
-                onSelect: () => {
-                  if (action === 'edit') onEditThread(thread.id)
-                  else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
-                  else if (action === 'settle-thread' || action === 'unsettle-thread')
-                    onSettleThread(thread.id, action === 'settle-thread')
-                }
-              })
-            )}
+            items={threadMenuActions(
+              threadMenuOptions(thread, convertingThread, closingThread)
+            ).map(({ action, label, enabled }) => ({
+              label,
+              disabled: !enabled,
+              onSelect: () => {
+                if (action === 'edit') onEditThread(thread.id)
+                else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
+                else if (action === 'settle-thread' || action === 'unsettle-thread')
+                  onSettleThread(thread.id, action === 'settle-thread')
+                else if (action === 'close-thread') onCloseThread(thread.id)
+              }
+            }))}
           >
             ···
           </ActionMenu>
@@ -183,9 +188,11 @@ export default function InboxThreads({
         </ul>
         {active.length === 0 ? (
           <p className="px-2 py-5 text-[12px] text-[var(--color-fg-subtle)]">
-            {settled.length > 0
-              ? 'All caught up. Start a new thread or revisit a settled one.'
-              : 'Create a thread to start your inbox.'}
+            {repositories.length === 0
+              ? 'Add a repository to start a thread.'
+              : settled.length > 0
+                ? 'All caught up. Start a new thread or revisit a settled one.'
+                : 'Create a thread to start your inbox.'}
           </p>
         ) : null}
       </div>

@@ -35,7 +35,7 @@ vi.mock('./thread-worktree-utils', () => ({
 
 function createState(thread: PersistedThread): PersistedAppState {
   return {
-    version: 16,
+    version: 17,
     settings: {
       yoloEnabled: true,
       terminalFontFamilyInput: '',
@@ -134,6 +134,57 @@ describe('createThreadCloseService', () => {
     vi.mocked(isDirtyGitPath).mockReturnValue(false)
     vi.mocked(remoteBranchExists).mockReturnValue(false)
     vi.mocked(resolveGitRoot).mockReturnValue('/repo/.worktrees/feature-thread')
+  })
+
+  it('closes settled threads just like active threads', async () => {
+    const harness = createHarness(
+      createThread({ ownsBranch: false, ownsWorktree: false, settledAt: '2026-01-02T00:00:00Z' })
+    )
+
+    expect(await harness.closeThread('thread-1')).toEqual({ ok: true })
+    expect(harness.state.threads).toEqual([])
+    expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
+  })
+
+  it('confirms and cleans up owned worktrees for settled threads', async () => {
+    vi.mocked(isDirtyGitPath).mockReturnValue(true)
+    const harness = createHarness(
+      createThread({ ownsBranch: true, ownsWorktree: true, settledAt: '2026-01-02T00:00:00Z' })
+    )
+    harness.showMessageBox.mockResolvedValue({ response: 1 })
+
+    expect(await harness.closeThread('thread-1')).toEqual({ ok: true })
+    expect(harness.showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Uncommitted changes' })
+    )
+    expect(removeWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'thread-1' }),
+      '/repo',
+      createNativeBackend(),
+      true,
+      true
+    )
+    expect(harness.state.threads).toEqual([])
+  })
+
+  it('preserves branch removal confirmation for settled branch threads', async () => {
+    const harness = createHarness(
+      createThread({
+        mode: 'new-branch',
+        worktreePath: null,
+        settledAt: '2026-01-02T00:00:00Z'
+      })
+    )
+    harness.showMessageBox.mockResolvedValue({ response: 2 })
+
+    expect(await harness.closeThread('thread-1')).toEqual({ ok: true })
+    expect(harness.showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Remove local branch?' })
+    )
+    expect(runGit).toHaveBeenCalledWith('/repo', ['branch', '-D', 'feature/thread'], {
+      kind: 'native'
+    })
+    expect(harness.state.threads).toEqual([])
   })
 
   it('does not stop thread processes when dirty worktree close is cancelled', async () => {

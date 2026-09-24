@@ -7,50 +7,21 @@ import type {
   ThreadSnapshot
 } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
-import {
-  BranchIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  GearIcon,
-  FolderIcon,
-  InboxIcon,
-  LogoMark,
-  PerformanceIcon,
-  PlusIcon,
-  ThreadIcon,
-  WorktreeIcon
-} from './Icons'
-import ProjectIcon from './ProjectIcon'
+import { GearIcon, LogoMark, PerformanceIcon, PlusIcon } from './Icons'
 import InboxThreads from './InboxThreads'
 import Button from './ui/Button'
-import { formatRelativeTime } from '../lib/time'
-import { composeThreadTitle } from '../lib/title'
-import { useNow } from '../lib/useNow'
 import { getRendererApi } from '../shared/api/client'
 import { isDevMode } from '../../../shared/runtime-mode'
-import type { CopilotThreadStatus } from './ThreadTerminal'
-import { inboxThreadMenuOptions } from '../../../shared/sidebar-thread-actions'
+import { threadMenuOptions } from '../../../shared/sidebar-thread-actions'
 
 const api = getRendererApi()
-
-const CUSTOM_THREAD_STATUS: Record<CopilotThreadStatus, { label: string; className: string }> = {
-  idle: { label: 'idle', className: 'text-[var(--color-fg-faint)]' },
-  working: { label: 'working', className: 'text-[var(--color-info)]' },
-  input: { label: 'input', className: 'text-[#c4a7ff]' },
-  done: { label: 'done', className: 'text-[var(--color-fg)]' },
-  connecting: { label: 'connecting', className: 'text-[var(--color-warning)]' },
-  error: { label: 'error', className: 'text-[var(--color-danger)]' },
-  disconnected: { label: 'disconnected', className: 'text-[var(--color-fg-faint)]' }
-}
 
 type SidebarProps = {
   snapshot: AppSnapshot
   selectedRepository: RepositorySnapshot | null
   selectedThread: ThreadSnapshot | null
   sessions: SessionMap
-  collapsedRepositoryIds: Set<string>
   busyAddRepository: boolean
-  onToggleRepository: (id: string) => void
   onSelectRepository: (id: string) => void
   onSelectThread: (id: string) => void
   onAddRepository: () => void
@@ -61,9 +32,7 @@ type SidebarProps = {
   onOpenSettings: () => void
   onOpenPerformance: () => void
   performanceOpen: boolean
-  onToggleViewMode: () => void
   onSettleThread: (id: string, settled: boolean) => void
-  switchingMode: boolean
   onConvertThreadToWorktree: (id: string) => void
   onCloseThread: (id: string) => void
   convertingThread: boolean
@@ -75,9 +44,7 @@ export default function Sidebar({
   selectedRepository,
   selectedThread,
   sessions,
-  collapsedRepositoryIds,
   busyAddRepository,
-  onToggleRepository,
   onSelectRepository,
   onSelectThread,
   onAddRepository,
@@ -88,15 +55,12 @@ export default function Sidebar({
   onOpenSettings,
   onOpenPerformance,
   performanceOpen,
-  onToggleViewMode,
   onSettleThread,
-  switchingMode,
   onConvertThreadToWorktree,
   onCloseThread,
   convertingThread,
   closingThread
 }: SidebarProps): React.JSX.Element {
-  const now = useNow(30_000)
   const totalThreads = useMemo(
     () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
     [snapshot.repositories]
@@ -104,18 +68,6 @@ export default function Sidebar({
 
   const handleContextMenuAction = useCallback(
     (payload: SidebarContextMenuActionEvent): void => {
-      if (payload.kind === 'repository') {
-        if (payload.action === 'new-thread') {
-          onNewThread(payload.itemId)
-          return
-        }
-
-        if (payload.action === 'edit') {
-          onEditRepository(payload.itemId)
-        }
-        return
-      }
-
       if (payload.action === 'edit') {
         onEditThread(payload.itemId)
         return
@@ -135,29 +87,12 @@ export default function Sidebar({
         onCloseThread(payload.itemId)
       }
     },
-    [
-      onSettleThread,
-      onCloseThread,
-      onConvertThreadToWorktree,
-      onEditRepository,
-      onEditThread,
-      onNewThread
-    ]
+    [onSettleThread, onCloseThread, onConvertThreadToWorktree, onEditThread]
   )
 
   useEffect(() => {
     return api.appState.onSidebarContextMenuAction(handleContextMenuAction)
   }, [handleContextMenuAction])
-
-  const getThreadModeTooltip = (thread: ThreadSnapshot): string | null => {
-    if (thread.mode === 'worktree') {
-      return 'Worktree thread'
-    }
-    if (thread.mode === 'new-branch') {
-      return 'New branch thread'
-    }
-    return null
-  }
 
   const showContextMenu = useCallback((request: SidebarContextMenuRequest): void => {
     void api.appState.showSidebarContextMenu(request)
@@ -191,26 +126,6 @@ export default function Sidebar({
             <PerformanceIcon width={14} height={14} />
           </Button>
           <Button
-            aria-label={
-              snapshot.viewMode === 'inbox' ? 'Switch to projects view' : 'Switch to inbox view'
-            }
-            aria-pressed={snapshot.viewMode === 'inbox'}
-            iconOnly
-            disabled={switchingMode || busyAddRepository}
-            onClick={onToggleViewMode}
-            size="sm"
-            title={
-              snapshot.viewMode === 'inbox' ? 'Switch to projects view' : 'Switch to inbox view'
-            }
-            variant="ghost"
-          >
-            {snapshot.viewMode === 'inbox' ? (
-              <InboxIcon width={14} height={14} />
-            ) : (
-              <FolderIcon width={14} height={14} />
-            )}
-          </Button>
-          <Button
             aria-label="Open settings"
             iconOnly
             onClick={onOpenSettings}
@@ -223,15 +138,13 @@ export default function Sidebar({
         </div>
       </div>
 
-      <nav
-        className={`min-h-0 flex-1 px-2 py-3 ${snapshot.viewMode === 'inbox' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}
-      >
+      <nav className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 py-3">
         <div className="mb-1.5 flex shrink-0 items-center justify-between px-2">
           <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-            <span>Repositories</span>
+            <span>Threads</span>
             <span className="text-[var(--color-fg-faint)]">·</span>
             <span className="font-mono normal-case tracking-normal text-[var(--color-fg-faint)]">
-              {snapshot.repositories.length}
+              {totalThreads}
             </span>
           </div>
           <Button
@@ -263,187 +176,33 @@ export default function Sidebar({
           </div>
         ) : null}
 
-        {snapshot.viewMode === 'inbox' ? (
-          <InboxThreads
-            repositories={snapshot.repositories}
-            selectedRepository={selectedRepository}
-            selectedThread={selectedThread}
-            sessions={sessions}
-            onSelectRepository={onSelectRepository}
-            onSelectThread={onSelectThread}
-            onNewThread={onNewThread}
-            onEditRepository={onEditRepository}
-            onOpenRepositoryTasks={onOpenRepositoryTasks}
-            onEditThread={onEditThread}
-            onSettleThread={onSettleThread}
-            onConvertThreadToWorktree={onConvertThreadToWorktree}
-            convertingThread={convertingThread}
-            onContextMenu={(thread, x, y) =>
-              showContextMenu({
-                kind: 'thread',
-                itemId: thread.id,
-                x,
-                y,
-                ...inboxThreadMenuOptions(thread, convertingThread)
-              })
-            }
-          />
-        ) : (
-          <ul className="space-y-0.5">
-            {snapshot.repositories.map((repository) => {
-              const isCollapsed = collapsedRepositoryIds.has(repository.id)
-              const isSelectedRepo = repository.id === selectedRepository?.id
-
-              return (
-                <li key={repository.id}>
-                  <div
-                    className={`group flex items-center gap-1 rounded-md px-1.5 py-1.5 transition ${
-                      isSelectedRepo && !selectedThread
-                        ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
-                        : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
-                    }`}
-                    onContextMenu={(event) => {
-                      event.preventDefault()
-                      showContextMenu({
-                        kind: 'repository',
-                        itemId: repository.id,
-                        x: event.clientX,
-                        y: event.clientY,
-                        convertToWorktreeVisible: false,
-                        convertToWorktreeEnabled: false,
-                        closeThreadEnabled: false
-                      })
-                    }}
-                  >
-                    <button
-                      aria-label={isCollapsed ? 'Expand repository' : 'Collapse repository'}
-                      className="grid size-5 place-items-center rounded text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]"
-                      onClick={() => onToggleRepository(repository.id)}
-                      title={isCollapsed ? 'Expand' : 'Collapse'}
-                      type="button"
-                    >
-                      {isCollapsed ? (
-                        <ChevronRightIcon width={12} height={12} />
-                      ) : (
-                        <ChevronDownIcon width={12} height={12} />
-                      )}
-                    </button>
-                    <button
-                      className="flex min-w-0 flex-1 items-center gap-1.5"
-                      onClick={() => onSelectRepository(repository.id)}
-                      title={`${repository.name} — ${repository.path}`}
-                      type="button"
-                    >
-                      <ProjectIcon
-                        key={`${repository.id}:${repository.faviconUrl ?? 'folder'}`}
-                        repository={repository}
-                      />
-                      <span className="truncate text-[13px] font-medium">{repository.name}</span>
-                    </button>
-                  </div>
-
-                  {!isCollapsed ? (
-                    <ul className="mt-0.5 space-y-0.5 border-l border-[var(--color-border)] pl-3 ml-3.5">
-                      {repository.threads.length === 0 ? (
-                        <li className="px-2 py-1.5 text-[12px] text-[var(--color-fg-faint)]">
-                          No threads
-                        </li>
-                      ) : null}
-                      {repository.threads.map((thread) => {
-                        const isSelected = thread.id === selectedThread?.id
-                        const session = sessions.get(thread.id)
-                        const composedTitle = composeThreadTitle(thread, session?.runtimeTitle)
-                        const phase = session?.phase
-                        const threadModeTooltip = getThreadModeTooltip(thread)
-                        const customStatus = CUSTOM_THREAD_STATUS[session?.copilotStatus ?? 'idle']
-
-                        return (
-                          <li key={thread.id}>
-                            <button
-                              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition ${
-                                isSelected
-                                  ? 'bg-[var(--color-active)] text-[var(--color-fg)]'
-                                  : 'text-[var(--color-fg-muted)] hover:bg-[var(--color-hover)] hover:text-[var(--color-fg)]'
-                              }`}
-                              onContextMenu={(event) => {
-                                event.preventDefault()
-                                showContextMenu({
-                                  kind: 'thread',
-                                  itemId: thread.id,
-                                  x: event.clientX,
-                                  y: event.clientY,
-                                  convertToWorktreeVisible: thread.mode !== 'worktree',
-                                  convertToWorktreeEnabled: !convertingThread,
-                                  closeThreadEnabled: !closingThread
-                                })
-                              }}
-                              onClick={() => onSelectThread(thread.id)}
-                              title={`${composedTitle} · ${thread.displayBranchName}${` · ${customStatus.label}`}\n${thread.cwd}`}
-                              type="button"
-                            >
-                              <span
-                                aria-hidden
-                                className={`size-1.5 shrink-0 rounded-full ${
-                                  phase === 'running'
-                                    ? 'bg-[var(--color-positive)] tm-pulse-dot'
-                                    : phase === 'launching'
-                                      ? 'bg-[var(--color-info)] tm-pulse-dot'
-                                      : isSelected
-                                        ? 'bg-[var(--color-fg)]'
-                                        : 'bg-[var(--color-fg-faint)]'
-                                }`}
-                              />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[12.5px] font-medium">
-                                  {composedTitle}
-                                </span>
-                                <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--color-fg-subtle)]">
-                                  <span className="truncate font-mono">
-                                    {thread.displayBranchName}
-                                  </span>
-                                  {threadModeTooltip ? (
-                                    <span
-                                      aria-label={threadModeTooltip}
-                                      className="shrink-0 text-[var(--color-fg-subtle)]"
-                                      title={threadModeTooltip}
-                                    >
-                                      {thread.mode === 'worktree' ? (
-                                        <WorktreeIcon width={11} height={11} />
-                                      ) : (
-                                        <BranchIcon width={11} height={11} />
-                                      )}
-                                    </span>
-                                  ) : null}
-                                  <span className="text-[var(--color-fg-faint)]">·</span>
-                                  <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
-                                </span>
-                                {customStatus ? (
-                                  <span
-                                    className={`mt-0.5 block text-[10.5px] font-medium ${customStatus.className}`}
-                                  >
-                                    {customStatus.label}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  ) : null}
-                </li>
-              )
-            })}
-          </ul>
-        )}
+        <InboxThreads
+          repositories={snapshot.repositories}
+          selectedRepository={selectedRepository}
+          selectedThread={selectedThread}
+          sessions={sessions}
+          onSelectRepository={onSelectRepository}
+          onSelectThread={onSelectThread}
+          onNewThread={onNewThread}
+          onEditRepository={onEditRepository}
+          onOpenRepositoryTasks={onOpenRepositoryTasks}
+          onEditThread={onEditThread}
+          onSettleThread={onSettleThread}
+          onCloseThread={onCloseThread}
+          onConvertThreadToWorktree={onConvertThreadToWorktree}
+          convertingThread={convertingThread}
+          closingThread={closingThread}
+          onContextMenu={(thread, x, y) =>
+            showContextMenu({
+              kind: 'thread',
+              itemId: thread.id,
+              x,
+              y,
+              ...threadMenuOptions(thread, convertingThread, closingThread)
+            })
+          }
+        />
       </nav>
-
-      <div className="flex shrink-0 items-center gap-2 border-t border-[var(--color-border)] px-4 py-2.5 text-[11px] text-[var(--color-fg-subtle)]">
-        <ThreadIcon width={11} height={11} className="text-[var(--color-fg-faint)]" />
-        <span>
-          {totalThreads} {totalThreads === 1 ? 'thread' : 'threads'}
-        </span>
-      </div>
     </aside>
   )
 }

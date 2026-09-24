@@ -1,5 +1,3 @@
-export type ViewMode = 'projects' | 'inbox'
-
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
 export type TerminalKind = 'shell'
 export type ProjectTaskTag = string
@@ -102,8 +100,6 @@ export interface PersistedRepository {
 }
 
 export interface PersistedThread {
-  /** Older threads belong to the projects view. */
-  viewMode?: ViewMode
   settledAt?: string | null
   id: string
   repositoryId: string
@@ -121,17 +117,13 @@ export interface PersistedThread {
 }
 
 export interface PersistedAppState {
-  version: 16
+  version: 17
   settings: PersistedSettings
   repositories: PersistedRepository[]
   threads: PersistedThread[]
   ui: {
     selectedRepositoryId: string | null
     selectedThreadId: string | null
-    viewMode?: ViewMode
-    modeSelections?: Partial<
-      Record<ViewMode, { repositoryId: string | null; threadId: string | null }>
-    >
     sidebarWidth?: number
   }
 }
@@ -302,20 +294,12 @@ export type ThreadDiffFileSaveResult =
       error: string
     }
 
-export type SidebarContextMenuKind = 'repository' | 'thread'
-
 export type SidebarContextMenuAction =
-  | 'new-thread'
-  | 'edit'
-  | 'convert-to-worktree'
-  | 'close-thread'
-  | 'settle-thread'
-  | 'unsettle-thread'
+  'edit' | 'convert-to-worktree' | 'close-thread' | 'settle-thread' | 'unsettle-thread'
 
 export interface SidebarContextMenuRequest {
-  inboxThread?: boolean
   settled?: boolean
-  kind: SidebarContextMenuKind
+  kind: 'thread'
   itemId: string
   x: number
   y: number
@@ -326,12 +310,11 @@ export interface SidebarContextMenuRequest {
 
 export interface SidebarContextMenuActionEvent {
   action: SidebarContextMenuAction
-  kind: SidebarContextMenuKind
+  kind: 'thread'
   itemId: string
 }
 
 export interface AppSnapshot {
-  viewMode?: ViewMode
   repositories: RepositorySnapshot[]
   settings: AppSettingsSnapshot
   selectedRepositoryId: string | null
@@ -623,7 +606,6 @@ export interface UpdateThreadInput {
 }
 
 export interface UpdateUiInput {
-  viewMode?: ViewMode
   sidebarWidth?: number
 }
 

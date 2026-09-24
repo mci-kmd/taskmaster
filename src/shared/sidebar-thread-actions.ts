@@ -6,23 +6,19 @@ import type {
 
 type ThreadMenuOptions = Pick<
   SidebarContextMenuRequest,
-  | 'inboxThread'
-  | 'settled'
-  | 'convertToWorktreeVisible'
-  | 'convertToWorktreeEnabled'
-  | 'closeThreadEnabled'
+  'settled' | 'convertToWorktreeVisible' | 'convertToWorktreeEnabled' | 'closeThreadEnabled'
 >
 
-export function inboxThreadMenuOptions(
+export function threadMenuOptions(
   thread: ThreadSnapshot,
-  convertingThread: boolean
+  convertingThread: boolean,
+  closingThread: boolean
 ): ThreadMenuOptions {
   return {
-    inboxThread: true,
     settled: Boolean(thread.settledAt),
     convertToWorktreeVisible: thread.mode !== 'worktree',
     convertToWorktreeEnabled: !convertingThread,
-    closeThreadEnabled: false
+    closeThreadEnabled: !closingThread
   }
 }
 
@@ -40,17 +36,16 @@ export function threadMenuActions(
     })
   }
   actions.push(
-    options.inboxThread
-      ? {
-          action: options.settled ? 'unsettle-thread' : 'settle-thread',
-          label: options.settled ? 'Unsettle thread' : 'Settle thread',
-          enabled: true
-        }
-      : {
-          action: 'close-thread',
-          label: options.closeThreadEnabled ? 'Close thread' : 'Closing...',
-          enabled: options.closeThreadEnabled
-        }
+    {
+      action: options.settled ? 'unsettle-thread' : 'settle-thread',
+      label: options.settled ? 'Unsettle thread' : 'Settle thread',
+      enabled: true
+    },
+    {
+      action: 'close-thread',
+      label: options.closeThreadEnabled ? 'Close thread' : 'Closing...',
+      enabled: options.closeThreadEnabled
+    }
   )
   return actions
 }

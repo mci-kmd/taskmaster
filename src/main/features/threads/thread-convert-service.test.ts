@@ -57,7 +57,7 @@ function createThread(overrides: Partial<PersistedThread> = {}): PersistedThread
 
 function createState(thread: PersistedThread = createThread()): PersistedAppState {
   return {
-    version: 16,
+    version: 17,
     settings: {
       yoloEnabled: true,
       terminalFontFamilyInput: '',

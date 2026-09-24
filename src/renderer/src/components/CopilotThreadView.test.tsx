@@ -97,6 +97,27 @@ function chooseOption(label: string, option: string): void {
 }
 
 describe('Copilot session composer', () => {
+  it('omits the visible session status header while keeping updates accessible', async () => {
+    const sdkStatus = {
+      installedVersion: '1.0.0',
+      runtimeVersion: '1.0.0',
+      latestVersion: '2.0.0',
+      updateAvailable: true,
+      updateState: 'idle',
+      blockingThreads: []
+    }
+    mock.getSdkStatus.mockResolvedValue(sdkStatus)
+    mock.checkForSdkUpdate.mockResolvedValue(sdkStatus)
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+
+    expect(document.querySelector('.tm-session-header')).toBeNull()
+    expect(screen.getByRole('status').classList.contains('sr-only')).toBe(true)
+    expect(
+      screen.getByRole('button', { name: 'Update available' }).closest('.tm-session-bottom')
+    ).not.toBeNull()
+  })
+
   it('keeps drafts and attachments per thread, including after changing views', async () => {
     const a = thread(),
       b = thread()

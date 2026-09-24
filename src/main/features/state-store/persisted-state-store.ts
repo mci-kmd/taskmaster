@@ -11,11 +11,7 @@ export function normalizeSelection(state: PersistedAppState): void {
   const repositoryIds = new Set(repositories.map((repository) => repository.id))
   const threadsById = new Map(
     state.threads
-      .filter(
-        (thread) =>
-          repositoryIds.has(thread.repositoryId) &&
-          (thread.viewMode ?? 'projects') === (state.ui.viewMode ?? 'projects')
-      )
+      .filter((thread) => repositoryIds.has(thread.repositoryId))
       .map((thread) => [thread.id, thread] as const)
   )
 
@@ -95,12 +91,6 @@ export function createPersistedStateStore(
     saveState,
     updateSelection: (repositoryId: string | null, threadId: string | null): void => {
       const state = ensureState()
-      const thread = state.threads.find((item) => item.id === threadId)
-      if (thread && (thread.viewMode ?? 'projects') !== (state.ui.viewMode ?? 'projects')) {
-        state.ui.modeSelections ??= {}
-        state.ui.modeSelections[thread.viewMode ?? 'projects'] = { repositoryId, threadId }
-        return
-      }
       state.ui.selectedRepositoryId = repositoryId
       state.ui.selectedThreadId = threadId
     },

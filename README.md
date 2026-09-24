@@ -4,9 +4,9 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 
 ## Current features
 
-- Switch between Projects and Inbox using the button beside Settings; both modes share projects and their configuration, while keeping separate threads and session selections
-- View inbox threads across projects in activity order, with manual settle/unsettle and a collapsed Settled threads section
-- Create inbox threads using Copilot and the same branch/worktree options; settling preserves sessions, branches, and worktrees without cleanup
+- View all threads across projects in activity order, with manual settle/unsettle and a collapsed Settled threads section
+- Choose a project from the sidebar to manage tasks, edit its configuration, or create a thread
+- Create Copilot threads on a branch or worktree; settling preserves sessions, branches, and worktrees without cleanup
 - Choose a predefined project icon and color as a fallback for custom favicons
 - Browse available Copilot models through nested family submenus, preserving the active model and per-model reasoning settings
 - Change model and reasoning effort while Copilot works; the queued choice applies to the next message
@@ -25,7 +25,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Remove owned worktrees and branches when closing a worktree-backed thread
 - Configure optional setup and cleanup scripts for worktree-backed threads
 
-Existing embedded-CLI threads are discarded on upgrade; SDK conversations remain available. No CLI session migration is performed.
+Existing SDK conversations from both former views remain in the unified list. Embedded-CLI threads are discarded; no CLI session migration is performed.
 
 ## Stack
 
@@ -101,7 +101,7 @@ Renderer dev server runs on port `5175`.
 
 ## Testing and guardrails
 
-- `bun run test` runs Vitest coverage for provider specs, git/backend helpers, state-store logic, branch-status parsing, snapshot building, terminal input behavior, and IPC contracts.
+- `bun run test` runs Vitest coverage for git/backend helpers, state-store logic, branch-status parsing, snapshot building, shell terminals, and IPC contracts.
 - `src/shared/contracts/architecture-guardrails.test.ts` enforces three core rules:
   - no raw IPC channel literals outside `src/shared/contracts/ipc.ts`
   - no direct `ipcMain.handle` outside `src/main/ipc/typed-ipc.ts`

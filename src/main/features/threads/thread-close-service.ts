@@ -249,10 +249,6 @@ export function createThreadCloseService(dependencies: {
           return dependencies.failureResult('Owning repository not found.')
         }
 
-        if (thread.viewMode === 'inbox') {
-          return dependencies.failureResult('Settle inbox threads instead of closing them.')
-        }
-
         let postWorktreeRemoveError: string | null = null
         let closeWarning: string | null = null
         const repositoryPath = getRepositoryExecutionPath(repository)

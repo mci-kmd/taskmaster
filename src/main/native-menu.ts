@@ -25,19 +25,6 @@ function buildSidebarContextMenuTemplate(
   event: IpcMainInvokeEvent,
   request: SidebarContextMenuRequest
 ): MenuItemConstructorOptions[] {
-  if (request.kind === 'repository') {
-    return [
-      {
-        click: () => sendAction(event, request, 'new-thread'),
-        label: 'New thread'
-      },
-      {
-        click: () => sendAction(event, request, 'edit'),
-        label: 'Edit'
-      }
-    ]
-  }
-
   return threadMenuActions(request).map(({ action, label, enabled }) => ({
     click: () => sendAction(event, request, action),
     enabled,

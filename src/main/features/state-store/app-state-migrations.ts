@@ -7,6 +7,8 @@ import type {
 import { createNativeBackend } from '../../backends/repository-backend'
 import { DEFAULT_TASK_TAGS_INPUT } from '../settings/settings-values'
 import { normalizePersistedState, STATE_VERSION } from './app-state-values'
+import { normalizeSelection } from './persisted-state-store'
+import { migrateSharedProjects, type LegacyViewState } from './shared-project-migration'
 
 type LegacyThreadV1 = Omit<
   PersistedThread,
@@ -30,6 +32,7 @@ type LegacyAppStateV15 = Omit<PersistedAppState, 'version' | 'threads'> & {
   version: 15
   threads: LegacyThreadV14[]
 }
+type LegacyAppStateV16 = Omit<LegacyViewState, 'version'> & { version: 16 }
 type LegacyRepositoryBackend =
   | PersistedRepository['backend']
   | {
@@ -135,6 +138,7 @@ type LegacyAppStateV1 = Omit<PersistedAppState, 'version' | 'threads'> & {
 
 type MigratedInput =
   | PersistedAppState
+  | LegacyAppStateV16
   | LegacyAppStateV15
   | LegacyAppStateV14
   | LegacyAppStateV13
@@ -179,50 +183,63 @@ function migrateSettings(
   }
 }
 
-function normalizeMigratedState(state: PersistedAppState): PersistedAppState {
-  const threads = state.threads
-    .filter((thread) => (thread as LegacyThreadV14).agentInterface === 'custom')
+function normalizeMigratedState(
+  state: PersistedAppState,
+  discardLegacyCliThreads: boolean
+): PersistedAppState {
+  const legacy = migrateSharedProjects(state as LegacyViewState)
+  const threads = legacy.threads
+    .filter(
+      (thread) =>
+        !discardLegacyCliThreads || (thread as LegacyThreadV14).agentInterface === 'custom'
+    )
     .map((thread) => {
       const {
         agentInterface: _agentInterface,
         sessionName: _sessionName,
         hasLaunched: _hasLaunched,
+        viewMode: _viewMode,
         ...rest
-      } = thread as LegacyThreadV14
+      } = thread as LegacyThreadV14 & { viewMode?: 'projects' | 'inbox' }
       void _agentInterface
       void _sessionName
       void _hasLaunched
+      void _viewMode
       return rest
     })
-  const keptThreadIds = new Set(threads.map((thread) => thread.id))
-  const modeSelections = state.ui.modeSelections
-    ? Object.fromEntries(
-        Object.entries(state.ui.modeSelections).map(([mode, selection]) => [
-          mode,
-          selection && {
-            ...selection,
-            threadId:
-              selection.threadId && keptThreadIds.has(selection.threadId)
-                ? selection.threadId
-                : null
-          }
-        ])
-      )
-    : undefined
+  const repositoryIds = new Set(legacy.repositories.map((repository) => repository.id))
+  const threadsById = new Map(
+    threads
+      .filter((thread) => repositoryIds.has(thread.repositoryId))
+      .map((thread) => [thread.id, thread] as const)
+  )
+  const { viewMode: _viewMode, modeSelections: _modeSelections, ...ui } = legacy.ui
+  void _viewMode
+  void _modeSelections
+  const validThreadId = (id: string | null | undefined): string | null =>
+    id && threadsById.has(id) ? id : null
+  const selectedThreadId =
+    validThreadId(ui.selectedThreadId) ?? validThreadId(legacy.ui.modeSelections?.inbox?.threadId)
+  const selectedRepositoryId = selectedThreadId
+    ? (threadsById.get(selectedThreadId)?.repositoryId ?? null)
+    : repositoryIds.has(ui.selectedRepositoryId ?? '')
+      ? ui.selectedRepositoryId
+      : repositoryIds.has(legacy.ui.modeSelections?.inbox?.repositoryId ?? '')
+        ? (legacy.ui.modeSelections?.inbox?.repositoryId ?? null)
+        : null
 
-  return normalizePersistedState({
-    ...state,
-    settings: migrateSettings(state.settings),
+  const migrated = normalizePersistedState({
+    ...legacy,
+    settings: discardLegacyCliThreads ? migrateSettings(legacy.settings) : legacy.settings,
     threads,
     ui: {
-      ...state.ui,
-      selectedThreadId:
-        state.ui.selectedThreadId && keptThreadIds.has(state.ui.selectedThreadId)
-          ? state.ui.selectedThreadId
-          : null,
-      modeSelections
+      ...ui,
+      selectedRepositoryId,
+      selectedThreadId
     }
   })
+  normalizeSelection(migrated)
+  return migrated
 }
 
 function migrateRepositoryBackend<
@@ -262,7 +279,7 @@ export function migrateAppState(parsed: unknown): PersistedAppState {
   const migrated = migrateAppStateInternal(parsed)
   return (parsed as { version?: number }).version === STATE_VERSION
     ? migrated
-    : normalizeMigratedState(migrated)
+    : normalizeMigratedState(migrated, (parsed as { version?: number }).version !== 16)
 }
 
 function migrateAppStateInternal(parsed: unknown): PersistedAppState {
@@ -271,7 +288,7 @@ function migrateAppStateInternal(parsed: unknown): PersistedAppState {
     return normalizePersistedState(state)
   }
 
-  if (state.version === 15) {
+  if (state.version === 16 || state.version === 15) {
     return normalizePersistedState({ ...state, version: STATE_VERSION })
   }
 

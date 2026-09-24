@@ -32,21 +32,6 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
 
     updateUi: (input: UpdateUiInput): MutationResult => {
       const state = dependencies.ensureState()
-      if (
-        (input.viewMode === 'projects' || input.viewMode === 'inbox') &&
-        input.viewMode !== (state.ui.viewMode ?? 'projects')
-      ) {
-        const previousMode = state.ui.viewMode ?? 'projects'
-        state.ui.modeSelections ??= {}
-        state.ui.modeSelections[previousMode] = {
-          repositoryId: state.ui.selectedRepositoryId,
-          threadId: state.ui.selectedThreadId
-        }
-        const selection = state.ui.modeSelections[input.viewMode]
-        state.ui.viewMode = input.viewMode
-        state.ui.selectedRepositoryId = selection?.repositoryId ?? null
-        state.ui.selectedThreadId = selection?.threadId ?? null
-      }
       if (typeof input.sidebarWidth === 'number') {
         state.ui.sidebarWidth = dependencies.clampSidebarWidth(input.sidebarWidth)
       }

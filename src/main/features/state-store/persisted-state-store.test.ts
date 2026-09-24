@@ -1,5 +1,4 @@
 import { mkdtempSync, rmSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { PersistedAppState } from '../../../shared/app-types'
@@ -10,7 +9,7 @@ const tempDirs: string[] = []
 
 function createState(): PersistedAppState {
   return {
-    version: 16,
+    version: 17,
     settings: {
       yoloEnabled: true,
       terminalFontFamilyInput: '',
@@ -33,7 +32,7 @@ afterEach(() => {
 
 describe('persisted state store', () => {
   it('preserves the global model and effort choice when reopening the state file', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'taskmaster-model-defaults-'))
+    const directory = mkdtempSync(join(process.cwd(), '.test-taskmaster-model-defaults-'))
     tempDirs.push(directory)
     const options = {
       getStorePath: () => join(directory, 'state.json'),
@@ -85,7 +84,7 @@ describe('persisted state store', () => {
   })
 
   it('loads, updates, and saves persisted state', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'taskmaster-state-store-'))
+    const directory = mkdtempSync(join(process.cwd(), '.test-taskmaster-state-store-'))
     tempDirs.push(directory)
     const storePath = join(directory, 'state.json')
 

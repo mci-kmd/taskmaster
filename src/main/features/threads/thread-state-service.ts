@@ -40,13 +40,13 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
 
       const state = dependencies.ensureState()
       if (input.settled !== undefined) {
-        if (thread.viewMode !== 'inbox' || typeof input.settled !== 'boolean') {
-          return dependencies.failureResult('Only inbox threads can be settled.')
+        if (typeof input.settled !== 'boolean') {
+          return dependencies.failureResult('Invalid settlement status.')
         }
         thread.settledAt = input.settled ? (thread.settledAt ?? dependencies.nowIso()) : null
         if (input.settled && state.ui.selectedThreadId === thread.id) {
           const next = state.threads
-            .filter((item) => item.viewMode === 'inbox' && !item.settledAt)
+            .filter((item) => !item.settledAt && item.id !== thread.id)
             .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0]
           dependencies.updateSelection(next?.repositoryId ?? thread.repositoryId, next?.id ?? null)
         }

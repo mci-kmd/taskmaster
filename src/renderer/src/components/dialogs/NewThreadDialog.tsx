@@ -5,7 +5,7 @@ import Button from '../ui/Button'
 import Checkbox from '../ui/Checkbox'
 import { Field, TextInput } from '../ui/Field'
 import SegmentedControl from '../ui/SegmentedControl'
-import type { RepositorySnapshot, ThreadMode, ViewMode } from '../../../../shared/app-types'
+import type { RepositorySnapshot, ThreadMode } from '../../../../shared/app-types'
 
 type SubmitInput = {
   mode: ThreadMode
@@ -17,7 +17,6 @@ type SubmitInput = {
 type DialogMode = 'branch' | 'worktree'
 
 type NewThreadDialogProps = {
-  viewMode: ViewMode
   open: boolean
   repository: RepositorySnapshot | null
   busy: boolean
@@ -28,7 +27,6 @@ type NewThreadDialogProps = {
 
 export default function NewThreadDialog({
   open,
-  viewMode,
   repository,
   busy,
   error,
@@ -49,7 +47,7 @@ export default function NewThreadDialog({
     >
       {repository ? (
         <NewThreadForm
-          key={`${repository.id}:${viewMode}`}
+          key={repository.id}
           busy={busy}
           error={error}
           onCancel={onClose}

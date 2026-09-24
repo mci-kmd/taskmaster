@@ -4,7 +4,7 @@ import { createSnapshotService } from './snapshot-service'
 describe('snapshot service', () => {
   it('builds repository, thread, and settings snapshots from dependencies', () => {
     const state = {
-      version: 16 as const,
+      version: 17 as const,
       settings: {
         yoloEnabled: true,
         terminalFontFamilyInput: '',
@@ -86,7 +86,7 @@ describe('snapshot service', () => {
 
   it('builds async refreshed snapshots without forcing sync git refreshes', async () => {
     const state = {
-      version: 16 as const,
+      version: 17 as const,
       settings: {
         yoloEnabled: true,
         terminalFontFamilyInput: '',
@@ -164,7 +164,7 @@ describe('snapshot service', () => {
 
   it('prioritizes startup git refreshes for repositories with recent thread activity', async () => {
     const state = {
-      version: 16 as const,
+      version: 17 as const,
       settings: {
         yoloEnabled: true,
         terminalFontFamilyInput: '',

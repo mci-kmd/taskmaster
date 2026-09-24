@@ -6,7 +6,6 @@ export type {
   PickRepositoryFaviconResult,
   SidebarContextMenuAction,
   SidebarContextMenuActionEvent,
-  SidebarContextMenuKind,
   SidebarContextMenuRequest,
   UpdateUiInput
 } from '../app-types'

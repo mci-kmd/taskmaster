@@ -352,47 +352,13 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         if (event.dataTransfer.files.length) addFiles(Array.from(event.dataTransfer.files))
       }}
     >
-      <div className="tm-session-header">
-        <span
-          className={`tm-session-dot ${running ? 'tm-session-dot--running' : session?.phase === 'error' ? 'tm-session-dot--failed' : ''}`}
-        />
-        <span
-          role="status"
-          title={`Copilot SDK ${sdk?.installedVersion ?? '…'}${sdk?.runtimeVersion ? ` · Runtime ${sdk.runtimeVersion}` : ''}`}
-        >
-          {status}
-        </span>
-        {sdk?.updateAvailable ? (
-          <Button
-            className="ml-auto"
-            disabled={
-              Boolean(busy) ||
-              running ||
-              stopping ||
-              Boolean(session?.pendingInteraction) ||
-              session?.phase === 'connecting' ||
-              sdk.updateState === 'installing'
-            }
-            title={`Update Copilot to ${sdk.latestVersion ?? 'the latest version'}`}
-            size="sm"
-            variant="ghost"
-            onClick={() =>
-              void run('update', async () => {
-                const status = await api.copilot.updateSdk()
-                if (mounted.current) setSdk(status)
-                if (status.blockingThreads.length)
-                  throw new Error(
-                    `Finish or stop these sessions before updating: ${status.blockingThreads.map((item) => item.title).join(', ')}`
-                  )
-                const revision = sessionRevision.current
-                acceptResult(await api.copilot.start(thread.id), revision)
-              })
-            }
-          >
-            {sdk.updateState === 'installing' ? 'Updating…' : 'Update available'}
-          </Button>
-        ) : null}
-      </div>
+      <span
+        className="sr-only"
+        role="status"
+        title={`Copilot SDK ${sdk?.installedVersion ?? '…'}${sdk?.runtimeVersion ? ` · Runtime ${sdk.runtimeVersion}` : ''}`}
+      >
+        {status}
+      </span>
       <div className="relative min-h-0 flex-1">
         <div
           className="tm-session-scroll"
@@ -452,6 +418,37 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         ) : null}
       </div>
       <div className="tm-session-bottom">
+        {sdk?.updateAvailable ? (
+          <div className="mb-3 flex justify-end">
+            <Button
+              disabled={
+                Boolean(busy) ||
+                running ||
+                stopping ||
+                Boolean(session?.pendingInteraction) ||
+                session?.phase === 'connecting' ||
+                sdk.updateState === 'installing'
+              }
+              title={`Update Copilot to ${sdk.latestVersion ?? 'the latest version'}`}
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                void run('update', async () => {
+                  const status = await api.copilot.updateSdk()
+                  if (mounted.current) setSdk(status)
+                  if (status.blockingThreads.length)
+                    throw new Error(
+                      `Finish or stop these sessions before updating: ${status.blockingThreads.map((item) => item.title).join(', ')}`
+                    )
+                  const revision = sessionRevision.current
+                  acceptResult(await api.copilot.start(thread.id), revision)
+                })
+              }
+            >
+              {sdk.updateState === 'installing' ? 'Updating…' : 'Update available'}
+            </Button>
+          </div>
+        ) : null}
         {error || session?.error ? (
           <div className="tm-session-error" role="alert">
             <span>{error ?? session?.error}</span>

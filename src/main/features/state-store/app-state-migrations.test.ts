@@ -45,7 +45,7 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(16)
+    expect(migrated.version).toBe(17)
     expect(migrated.threads).toEqual([])
     expect(migrated.settings.yoloEnabled).toBe(true)
   })
@@ -94,6 +94,21 @@ describe('app state migrations', () => {
           createdAt: '2026-01-01T00:00:00.000Z',
           lastActivityAt: '2026-01-01T00:00:00.000Z',
           hasLaunched: false
+        },
+        {
+          id: 'sdk-thread',
+          repositoryId: 'repo-1',
+          agentInterface: 'custom',
+          viewMode: 'inbox',
+          customTitle: null,
+          latestCopilotTitle: null,
+          lastUserMessage: null,
+          mode: 'worktree',
+          branchName: 'feature',
+          worktreePath: '/home/me/.taskmaster/worktrees/feature',
+          resumeSessionId: 'sdk-session',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          lastActivityAt: '2026-01-01T00:00:00.000Z'
         }
       ],
       ui: {
@@ -102,8 +117,15 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(16)
-    expect(migrated.threads).toEqual([])
+    expect(migrated.version).toBe(17)
+    expect(migrated.threads).toMatchObject([
+      {
+        id: 'sdk-thread',
+        resumeSessionId: 'sdk-session',
+        worktreePath: '\\\\wsl.localhost\\Ubuntu\\home\\me\\.taskmaster\\worktrees\\feature'
+      }
+    ])
+    expect(migrated.threads[0]).not.toHaveProperty('viewMode')
     expect(migrated.settings).not.toHaveProperty('obsoleteProvider')
     expect(migrated.repositories[0]?.backend).toEqual({ kind: 'native' })
     expect(migrated.settings.yoloEnabled).toBe(true)
@@ -138,7 +160,7 @@ describe('app state migrations', () => {
       }
     })
 
-    expect(migrated.version).toBe(16)
+    expect(migrated.version).toBe(17)
     expect(migrated.repositories[0]?.solutionFilePath).toBeNull()
   })
 
@@ -151,7 +173,21 @@ describe('app state migrations', () => {
         taskTagsInput: 'bug',
         lastCopilotModelSelection: { model: 'gpt-5', reasoningEffort: null }
       },
-      repositories: [],
+      repositories: [
+        {
+          id: 'repo',
+          name: 'Repo',
+          path: 'C:\\repo',
+          backend: { kind: 'native' },
+          faviconPath: null,
+          runCommand: null,
+          solutionFilePath: null,
+          newWorktreeSetupCommand: null,
+          postWorktreeRemoveCommand: null,
+          addedAt: '2026-01-01T00:00:00Z',
+          tasks: []
+        }
+      ],
       threads: [
         {
           id: 'cli',
@@ -200,11 +236,9 @@ describe('app state migrations', () => {
     expect(migrated.threads[0]).toMatchObject({ id: 'sdk', resumeSessionId: 'sdk-session' })
     expect(migrated.threads[0]).not.toHaveProperty('agentInterface')
     expect(migrated.threads[0]).not.toHaveProperty('sessionName')
-    expect(migrated.ui.selectedThreadId).toBeNull()
-    expect(migrated.ui.modeSelections).toEqual({
-      projects: { repositoryId: 'repo', threadId: null },
-      inbox: { repositoryId: 'repo', threadId: 'sdk' }
-    })
+    expect(migrated.ui.selectedThreadId).toBe('sdk')
+    expect(migrated.ui.selectedRepositoryId).toBe('repo')
+    expect(migrated.ui).not.toHaveProperty('modeSelections')
     expect(migrated.settings).toEqual({
       yoloEnabled: true,
       terminalFontFamilyInput: '',

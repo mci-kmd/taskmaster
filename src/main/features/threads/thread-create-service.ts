@@ -3,8 +3,7 @@ import type {
   MutationResult,
   PersistedAppState,
   PersistedThread,
-  ThreadMode,
-  ViewMode
+  ThreadMode
 } from '../../../shared/app-types'
 import { runGit } from '../../backends/git-client'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
@@ -31,7 +30,6 @@ function createThreadRecord(
     nowIso: () => string
   },
   repositoryId: string,
-  viewMode: ViewMode,
   mode: ThreadMode,
   branchName: string,
   customTitle: string | null,
@@ -45,7 +43,6 @@ function createThreadRecord(
   return {
     id: dependencies.createId(),
     repositoryId,
-    viewMode,
     customTitle,
     latestCopilotTitle: null,
     lastUserMessage: null,
@@ -79,7 +76,6 @@ export function createThreadCreateService(dependencies: {
         return dependencies.failureResult('Repository not found.')
       }
 
-      const viewMode = state.ui.viewMode ?? 'projects'
       const customTitle = normalizeCustomTitle(input.title)
       const repositoryPath = getRepositoryExecutionPath(repository)
 
@@ -96,7 +92,6 @@ export function createThreadCreateService(dependencies: {
           const thread = createThreadRecord(
             dependencies,
             repository.id,
-            viewMode,
             'worktree',
             existingWorktree.branchName,
             customTitle,
@@ -202,7 +197,6 @@ export function createThreadCreateService(dependencies: {
         const thread = createThreadRecord(
           dependencies,
           repository.id,
-          viewMode,
           'worktree',
           branchName,
           customTitle,
@@ -225,7 +219,6 @@ export function createThreadCreateService(dependencies: {
         const thread = createThreadRecord(
           dependencies,
           repository.id,
-          viewMode,
           'active-branch',
           currentBranchLabel,
           customTitle,
@@ -274,7 +267,6 @@ export function createThreadCreateService(dependencies: {
         const thread = createThreadRecord(
           dependencies,
           repository.id,
-          viewMode,
           'active-branch',
           targetBranchName,
           customTitle,
@@ -313,7 +305,6 @@ export function createThreadCreateService(dependencies: {
       const thread = createThreadRecord(
         dependencies,
         repository.id,
-        viewMode,
         'new-branch',
         requestedBranchName,
         customTitle,

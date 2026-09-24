@@ -51,7 +51,7 @@ vi.mock('./thread-worktree-utils', () => ({
 
 function createState(): PersistedAppState {
   return {
-    version: 16,
+    version: 17,
     settings: {
       yoloEnabled: true,
       terminalFontFamilyInput: '',
@@ -134,19 +134,13 @@ describe('createThreadCreateService', () => {
     vi.mocked(createWorktree).mockReturnValue('/repo/.worktrees/feature-thread')
   })
 
-  it.each(['projects', 'inbox'] as const)(
-    'creates %s threads on the same shared project',
-    (viewMode) => {
-      const harness = createHarness()
-      harness.state.ui.viewMode = viewMode
-      expect(harness.createThread({ repositoryId: 'repo-1', mode: 'active-branch' }).ok).toBe(true)
-      expect(harness.state.repositories).toHaveLength(1)
-      expect(harness.state.threads[0]).toMatchObject({
-        repositoryId: 'repo-1',
-        viewMode
-      })
-    }
-  )
+  it('creates a thread on the shared repository without a view mode', () => {
+    const harness = createHarness()
+    expect(harness.createThread({ repositoryId: 'repo-1', mode: 'active-branch' }).ok).toBe(true)
+    expect(harness.state.repositories).toHaveLength(1)
+    expect(harness.state.threads[0]).toMatchObject({ repositoryId: 'repo-1' })
+    expect(harness.state.threads[0]).not.toHaveProperty('viewMode')
+  })
 
   it('creates a thread on the active branch when branch input is blank', () => {
     const harness = createHarness()

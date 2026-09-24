@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
-import type { AppSnapshot, RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
-import { getViewSnapshot } from '../lib/view-snapshot'
+import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import InboxThreads from './InboxThreads'
 import ProjectIcon from './ProjectIcon'
 import NewThreadDialog from './dialogs/NewThreadDialog'
@@ -11,7 +10,6 @@ function thread(id: string, activity: string, settledAt?: string): ThreadSnapsho
   return {
     id,
     repositoryId: 'Alpha',
-    viewMode: 'inbox',
     latestCopilotTitle: null,
     lastUserMessage: null,
     resumeSessionId: null,
@@ -69,6 +67,7 @@ const callbacks = (): Record<
   | 'onOpenRepositoryTasks'
   | 'onEditThread'
   | 'onSettleThread'
+  | 'onCloseThread'
   | 'onConvertThreadToWorktree'
   | 'onContextMenu',
   Mock<(...args: unknown[]) => void>
@@ -80,39 +79,38 @@ const callbacks = (): Record<
   onOpenRepositoryTasks: vi.fn(),
   onEditThread: vi.fn(),
   onSettleThread: vi.fn(),
+  onCloseThread: vi.fn(),
   onConvertThreadToWorktree: vi.fn(),
   onContextMenu: vi.fn()
 })
 afterEach(cleanup)
 
 describe('inbox', () => {
-  it('shows the same project configuration in both modes with separate session lists', () => {
+  it('includes threads from every project in one activity-ordered list', () => {
     const shared = repository('Shared', [
-      { ...thread('Project session', '2026-01-01'), viewMode: undefined },
+      thread('Project session', '2026-01-01'),
       thread('Inbox session', '2026-02-01')
     ])
-    const snapshot: AppSnapshot = {
-      repositories: [shared],
-      sidebarWidth: 268,
-      selectedRepositoryId: shared.id,
-      selectedThreadId: null,
-      settings: {
-        yoloEnabled: true,
-        terminalFontFamilyInput: '',
-        taskTagsInput: '',
-        parsedTaskTags: [],
-        resolvedTerminalFontFamily: 'monospace'
-      }
-    }
-    const projects = getViewSnapshot(snapshot, 'projects')
-    const inbox = getViewSnapshot(snapshot, 'inbox')
-    expect(projects.repositories[0].threads.map((item) => item.id)).toEqual(['Project session'])
-    expect(inbox.repositories[0].threads.map((item) => item.id)).toEqual(['Inbox session'])
-    expect(inbox.repositories[0].id).toBe(projects.repositories[0].id)
-    shared.icon = 'globe'
-    expect(getViewSnapshot(snapshot, 'projects').repositories[0].icon).toBe('globe')
-    expect(getViewSnapshot(snapshot, 'inbox').repositories[0].icon).toBe('globe')
-    expect(shared.threads).toHaveLength(2)
+    const handlers = callbacks()
+    render(
+      <InboxThreads
+        repositories={[shared]}
+        selectedRepository={shared}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...handlers}
+      />
+    )
+    expect(
+      within(screen.getByRole('list', { name: 'Active threads' }))
+        .getAllByRole('listitem')
+        .map((row) => row.textContent)
+    ).toEqual([
+      expect.stringContaining('Inbox session'),
+      expect.stringContaining('Project session')
+    ])
   })
 
   it('orders threads across projects, keeps settled threads collapsed, and supports restoring them', () => {
@@ -124,6 +122,7 @@ describe('inbox', () => {
         selectedThread={null}
         sessions={new Map()}
         convertingThread={false}
+        closingThread={false}
         {...handlers}
       />
     )
@@ -143,7 +142,7 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Convert to work tree', 'Settle thread'])
+    ).toEqual(['Edit', 'Convert to work tree', 'Settle thread', 'Close thread'])
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Edit' }))
     expect(handlers.onEditThread).toHaveBeenCalledWith('Newest')
     expect(screen.queryByRole('menu')).toBeNull()
@@ -180,6 +179,7 @@ describe('inbox', () => {
         selectedThread={null}
         sessions={new Map()}
         convertingThread={false}
+        closingThread={false}
         {...handlers}
       />
     )
@@ -195,6 +195,9 @@ describe('inbox', () => {
     menu = openMenu('Newest')
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Settle thread' }))
     expect(handlers.onSettleThread).toHaveBeenCalledWith('Newest', true)
+    menu = openMenu('Newest')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Close thread' }))
+    expect(handlers.onCloseThread).toHaveBeenCalledWith('Newest')
 
     fireEvent.click(screen.getByRole('button', { name: /Settled threads/ }))
     menu = openMenu('Finished')
@@ -202,7 +205,7 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Convert to work tree', 'Unsettle thread'])
+    ).toEqual(['Edit', 'Convert to work tree', 'Unsettle thread', 'Close thread'])
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Unsettle thread' }))
     expect(handlers.onSettleThread).toHaveBeenCalledWith('Finished', false)
 
@@ -214,6 +217,7 @@ describe('inbox', () => {
         selectedThread={null}
         sessions={new Map()}
         convertingThread={false}
+        closingThread={false}
         {...handlers}
       />
     )
@@ -222,7 +226,7 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Settle thread'])
+    ).toEqual(['Edit', 'Settle thread', 'Close thread'])
     fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Worktree' }))
     rerender(
       <InboxThreads
@@ -231,6 +235,7 @@ describe('inbox', () => {
         selectedThread={null}
         sessions={new Map()}
         convertingThread
+        closingThread={false}
         {...handlers}
       />
     )
@@ -241,10 +246,12 @@ describe('inbox', () => {
     expect(handlers.onConvertThreadToWorktree).toHaveBeenCalledTimes(1)
     fireEvent.keyDown(menu, { key: 'End' })
     expect(document.activeElement).toBe(
-      within(menu).getByRole('menuitem', { name: 'Settle thread' })
+      within(menu).getByRole('menuitem', { name: 'Close thread' })
     )
     fireEvent.keyDown(menu, { key: 'ArrowUp' })
-    expect(document.activeElement).toBe(within(menu).getByRole('menuitem', { name: 'Edit' }))
+    expect(document.activeElement).toBe(
+      within(menu).getByRole('menuitem', { name: 'Settle thread' })
+    )
   })
 
   it('prefers a custom favicon and falls back to the colored project icon on failure', () => {
@@ -259,11 +266,10 @@ describe('inbox', () => {
     expect(container.querySelector('img')?.getAttribute('src')).toBe('file:///new.png')
   })
 
-  it('creates inbox threads with the custom interface and retains branch/worktree controls', () => {
+  it('creates threads without an interface switch and retains branch/worktree controls', () => {
     const onSubmit = vi.fn(async () => true)
     render(
       <NewThreadDialog
-        viewMode="inbox"
         open
         repository={repositories[0]}
         busy={false}
