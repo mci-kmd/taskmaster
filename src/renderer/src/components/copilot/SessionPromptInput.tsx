@@ -8,6 +8,13 @@ import type {
 import { getRendererApi } from '../../shared/api/client'
 import { promptHistory, stepPromptHistory, type HistoryPosition } from './composer-history'
 import { completeSkill, searchSkills, skillTrigger } from './skill-completions'
+import {
+  applyMarkerEdit,
+  attachmentMarker,
+  markerRanges,
+  snapOutOfMarker,
+  splitAttachmentMarkers
+} from './attachment-markers'
 
 const api = getRendererApi()
 
@@ -23,6 +30,7 @@ export default function SessionPromptInput({
   onChange,
   onSend,
   onFiles,
+  attachmentNames = [],
   running
 }: {
   threadId: string
@@ -36,6 +44,7 @@ export default function SessionPromptInput({
   onChange: (prompt: string) => void
   onSend: () => void
   onFiles: (files: File[]) => void
+  attachmentNames?: string[]
   running: boolean
 }): React.JSX.Element {
   const menuId = useId()
@@ -51,6 +60,9 @@ export default function SessionPromptInput({
   const history = useRef<HistoryPosition | null>(null)
   const pendingCaret = useRef<number | null>(null)
   const popup = useRef<HTMLDivElement>(null)
+  const mirror = useRef<HTMLDivElement>(null)
+  const parts = splitAttachmentMarkers(prompt, attachmentNames)
+  const hasMarkers = parts.some((part) => 'attachment' in part)
   const trigger = skillTrigger(prompt, caret)
   const open = focused && !dismissed && Boolean(trigger) && !hasInteraction
   const result = catalog?.sessionId === sessionId ? catalog?.result : null
@@ -86,6 +98,7 @@ export default function SessionPromptInput({
       element.setSelectionRange(pendingCaret.current, pendingCaret.current)
       pendingCaret.current = null
     }
+    if (mirror.current) mirror.current.scrollTop = element.scrollTop
   }, [prompt, inputRef])
 
   useLayoutEffect(() => {
@@ -139,118 +152,181 @@ export default function SessionPromptInput({
 
   return (
     <>
-      <textarea
-        ref={inputRef}
-        autoFocus
-        role="combobox"
-        aria-label="Message Copilot"
-        aria-autocomplete="list"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open && matches.length ? `${menuId}-${activeIndex}` : undefined}
-        aria-describedby={hintId}
-        rows={2}
-        value={prompt}
-        onFocus={() => setFocused(true)}
-        onBlur={() => {
-          setFocused(false)
-          setDismissed(false)
-        }}
-        onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
-        onChange={(event) => {
-          history.current = null
-          setCaret(event.currentTarget.selectionStart)
-          setDismissed(false)
-          setHighlighted(0)
-          onChange(event.currentTarget.value)
-        }}
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return
-          if (open && !event.ctrlKey && !event.metaKey && !event.altKey) {
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              event.stopPropagation()
-              setDismissed(true)
-              return
-            }
-            if (!event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
-              event.preventDefault()
-              setHighlighted(
-                matches.length
-                  ? (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + matches.length) %
-                      matches.length
-                  : 0
+      <div className="tm-session-prompt" data-markers={hasMarkers || undefined}>
+        {hasMarkers ? (
+          <div ref={mirror} className="tm-session-prompt-mirror" aria-hidden="true">
+            {parts.map((part, index) =>
+              'text' in part ? (
+                part.text
+              ) : (
+                <span className="tm-session-prompt-marker" key={index}>
+                  <span className="tm-session-prompt-bracket">[</span>
+                  {attachmentMarker(part.attachment).slice(1, -1)}
+                  <span className="tm-session-prompt-bracket">]</span>
+                </span>
               )
-              return
-            }
-            if (
-              !event.shiftKey &&
-              (event.key === 'Enter' || event.key === 'Tab') &&
-              matches.length
-            ) {
-              event.preventDefault()
-              choose(matches[activeIndex])
-              return
-            }
-            // An open completion menu never submits a partial or unmatched command.
-            if (!event.shiftKey && event.key === 'Enter') {
-              event.preventDefault()
-              return
-            }
-          }
-          if (
-            !event.shiftKey &&
-            !event.altKey &&
-            !event.metaKey &&
-            !event.ctrlKey &&
-            !hasAttachments &&
-            !hasInteraction &&
-            (event.key === 'ArrowUp' || event.key === 'ArrowDown')
-          ) {
+            )}{' '}
+          </div>
+        ) : null}
+        <textarea
+          ref={inputRef}
+          autoFocus
+          role="combobox"
+          aria-label="Message Copilot"
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          aria-activedescendant={open && matches.length ? `${menuId}-${activeIndex}` : undefined}
+          aria-describedby={hintId}
+          rows={2}
+          value={prompt}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false)
+            setDismissed(false)
+          }}
+          onScroll={(event) => {
+            if (mirror.current) mirror.current.scrollTop = event.currentTarget.scrollTop
+          }}
+          onSelect={(event) => {
             const element = event.currentTarget
-            const older = event.key === 'ArrowUp'
-            const atEdge = older
-              ? element.selectionStart === 0
-              : element.selectionEnd === prompt.length || !prompt.includes('\n')
-            if (element.selectionStart === element.selectionEnd && atEdge) {
-              const step = stepPromptHistory(
-                promptHistory(timeline),
-                history.current,
-                prompt,
-                older ? 'older' : 'newer'
-              )
-              if (step) {
+            if (element.selectionStart === element.selectionEnd) {
+              const snapped = snapOutOfMarker(prompt, attachmentNames, element.selectionStart)
+              if (snapped !== element.selectionStart) element.setSelectionRange(snapped, snapped)
+            }
+            setCaret(element.selectionStart)
+          }}
+          onChange={(event) => {
+            history.current = null
+            setDismissed(false)
+            setHighlighted(0)
+            const element = event.currentTarget
+            const edit = applyMarkerEdit(
+              prompt,
+              element.value,
+              attachmentNames,
+              element.selectionEnd
+            )
+            if (edit) {
+              replace(edit.prompt, edit.caret)
+              return
+            }
+            setCaret(element.selectionStart)
+            onChange(element.value)
+          }}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return
+            if (
+              (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
+              !event.shiftKey &&
+              !event.altKey &&
+              !event.metaKey &&
+              !event.ctrlKey
+            ) {
+              const element = event.currentTarget
+              const position = element.selectionStart
+              const right = event.key === 'ArrowRight'
+              const marker =
+                element.selectionStart === element.selectionEnd &&
+                markerRanges(prompt, attachmentNames).find((range) =>
+                  right
+                    ? range.start <= position && position < range.end
+                    : range.start < position && position <= range.end
+                )
+              if (marker) {
                 event.preventDefault()
-                history.current = step.position
-                setDismissed(true)
-                replace(step.prompt, older ? 0 : step.prompt.length)
+                const target = right ? marker.end : marker.start
+                element.setSelectionRange(target, target)
+                setCaret(target)
                 return
               }
             }
+            if (open && !event.ctrlKey && !event.metaKey && !event.altKey) {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                setDismissed(true)
+                return
+              }
+              if (!event.shiftKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+                event.preventDefault()
+                setHighlighted(
+                  matches.length
+                    ? (activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + matches.length) %
+                        matches.length
+                    : 0
+                )
+                return
+              }
+              if (
+                !event.shiftKey &&
+                (event.key === 'Enter' || event.key === 'Tab') &&
+                matches.length
+              ) {
+                event.preventDefault()
+                choose(matches[activeIndex])
+                return
+              }
+              // An open completion menu never submits a partial or unmatched command.
+              if (!event.shiftKey && event.key === 'Enter') {
+                event.preventDefault()
+                return
+              }
+            }
+            if (
+              !event.shiftKey &&
+              !event.altKey &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              !hasAttachments &&
+              !hasInteraction &&
+              (event.key === 'ArrowUp' || event.key === 'ArrowDown')
+            ) {
+              const element = event.currentTarget
+              const older = event.key === 'ArrowUp'
+              const atEdge = older
+                ? element.selectionStart === 0
+                : element.selectionEnd === prompt.length || !prompt.includes('\n')
+              if (element.selectionStart === element.selectionEnd && atEdge) {
+                const step = stepPromptHistory(
+                  promptHistory(timeline),
+                  history.current,
+                  prompt,
+                  older ? 'older' : 'newer'
+                )
+                if (step) {
+                  event.preventDefault()
+                  history.current = step.position
+                  setDismissed(true)
+                  replace(step.prompt, older ? 0 : step.prompt.length)
+                  return
+                }
+              }
+            }
+            if (
+              event.key === 'Enter' &&
+              !event.shiftKey &&
+              !event.ctrlKey &&
+              !event.altKey &&
+              !event.metaKey
+            ) {
+              event.preventDefault()
+              onSend()
+            }
+          }}
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.files)
+            if (files.length) {
+              event.preventDefault()
+              onFiles(files)
+            }
+          }}
+          placeholder={
+            running ? 'Draft your next message…' : 'Ask Copilot anything, / or $ for skills…'
           }
-          if (
-            event.key === 'Enter' &&
-            !event.shiftKey &&
-            !event.ctrlKey &&
-            !event.altKey &&
-            !event.metaKey
-          ) {
-            event.preventDefault()
-            onSend()
-          }
-        }}
-        onPaste={(event) => {
-          const files = Array.from(event.clipboardData.files)
-          if (files.length) {
-            event.preventDefault()
-            onFiles(files)
-          }
-        }}
-        placeholder={
-          running ? 'Draft your next message…' : 'Ask Copilot anything, / or $ for skills…'
-        }
-      />
+        />
+      </div>
       <span id={hintId} className="sr-only">
         Up and Down recall sent prompts from an empty message. Type / or $ for skills, use arrows to
         browse, Tab or Enter to insert, and Escape to dismiss.

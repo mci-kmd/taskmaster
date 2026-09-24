@@ -19,6 +19,13 @@ import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimeline from './copilot/SessionTimeline'
 import SessionPromptInput from './copilot/SessionPromptInput'
 import { useSessionDraft } from './copilot/session-drafts'
+import {
+  attachmentPreview,
+  hasAttachmentMarker,
+  insertAttachmentMarkers,
+  removeAttachmentMarkers,
+  withUniqueNames
+} from './copilot/attachment-markers'
 import '../assets/copilot-session.css'
 
 const api = getRendererApi()
@@ -28,9 +35,27 @@ type Props = {
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+async function imagePreview(file: File): Promise<string | undefined> {
+  if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return undefined
+  try {
+    const bitmap = await createImageBitmap(file)
+    const scale = Math.min(1, 160 / Math.max(bitmap.width, bitmap.height))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale))
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale))
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+    return canvas.toDataURL('image/webp', 0.85)
+  } catch {
+    return undefined
+  }
+}
+
 async function fileToAttachment(file: File): Promise<CopilotAttachment> {
   const path = api.copilot.getPathForFile(file)
-  if (path) return { id: crypto.randomUUID(), type: 'file', path, displayName: file.name }
+  const previewUrl = await imagePreview(file)
+  if (path)
+    return { id: crypto.randomUUID(), type: 'file', path, displayName: file.name, previewUrl }
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.addEventListener('load', () => resolve(String(reader.result)))
@@ -42,7 +67,8 @@ async function fileToAttachment(file: File): Promise<CopilotAttachment> {
     type: 'blob',
     data: dataUrl.slice(dataUrl.indexOf(',') + 1),
     mimeType: file.type || 'application/octet-stream',
-    displayName: file.name || 'Pasted file'
+    displayName: file.name || (file.type.startsWith('image/') ? 'Pasted image' : 'Pasted file'),
+    previewUrl
   }
 }
 
@@ -180,14 +206,38 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
     return () => observer.disconnect()
   }, [jumpToLatest])
 
-  const addFiles = (files: File[]): void => {
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (pendingCaret.current === null) return
+    promptRef.current?.setSelectionRange(pendingCaret.current, pendingCaret.current)
+    pendingCaret.current = null
+  }, [prompt])
+  // Insert a marker at the caret so the message shows where each file belongs.
+  const attach = (added: CopilotAttachment[], replaceSelection = false): void => {
+    if (!added.length) return
+    const element = promptRef.current
+    updateDraft((current) => {
+      const named = withUniqueNames(added, current.attachments)
+      const end = element?.selectionEnd ?? current.prompt.length
+      const start = replaceSelection ? (element?.selectionStart ?? end) : end
+      const next = insertAttachmentMarkers(
+        current.prompt,
+        named.map((item) => item.displayName),
+        start,
+        end
+      )
+      pendingCaret.current = next.caret
+      return { ...current, prompt: next.prompt, attachments: [...current.attachments, ...named] }
+    })
+    if (mounted.current) promptRef.current?.focus()
+  }
+  const addFiles = (files: File[], replaceSelection = false): void => {
     if (busyRef.current) {
       setError('Wait for the current action to finish, then attach your files again.')
       return
     }
     void run('attachments', async () => {
-      const next = await Promise.all(files.map(fileToAttachment))
-      updateDraft((current) => ({ ...current, attachments: [...current.attachments, ...next] }))
+      attach(await Promise.all(files.map(fileToAttachment)), replaceSelection)
     })
   }
   const running = session?.phase === 'running'
@@ -447,23 +497,35 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
           ) : null}
           {attachments.length ? (
             <div className="tm-session-attachments">
-              {attachments.map((attachment) => (
-                <button
-                  type="button"
-                  className="tm-session-attachment"
-                  key={attachment.id}
-                  aria-label={`Remove ${attachment.displayName}`}
-                  onClick={() =>
-                    updateDraft((current) => ({
-                      ...current,
-                      attachments: current.attachments.filter((item) => item.id !== attachment.id)
-                    }))
-                  }
-                >
-                  {attachment.displayName}
-                  <span aria-hidden="true"> ×</span>
-                </button>
-              ))}
+              {attachments.map((attachment) => {
+                const preview = attachmentPreview(attachment)
+                return (
+                  <button
+                    type="button"
+                    className="tm-session-attachment tm-session-attachment--removable"
+                    key={attachment.id}
+                    aria-label={`Remove ${attachment.displayName}`}
+                    title={`Remove ${attachment.displayName}`}
+                    onClick={() =>
+                      updateDraft((current) => ({
+                        ...current,
+                        prompt: removeAttachmentMarkers(current.prompt, attachment.displayName),
+                        attachments: current.attachments.filter((item) => item.id !== attachment.id)
+                      }))
+                    }
+                  >
+                    {preview ? (
+                      <img className="tm-session-attachment-thumb" src={preview} alt="" />
+                    ) : (
+                      <PaperclipIcon className="tm-session-attachment-icon" aria-hidden="true" />
+                    )}
+                    <span className="tm-session-attachment-name">{attachment.displayName}</span>
+                    <span className="tm-session-attachment-remove" aria-hidden="true">
+                      ×
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           ) : null}
           <SessionPromptInput
@@ -476,9 +538,19 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             hasAttachments={attachments.length > 0}
             hasInteraction={Boolean(session?.pendingInteraction)}
             running={running}
-            onChange={(value) => updateDraft((current) => ({ ...current, prompt: value }))}
+            onChange={(value) =>
+              updateDraft((current) => ({
+                ...current,
+                prompt: value,
+                // A file stays attached only while its marker is in the message.
+                attachments: current.attachments.filter((item) =>
+                  hasAttachmentMarker(value, item.displayName)
+                )
+              }))
+            }
             onSend={send}
-            onFiles={addFiles}
+            onFiles={(files) => addFiles(files, true)}
+            attachmentNames={attachments.map((item) => item.displayName)}
           />
           <div className="tm-session-controls">
             <Button
@@ -493,11 +565,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
                   const result = await api.copilot.pickAttachments()
                   if (!result.ok && !result.cancelled)
                     throw new Error(result.error ?? 'Could not attach files.')
-                  if (result.attachments)
-                    updateDraft((current) => ({
-                      ...current,
-                      attachments: [...current.attachments, ...result.attachments!]
-                    }))
+                  if (result.attachments) attach(result.attachments)
                 })
               }
             >

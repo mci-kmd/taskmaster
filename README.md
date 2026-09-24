@@ -13,6 +13,7 @@ A personal Electron app for running an embedded LLM CLI inside the app and organ
 - Open Model performance beside Settings to compare end-to-end output tokens/second and time to first token for used Custom UI models over 1h, 1d, 1w, or 30 days; hover or focus chart intervals (arrow keys move between them) for each model's measurements. Completed intervals stay fixed while the current interval updates; the labeled vertical scale adjusts for new maxima. Samples are collected from new calls and kept locally for 30 days
 - Reopen unused Custom UI threads after a restart even when Copilot has not yet written their session event log
 - Recall sent Custom UI prompts with Up/Down from an empty composer; history stays within the thread and restores from its session
+- Paste, drop, or pick files in the Custom UI composer: each appears as a `📎 name` chip at the cursor so you and Copilot see where it belongs, and images show thumbnails. Chips behave like single characters: arrow keys skip them, typing never splits them, and deleting a chip (or its card) removes the file
 - Browse Custom UI skills with `/` at the start of a message or `$` within it; filter by name or description, select with arrows and Enter/Tab, and dismiss with Escape
 - Discover project and personal Copilot skills from the session configuration and expand selected skills through the SDK when sending, retaining the original prompt in history
 - Add git repositories from a folder picker

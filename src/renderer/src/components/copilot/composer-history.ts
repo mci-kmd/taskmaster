@@ -1,12 +1,16 @@
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
+import { stripAttachmentMarkers } from './attachment-markers'
 
 export type HistoryPosition = { id: string; prompt: string }
 
 export function promptHistory(timeline: CopilotTimelineItem[]): HistoryPosition[] {
   const entries: HistoryPosition[] = []
   for (const item of timeline) {
-    if (item.type !== 'user' || !item.content.trim()) continue
-    const entry = { id: item.id, prompt: item.content }
+    if (item.type !== 'user') continue
+    // Recalled prompts don't bring their files back, so drop the file markers too.
+    const prompt = stripAttachmentMarkers(item.content, item.attachments)
+    if (!prompt.trim()) continue
+    const entry = { id: item.id, prompt }
     if (entries.at(-1)?.prompt === entry.prompt) entries[entries.length - 1] = entry
     else entries.push(entry)
   }

@@ -253,15 +253,49 @@
 .tm-session-composer:focus-within {
   border-color: #527ca6;
 }
+.tm-session-prompt {
+  position: relative;
+}
+.tm-session-composer textarea,
+.tm-session-prompt-mirror {
+  padding: 16px 16px 8px;
+  font-size: 13px;
+  line-height: 22px;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  scrollbar-gutter: stable;
+}
 .tm-session-composer textarea {
+  position: relative;
   display: block;
   width: 100%;
   min-height: 76px;
   max-height: 192px;
   resize: none;
-  padding: 16px 16px 8px;
-  font-size: 13px;
-  line-height: 22px;
+}
+/* Markers are drawn by the mirror behind the transparent text so they read as chips. */
+.tm-session-prompt-mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--color-fg);
+}
+.tm-session-prompt[data-markers] textarea {
+  color: transparent;
+  caret-color: var(--color-fg);
+}
+.tm-session-prompt-marker {
+  color: var(--color-info);
+  background: #9ec5ff1f;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px #9ec5ff1f;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* Brackets stay in the text for Copilot but render as the chip's padding. */
+.tm-session-prompt-bracket {
+  color: transparent;
 }
 .tm-session-composer textarea::placeholder {
   color: var(--color-fg-subtle);
@@ -291,8 +325,11 @@
   padding: 12px 14px 0;
 }
 .tm-session-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   max-width: 100%;
-  overflow-wrap: anywhere;
+  min-width: 0;
   font-size: 11px;
   line-height: 1.5;
   color: var(--color-info);
@@ -300,6 +337,56 @@
   border: 1px solid #9ec5ff30;
   border-radius: 6px;
   padding: 4px 8px;
+}
+.tm-session-attachment:has(.tm-session-attachment-thumb) {
+  padding: 3px 8px 3px 3px;
+}
+.tm-session-attachment-thumb {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--color-surface-2);
+}
+.tm-session-attachment-icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  opacity: 0.8;
+}
+.tm-session-attachment-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.tm-session-attachment-remove {
+  flex: none;
+  color: var(--color-fg-subtle);
+}
+.tm-session-attachment--removable:hover {
+  border-color: #9ec5ff60;
+}
+.tm-session-attachment--removable:hover .tm-session-attachment-remove {
+  color: var(--color-fg);
+}
+.tm-session-inline-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  vertical-align: bottom;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 0.92em;
+  color: var(--color-info);
+  background: #9ec5ff14;
+  overflow-wrap: anywhere;
+}
+.tm-session-inline-attachment svg {
+  flex: none;
+  width: 11px;
+  height: 11px;
 }
 .tm-session-jump {
   position: absolute;

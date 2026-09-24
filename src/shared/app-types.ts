@@ -430,6 +430,8 @@ export interface CopilotAttachment {
   path?: string
   data?: string
   mimeType?: string
+  /** Small image data URL shown in the composer; never sent to Copilot. */
+  previewUrl?: string
 }
 
 export type CopilotTimelineItem =

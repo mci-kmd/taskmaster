@@ -116,11 +116,126 @@ describe('Copilot session composer', () => {
     await ready()
     fireEvent.change(input(), { target: { value: 'Draft for B' } })
     view.rerender(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
-    expect(input().value).toBe('Draft for A')
+    expect(input().value).toBe('Draft for A [📎 notes.md] ')
     expect(screen.getByRole('button', { name: 'Remove notes.md' })).toBeTruthy()
     view.unmount()
     render(<CopilotThreadView thread={b} onSessionChange={vi.fn()} />)
     expect(input().value).toBe('Draft for B')
+  })
+
+  it('marks pasted and picked files where they were added and shows image thumbnails', async () => {
+    const a = thread()
+    mock.pickAttachments.mockResolvedValue({
+      ok: true,
+      attachments: [
+        {
+          id: 'picked',
+          type: 'file',
+          path: '/shot.png',
+          displayName: 'image.png',
+          previewUrl: 'data:image/png;base64,cGlja2Vk'
+        }
+      ]
+    })
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: 'Compare this with that' } })
+    input().setSelectionRange(12, 12)
+    const image = new File(['png'], 'image.png', { type: 'image/png' })
+    fireEvent.paste(input(), { clipboardData: { files: [image] } })
+    const pasted = await screen.findByRole('button', { name: 'Remove image.png' })
+    expect(input().value).toBe('Compare this [📎 image.png] with that')
+    expect(input().selectionStart).toBe('Compare this [📎 image.png]'.length)
+    expect(pasted.querySelector('img')?.getAttribute('src')).toBe(
+      `data:image/png;base64,${btoa('png')}`
+    )
+
+    input().setSelectionRange(input().value.length, input().value.length)
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files' }))
+    const picked = await screen.findByRole('button', { name: 'Remove image (2).png' })
+    expect(picked.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,cGlja2Vk')
+    expect(input().value).toBe('Compare this [📎 image.png] with that [📎 image (2).png] ')
+
+    fireEvent.click(pasted)
+    expect(input().value).toBe('Compare this with that [📎 image (2).png] ')
+    const chip = document.querySelector('.tm-session-prompt-marker')
+    expect(chip?.textContent).toBe('[📎 image (2).png]')
+    expect(chip?.closest('[aria-hidden="true"]')).toBeTruthy()
+
+    const value = input().value
+    const inside = value.indexOf('[') + 5
+    fireEvent.change(input(), {
+      target: {
+        value: value.slice(0, inside) + 'x' + value.slice(inside),
+        selectionStart: inside + 1,
+        selectionEnd: inside + 1
+      }
+    })
+    expect(input().value).toBe('Compare this with that [📎 image (2).png]x ')
+    const typed = input().value
+    const end = typed.indexOf(']') + 1
+    fireEvent.change(input(), {
+      target: {
+        value: typed.slice(0, end - 1) + typed.slice(end),
+        selectionStart: end - 1,
+        selectionEnd: end - 1
+      }
+    })
+    expect(input().value).toBe('Compare this with that x ')
+    expect(screen.queryByRole('button', { name: 'Remove image (2).png' })).toBeNull()
+    expect(document.querySelector('.tm-session-prompt-marker')).toBeNull()
+  })
+
+  it('sends files with their markers', async () => {
+    const a = thread()
+    mock.pickAttachments.mockResolvedValue({
+      ok: true,
+      attachments: [{ id: 'picked', type: 'file', path: '/a.png', displayName: 'image.png' }]
+    })
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: 'Compare' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files' }))
+    await screen.findByRole('button', { name: 'Remove image.png' })
+    input().setSelectionRange(8, 8)
+    fireEvent.keyDown(input(), { key: 'ArrowRight' })
+    expect(input().selectionStart).toBe('Compare [📎 image.png]'.length)
+    fireEvent.keyDown(input(), { key: 'ArrowLeft' })
+    expect(input().selectionStart).toBe(8)
+    fireEvent.click(send())
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: 'Compare [📎 image.png]',
+          attachments: [expect.objectContaining({ id: 'picked', displayName: 'image.png' })]
+        })
+      )
+    )
+  })
+
+  it('shows file markers inline in sent messages', async () => {
+    const a = thread()
+    mock.getSession.mockResolvedValue(
+      snapshot(a.id, {
+        timeline: [
+          {
+            id: 'user',
+            type: 'user',
+            content: 'Look at [📎 a [1].png] then fix it',
+            attachments: ['a [1].png', 'notes.md'],
+            timestamp: ''
+          }
+        ]
+      })
+    )
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    const message = await screen.findByRole('article', { name: 'Your message' })
+    const inline = message.querySelector('.tm-session-inline-attachment')
+    expect(inline?.textContent).toBe('a [1].png')
+    expect(message.textContent).toContain('Look at a [1].png then fix it')
+    expect(
+      [...message.querySelectorAll('.tm-session-attachment')].map((chip) => chip.textContent)
+    ).toEqual(['notes.md'])
   })
 
   it('retains the draft and recovers controls after a rejected send', async () => {
@@ -815,8 +930,9 @@ describe('prompt recall and skill completions', () => {
     fireEvent.change(input(), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Attach files' }))
     await screen.findByRole('button', { name: 'Remove notes' })
+    expect(input().value).toBe('[📎 notes] ')
     fireEvent.keyDown(input(), { key: 'ArrowUp' })
-    expect(input().value).toBe('')
+    expect(input().value).toBe('[📎 notes] ')
   })
 
   it('uses restored session history and keeps recall isolated when switching threads', async () => {

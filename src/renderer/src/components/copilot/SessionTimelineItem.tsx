@@ -1,6 +1,8 @@
 import { memo } from 'react'
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
 import SessionMarkdown, { CopyButton } from './SessionMarkdown'
+import { PaperclipIcon } from '../Icons'
+import { splitAttachmentMarkers } from './attachment-markers'
 
 export default memo(function SessionTimelineItem({
   item
@@ -47,21 +49,41 @@ export default memo(function SessionTimelineItem({
     )
   }
   const user = item.type === 'user'
+  const names = user ? (item.attachments ?? []) : []
+  const parts = user ? splitAttachmentMarkers(item.content, names) : []
+  const inline = new Set(parts.flatMap((part) => ('attachment' in part ? [part.attachment] : [])))
+  const unplaced = names.filter((name) => !inline.has(name))
   return (
     <article
       className={user ? 'tm-session-message tm-session-message--user' : 'tm-session-message'}
       aria-label={user ? 'Your message' : 'Copilot message'}
     >
       {user ? (
-        <div className="whitespace-pre-wrap break-words">{item.content}</div>
+        <div className="whitespace-pre-wrap break-words">
+          {parts.map((part, index) =>
+            'text' in part ? (
+              part.text
+            ) : (
+              <span
+                className="tm-session-inline-attachment"
+                key={index}
+                title={`Attached: ${part.attachment}`}
+              >
+                <PaperclipIcon aria-hidden="true" />
+                {part.attachment}
+              </span>
+            )
+          )}
+        </div>
       ) : (
         <SessionMarkdown>{item.content}</SessionMarkdown>
       )}
-      {user && item.attachments?.length ? (
+      {unplaced.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
-          {item.attachments.map((name, index) => (
+          {unplaced.map((name, index) => (
             <span className="tm-session-attachment" key={`${name}:${index}`}>
-              {name}
+              <PaperclipIcon className="tm-session-attachment-icon" aria-hidden="true" />
+              <span className="tm-session-attachment-name">{name}</span>
             </span>
           ))}
         </div>

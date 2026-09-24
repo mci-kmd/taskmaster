@@ -2,7 +2,7 @@ import { expandSkillPrompt, listSessionSkills } from './copilot-skills'
 import { resumeOrCreateSession } from './session-resume'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, nativeImage } from 'electron'
 import type {
   CopilotAttachment,
   CopilotInteraction,
@@ -120,6 +120,25 @@ function mapModel(model: ModelInfo): CopilotModelOption {
     supportsVision: model.capabilities.supports.vision,
     supportedReasoningEfforts: model.supportedReasoningEfforts ?? [],
     defaultReasoningEffort: model.defaultReasoningEffort ?? null
+  }
+}
+
+const previewableImage = /\.(png|jpe?g|gif|webp|bmp)$/i
+
+async function imagePreview(path: string): Promise<string | undefined> {
+  if (!previewableImage.test(path)) return undefined
+  try {
+    const thumbnail = await nativeImage.createThumbnailFromPath(path, { width: 160, height: 160 })
+    if (!thumbnail.isEmpty()) return thumbnail.toDataURL()
+  } catch {
+    // Thumbnails are unavailable on some platforms; fall back to decoding the image.
+  }
+  try {
+    const image = nativeImage.createFromPath(path)
+    if (image.isEmpty()) return undefined
+    return image.resize({ width: Math.min(160, image.getSize().width) }).toDataURL()
+  } catch {
+    return undefined
   }
 }
 
@@ -1154,12 +1173,15 @@ export function createCopilotSessionService(dependencies: {
         if (result.canceled) return { ok: false, cancelled: true }
         return {
           ok: true,
-          attachments: result.filePaths.map((path) => ({
-            id: randomUUID(),
-            type: 'file' as const,
-            path,
-            displayName: basename(path)
-          }))
+          attachments: await Promise.all(
+            result.filePaths.map(async (path) => ({
+              id: randomUUID(),
+              type: 'file' as const,
+              path,
+              displayName: basename(path),
+              previewUrl: await imagePreview(path)
+            }))
+          )
         }
       } catch (error) {
         return { ok: false, error: errorMessage(error) }
