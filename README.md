@@ -10,6 +10,7 @@ A personal Electron app for running an embedded LLM CLI inside the app and organ
 - Choose a predefined project icon and color as a fallback for custom favicons
 - Browse available Custom UI models through nested family submenus, preserving the active model and per-model reasoning settings
 - Change Custom UI model and reasoning effort while Copilot works; the queued choice applies to the next message
+- Quitting while Custom UI agents are still working asks for confirmation and lists the busy threads
 - Open Model performance beside Settings to compare end-to-end output tokens/second and time to first token for used Custom UI models over 1h, 1d, 1w, or 30 days; hover or focus chart intervals (arrow keys move between them) for each model's measurements. Completed intervals stay fixed while the current interval updates; the labeled vertical scale adjusts for new maxima. Samples are collected from new calls and kept locally for 30 days
 - Reopen unused Custom UI threads after a restart even when Copilot has not yet written their session event log
 - Recall sent Custom UI prompts with Up/Down from an empty composer; history stays within the thread and restores from its session

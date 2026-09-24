@@ -344,6 +344,7 @@ export function createCopilotSessionService(dependencies: {
   }>
   stopThread: (threadId: string) => Promise<void>
   hasSession: (threadId: string) => boolean
+  runningThreadNames: () => string[]
   shutdown: () => Promise<void>
 } {
   const sdkManager = new CopilotSdkManager()
@@ -1189,6 +1190,19 @@ export function createCopilotSessionService(dependencies: {
     },
     stopThread,
     hasSession: (threadId) => sessions.has(threadId) || startingThreads.has(threadId),
+    runningThreadNames: () =>
+      [...sessions.values()]
+        .filter((active) => active.snapshot.phase === 'running')
+        .map((active) => {
+          const thread = dependencies.resolveThread(active.snapshot.threadId)?.thread
+          return (
+            thread?.customTitle ??
+            active.snapshot.title ??
+            thread?.latestCopilotTitle ??
+            thread?.branchName ??
+            'Untitled thread'
+          )
+        }),
     shutdown: async () => {
       for (const operation of startingThreads.values()) {
         operation.cancelled = true

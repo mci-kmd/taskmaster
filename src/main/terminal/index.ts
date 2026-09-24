@@ -447,7 +447,8 @@ export function registerTerminalIpc(hooks: TerminalHooks = {}): void {
     }
   )
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    if (event.defaultPrevented) return
     for (const session of sessions.values()) {
       disposeSession(session, false)
     }

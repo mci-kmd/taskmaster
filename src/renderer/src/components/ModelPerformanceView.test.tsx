@@ -56,6 +56,7 @@ it('shows only active models and calculates weighted end-to-end TPS and recorded
     sample('3', 'Alpha', 4, 0, 0, 400),
     sample('4', 'Older', 1500, 500, 1000, 100)
   ])
+  expect(screen.getByRole('button', { name: '1h' }).getAttribute('aria-pressed')).toBe('true')
   const model = screen.getByRole('region', { name: 'Alpha performance' })
   expect(within(model).getByText('50')).toBeTruthy()
   expect(within(model).getByText('300')).toBeTruthy()
@@ -74,6 +75,7 @@ it('names each used model and shows bucket metrics and time on hover and keyboar
     sample('alpha-2', 'Alpha', 1, 80, 2000, 120),
     sample('beta', 'Beta', 10, 30, 1000, null)
   ])
+  fireEvent.click(screen.getByRole('button', { name: '1d' }))
   const models = screen.getByRole('group', { name: 'Models in this period' })
   expect(within(models).getByText('Alpha')).toBeTruthy()
   expect(within(models).getByText('Beta')).toBeTruthy()
@@ -116,6 +118,7 @@ it('keeps one tab stop per chart and moves between intervals with arrow keys', (
     sample('mid', 'Alpha', 10 * 60, 20, 1000, 100),
     sample('late', 'Alpha', 1, 30, 1000, 100)
   ])
+  fireEvent.click(screen.getByRole('button', { name: '1d' }))
   const graph = screen
     .getByRole('region', { name: 'Alpha performance' })
     .querySelector('.tm-performance__metric--tps') as HTMLElement

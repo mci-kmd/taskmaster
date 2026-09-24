@@ -540,6 +540,27 @@ describe('Copilot session interactions', () => {
     expect(harness.setModel).not.toHaveBeenCalled()
   })
 
+  it('names threads with a running response for the quit prompt', async () => {
+    const service = setup([], {
+      resolveThread: (id) => ({
+        thread: { id, agentInterface: 'custom', customTitle: 'Fix login' } as PersistedThread,
+        cwd: '/project',
+        globalFlags: []
+      })
+    })
+    await service.start('thread')
+    expect(service.runningThreadNames()).toEqual([])
+    await service.send({
+      threadId: 'thread',
+      prompt: 'Hello',
+      attachments: [],
+      agentMode: 'interactive'
+    })
+    expect(service.runningThreadNames()).toEqual(['Fix login'])
+    emit('session.idle', {})
+    expect(service.runningThreadNames()).toEqual([])
+  })
+
   it('reconnects a failed session rather than returning the same error snapshot', async () => {
     const service = setup()
     await service.start('thread')

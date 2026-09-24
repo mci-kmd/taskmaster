@@ -260,7 +260,7 @@ export default function ModelPerformanceView({
   onRetry,
   onClose
 }: Props): React.JSX.Element {
-  const [period, setPeriod] = useState<Period>('1d')
+  const [period, setPeriod] = useState<Period>('1h')
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)

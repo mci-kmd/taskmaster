@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, dialog, shell, BrowserWindow, type MessageBoxOptions } from 'electron'
 import { join } from 'path'
+import { createQuitGuard } from './quit-guard'
 import { createModelPerformanceStore } from './copilot/model-performance-store'
 import { IPC_CHANNELS } from '../shared/contracts/ipc'
 import { sendIpc } from './ipc/typed-ipc'
@@ -31,6 +32,8 @@ if (devUserDataPath) {
   app.setPath('userData', devUserDataPath)
 }
 
+let quitGuard: ReturnType<typeof createQuitGuard> | null = null
+
 function createWindow(): void {
   const windowIcon = process.platform === 'win32' ? iconIco : iconPng
 
@@ -54,6 +57,8 @@ function createWindow(): void {
     mainWindow.show()
   })
 
+  mainWindow.on('close', (event) => quitGuard?.windowClose(event))
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -68,6 +73,35 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.taskmaster.app')
+  let copilotSessionService: ReturnType<typeof createCopilotSessionService> | null = null
+  const guard = createQuitGuard({
+    getRunningThreads: () => copilotSessionService?.runningThreadNames() ?? [],
+    confirmQuit: async (threads) => {
+      const options: MessageBoxOptions = {
+        type: 'warning',
+        title: 'Quit Taskmaster?',
+        message:
+          threads.length === 1
+            ? 'Copilot is still working in 1 thread.'
+            : `Copilot is still working in ${threads.length} threads.`,
+        detail: `${threads.map((name) => `• ${name}`).join('\n')}\n\nQuitting stops this work.`,
+        buttons: ['Quit', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+      }
+      const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const result = owner
+        ? await dialog.showMessageBox(owner, options)
+        : await dialog.showMessageBox(options)
+      return result.response === 0
+    },
+    quit: () => app.quit(),
+    platform: process.platform
+  })
+  quitGuard = guard
+  // Runs before every other quit listener so a cancelled quit skips their cleanup.
+  app.prependListener('before-quit', guard.beforeQuit)
   initializeAppState()
   registerAppStateIpc()
   registerNativeMenuIpc()
@@ -77,7 +111,7 @@ app.whenReady().then(() => {
   const performanceStore = createModelPerformanceStore(
     join(app.getPath('userData'), 'model-performance.json')
   )
-  const copilotSessionService = createCopilotSessionService({
+  const copilotService = createCopilotSessionService({
     getPerformanceSamples: performanceStore.getSamples,
     recordPerformanceSample: (sample) => {
       try {
@@ -96,16 +130,17 @@ app.whenReady().then(() => {
     onUserMessage: updateCopilotLastUserMessage,
     onActivity: updateCopilotActivity
   })
+  copilotSessionService = copilotService
   setCopilotThreadController({
-    stop: copilotSessionService.stopThread,
-    has: copilotSessionService.hasSession
+    stop: copilotService.stopThread,
+    has: copilotService.hasSession
   })
-  registerCopilotIpc(copilotSessionService)
+  registerCopilotIpc(copilotService)
   let copilotShutdownComplete = false
   app.on('before-quit', (event) => {
-    if (copilotShutdownComplete) return
+    if (copilotShutdownComplete || event.defaultPrevented) return
     event.preventDefault()
-    void copilotSessionService.shutdown().finally(() => {
+    void copilotService.shutdown().finally(() => {
       copilotShutdownComplete = true
       app.quit()
     })

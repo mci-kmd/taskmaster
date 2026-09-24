@@ -75,7 +75,9 @@ type AppStateIpcHandlers = {
 }
 
 export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void {
-  app.on('before-quit', handlers.beforeQuit)
+  app.on('before-quit', (event) => {
+    if (!event.defaultPrevented) handlers.beforeQuit()
+  })
 
   handleIpc(IPC_CHANNELS.appState.getSnapshot, () => handlers.getSnapshot())
   handleIpc(IPC_CHANNELS.appState.refresh, () => handlers.refresh())
