@@ -581,6 +581,19 @@ export interface CopilotSessionEvent {
   snapshot: CopilotSessionSnapshot
 }
 
+export interface ModelPerformanceSample {
+  id: string
+  model: string
+  timestamp: string
+  outputTokens: number
+  durationMs: number
+  timeToFirstTokenMs: number | null
+}
+
+export interface ModelPerformanceSampleEvent {
+  sample: ModelPerformanceSample
+}
+
 export interface CopilotSdkStatusEvent {
   status: CopilotSdkStatus
 }
@@ -591,6 +604,8 @@ export interface CopilotApi {
   updateSdk: () => Promise<CopilotSdkStatus>
   start: (threadId: string) => Promise<CopilotStartResult>
   getSession: (threadId: string) => Promise<CopilotSessionSnapshot | null>
+  getPerformanceSamples: () => Promise<ModelPerformanceSample[]>
+  onPerformanceSample: (callback: (payload: ModelPerformanceSampleEvent) => void) => () => void
   listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>

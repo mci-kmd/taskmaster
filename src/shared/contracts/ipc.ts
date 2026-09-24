@@ -3,6 +3,8 @@ import type {
   BranchStatusRequest,
   BranchStatusSnapshot,
   CopilotInteractionResponse,
+  ModelPerformanceSample,
+  ModelPerformanceSampleEvent,
   CopilotPickAttachmentsResult,
   CopilotSdkStatus,
   CopilotSdkStatusEvent,
@@ -109,6 +111,8 @@ export const IPC_CHANNELS = {
     updateSdk: 'copilot:update-sdk',
     start: 'copilot:start',
     getSession: 'copilot:get-session',
+    getPerformanceSamples: 'copilot:get-performance-samples',
+    performanceSample: 'copilot:performance-sample',
     listSkills: 'copilot:list-skills',
     send: 'copilot:send',
     abort: 'copilot:abort',
@@ -220,6 +224,7 @@ export type IpcInvokeDefinitions = {
   'copilot:update-sdk': { request: []; response: CopilotSdkStatus }
   'copilot:start': { request: [string]; response: CopilotStartResult }
   'copilot:get-session': { request: [string]; response: CopilotSessionSnapshot | null }
+  'copilot:get-performance-samples': { request: []; response: ModelPerformanceSample[] }
   'copilot:list-skills': { request: [string]; response: CopilotSkillsResult }
   'copilot:send': { request: [CopilotSendInput]; response: CopilotStartResult }
   'copilot:abort': { request: [string]; response: boolean }
@@ -241,6 +246,7 @@ export type IpcEventDefinitions = {
   'terminal:session-start': { payload: TerminalSessionStartEvent }
   'terminal:user-prompt': { payload: TerminalUserPromptEvent }
   'copilot:session': { payload: CopilotSessionEvent }
+  'copilot:performance-sample': { payload: ModelPerformanceSampleEvent }
   'copilot:sdk-status': { payload: CopilotSdkStatusEvent }
 }
 

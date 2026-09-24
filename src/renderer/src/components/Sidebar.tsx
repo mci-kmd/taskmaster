@@ -15,6 +15,7 @@ import {
   FolderIcon,
   InboxIcon,
   LogoMark,
+  PerformanceIcon,
   PlusIcon,
   ThreadIcon,
   WorktreeIcon
@@ -58,6 +59,8 @@ type SidebarProps = {
   onEditThread: (id: string) => void
   onNewThread: (repositoryId: string) => void
   onOpenSettings: () => void
+  onOpenPerformance: () => void
+  performanceOpen: boolean
   onToggleViewMode: () => void
   onSettleThread: (id: string, settled: boolean) => void
   switchingMode: boolean
@@ -83,6 +86,8 @@ export default function Sidebar({
   onEditThread,
   onNewThread,
   onOpenSettings,
+  onOpenPerformance,
+  performanceOpen,
   onToggleViewMode,
   onSettleThread,
   switchingMode,
@@ -173,6 +178,18 @@ export default function Sidebar({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            aria-label="Model performance"
+            aria-pressed={performanceOpen}
+            className={performanceOpen ? '!bg-[var(--color-active)] !text-[var(--color-fg)]' : ''}
+            iconOnly
+            onClick={onOpenPerformance}
+            size="sm"
+            title="Model performance"
+            variant="ghost"
+          >
+            <PerformanceIcon width={14} height={14} />
+          </Button>
           <Button
             aria-label={
               snapshot.viewMode === 'inbox' ? 'Switch to projects view' : 'Switch to inbox view'

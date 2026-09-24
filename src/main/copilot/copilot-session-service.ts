@@ -9,6 +9,7 @@ import type {
   CopilotInteractionResponse,
   CopilotModelOption,
   CopilotModelSelection,
+  ModelPerformanceSample,
   CopilotReasoningEffort,
   CopilotSdkStatus,
   CopilotSendInput,
@@ -302,12 +303,15 @@ export function createCopilotSessionService(dependencies: {
   onTitleChanged: (threadId: string, title: string) => void
   onUserMessage: (threadId: string, message: string) => void
   onActivity?: (threadId: string) => void
+  recordPerformanceSample: (sample: ModelPerformanceSample) => void
+  getPerformanceSamples: () => ModelPerformanceSample[]
 }): {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   checkForSdkUpdate: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
   start: (threadId: string) => Promise<CopilotStartResult>
   getSession: (threadId: string) => CopilotSessionSnapshot | null
+  getPerformanceSamples: () => ModelPerformanceSample[]
   listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
@@ -528,6 +532,38 @@ export function createCopilotSessionService(dependencies: {
   }
 
   const handleEvent = (active: ActiveSession, event: SessionEvent): void => {
+    if (event.type === 'assistant.usage') {
+      const { model, outputTokens, duration, timeToFirstTokenMs } = event.data
+      if (
+        model &&
+        outputTokens !== undefined &&
+        Number.isFinite(outputTokens) &&
+        outputTokens > 0 &&
+        duration !== undefined &&
+        Number.isFinite(duration) &&
+        duration > 0
+      ) {
+        try {
+          dependencies.recordPerformanceSample({
+            id: event.id,
+            model,
+            timestamp: event.timestamp,
+            outputTokens,
+            durationMs: duration,
+            timeToFirstTokenMs:
+              timeToFirstTokenMs !== undefined &&
+              Number.isFinite(timeToFirstTokenMs) &&
+              timeToFirstTokenMs >= 0
+                ? timeToFirstTokenMs
+                : null
+          })
+        } catch (error) {
+          console.error('Could not save model performance:', error)
+        }
+      }
+      return
+    }
+
     if (event.agentId) return
 
     if (event.type === 'assistant.message_delta') {
@@ -930,6 +966,7 @@ export function createCopilotSessionService(dependencies: {
       return start(threadId)
     },
     getSession: (threadId) => sessions.get(threadId)?.snapshot ?? null,
+    getPerformanceSamples: dependencies.getPerformanceSamples,
     listSkills: async (threadId) => {
       const active = sessions.get(threadId)
       if (!active) return { skills: [], error: 'Connect to Copilot to browse skills.' }

@@ -1,5 +1,8 @@
 import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
+import { createModelPerformanceStore } from './copilot/model-performance-store'
+import { IPC_CHANNELS } from '../shared/contracts/ipc'
+import { sendIpc } from './ipc/typed-ipc'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import iconIco from '../../build/icon.ico?asset'
 import iconPng from '../../resources/icon.png?asset'
@@ -71,7 +74,20 @@ app.whenReady().then(() => {
   registerTerminalIpc({
     onThreadStart: markThreadLaunched
   })
+  const performanceStore = createModelPerformanceStore(
+    join(app.getPath('userData'), 'model-performance.json')
+  )
   const copilotSessionService = createCopilotSessionService({
+    getPerformanceSamples: performanceStore.getSamples,
+    recordPerformanceSample: (sample) => {
+      try {
+        performanceStore.addSample(sample)
+      } finally {
+        for (const window of BrowserWindow.getAllWindows()) {
+          sendIpc(window.webContents, IPC_CHANNELS.copilot.performanceSample, { sample })
+        }
+      }
+    },
     getModelDefaults: getCopilotModelDefaults,
     onModelSelected: rememberCopilotModelSelection,
     resolveThread: resolveCopilotThread,

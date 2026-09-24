@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getViewSnapshot } from './lib/view-snapshot'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
+import ModelPerformanceView from './components/ModelPerformanceView'
 import Toast, { type ToastTone } from './components/Toast'
 import EditRepositoryDialog from './components/dialogs/EditRepositoryDialog'
 import EditThreadDialog from './components/dialogs/EditThreadDialog'
@@ -16,6 +17,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   type AppSnapshot,
+  type ModelPerformanceSample,
   type CreateRepositoryTaskInput,
   type RepositorySnapshot,
   type ThreadAgentInterface,
@@ -134,6 +136,11 @@ export default function App(): React.JSX.Element {
   const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
   const [newThreadError, setNewThreadError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
+  const [performanceOpen, setPerformanceOpen] = useState(false)
+  const [performanceSamples, setPerformanceSamples] = useState<ModelPerformanceSample[]>([])
+  const [performanceLoading, setPerformanceLoading] = useState(false)
+  const [performanceError, setPerformanceError] = useState<string | null>(null)
+  const [performanceRetry, setPerformanceRetry] = useState(0)
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
   const selectionRequestIdRef = useRef(0)
   const handleSnapshotLoaded = useCallback((nextSnapshot: AppSnapshot): void => {
@@ -178,6 +185,7 @@ export default function App(): React.JSX.Element {
   const handleToggleViewMode = useCallback(async (): Promise<void> => {
     if (!fullSnapshot) return
     ++selectionRequestIdRef.current
+    setPerformanceOpen(false)
     setBusyAction('switch-mode')
     setInboxProjectId(null)
     setRepositoryViewId(null)
@@ -278,6 +286,40 @@ export default function App(): React.JSX.Element {
     setSessions(next)
   }, [])
 
+  useEffect(() => {
+    if (!performanceOpen) return
+    let mounted = true
+    const merge = (
+      current: ModelPerformanceSample[],
+      incoming: ModelPerformanceSample[]
+    ): ModelPerformanceSample[] => {
+      const ids = new Set(current.map((sample) => sample.id))
+      const added = incoming.filter((sample) => !ids.has(sample.id))
+      return added.length ? [...current, ...added] : current
+    }
+    setPerformanceLoading(true)
+    const unsubscribe = api.copilot.onPerformanceSample(({ sample }) => {
+      if (mounted) setPerformanceSamples((current) => merge(current, [sample]))
+    })
+    void api.copilot.getPerformanceSamples().then(
+      (samples) => {
+        if (!mounted) return
+        setPerformanceSamples((current) => merge(samples, current))
+        setPerformanceError(null)
+        setPerformanceLoading(false)
+      },
+      (error: unknown) => {
+        if (!mounted) return
+        setPerformanceError(error instanceof Error ? error.message : String(error))
+        setPerformanceLoading(false)
+      }
+    )
+    return () => {
+      mounted = false
+      unsubscribe()
+    }
+  }, [performanceOpen, performanceRetry])
+
   const handleSidebarResizeEnd = useCallback((finalWidth: number): void => {
     void api.appState.updateUi({ sidebarWidth: finalWidth })
   }, [])
@@ -318,6 +360,7 @@ export default function App(): React.JSX.Element {
 
   const handleSelectRepository = useCallback(
     (repositoryId: string): void => {
+      setPerformanceOpen(false)
       if (snapshot?.viewMode === 'inbox') {
         setInboxProjectId(repositoryId)
         setRepositoryViewId(null)
@@ -341,6 +384,7 @@ export default function App(): React.JSX.Element {
 
   const handleSelectThread = useCallback(
     (threadId: string): void => {
+      setPerformanceOpen(false)
       setInboxProjectId(null)
       const requestId = ++selectionRequestIdRef.current
       setRepositoryViewId(null)
@@ -398,6 +442,7 @@ export default function App(): React.JSX.Element {
 
         if (result.ok && result.snapshot?.selectedThreadId) {
           setRepositoryViewId(null)
+          setPerformanceOpen(false)
           const newThreadId = result.snapshot.selectedThreadId
           const newThread = findThreadById(result.snapshot, newThreadId)
           if (newThread && !newThread.hasLaunched && newThread.agentInterface === 'cli') {
@@ -716,10 +761,18 @@ export default function App(): React.JSX.Element {
           onCloseThread={(id) => void handleCloseThread(id)}
           onConvertThreadToWorktree={(id) => void handleConvertThreadToWorktree(id)}
           onEditRepository={handleOpenRepositoryEditor}
-          onOpenRepositoryTasks={setRepositoryViewId}
+          onOpenRepositoryTasks={(id) => {
+            setRepositoryViewId(id)
+            setPerformanceOpen(false)
+          }}
           onEditThread={handleOpenThreadEditor}
           onNewThread={handleOpenNewThreadDialog}
           onOpenSettings={() => setDialog('settings')}
+          onOpenPerformance={() => {
+            setDialog(null)
+            setPerformanceOpen(true)
+          }}
+          performanceOpen={performanceOpen}
           onToggleViewMode={() => void handleToggleViewMode()}
           onSettleThread={(id, settled) => void handleSettleThread(id, settled)}
           switchingMode={busyAction === 'switch-mode'}
@@ -740,40 +793,55 @@ export default function App(): React.JSX.Element {
         />
       </div>
 
-      <Workspace
-        autoLaunchThreadId={autoLaunchThreadId}
-        hasRepositories={snapshot.repositories.length > 0}
-        onAddRepository={() => void handleAddRepository()}
-        onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
-        onCompleteRepositoryTask={handleCompleteRepositoryTask}
-        onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
-        onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
-        onNewThread={() => handleOpenNewThreadDialog()}
-        onStartRunCommand={() => void handleStartRunCommand()}
-        onStopRunCommand={() => void handleStopRunCommand()}
-        onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
-        onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
-        onOpenSolutionInVisualStudio={() => void handleOpenSolutionInVisualStudio()}
-        onRefresh={refreshSnapshot}
-        onSessionsChange={handleSessionsChange}
-        repositoryTaskBusy={
-          busyAction === 'create-task' ||
-          busyAction === 'complete-task' ||
-          busyAction === 'update-task'
-        }
-        runCommandBusy={busyAction === 'run-command'}
-        selectedRepository={
-          selectedThread
-            ? (snapshot.repositories.find(
-                (repository) => repository.id === selectedThread.repositoryId
-              ) ?? null)
-            : selectedRepository
-        }
-        showRepositoryTasks={snapshot.viewMode !== 'inbox' || repositoryViewId !== null}
-        selectedThread={selectedThread}
-        settings={snapshot.settings}
-        threads={allThreads}
-      />
+      <div className="relative flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1" inert={performanceOpen}>
+          <Workspace
+            autoLaunchThreadId={autoLaunchThreadId}
+            hasRepositories={snapshot.repositories.length > 0}
+            onAddRepository={() => void handleAddRepository()}
+            onAutoLaunchHandled={() => setAutoLaunchThreadId(null)}
+            onCompleteRepositoryTask={handleCompleteRepositoryTask}
+            onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
+            onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
+            onNewThread={() => handleOpenNewThreadDialog()}
+            onStartRunCommand={() => void handleStartRunCommand()}
+            onStopRunCommand={() => void handleStopRunCommand()}
+            onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
+            onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
+            onOpenSolutionInVisualStudio={() => void handleOpenSolutionInVisualStudio()}
+            onRefresh={refreshSnapshot}
+            onSessionsChange={handleSessionsChange}
+            repositoryTaskBusy={
+              busyAction === 'create-task' ||
+              busyAction === 'complete-task' ||
+              busyAction === 'update-task'
+            }
+            runCommandBusy={busyAction === 'run-command'}
+            selectedRepository={
+              selectedThread
+                ? (snapshot.repositories.find(
+                    (repository) => repository.id === selectedThread.repositoryId
+                  ) ?? null)
+                : selectedRepository
+            }
+            showRepositoryTasks={snapshot.viewMode !== 'inbox' || repositoryViewId !== null}
+            selectedThread={selectedThread}
+            settings={snapshot.settings}
+            threads={allThreads}
+          />
+        </div>
+        {performanceOpen ? (
+          <div className="absolute inset-0 z-10 flex min-h-0 min-w-0">
+            <ModelPerformanceView
+              samples={performanceSamples}
+              loading={performanceLoading}
+              error={performanceError}
+              onRetry={() => setPerformanceRetry((value) => value + 1)}
+              onClose={() => setPerformanceOpen(false)}
+            />
+          </div>
+        ) : null}
+      </div>
 
       <NewThreadDialog
         viewMode={snapshot.viewMode ?? 'projects'}

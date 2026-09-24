@@ -13,6 +13,7 @@ const harness = vi.hoisted(() => ({
   clientOptions: null as CopilotClientOptions | null,
   clientCount: 0,
   activity: vi.fn(),
+  recordPerformanceSample: vi.fn(),
   config: null as SessionConfig | null,
   listener: null as ((event: SessionEvent) => void) | null,
   getEvents: vi.fn(),
@@ -94,6 +95,8 @@ function setup(
     onTitleChanged: vi.fn(),
     onUserMessage: vi.fn(),
     onActivity: harness.activity,
+    recordPerformanceSample: harness.recordPerformanceSample,
+    getPerformanceSamples: () => [],
     ...overrides
   })
 }
@@ -165,6 +168,45 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs()
+})
+
+it('records model usage with call timing, including subagents, and ignores unmeasurable calls', async () => {
+  const service = setup()
+  await service.start('thread')
+  const usage = event('assistant.usage', {
+    model: 'model-a',
+    outputTokens: 120,
+    duration: 2400,
+    timeToFirstTokenMs: 310
+  })
+  harness.listener!(usage)
+  expect(harness.recordPerformanceSample).toHaveBeenCalledWith({
+    id: usage.id,
+    model: 'model-a',
+    timestamp: usage.timestamp,
+    outputTokens: 120,
+    durationMs: 2400,
+    timeToFirstTokenMs: 310
+  })
+  harness.listener!(
+    event('assistant.usage', { model: 'model-b', outputTokens: 40, duration: 1000 })
+  )
+  expect(harness.recordPerformanceSample).toHaveBeenLastCalledWith(
+    expect.objectContaining({ model: 'model-b', timeToFirstTokenMs: null })
+  )
+  harness.listener!(event('assistant.usage', { model: 'model-c', outputTokens: 0, duration: 1000 }))
+  harness.listener!(event('assistant.usage', { model: 'model-d', outputTokens: 100, duration: 0 }))
+  harness.listener!(
+    event(
+      'assistant.usage',
+      { model: 'subagent', outputTokens: 30, duration: 200 },
+      { agentId: 'child' }
+    )
+  )
+  expect(harness.recordPerformanceSample).toHaveBeenCalledTimes(3)
+  expect(harness.recordPerformanceSample).toHaveBeenLastCalledWith(
+    expect.objectContaining({ model: 'subagent', outputTokens: 30 })
+  )
 })
 
 describe('global model defaults', () => {
