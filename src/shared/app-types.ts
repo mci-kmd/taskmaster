@@ -453,6 +453,7 @@ export interface CopilotSessionSnapshot {
   timeline: CopilotTimelineItem[]
   pendingInteraction: CopilotInteraction | null
   mcpServersNeedingAuth: string[]
+  mcpServersSigningIn: string[]
   /** Messages waiting to start their own turn, in the order they will run. */
   queuedMessages: CopilotQueuedMessage[]
   /** Steering messages not yet picked up by the running turn. */

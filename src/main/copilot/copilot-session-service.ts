@@ -70,6 +70,8 @@ type ActiveSession = {
   session: CopilotSession
   snapshot: CopilotSessionSnapshot
   pending: PendingInteraction[]
+  mcpAuthAttempted: Set<string>
+  mcpAuthInFlight: Map<string, Promise<CopilotStartResult>>
   modelChangePending: boolean
   sendRevision: number
   queueRevision: number
@@ -603,18 +605,83 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  const signInToMcpServer = (
+    active: ActiveSession,
+    serverName: string
+  ): Promise<CopilotStartResult> => {
+    if (sessions.get(active.snapshot.threadId) !== active)
+      return Promise.resolve({ ok: false, error: 'Connect to Copilot before signing in.' })
+    if (!active.snapshot.mcpServersNeedingAuth.includes(serverName))
+      return Promise.resolve({ ok: true, snapshot: active.snapshot })
+    const pending = active.mcpAuthInFlight.get(serverName)
+    if (pending) return pending
+
+    const request = (async (): Promise<CopilotStartResult> => {
+      try {
+        const { authorizationUrl } = await active.session.rpc.mcp.oauth.login({
+          serverName,
+          clientName: 'Taskmaster',
+          callbackSuccessMessage: 'Sign-in complete. You can return to Taskmaster.'
+        })
+        if (sessions.get(active.snapshot.threadId) !== active)
+          return { ok: false, error: 'Session closed before sign-in completed.' }
+        if (!authorizationUrl) {
+          setMcpServerNeedsAuth(active, serverName, false)
+          return { ok: true, snapshot: active.snapshot }
+        }
+        const { protocol } = new URL(authorizationUrl)
+        if (protocol !== 'https:' && protocol !== 'http:')
+          throw new Error(`Unsupported sign-in address for ${serverName}.`)
+        await shell.openExternal(authorizationUrl)
+        if (sessions.get(active.snapshot.threadId) !== active)
+          return { ok: false, error: 'Session closed before sign-in completed.' }
+        if (
+          active.snapshot.mcpServersNeedingAuth.includes(serverName) &&
+          !active.snapshot.mcpServersSigningIn.includes(serverName)
+        ) {
+          updateSnapshot(active, {
+            mcpServersSigningIn: [...active.snapshot.mcpServersSigningIn, serverName]
+          })
+        }
+        return { ok: true, snapshot: active.snapshot }
+      } catch (error) {
+        return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
+      }
+    })()
+    active.mcpAuthInFlight.set(serverName, request)
+    void request.then(() => {
+      if (active.mcpAuthInFlight.get(serverName) === request)
+        active.mcpAuthInFlight.delete(serverName)
+    })
+    return request
+  }
+
+  const autoSignInToMcpServer = (active: ActiveSession, serverName: string): void => {
+    if (active.mcpAuthAttempted.has(serverName)) return
+    active.mcpAuthAttempted.add(serverName)
+    void signInToMcpServer(active, serverName).then((result) => {
+      if (!result.ok) console.warn(`Could not sign in to MCP server ${serverName}:`, result.error)
+    })
+  }
+
   const setMcpServerNeedsAuth = (
     active: ActiveSession,
     serverName: string,
     needsAuth: boolean
   ): void => {
     const current = active.snapshot.mcpServersNeedingAuth
-    if (current.includes(serverName) === needsAuth) return
-    updateSnapshot(active, {
-      mcpServersNeedingAuth: needsAuth
-        ? [...current, serverName]
-        : current.filter((name) => name !== serverName)
-    })
+    if (current.includes(serverName) !== needsAuth) {
+      updateSnapshot(active, {
+        mcpServersNeedingAuth: needsAuth
+          ? [...current, serverName]
+          : current.filter((name) => name !== serverName),
+        mcpServersSigningIn: needsAuth
+          ? active.snapshot.mcpServersSigningIn
+          : active.snapshot.mcpServersSigningIn.filter((name) => name !== serverName)
+      })
+      if (!needsAuth) active.mcpAuthAttempted.delete(serverName)
+    }
+    if (needsAuth) autoSignInToMcpServer(active, serverName)
   }
 
   const handleEvent = (active: ActiveSession, event: SessionEvent): void => {
@@ -740,11 +807,12 @@ export function createCopilotSessionService(dependencies: {
         updateSnapshot(active, { phase: 'error', error: event.data.message })
         break
       case 'session.mcp_servers_loaded':
-        updateSnapshot(active, {
-          mcpServersNeedingAuth: event.data.servers
-            .filter((server) => server.status === 'needs-auth')
-            .map((server) => server.name)
-        })
+        for (const name of active.snapshot.mcpServersNeedingAuth) {
+          if (!event.data.servers.some((server) => server.name === name))
+            setMcpServerNeedsAuth(active, name, false)
+        }
+        for (const server of event.data.servers)
+          setMcpServerNeedsAuth(active, server.name, server.status === 'needs-auth')
         break
       case 'session.mcp_server_status_changed':
         setMcpServerNeedsAuth(active, event.data.serverName, event.data.status === 'needs-auth')
@@ -867,6 +935,7 @@ export function createCopilotSessionService(dependencies: {
       timeline: [],
       pendingInteraction: null,
       mcpServersNeedingAuth: [],
+      mcpServersSigningIn: [],
       queuedMessages: [],
       steeringMessages: [],
       error: null
@@ -889,6 +958,8 @@ export function createCopilotSessionService(dependencies: {
         session: null as unknown as CopilotSession,
         snapshot,
         pending: [],
+        mcpAuthAttempted: new Set(),
+        mcpAuthInFlight: new Map(),
         modelChangePending: false,
         sendRevision: 0,
         queueRevision: 0,
@@ -1301,26 +1372,7 @@ export function createCopilotSessionService(dependencies: {
     authenticateMcpServer: async ({ threadId, serverName }) => {
       const active = sessions.get(threadId)
       if (!active) return { ok: false, error: 'Connect to Copilot before signing in.' }
-      if (!active.snapshot.mcpServersNeedingAuth.includes(serverName))
-        return { ok: true, snapshot: active.snapshot }
-      try {
-        const { authorizationUrl } = await active.session.rpc.mcp.oauth.login({
-          serverName,
-          clientName: 'Taskmaster',
-          callbackSuccessMessage: 'Sign-in complete. You can return to Taskmaster.'
-        })
-        if (!authorizationUrl) {
-          setMcpServerNeedsAuth(active, serverName, false)
-          return { ok: true, snapshot: active.snapshot }
-        }
-        const { protocol } = new URL(authorizationUrl)
-        if (protocol !== 'https:' && protocol !== 'http:')
-          throw new Error(`Unsupported sign-in address for ${serverName}.`)
-        await shell.openExternal(authorizationUrl)
-        return { ok: true, snapshot: active.snapshot }
-      } catch (error) {
-        return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
-      }
+      return signInToMcpServer(active, serverName)
     },
     pickAttachments: async () => {
       try {

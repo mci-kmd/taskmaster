@@ -51,6 +51,7 @@ function snapshot(
     timeline: [],
     pendingInteraction: null,
     mcpServersNeedingAuth: [],
+    mcpServersSigningIn: [],
     queuedMessages: [],
     steeringMessages: [],
     error: null,
@@ -117,7 +118,10 @@ describe('Copilot session composer', () => {
       }
     })
     mock.getSession.mockResolvedValue(needsAuth)
-    mock.authenticateMcpServer.mockResolvedValue({ ok: true, snapshot: needsAuth })
+    mock.authenticateMcpServer.mockResolvedValue({
+      ok: true,
+      snapshot: { ...needsAuth, mcpServersSigningIn: ['azure_devops'] }
+    })
     render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Sign in to azure_devops' }))

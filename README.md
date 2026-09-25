@@ -24,7 +24,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Open a plain shell terminal in a thread's working directory
 - Resume Copilot conversations by persisted session ID
 - Configure automatic permission approval (enabled by default); managed-policy approvals still prompt. Settings apply to newly opened sessions
-- Sign in to MCP servers that require authentication from the session view; sign-ins are kept in the OS keychain and reused by later sessions
+- Automatically sign in to MCP servers that require authentication when a session connects; use the session view to retry if needed. Copilot uses persistent OAuth storage for later sessions
 - Remove owned worktrees and branches when closing a worktree-backed thread
 - Configure optional setup and cleanup scripts for worktree-backed threads
 

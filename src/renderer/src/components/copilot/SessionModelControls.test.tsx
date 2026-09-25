@@ -32,6 +32,7 @@ const session: CopilotSessionSnapshot = {
   timeline: [],
   pendingInteraction: null,
   mcpServersNeedingAuth: [],
+  mcpServersSigningIn: [],
   queuedMessages: [],
   steeringMessages: [],
   error: null

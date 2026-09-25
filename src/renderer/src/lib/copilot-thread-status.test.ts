@@ -22,6 +22,7 @@ function snapshot(
     timeline: [],
     pendingInteraction,
     mcpServersNeedingAuth: [],
+    mcpServersSigningIn: [],
     queuedMessages: [],
     steeringMessages: [],
     error: phase === 'error' ? 'Failed' : null

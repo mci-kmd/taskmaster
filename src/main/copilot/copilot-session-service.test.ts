@@ -226,7 +226,7 @@ it('records model usage with call timing, including subagents, and ignores unmea
 })
 
 describe('MCP server sign-in', () => {
-  it('keeps MCP sign-ins across sessions and tracks servers that need sign-in', async () => {
+  it('automatically reconnects servers using cached credentials without a browser', async () => {
     harness.listMcpServers.mockResolvedValue({
       servers: [
         { name: 'azure_devops', status: 'needs-auth' },
@@ -237,16 +237,23 @@ describe('MCP server sign-in', () => {
     await service.start('thread')
     expect(harness.config?.mcpOAuthTokenStorage).toBe('persistent')
     await vi.waitFor(() =>
-      expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual(['azure_devops'])
+      expect(harness.mcpLogin).toHaveBeenCalledWith(
+        expect.objectContaining({ serverName: 'azure_devops', clientName: 'Taskmaster' })
+      )
     )
-    emit('session.mcp_server_status_changed', { serverName: 'jira', status: 'needs-auth' })
-    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'connected' })
-    expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual(['jira'])
-    emit('session.mcp_server_removed', { serverName: 'jira' })
-    expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual([])
+    await vi.waitFor(() => expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual([]))
+    expect(harness.openExternal).not.toHaveBeenCalled()
+
+    await service.stopThread('thread')
+    const restarted = setup()
+    await restarted.start('thread')
+    await vi.waitFor(() => expect(harness.mcpLogin).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() =>
+      expect(restarted.getSession('thread')?.mcpServersNeedingAuth).toEqual([])
+    )
   })
 
-  it('opens the sign-in page in the browser, and only for servers that need it', async () => {
+  it('opens the sign-in page automatically when required, and supports manual retry', async () => {
     const service = setup()
     await service.start('thread')
     expect((await service.authenticateMcpServer({ threadId: 'thread', serverName: 'x' })).ok).toBe(
@@ -254,18 +261,27 @@ describe('MCP server sign-in', () => {
     )
     expect(harness.mcpLogin).not.toHaveBeenCalled()
 
-    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'needs-auth' })
     harness.mcpLogin.mockResolvedValueOnce({ authorizationUrl: 'https://login.example/authorize' })
-    const result = await service.authenticateMcpServer({
-      threadId: 'thread',
-      serverName: 'azure_devops'
-    })
-    expect(result.ok).toBe(true)
+    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'needs-auth' })
+    await vi.waitFor(() =>
+      expect(harness.openExternal).toHaveBeenCalledWith('https://login.example/authorize')
+    )
     expect(harness.mcpLogin).toHaveBeenCalledWith(
       expect.objectContaining({ serverName: 'azure_devops', clientName: 'Taskmaster' })
     )
-    expect(harness.openExternal).toHaveBeenCalledWith('https://login.example/authorize')
-    expect(result.snapshot?.mcpServersNeedingAuth).toEqual(['azure_devops'])
+    expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual(['azure_devops'])
+    expect(service.getSession('thread')?.mcpServersSigningIn).toEqual(['azure_devops'])
+    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'needs-auth' })
+    expect(harness.mcpLogin).toHaveBeenCalledTimes(1)
+
+    harness.mcpLogin.mockResolvedValueOnce({ authorizationUrl: 'https://login.example/again' })
+    const retry = await service.authenticateMcpServer({
+      threadId: 'thread',
+      serverName: 'azure_devops'
+    })
+    expect(retry.ok).toBe(true)
+    expect(harness.openExternal).toHaveBeenLastCalledWith('https://login.example/again')
+    expect(retry.snapshot?.mcpServersSigningIn).toEqual(['azure_devops'])
 
     harness.mcpLogin.mockResolvedValueOnce({ authorizationUrl: 'file:///C:/evil.exe' })
     const unsafe = await service.authenticateMcpServer({
@@ -273,7 +289,7 @@ describe('MCP server sign-in', () => {
       serverName: 'azure_devops'
     })
     expect(unsafe.ok).toBe(false)
-    expect(harness.openExternal).toHaveBeenCalledTimes(1)
+    expect(harness.openExternal).toHaveBeenCalledTimes(2)
 
     harness.mcpLogin.mockResolvedValueOnce({})
     const cached = await service.authenticateMcpServer({
@@ -281,6 +297,55 @@ describe('MCP server sign-in', () => {
       serverName: 'azure_devops'
     })
     expect(cached.snapshot?.mcpServersNeedingAuth).toEqual([])
+    expect(cached.snapshot?.mcpServersSigningIn).toEqual([])
+  })
+
+  it('deduplicates pending sign-ins and retries after a later authentication failure', async () => {
+    const service = setup()
+    await service.start('thread')
+    const login = deferred<{ authorizationUrl?: string }>()
+    harness.mcpLogin.mockReturnValueOnce(login.promise)
+    emit('mcp.oauth_required', { serverName: 'azure_devops' })
+    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'needs-auth' })
+    const manual = service.authenticateMcpServer({
+      threadId: 'thread',
+      serverName: 'azure_devops'
+    })
+    expect(harness.mcpLogin).toHaveBeenCalledTimes(1)
+    login.resolve({})
+    expect((await manual).snapshot?.mcpServersNeedingAuth).toEqual([])
+
+    harness.mcpLogin.mockResolvedValueOnce({})
+    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'needs-auth' })
+    await vi.waitFor(() => expect(harness.mcpLogin).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual([]))
+  })
+
+  it('keeps failed automatic sign-ins visible for manual retry', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const service = setup()
+      await service.start('thread')
+      harness.mcpLogin.mockRejectedValueOnce(new Error('Authentication unavailable'))
+      emit('session.mcp_server_status_changed', {
+        serverName: 'azure_devops',
+        status: 'needs-auth'
+      })
+      await vi.waitFor(() =>
+        expect(warning).toHaveBeenCalledWith(
+          'Could not sign in to MCP server azure_devops:',
+          'Authentication unavailable'
+        )
+      )
+      expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual(['azure_devops'])
+      harness.mcpLogin.mockResolvedValueOnce({})
+      expect(
+        (await service.authenticateMcpServer({ threadId: 'thread', serverName: 'azure_devops' })).ok
+      ).toBe(true)
+      expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual([])
+    } finally {
+      warning.mockRestore()
+    }
   })
 })
 

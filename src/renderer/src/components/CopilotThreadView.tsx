@@ -89,7 +89,6 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
   const [delivery, setDelivery] = useState<CopilotSendDelivery>('steer')
   const [cancelling, setCancelling] = useState<string | null>(null)
-  const [mcpSignInsStarted, setMcpSignInsStarted] = useState<string[]>([])
   const busyRef = useRef(false)
   const [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
@@ -110,11 +109,6 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
     (next: CopilotSessionSnapshot): void => {
       if (!mounted.current || next.threadId !== thread.id) return
       setSession(next)
-      // Forget sign-ins that finished so a later expiry starts a fresh prompt.
-      setMcpSignInsStarted((current) => {
-        const pending = current.filter((name) => next.mcpServersNeedingAuth.includes(name))
-        return pending.length === current.length ? current : pending
-      })
       onSessionChangeRef.current(thread.id, toCopilotThreadSessionState(next))
     },
     [thread.id]
@@ -326,10 +320,6 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
       const revision = sessionRevision.current
       const result = await api.copilot.authenticateMcpServer({ threadId: thread.id, serverName })
       acceptResult(result, revision)
-      if (mounted.current && result.snapshot?.mcpServersNeedingAuth.includes(serverName))
-        setMcpSignInsStarted((current) =>
-          current.includes(serverName) ? current : [...current, serverName]
-        )
     })
   }
   const stop = async (): Promise<void> => {
@@ -521,7 +511,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
           </div>
         ) : null}
         {session?.mcpServersNeedingAuth.map((serverName) => {
-          const started = mcpSignInsStarted.includes(serverName)
+          const started = session.mcpServersSigningIn.includes(serverName)
           return (
             <div className="tm-session-notice mb-3" key={serverName} role="status">
               <span>
