@@ -448,6 +448,7 @@ export interface CopilotSessionSnapshot {
   models: CopilotModelOption[]
   timeline: CopilotTimelineItem[]
   pendingInteraction: CopilotInteraction | null
+  mcpServersNeedingAuth: string[]
   error: string | null
 }
 
@@ -502,6 +503,11 @@ export interface CopilotSetModelInput {
   reasoningEffort: CopilotReasoningEffort | null
 }
 
+export interface CopilotMcpAuthInput {
+  threadId: string
+  serverName: string
+}
+
 export interface CopilotInteractionResponse {
   threadId: string
   interactionId: string
@@ -552,6 +558,7 @@ export interface CopilotApi {
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
   respond: (input: CopilotInteractionResponse) => Promise<boolean>
+  authenticateMcpServer: (input: CopilotMcpAuthInput) => Promise<CopilotStartResult>
   pickAttachments: () => Promise<CopilotPickAttachmentsResult>
   getPathForFile: (file: unknown) => string
   onSession: (callback: (payload: CopilotSessionEvent) => void) => () => void

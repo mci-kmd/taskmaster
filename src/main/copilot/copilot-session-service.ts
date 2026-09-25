@@ -2,11 +2,12 @@ import { expandSkillPrompt, listSessionSkills } from './copilot-skills'
 import { resumeOrCreateSession } from './session-resume'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
-import { app, BrowserWindow, dialog, nativeImage } from 'electron'
+import { app, BrowserWindow, dialog, nativeImage, shell } from 'electron'
 import type {
   CopilotAttachment,
   CopilotInteraction,
   CopilotInteractionResponse,
+  CopilotMcpAuthInput,
   CopilotModelOption,
   CopilotModelSelection,
   ModelPerformanceSample,
@@ -336,6 +337,7 @@ export function createCopilotSessionService(dependencies: {
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
   respond: (input: CopilotInteractionResponse) => boolean
+  authenticateMcpServer: (input: CopilotMcpAuthInput) => Promise<CopilotStartResult>
   pickAttachments: () => Promise<{
     ok: boolean
     attachments?: CopilotAttachment[]
@@ -551,6 +553,20 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  const setMcpServerNeedsAuth = (
+    active: ActiveSession,
+    serverName: string,
+    needsAuth: boolean
+  ): void => {
+    const current = active.snapshot.mcpServersNeedingAuth
+    if (current.includes(serverName) === needsAuth) return
+    updateSnapshot(active, {
+      mcpServersNeedingAuth: needsAuth
+        ? [...current, serverName]
+        : current.filter((name) => name !== serverName)
+    })
+  }
+
   const handleEvent = (active: ActiveSession, event: SessionEvent): void => {
     if (event.type === 'assistant.usage') {
       const { model, outputTokens, duration, timeToFirstTokenMs } = event.data
@@ -669,6 +685,22 @@ export function createCopilotSessionService(dependencies: {
         cancelInteractions(active)
         updateSnapshot(active, { phase: 'error', error: event.data.message })
         break
+      case 'session.mcp_servers_loaded':
+        updateSnapshot(active, {
+          mcpServersNeedingAuth: event.data.servers
+            .filter((server) => server.status === 'needs-auth')
+            .map((server) => server.name)
+        })
+        break
+      case 'session.mcp_server_status_changed':
+        setMcpServerNeedsAuth(active, event.data.serverName, event.data.status === 'needs-auth')
+        break
+      case 'session.mcp_server_removed':
+        setMcpServerNeedsAuth(active, event.data.serverName, false)
+        break
+      case 'mcp.oauth_required':
+        setMcpServerNeedsAuth(active, event.data.serverName, true)
+        break
     }
   }
 
@@ -780,6 +812,7 @@ export function createCopilotSessionService(dependencies: {
       models,
       timeline: [],
       pendingInteraction: null,
+      mcpServersNeedingAuth: [],
       error: null
     }
     broadcastSession(snapshot)
@@ -792,7 +825,9 @@ export function createCopilotSessionService(dependencies: {
         enableSkills: true,
         streaming: true,
         enableFileChangeTracking: true,
-        askUserVariant: 'elicitation'
+        askUserVariant: 'elicitation',
+        // Keep MCP sign-ins in the OS keychain so they survive session restarts.
+        mcpOAuthTokenStorage: 'persistent'
       }
       const placeholder: ActiveSession = {
         session: null as unknown as CopilotSession,
@@ -898,6 +933,15 @@ export function createCopilotSessionService(dependencies: {
         handleEvent(placeholder, event)
       }
       broadcastSession(placeholder.snapshot)
+      // Status events may have fired before this listener was attached.
+      void session.rpc.mcp
+        .list()
+        .then(({ servers }) => {
+          if (sessions.get(threadId) !== placeholder) return
+          for (const server of servers)
+            setMcpServerNeedsAuth(placeholder, server.name, server.status === 'needs-auth')
+        })
+        .catch((error) => console.warn('Could not load MCP server status:', error))
       return { ok: true, snapshot: placeholder.snapshot }
     } catch (error) {
       const active = sessions.get(threadId)
@@ -1158,6 +1202,30 @@ export function createCopilotSessionService(dependencies: {
       clearInteraction(active, input.interactionId)
       pending.resolve(input)
       return true
+    },
+    authenticateMcpServer: async ({ threadId, serverName }) => {
+      const active = sessions.get(threadId)
+      if (!active) return { ok: false, error: 'Connect to Copilot before signing in.' }
+      if (!active.snapshot.mcpServersNeedingAuth.includes(serverName))
+        return { ok: true, snapshot: active.snapshot }
+      try {
+        const { authorizationUrl } = await active.session.rpc.mcp.oauth.login({
+          serverName,
+          clientName: 'Taskmaster',
+          callbackSuccessMessage: 'Sign-in complete. You can return to Taskmaster.'
+        })
+        if (!authorizationUrl) {
+          setMcpServerNeedsAuth(active, serverName, false)
+          return { ok: true, snapshot: active.snapshot }
+        }
+        const { protocol } = new URL(authorizationUrl)
+        if (protocol !== 'https:' && protocol !== 'http:')
+          throw new Error(`Unsupported sign-in address for ${serverName}.`)
+        await shell.openExternal(authorizationUrl)
+        return { ok: true, snapshot: active.snapshot }
+      } catch (error) {
+        return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
+      }
     },
     pickAttachments: async () => {
       try {

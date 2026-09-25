@@ -25,6 +25,9 @@ const harness = vi.hoisted(() => ({
   listModels: vi.fn(),
   listSkills: vi.fn(),
   invokeCommand: vi.fn(),
+  listMcpServers: vi.fn(),
+  mcpLogin: vi.fn(),
+  openExternal: vi.fn(),
   createSession: vi.fn(),
   ping: vi.fn(),
   forceStop: vi.fn(),
@@ -34,6 +37,7 @@ const harness = vi.hoisted(() => ({
 vi.mock('electron', () => ({
   app: { getVersion: () => 'test' },
   dialog: {},
+  shell: { openExternal: harness.openExternal },
   BrowserWindow: { getAllWindows: () => [{ webContents: { send: harness.broadcast } }] }
 }))
 vi.mock('./copilot-sdk-manager', () => ({
@@ -130,6 +134,9 @@ beforeEach(() => {
   harness.getEvents.mockResolvedValue([])
   harness.getCurrentModel.mockResolvedValue({ modelId: 'model' })
   harness.listSkills.mockResolvedValue({ skills: [] })
+  harness.listMcpServers.mockResolvedValue({ servers: [] })
+  harness.mcpLogin.mockResolvedValue({})
+  harness.openExternal.mockResolvedValue(undefined)
   harness.invokeCommand.mockResolvedValue({
     kind: 'agent-prompt',
     prompt: 'Expanded instructions',
@@ -155,7 +162,8 @@ beforeEach(() => {
         model: { getCurrent: harness.getCurrentModel },
         mode: { get: async () => 'plan' },
         skills: { list: harness.listSkills },
-        commands: { invoke: harness.invokeCommand }
+        commands: { invoke: harness.invokeCommand },
+        mcp: { list: harness.listMcpServers, oauth: { login: harness.mcpLogin } }
       },
       on: (listener: (event: SessionEvent) => void) => {
         harness.listener = listener
@@ -206,6 +214,65 @@ it('records model usage with call timing, including subagents, and ignores unmea
   expect(harness.recordPerformanceSample).toHaveBeenLastCalledWith(
     expect.objectContaining({ model: 'subagent', outputTokens: 30 })
   )
+})
+
+describe('MCP server sign-in', () => {
+  it('keeps MCP sign-ins across sessions and tracks servers that need sign-in', async () => {
+    harness.listMcpServers.mockResolvedValue({
+      servers: [
+        { name: 'azure_devops', status: 'needs-auth' },
+        { name: 'local', status: 'connected' }
+      ]
+    })
+    const service = setup()
+    await service.start('thread')
+    expect(harness.config?.mcpOAuthTokenStorage).toBe('persistent')
+    await vi.waitFor(() =>
+      expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual(['azure_devops'])
+    )
+    emit('session.mcp_server_status_changed', { serverName: 'jira', status: 'needs-auth' })
+    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'connected' })
+    expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual(['jira'])
+    emit('session.mcp_server_removed', { serverName: 'jira' })
+    expect(service.getSession('thread')?.mcpServersNeedingAuth).toEqual([])
+  })
+
+  it('opens the sign-in page in the browser, and only for servers that need it', async () => {
+    const service = setup()
+    await service.start('thread')
+    expect((await service.authenticateMcpServer({ threadId: 'thread', serverName: 'x' })).ok).toBe(
+      true
+    )
+    expect(harness.mcpLogin).not.toHaveBeenCalled()
+
+    emit('session.mcp_server_status_changed', { serverName: 'azure_devops', status: 'needs-auth' })
+    harness.mcpLogin.mockResolvedValueOnce({ authorizationUrl: 'https://login.example/authorize' })
+    const result = await service.authenticateMcpServer({
+      threadId: 'thread',
+      serverName: 'azure_devops'
+    })
+    expect(result.ok).toBe(true)
+    expect(harness.mcpLogin).toHaveBeenCalledWith(
+      expect.objectContaining({ serverName: 'azure_devops', clientName: 'Taskmaster' })
+    )
+    expect(harness.openExternal).toHaveBeenCalledWith('https://login.example/authorize')
+    expect(result.snapshot?.mcpServersNeedingAuth).toEqual(['azure_devops'])
+
+    harness.mcpLogin.mockResolvedValueOnce({ authorizationUrl: 'file:///C:/evil.exe' })
+    const unsafe = await service.authenticateMcpServer({
+      threadId: 'thread',
+      serverName: 'azure_devops'
+    })
+    expect(unsafe.ok).toBe(false)
+    expect(harness.openExternal).toHaveBeenCalledTimes(1)
+
+    harness.mcpLogin.mockResolvedValueOnce({})
+    const cached = await service.authenticateMcpServer({
+      threadId: 'thread',
+      serverName: 'azure_devops'
+    })
+    expect(cached.snapshot?.mcpServersNeedingAuth).toEqual([])
+  })
 })
 
 describe('global model defaults', () => {

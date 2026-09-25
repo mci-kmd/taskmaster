@@ -1,5 +1,6 @@
 import type {
   CopilotInteractionResponse,
+  CopilotMcpAuthInput,
   CopilotSendInput,
   CopilotSetModelInput
 } from '../../shared/app-types'
@@ -29,6 +30,9 @@ export function registerCopilotIpc(service: CopilotSessionService): void {
   )
   handleIpc(IPC_CHANNELS.copilot.respond, (_event, input: CopilotInteractionResponse) =>
     service.respond(input)
+  )
+  handleIpc(IPC_CHANNELS.copilot.authenticateMcpServer, (_event, input: CopilotMcpAuthInput) =>
+    service.authenticateMcpServer(input)
   )
   handleIpc(IPC_CHANNELS.copilot.pickAttachments, () => service.pickAttachments())
 }

@@ -11,6 +11,7 @@ const mock = vi.hoisted(() => ({
   send: vi.fn(),
   abort: vi.fn(),
   respond: vi.fn(),
+  authenticateMcpServer: vi.fn(),
   setModel: vi.fn(),
   getSdkStatus: vi.fn(),
   checkForSdkUpdate: vi.fn(),
@@ -48,6 +49,7 @@ function snapshot(
     ],
     timeline: [],
     pendingInteraction: null,
+    mcpServersNeedingAuth: [],
     error: null,
     ...patch
   }
@@ -97,6 +99,37 @@ function chooseOption(label: string, option: string): void {
 }
 
 describe('Copilot session composer', () => {
+  it('lets the user sign in to an MCP server while Copilot waits for input', async () => {
+    const t = thread()
+    const needsAuth = snapshot(t.id, {
+      phase: 'running',
+      mcpServersNeedingAuth: ['azure_devops'],
+      pendingInteraction: {
+        id: 'ask',
+        kind: 'user-input',
+        title: 'Copilot needs your input',
+        description: 'Run /mcp auth azure_devops',
+        choices: ['Authenticated; continue'],
+        allowFreeform: true
+      }
+    })
+    mock.getSession.mockResolvedValue(needsAuth)
+    mock.authenticateMcpServer.mockResolvedValue({ ok: true, snapshot: needsAuth })
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign in to azure_devops' }))
+    expect(mock.authenticateMcpServer).toHaveBeenCalledWith({
+      threadId: t.id,
+      serverName: 'azure_devops'
+    })
+    expect(
+      await screen.findByText('Finish signing in to azure_devops in your browser.')
+    ).toBeTruthy()
+
+    act(() => listener({ snapshot: { ...needsAuth, mcpServersNeedingAuth: [] } }))
+    expect(screen.queryByRole('button', { name: /sign-in|sign in/i })).toBeNull()
+  })
+
   it('omits the visible session status header while keeping updates accessible', async () => {
     const sdkStatus = {
       installedVersion: '1.0.0',

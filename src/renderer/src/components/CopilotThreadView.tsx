@@ -84,6 +84,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   const { prompt, attachments } = draft
   const agentMode = draft.agentMode ?? session?.agentMode ?? 'interactive'
   const [busy, setBusy] = useState<string | null>(null)
+  const [mcpSignInsStarted, setMcpSignInsStarted] = useState<string[]>([])
   const busyRef = useRef(false)
   const [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
@@ -104,6 +105,11 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
     (next: CopilotSessionSnapshot): void => {
       if (!mounted.current || next.threadId !== thread.id) return
       setSession(next)
+      // Forget sign-ins that finished so a later expiry starts a fresh prompt.
+      setMcpSignInsStarted((current) => {
+        const pending = current.filter((name) => next.mcpServersNeedingAuth.includes(name))
+        return pending.length === current.length ? current : pending
+      })
       onSessionChangeRef.current(thread.id, toCopilotThreadSessionState(next))
     },
     [thread.id]
@@ -281,6 +287,17 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
       if (!(await api.copilot.respond(response)))
         throw new Error('This request is no longer available. Please try again.')
       promptRef.current?.focus()
+    })
+  }
+  const signInToMcpServer = (serverName: string): void => {
+    void run(`mcp-auth:${serverName}`, async () => {
+      const revision = sessionRevision.current
+      const result = await api.copilot.authenticateMcpServer({ threadId: thread.id, serverName })
+      acceptResult(result, revision)
+      if (mounted.current && result.snapshot?.mcpServersNeedingAuth.includes(serverName))
+        setMcpSignInsStarted((current) =>
+          current.includes(serverName) ? current : [...current, serverName]
+        )
     })
   }
   const stop = async (): Promise<void> => {
@@ -471,6 +488,30 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             </Button>
           </div>
         ) : null}
+        {session?.mcpServersNeedingAuth.map((serverName) => {
+          const started = mcpSignInsStarted.includes(serverName)
+          return (
+            <div className="tm-session-notice mb-3" key={serverName} role="status">
+              <span>
+                {started
+                  ? `Finish signing in to ${serverName} in your browser.`
+                  : `${serverName} needs you to sign in before Copilot can use it.`}
+              </span>
+              <Button
+                size="sm"
+                variant={started ? 'ghost' : 'primary'}
+                disabled={Boolean(busy)}
+                onClick={() => signInToMcpServer(serverName)}
+              >
+                {busy === `mcp-auth:${serverName}`
+                  ? 'Opening…'
+                  : started
+                    ? 'Open sign-in again'
+                    : `Sign in to ${serverName}`}
+              </Button>
+            </div>
+          )
+        })}
         {sdk?.updateError ? (
           <div className="tm-session-notice tm-session-notice--warning mb-3" role="status">
             Copilot update: {sdk.updateError}

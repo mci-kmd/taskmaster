@@ -3,6 +3,7 @@ import type {
   BranchStatusRequest,
   BranchStatusSnapshot,
   CopilotInteractionResponse,
+  CopilotMcpAuthInput,
   ModelPerformanceSample,
   ModelPerformanceSampleEvent,
   CopilotPickAttachmentsResult,
@@ -110,6 +111,7 @@ export const IPC_CHANNELS = {
     abort: 'copilot:abort',
     setModel: 'copilot:set-model',
     respond: 'copilot:respond',
+    authenticateMcpServer: 'copilot:authenticate-mcp-server',
     pickAttachments: 'copilot:pick-attachments',
     session: 'copilot:session',
     sdkStatus: 'copilot:sdk-status'
@@ -217,6 +219,10 @@ export type IpcInvokeDefinitions = {
   'copilot:abort': { request: [string]; response: boolean }
   'copilot:set-model': { request: [CopilotSetModelInput]; response: CopilotStartResult }
   'copilot:respond': { request: [CopilotInteractionResponse]; response: boolean }
+  'copilot:authenticate-mcp-server': {
+    request: [CopilotMcpAuthInput]
+    response: CopilotStartResult
+  }
   'copilot:pick-attachments': { request: []; response: CopilotPickAttachmentsResult }
 }
 

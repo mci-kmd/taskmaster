@@ -21,6 +21,7 @@ function snapshot(
     models: [],
     timeline: [],
     pendingInteraction,
+    mcpServersNeedingAuth: [],
     error: phase === 'error' ? 'Failed' : null
   }
 }

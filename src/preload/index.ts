@@ -3,6 +3,7 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   BranchStatusRequest,
   CopilotInteractionResponse,
+  CopilotMcpAuthInput,
   CopilotSendInput,
   CopilotSessionEvent,
   CopilotSdkStatusEvent,
@@ -176,6 +177,8 @@ const api = {
     abort: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.abort, threadId),
     setModel: (input: CopilotSetModelInput) => invokeIpc(IPC_CHANNELS.copilot.setModel, input),
     respond: (input: CopilotInteractionResponse) => invokeIpc(IPC_CHANNELS.copilot.respond, input),
+    authenticateMcpServer: (input: CopilotMcpAuthInput) =>
+      invokeIpc(IPC_CHANNELS.copilot.authenticateMcpServer, input),
     pickAttachments: () => invokeIpc(IPC_CHANNELS.copilot.pickAttachments),
     getPathForFile: (file: unknown) => webUtils.getPathForFile(file as File),
     onSession: (callback: (payload: CopilotSessionEvent) => void) =>
