@@ -1,4 +1,5 @@
 import type {
+  CopilotCancelQueuedInput,
   CopilotInteractionResponse,
   CopilotMcpAuthInput,
   CopilotSendInput,
@@ -24,6 +25,9 @@ export function registerCopilotIpc(service: CopilotSessionService): void {
     service.listSkills(threadId)
   )
   handleIpc(IPC_CHANNELS.copilot.send, (_event, input: CopilotSendInput) => service.send(input))
+  handleIpc(IPC_CHANNELS.copilot.cancelQueued, (_event, input: CopilotCancelQueuedInput) =>
+    service.cancelQueued(input)
+  )
   handleIpc(IPC_CHANNELS.copilot.abort, (_event, threadId: string) => service.abort(threadId))
   handleIpc(IPC_CHANNELS.copilot.setModel, (_event, input: CopilotSetModelInput) =>
     service.setModel(input)

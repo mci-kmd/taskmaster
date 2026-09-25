@@ -2,6 +2,7 @@ import type {
   AppSnapshot,
   BranchStatusRequest,
   BranchStatusSnapshot,
+  CopilotCancelQueuedInput,
   CopilotInteractionResponse,
   CopilotMcpAuthInput,
   ModelPerformanceSample,
@@ -108,6 +109,7 @@ export const IPC_CHANNELS = {
     performanceSample: 'copilot:performance-sample',
     listSkills: 'copilot:list-skills',
     send: 'copilot:send',
+    cancelQueued: 'copilot:cancel-queued',
     abort: 'copilot:abort',
     setModel: 'copilot:set-model',
     respond: 'copilot:respond',
@@ -216,6 +218,7 @@ export type IpcInvokeDefinitions = {
   'copilot:get-performance-samples': { request: []; response: ModelPerformanceSample[] }
   'copilot:list-skills': { request: [string]; response: CopilotSkillsResult }
   'copilot:send': { request: [CopilotSendInput]; response: CopilotStartResult }
+  'copilot:cancel-queued': { request: [CopilotCancelQueuedInput]; response: CopilotStartResult }
   'copilot:abort': { request: [string]; response: boolean }
   'copilot:set-model': { request: [CopilotSetModelInput]; response: CopilotStartResult }
   'copilot:respond': { request: [CopilotInteractionResponse]; response: boolean }

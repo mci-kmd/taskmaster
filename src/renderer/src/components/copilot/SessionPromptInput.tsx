@@ -15,8 +15,14 @@ import {
   snapOutOfMarker,
   splitAttachmentMarkers
 } from './attachment-markers'
+import type { SendMode } from './SendButton'
 
 const api = getRendererApi()
+const PLACEHOLDERS: Record<SendMode, string> = {
+  send: 'Ask Copilot anything, / or $ for skills…',
+  steer: 'Steer Copilot while it works…',
+  queue: 'Queue a follow-up for when Copilot finishes…'
+}
 
 export default function SessionPromptInput({
   threadId,
@@ -31,7 +37,7 @@ export default function SessionPromptInput({
   onSend,
   onFiles,
   attachmentNames = [],
-  running
+  mode
 }: {
   threadId: string
   sessionId: string | null
@@ -45,7 +51,7 @@ export default function SessionPromptInput({
   onSend: () => void
   onFiles: (files: File[]) => void
   attachmentNames?: string[]
-  running: boolean
+  mode: SendMode
 }): React.JSX.Element {
   const menuId = useId()
   const hintId = useId()
@@ -322,9 +328,7 @@ export default function SessionPromptInput({
               onFiles(files)
             }
           }}
-          placeholder={
-            running ? 'Draft your next message…' : 'Ask Copilot anything, / or $ for skills…'
-          }
+          placeholder={PLACEHOLDERS[mode]}
         />
       </div>
       <span id={hintId} className="sr-only">

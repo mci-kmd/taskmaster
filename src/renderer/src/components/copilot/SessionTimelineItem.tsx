@@ -90,7 +90,10 @@ export default memo(function SessionTimelineItem({
       ) : null}
       <div className="tm-session-message-footer">
         {user ? (
-          <span>You{item.model ? ` · ${item.model}` : ''}</span>
+          <span>
+            You{item.steered ? ' · steered' : ''}
+            {item.model ? ` · ${item.model}` : ''}
+          </span>
         ) : item.model ? (
           <span>{item.model}</span>
         ) : null}

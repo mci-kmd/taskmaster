@@ -9,6 +9,7 @@ const mock = vi.hoisted(() => ({
   listSkills: vi.fn(),
   start: vi.fn(),
   send: vi.fn(),
+  cancelQueued: vi.fn(),
   abort: vi.fn(),
   respond: vi.fn(),
   authenticateMcpServer: vi.fn(),
@@ -50,6 +51,8 @@ function snapshot(
     timeline: [],
     pendingInteraction: null,
     mcpServersNeedingAuth: [],
+    queuedMessages: [],
+    steeringMessages: [],
     error: null,
     ...patch
   }
@@ -64,7 +67,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   }
 }
 const input = (): HTMLTextAreaElement => screen.getByRole('combobox', { name: 'Message Copilot' })
-const send = (): HTMLButtonElement => screen.getByRole('button', { name: 'Send ↑' })
+const send = (): HTMLButtonElement => screen.getByRole('button', { name: 'Send' })
 async function ready(): Promise<void> {
   await screen.findByText('Ready')
 }
@@ -320,7 +323,7 @@ describe('Copilot session composer', () => {
     expect(input().value).toBe('Next message')
   })
 
-  it('does not submit IME composition, Shift+Enter, connecting sessions, or running turns', async () => {
+  it('does not submit IME composition, Shift+Enter, connecting sessions, or pending requests', async () => {
     const a = thread()
     mock.getSession.mockResolvedValue(snapshot(a.id, { phase: 'connecting' }))
     render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
@@ -333,14 +336,131 @@ describe('Copilot session composer', () => {
     fireEvent.keyDown(input(), { key: 'Enter', keyCode: 229 })
     fireEvent.keyDown(input(), { key: 'Enter', shiftKey: true })
     expect(mock.send).not.toHaveBeenCalled()
-    act(() => listener({ snapshot: snapshot(a.id, { phase: 'running' }) }))
+    act(() =>
+      listener({
+        snapshot: snapshot(a.id, {
+          phase: 'running',
+          pendingInteraction: {
+            id: 'permission',
+            kind: 'permission',
+            title: 'Allow read access?',
+            description: '/file',
+            allowSessionApproval: true
+          }
+        })
+      })
+    )
     fireEvent.keyDown(input(), { key: 'Enter' })
     expect(mock.send).not.toHaveBeenCalled()
-    expect(send().disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Steer' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).disabled).toBe(
       false
     )
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
+  })
+
+  it('steers by default while Copilot works and can queue follow-ups instead', async () => {
+    const a = thread()
+    mock.getSession.mockResolvedValue(snapshot(a.id, { phase: 'running' }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    const steer = await screen.findByRole('button', { name: 'Steer' })
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull()
+    expect(input().placeholder).toBe('Steer Copilot while it works…')
+    fireEvent.change(input(), { target: { value: 'Use JWT instead' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'Use JWT instead', delivery: 'steer' })
+      )
+    )
+    await waitFor(() => expect(input().value).toBe(''))
+    expect(steer.closest('.tm-send')?.getAttribute('data-mode')).toBe('steer')
+
+    const toggle = screen.getByRole('button', { name: 'Choose how to send while Copilot works' })
+    fireEvent.click(toggle)
+    const menu = screen.getByRole('menu', { name: 'Send while Copilot works' })
+    expect(
+      within(menu).getByRole('menuitemradio', { name: /Steer/ }).getAttribute('aria-checked')
+    ).toBe('true')
+    fireEvent.click(within(menu).getByRole('menuitemradio', { name: /Queue/ }))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(document.activeElement).toBe(input())
+    expect(screen.getByRole('button', { name: 'Queue' })).toBeTruthy()
+    expect(input().placeholder).toBe('Queue a follow-up for when Copilot finishes…')
+    fireEvent.change(input(), { target: { value: 'Then add tests' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }))
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenLastCalledWith(
+        expect.objectContaining({ prompt: 'Then add tests', delivery: 'queue' })
+      )
+    )
+
+    act(() => listener({ snapshot: snapshot(a.id) }))
+    expect(send()).toBeTruthy()
+    const idleToggle = document.querySelector<HTMLButtonElement>('.tm-send-toggle')
+    expect(idleToggle?.disabled).toBe(true)
+    expect(idleToggle?.getAttribute('aria-hidden')).toBe('true')
+    fireEvent.change(input(), { target: { value: 'New turn' } })
+    fireEvent.click(send())
+    await waitFor(() => expect(mock.send).toHaveBeenCalledTimes(3))
+    expect(mock.send.mock.calls[2][0]).not.toHaveProperty('delivery')
+  })
+
+  it('shows messages waiting for Copilot and cancels queued ones', async () => {
+    const a = thread()
+    const waiting = snapshot(a.id, {
+      phase: 'running',
+      steeringMessages: ['Keep the v1 API'],
+      queuedMessages: [
+        { id: 'q1', text: 'Add migration scripts' },
+        { id: 'q2', text: 'Update the README' }
+      ]
+    })
+    mock.getSession.mockResolvedValue(waiting)
+    mock.cancelQueued.mockResolvedValue({
+      ok: true,
+      snapshot: { ...waiting, queuedMessages: [{ id: 'q2', text: 'Update the README' }] }
+    })
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    const list = await screen.findByRole('list', { name: 'Messages waiting for Copilot' })
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent)
+    ).toEqual(['SteeringKeep the v1 API', 'QueuedAdd migration scripts', 'QueuedUpdate the README'])
+    expect(within(list).getAllByRole('button')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Stop' }).title).toContain('discard')
+    fireEvent.click(
+      within(list).getByRole('button', { name: 'Cancel queued message: Add migration scripts' })
+    )
+    expect(mock.cancelQueued).toHaveBeenCalledWith({ threadId: a.id, queuedId: 'q1' })
+    await waitFor(() => expect(within(list).getAllByRole('listitem')).toHaveLength(2))
+    expect(screen.queryByText('Add migration scripts')).toBeNull()
+
+    mock.cancelQueued.mockResolvedValue({
+      ok: false,
+      error: 'That message has already been sent to Copilot.'
+    })
+    fireEvent.click(
+      within(list).getByRole('button', { name: 'Cancel queued message: Update the README' })
+    )
+    expect((await screen.findByRole('alert')).textContent).toContain('already been sent')
+  })
+
+  it('marks steered messages in the conversation', async () => {
+    const a = thread()
+    mock.getSession.mockResolvedValue(
+      snapshot(a.id, {
+        timeline: [
+          { id: 'u1', type: 'user', content: 'Start', timestamp: '' },
+          { id: 'u2', type: 'user', content: 'Adjust', timestamp: '', steered: true }
+        ]
+      })
+    )
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    const [first, second] = await screen.findAllByRole('article', { name: 'Your message' })
+    expect(first.textContent).not.toContain('steered')
+    expect(second.textContent).toContain('You · steered')
   })
 
   it('ignores late responses from the previously selected thread', async () => {
@@ -750,7 +870,7 @@ describe('Copilot session settings and surrounding controls', () => {
         reasoningEffort: 'high'
       })
     )
-    expect(send().disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Steer' }).disabled).toBe(true)
   })
 
   it('applies a model and its default effort, shows progress, and preserves the draft', async () => {

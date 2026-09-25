@@ -6,7 +6,11 @@ import type {
   SessionConfig,
   SessionEvent
 } from '@github/copilot-sdk'
-import type { CopilotModelSelection, PersistedThread } from '../../shared/app-types'
+import type {
+  CopilotModelSelection,
+  CopilotSendInput,
+  PersistedThread
+} from '../../shared/app-types'
 import { createCopilotSessionService } from './copilot-session-service'
 
 const harness = vi.hoisted(() => ({
@@ -27,6 +31,8 @@ const harness = vi.hoisted(() => ({
   invokeCommand: vi.fn(),
   listMcpServers: vi.fn(),
   mcpLogin: vi.fn(),
+  pendingItems: vi.fn(),
+  removeAt: vi.fn(),
   openExternal: vi.fn(),
   createSession: vi.fn(),
   ping: vi.fn(),
@@ -136,6 +142,8 @@ beforeEach(() => {
   harness.listSkills.mockResolvedValue({ skills: [] })
   harness.listMcpServers.mockResolvedValue({ servers: [] })
   harness.mcpLogin.mockResolvedValue({})
+  harness.pendingItems.mockResolvedValue({ items: [], steeringMessages: [] })
+  harness.removeAt.mockResolvedValue({ removed: true })
   harness.openExternal.mockResolvedValue(undefined)
   harness.invokeCommand.mockResolvedValue({
     kind: 'agent-prompt',
@@ -163,7 +171,8 @@ beforeEach(() => {
         mode: { get: async () => 'plan' },
         skills: { list: harness.listSkills },
         commands: { invoke: harness.invokeCommand },
-        mcp: { list: harness.listMcpServers, oauth: { login: harness.mcpLogin } }
+        mcp: { list: harness.listMcpServers, oauth: { login: harness.mcpLogin } },
+        queue: { pendingItems: harness.pendingItems, removeAt: harness.removeAt }
       },
       on: (listener: (event: SessionEvent) => void) => {
         harness.listener = listener
@@ -893,6 +902,162 @@ it('records activity when a running turn completes, but not when opening an idle
   emit('session.idle', {})
   expect(harness.activity).toHaveBeenCalledExactlyOnceWith('thread-1')
   await service.shutdown()
+})
+
+describe('messages sent while Copilot works', () => {
+  const message = (prompt: string, delivery?: 'steer' | 'queue'): CopilotSendInput => ({
+    threadId: 'thread',
+    prompt,
+    attachments: [],
+    agentMode: 'plan' as const,
+    ...(delivery ? { delivery } : {})
+  })
+  async function running(): Promise<ReturnType<typeof setup>> {
+    const service = setup()
+    await service.start('thread')
+    await service.send(message('Refactor the database layer'))
+    return service
+  }
+
+  it('steers the current turn or queues a follow-up without leaving the running phase', async () => {
+    const service = await running()
+    expect((await service.send(message('Keep the v1 API', 'steer'))).ok).toBe(true)
+    expect(harness.send).toHaveBeenLastCalledWith({
+      prompt: 'Keep the v1 API',
+      attachments: [],
+      mode: 'immediate'
+    })
+    const file = { id: 'a', type: 'file' as const, path: '/a.md', displayName: 'a.md' }
+    expect(
+      (await service.send({ ...message('Then add tests', 'queue'), attachments: [file] })).ok
+    ).toBe(true)
+    expect(harness.send).toHaveBeenLastCalledWith({
+      prompt: 'Then add tests',
+      attachments: [{ type: 'file', path: '/a.md', displayName: 'a.md' }],
+      mode: 'enqueue',
+      agentMode: 'plan'
+    })
+    expect(harness.send).toHaveBeenCalledTimes(3)
+    expect(service.getSession('thread')?.phase).toBe('running')
+    expect((await service.send(message('', 'queue'))).ok).toBe(false)
+    expect((await service.send(message('No delivery'))).ok).toBe(false)
+    expect(harness.send).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not steer past a pending request or deliver a message after Stop', async () => {
+    const service = setup(false)
+    await service.start('thread')
+    await service.send(message('Hello'))
+    const approval = harness.config!.onPermissionRequest!(
+      { kind: 'read', intention: 'Read file', path: '/a' },
+      { sessionId: 'session-id' }
+    )
+    expect((await service.send(message('Adjust', 'steer'))).ok).toBe(false)
+    await service.abort('thread')
+    await approval
+    emit('assistant.turn_start', { turnId: 'turn-2' })
+    const expansion = deferred<unknown>()
+    harness.invokeCommand.mockReturnValueOnce(expansion.promise)
+    harness.listSkills.mockResolvedValue({
+      skills: [
+        {
+          name: 'review',
+          commandName: 'review',
+          description: '',
+          source: 'project',
+          enabled: true,
+          userInvocable: true
+        }
+      ]
+    })
+    const sending = service.send(message('/review', 'queue'))
+    await vi.waitFor(() => expect(harness.invokeCommand).toHaveBeenCalled())
+    await service.abort('thread')
+    expansion.resolve({ kind: 'agent-prompt', prompt: 'Expanded' })
+    expect(await sending).toMatchObject({ ok: false, error: 'Message cancelled.' })
+    expect(harness.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('mirrors the runtime queue and cancels queued messages', async () => {
+    const service = await running()
+    harness.pendingItems.mockResolvedValue({
+      items: [
+        { id: '1', kind: 'message', displayText: 'Add tests', agentMode: 'interactive' },
+        { id: '2', kind: 'command', displayText: '/model gpt', agentMode: 'interactive' },
+        { id: '3', kind: 'message', displayText: 'Update docs', agentMode: 'interactive' }
+      ],
+      steeringMessages: ['Already applied', 'Keep the v1 API'],
+      inFlightSteeringCount: 1
+    })
+    emit('pending_messages.modified', {})
+    await vi.waitFor(() =>
+      expect(service.getSession('thread')).toMatchObject({
+        queuedMessages: [
+          { id: '1', text: 'Add tests' },
+          { id: '3', text: 'Update docs' }
+        ],
+        steeringMessages: ['Keep the v1 API']
+      })
+    )
+    const broadcasts = harness.broadcast.mock.calls.length
+    emit('pending_messages.modified', {})
+    await vi.waitFor(() => expect(harness.pendingItems).toHaveBeenCalledTimes(2))
+    await Promise.resolve()
+    expect(harness.broadcast.mock.calls.length).toBe(broadcasts)
+
+    harness.pendingItems.mockResolvedValue({
+      items: [{ id: '3', kind: 'message', displayText: 'Update docs', agentMode: 'interactive' }],
+      steeringMessages: []
+    })
+    const cancelled = await service.cancelQueued({ threadId: 'thread', queuedId: '1' })
+    expect(harness.removeAt).toHaveBeenCalledWith({ id: '1' })
+    expect(cancelled).toMatchObject({
+      ok: true,
+      snapshot: { queuedMessages: [{ id: '3', text: 'Update docs' }] }
+    })
+    harness.removeAt.mockResolvedValueOnce({ removed: false })
+    expect(await service.cancelQueued({ threadId: 'thread', queuedId: '3' })).toMatchObject({
+      ok: false,
+      error: 'That message has already been sent to Copilot.'
+    })
+
+    harness.pendingItems.mockResolvedValue({ items: [], steeringMessages: [] })
+    await service.abort('thread')
+    await vi.waitFor(() => expect(service.getSession('thread')?.queuedMessages).toEqual([]))
+  })
+
+  it('ignores queue snapshots that arrive out of order or after the thread closes', async () => {
+    const service = await running()
+    const stale = deferred<unknown>()
+    harness.pendingItems.mockReturnValueOnce(stale.promise)
+    emit('pending_messages.modified', {})
+    harness.pendingItems.mockResolvedValueOnce({ items: [], steeringMessages: ['Latest'] })
+    emit('pending_messages.modified', {})
+    await vi.waitFor(() =>
+      expect(service.getSession('thread')?.steeringMessages).toEqual(['Latest'])
+    )
+    stale.resolve({ items: [], steeringMessages: ['Stale'] })
+    await Promise.resolve()
+    expect(service.getSession('thread')?.steeringMessages).toEqual(['Latest'])
+    await service.stopThread('thread')
+    expect(harness.broadcast.mock.calls.at(-1)?.[1].snapshot).toMatchObject({
+      phase: 'disconnected',
+      queuedMessages: [],
+      steeringMessages: []
+    })
+  })
+
+  it('marks steered prompts in the timeline', async () => {
+    const service = await running()
+    harness.listener!(
+      event('user.message', { content: 'Keep the v1 API', delivery: 'steering', messageId: 's' })
+    )
+    harness.listener!(event('user.message', { content: 'Queued', delivery: 'queued' }))
+    expect(service.getSession('thread')?.timeline).toEqual([
+      expect.objectContaining({ content: 'Keep the v1 API', steered: true }),
+      expect.not.objectContaining({ steered: true })
+    ])
+  })
 })
 
 describe('session skills and prompt history', () => {

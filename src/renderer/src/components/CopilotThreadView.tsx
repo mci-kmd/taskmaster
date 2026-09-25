@@ -5,6 +5,7 @@ import type {
   CopilotInteractionResponse,
   CopilotReasoningEffort,
   CopilotSdkStatus,
+  CopilotSendDelivery,
   CopilotSessionSnapshot,
   CopilotStartResult,
   ThreadSnapshot
@@ -18,6 +19,8 @@ import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimeline from './copilot/SessionTimeline'
 import SessionPromptInput from './copilot/SessionPromptInput'
+import SendButton from './copilot/SendButton'
+import PendingMessages from './copilot/PendingMessages'
 import { useSessionDraft } from './copilot/session-drafts'
 import {
   attachmentPreview,
@@ -84,6 +87,8 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   const { prompt, attachments } = draft
   const agentMode = draft.agentMode ?? session?.agentMode ?? 'interactive'
   const [busy, setBusy] = useState<string | null>(null)
+  const [delivery, setDelivery] = useState<CopilotSendDelivery>('steer')
+  const [cancelling, setCancelling] = useState<string | null>(null)
   const [mcpSignInsStarted, setMcpSignInsStarted] = useState<string[]>([])
   const busyRef = useRef(false)
   const [stopping, setStopping] = useState(false)
@@ -248,15 +253,24 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   }
   const running = session?.phase === 'running'
   const ready = session?.phase === 'idle' && !session.pendingInteraction && !stopping
+  // Messages sent while Copilot works steer the current turn or wait in the queue.
+  const sendWhileRunning = running && !session?.pendingInteraction && !stopping
   const send = (): void => {
-    if (!ready || stoppingRef.current || (!prompt.trim() && !attachments.length)) return
+    if (
+      !(ready || sendWhileRunning) ||
+      stoppingRef.current ||
+      (!prompt.trim() && !attachments.length)
+    )
+      return
+    const sentDelivery = sendWhileRunning ? delivery : undefined
     void run('send', async () => {
       const revision = sessionRevision.current
       const result = await api.copilot.send({
         threadId: thread.id,
         prompt: prompt.trim(),
         attachments,
-        agentMode
+        agentMode,
+        ...(sentDelivery ? { delivery: sentDelivery } : {})
       })
       acceptResult(result, revision)
       if (result.ok) {
@@ -264,7 +278,11 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         updateDraft((current) => ({
           ...current,
           prompt: current.prompt === prompt ? '' : current.prompt,
-          agentMode: current.agentMode === draft.agentMode ? null : current.agentMode,
+          // Steering joins the running turn, so the chosen mode still applies to the next one.
+          agentMode:
+            sentDelivery !== 'steer' && current.agentMode === draft.agentMode
+              ? null
+              : current.agentMode,
           attachments: current.attachments.filter(
             (item) => !attachments.some((sent) => sent.id === item.id)
           )
@@ -275,6 +293,20 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
         }
       }
     })
+  }
+  const cancelQueued = (queuedId: string): void => {
+    setCancelling(queuedId)
+    setError(null)
+    void (async () => {
+      try {
+        const revision = sessionRevision.current
+        acceptResult(await api.copilot.cancelQueued({ threadId: thread.id, queuedId }), revision)
+      } catch (cause) {
+        if (mounted.current) setError(message(cause))
+      } finally {
+        if (mounted.current) setCancelling(null)
+      }
+    })()
   }
   const start = (): void => {
     void run('start', async () => {
@@ -533,6 +565,12 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
               />
             </div>
           ) : null}
+          <PendingMessages
+            steering={session?.steeringMessages ?? []}
+            queued={session?.queuedMessages ?? []}
+            cancelling={cancelling}
+            onCancel={cancelQueued}
+          />
           {attachments.length ? (
             <div className="tm-session-attachments">
               {attachments.map((attachment) => {
@@ -575,7 +613,7 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
             timeline={session?.timeline ?? []}
             hasAttachments={attachments.length > 0}
             hasInteraction={Boolean(session?.pendingInteraction)}
-            running={running}
+            mode={running ? delivery : 'send'}
             onChange={(value) =>
               updateDraft((current) => ({
                 ...current,
@@ -650,24 +688,31 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
                   size="sm"
                   variant="secondary"
                   disabled={stopping}
+                  title={
+                    session?.queuedMessages.length || session?.steeringMessages.length
+                      ? 'Stop the current response and discard waiting messages'
+                      : 'Stop the current response'
+                  }
                   onClick={() => void stop()}
                 >
                   {stopping ? 'Stopping…' : 'Stop'}
                 </Button>
               ) : null}
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={Boolean(busy) || !ready || (!prompt.trim() && !attachments.length)}
-                title={
-                  running
-                    ? 'Send when Copilot finishes, or stop the current response'
-                    : 'Send message (Enter)'
+              <SendButton
+                running={running}
+                delivery={delivery}
+                onDeliveryChange={(value) => {
+                  setDelivery(value)
+                  promptRef.current?.focus()
+                }}
+                busy={busy === 'send'}
+                disabled={
+                  Boolean(busy) ||
+                  !(ready || sendWhileRunning) ||
+                  (!prompt.trim() && !attachments.length)
                 }
-                onClick={send}
-              >
-                {busy === 'send' ? 'Sending…' : 'Send ↑'}
-              </Button>
+                onSend={send}
+              />
             </div>
           </div>
         </div>

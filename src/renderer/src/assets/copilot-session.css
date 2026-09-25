@@ -634,3 +634,220 @@
     transition: none;
   }
 }
+
+/* Send becomes a split button while Copilot works: the main segment steers or
+   queues, and the dropdown segment slides out to switch between them. */
+.tm-send {
+  --tm-send-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: inline-grid;
+  grid-template-columns: auto 0px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--color-fg);
+  color: #0a0a0a;
+  transition:
+    grid-template-columns 280ms var(--tm-send-ease),
+    background-color 220ms ease,
+    color 220ms ease;
+}
+.tm-send[data-split='true'] {
+  grid-template-columns: auto 24px;
+}
+.tm-send[data-mode='steer'] {
+  background: var(--color-info);
+}
+.tm-send[data-disabled] {
+  background: var(--color-active);
+  color: var(--color-fg-subtle);
+}
+.tm-send > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  height: 100%;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-radius 280ms var(--tm-send-ease);
+}
+.tm-send > button:disabled {
+  cursor: not-allowed;
+}
+.tm-send > button:hover:not(:disabled),
+.tm-send-toggle[aria-expanded='true'] {
+  background: #ffffff4d;
+}
+.tm-send[data-disabled] > button:hover:not(:disabled),
+.tm-send[data-disabled] .tm-send-toggle[aria-expanded='true'] {
+  background: var(--color-control-hover);
+}
+.tm-send-main {
+  gap: 6px;
+  padding: 0 10px 0 11px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+.tm-send[data-split='true'] .tm-send-main {
+  border-radius: 6px 0 0 6px;
+}
+/* Labels share one grid cell, so the button stays the width of the longest one. */
+.tm-send-labels {
+  display: grid;
+}
+.tm-send-labels > span {
+  grid-area: 1 / 1;
+  text-align: center;
+  transition:
+    opacity 180ms ease,
+    transform 280ms var(--tm-send-ease),
+    filter 180ms ease;
+}
+.tm-send-labels > span[data-active='false'] {
+  opacity: 0;
+  transform: translateY(5px) scale(0.92);
+  filter: blur(2px);
+}
+/* Up to send, veer to steer, and point ahead to queue for later. */
+.tm-send-arrow {
+  flex: none;
+  transition: transform 320ms var(--tm-send-ease);
+}
+.tm-send[data-mode='steer'] .tm-send-arrow {
+  transform: rotate(45deg);
+}
+.tm-send[data-mode='queue'] .tm-send-arrow {
+  transform: rotate(90deg);
+}
+.tm-send-toggle {
+  overflow: hidden;
+  border-radius: 0 6px 6px 0;
+  box-shadow: inset 1px 0 0 #0000002e;
+  opacity: 0;
+  transition:
+    opacity 200ms ease,
+    background-color 150ms ease;
+}
+.tm-send[data-disabled] .tm-send-toggle {
+  box-shadow: inset 1px 0 0 #ffffff12;
+}
+.tm-send[data-split='true'] .tm-send-toggle {
+  opacity: 1;
+}
+.tm-send-toggle svg {
+  flex: none;
+  transition: transform 200ms ease;
+}
+.tm-send-toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.tm-send-menu-item {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border-radius: 5px;
+  text-align: left;
+  outline: none;
+  cursor: pointer;
+}
+.tm-send-menu-item:hover,
+.tm-send-menu-item:focus-visible {
+  background: var(--color-control-hover);
+}
+.tm-send-menu-check {
+  flex: none;
+  width: 12px;
+  color: var(--color-fg-muted);
+  font-size: 11px;
+  line-height: 18px;
+}
+.tm-send-menu-label {
+  display: block;
+  color: var(--color-fg);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.tm-send-menu-description {
+  display: block;
+  margin-top: 2px;
+  color: var(--color-fg-subtle);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tm-session-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 136px;
+  margin: 0;
+  padding: 8px 8px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.tm-session-pending-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 5px 4px 10px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  font-size: 12px;
+  animation: tm-pop-in 200ms ease-out both;
+}
+.tm-session-pending-kind {
+  flex: none;
+  min-width: 50px;
+  color: var(--color-fg-subtle);
+  font-size: 10.5px;
+}
+.tm-session-pending-item[data-kind='steer'] .tm-session-pending-kind {
+  color: var(--color-info);
+  animation: tm-pulse 1.6s ease-in-out infinite;
+}
+.tm-session-pending-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg-muted);
+}
+.tm-session-pending-cancel {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--color-fg-subtle);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.tm-session-pending-cancel:hover:not(:disabled) {
+  background: var(--color-control-hover);
+  color: var(--color-fg);
+}
+.tm-session-pending-cancel:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tm-send,
+  .tm-send *,
+  .tm-session-pending-item,
+  .tm-session-pending-item * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

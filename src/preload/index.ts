@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
   BranchStatusRequest,
+  CopilotCancelQueuedInput,
   CopilotInteractionResponse,
   CopilotMcpAuthInput,
   CopilotSendInput,
@@ -174,6 +175,8 @@ const api = {
       onIpc(IPC_CHANNELS.copilot.performanceSample, callback),
     listSkills: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.listSkills, threadId),
     send: (input: CopilotSendInput) => invokeIpc(IPC_CHANNELS.copilot.send, input),
+    cancelQueued: (input: CopilotCancelQueuedInput) =>
+      invokeIpc(IPC_CHANNELS.copilot.cancelQueued, input),
     abort: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.abort, threadId),
     setModel: (input: CopilotSetModelInput) => invokeIpc(IPC_CHANNELS.copilot.setModel, input),
     respond: (input: CopilotInteractionResponse) => invokeIpc(IPC_CHANNELS.copilot.respond, input),

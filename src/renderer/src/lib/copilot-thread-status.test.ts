@@ -22,6 +22,8 @@ function snapshot(
     timeline: [],
     pendingInteraction,
     mcpServersNeedingAuth: [],
+    queuedMessages: [],
+    steeringMessages: [],
     error: phase === 'error' ? 'Failed' : null
   }
 }

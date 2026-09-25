@@ -381,6 +381,8 @@ export type CopilotTimelineItem =
       streaming?: boolean
       model?: string
       attachments?: string[]
+      /** A user message sent into a turn that was already running. */
+      steered?: boolean
     }
   | {
       id: string
@@ -449,8 +451,20 @@ export interface CopilotSessionSnapshot {
   timeline: CopilotTimelineItem[]
   pendingInteraction: CopilotInteraction | null
   mcpServersNeedingAuth: string[]
+  /** Messages waiting to start their own turn, in the order they will run. */
+  queuedMessages: CopilotQueuedMessage[]
+  /** Steering messages not yet picked up by the running turn. */
+  steeringMessages: string[]
   error: string | null
 }
+
+export interface CopilotQueuedMessage {
+  id: string
+  text: string
+}
+
+/** How a message sent while Copilot is working is delivered. */
+export type CopilotSendDelivery = 'steer' | 'queue'
 
 export interface CopilotSdkStatus {
   bundledVersion: string
@@ -495,6 +509,13 @@ export interface CopilotSendInput {
   prompt: string
   attachments: CopilotAttachment[]
   agentMode: CopilotAgentMode
+  /** Used only while a turn is running; idle sessions always start a new turn. */
+  delivery?: CopilotSendDelivery
+}
+
+export interface CopilotCancelQueuedInput {
+  threadId: string
+  queuedId: string
 }
 
 export interface CopilotSetModelInput {
@@ -555,6 +576,7 @@ export interface CopilotApi {
   onPerformanceSample: (callback: (payload: ModelPerformanceSampleEvent) => void) => () => void
   listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>
+  cancelQueued: (input: CopilotCancelQueuedInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
   respond: (input: CopilotInteractionResponse) => Promise<boolean>

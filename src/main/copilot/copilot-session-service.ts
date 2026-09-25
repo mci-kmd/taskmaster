@@ -5,6 +5,7 @@ import { basename } from 'path'
 import { app, BrowserWindow, dialog, nativeImage, shell } from 'electron'
 import type {
   CopilotAttachment,
+  CopilotCancelQueuedInput,
   CopilotInteraction,
   CopilotInteractionResponse,
   CopilotMcpAuthInput,
@@ -13,6 +14,7 @@ import type {
   ModelPerformanceSample,
   CopilotReasoningEffort,
   CopilotSdkStatus,
+  CopilotSendDelivery,
   CopilotSendInput,
   CopilotSkillsResult,
   CopilotSessionSnapshot,
@@ -32,6 +34,7 @@ import type {
   ElicitationResult,
   ExitPlanModeRequest,
   ExitPlanModeResult,
+  MessageOptions,
   ModelInfo,
   PermissionRequest,
   PermissionRequestResult,
@@ -69,6 +72,7 @@ type ActiveSession = {
   pending: PendingInteraction[]
   modelChangePending: boolean
   sendRevision: number
+  queueRevision: number
   unsubscribe: () => void
 }
 
@@ -143,6 +147,23 @@ async function imagePreview(path: string): Promise<string | undefined> {
   }
 }
 
+function toSdkAttachments(attachments: CopilotAttachment[]): MessageOptions['attachments'] {
+  return attachments.map((attachment) =>
+    attachment.type === 'file'
+      ? {
+          type: 'file' as const,
+          path: attachment.path!,
+          displayName: attachment.displayName
+        }
+      : {
+          type: 'blob' as const,
+          data: attachment.data!,
+          mimeType: attachment.mimeType!,
+          displayName: attachment.displayName
+        }
+  )
+}
+
 function attachmentNames(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value
@@ -185,7 +206,8 @@ function timelineItemFromEvent(event: SessionEvent): CopilotTimelineItem | null 
         type: 'user',
         content: event.data.content,
         timestamp: event.timestamp,
-        attachments: attachmentNames(event.data.attachments)
+        attachments: attachmentNames(event.data.attachments),
+        ...(event.data.delivery === 'steering' ? { steered: true } : {})
       }
     case 'assistant.message':
       return {
@@ -334,6 +356,7 @@ export function createCopilotSessionService(dependencies: {
   getPerformanceSamples: () => ModelPerformanceSample[]
   listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>
+  cancelQueued: (input: CopilotCancelQueuedInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
   respond: (input: CopilotInteractionResponse) => boolean
@@ -448,6 +471,33 @@ export function createCopilotSessionService(dependencies: {
         return item
       })
     })
+  }
+
+  // The runtime owns the queue; mirror it so queued messages can be shown and cancelled.
+  const refreshQueue = (active: ActiveSession): void => {
+    const revision = ++active.queueRevision
+    void Promise.resolve()
+      .then(() => active.session.rpc.queue.pendingItems())
+      .then(
+        (result) => {
+          if (
+            revision !== active.queueRevision ||
+            sessions.get(active.snapshot.threadId) !== active
+          )
+            return
+          const queuedMessages = result.items
+            .filter((item) => item.kind === 'message')
+            .map((item) => ({ id: item.id, text: item.displayText }))
+          const steeringMessages = result.steeringMessages.slice(result.inFlightSteeringCount ?? 0)
+          if (
+            JSON.stringify([queuedMessages, steeringMessages]) ===
+            JSON.stringify([active.snapshot.queuedMessages, active.snapshot.steeringMessages])
+          )
+            return
+          updateSnapshot(active, { queuedMessages, steeringMessages })
+        },
+        (error) => console.warn('Could not load queued Copilot messages:', error)
+      )
   }
 
   const permissionHandler = (active: ActiveSession, approveAll: boolean) => {
@@ -679,6 +729,10 @@ export function createCopilotSessionService(dependencies: {
         finishActivity(active)
         cancelInteractions(active)
         updateSnapshot(active, { phase: 'idle', error: null })
+        refreshQueue(active)
+        break
+      case 'pending_messages.modified':
+        refreshQueue(active)
         break
       case 'session.error':
         finishActivity(active)
@@ -813,6 +867,8 @@ export function createCopilotSessionService(dependencies: {
       timeline: [],
       pendingInteraction: null,
       mcpServersNeedingAuth: [],
+      queuedMessages: [],
+      steeringMessages: [],
       error: null
     }
     broadcastSession(snapshot)
@@ -835,6 +891,7 @@ export function createCopilotSessionService(dependencies: {
         pending: [],
         modelChangePending: false,
         sendRevision: 0,
+        queueRevision: 0,
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder, context.yoloEnabled)
@@ -1032,6 +1089,33 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  const sendWhileRunning = async (
+    active: ActiveSession,
+    input: CopilotSendInput & { delivery: CopilotSendDelivery }
+  ): Promise<CopilotStartResult> => {
+    if (!input.prompt.trim() && !input.attachments.length)
+      return { ok: false, error: 'Enter a message or attach a file.' }
+    // Stopping the turn clears the runtime queue, so it also cancels this message.
+    const sendRevision = active.sendRevision
+    try {
+      const expanded = await expandSkillPrompt(active.session, input.prompt)
+      if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active)
+        return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
+      await active.session.send({
+        ...expanded,
+        attachments: toSdkAttachments(input.attachments),
+        // Steering joins the current turn, so it keeps that turn's mode.
+        ...(input.delivery === 'queue'
+          ? { mode: 'enqueue' as const, agentMode: input.agentMode }
+          : { mode: 'immediate' as const })
+      })
+      refreshQueue(active)
+      return { ok: true, snapshot: active.snapshot }
+    } catch (error) {
+      return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
+    }
+  }
+
   return {
     getSdkStatus: () => sdkManager.getStatus(),
     checkForSdkUpdate: () => sdkManager.checkForUpdate(),
@@ -1093,6 +1177,8 @@ export function createCopilotSessionService(dependencies: {
           error: 'Wait for the model settings to finish updating.',
           snapshot: active.snapshot
         }
+      if (input.delivery && active.snapshot.phase === 'running' && !active.pending.length)
+        return sendWhileRunning(active, { ...input, delivery: input.delivery })
       if (active.snapshot.phase !== 'idle' || active.pending.length) {
         return {
           ok: false,
@@ -1125,20 +1211,7 @@ export function createCopilotSessionService(dependencies: {
         }
         await active.session.send({
           ...expanded,
-          attachments: input.attachments.map((attachment) =>
-            attachment.type === 'file'
-              ? {
-                  type: 'file' as const,
-                  path: attachment.path!,
-                  displayName: attachment.displayName
-                }
-              : {
-                  type: 'blob' as const,
-                  data: attachment.data!,
-                  mimeType: attachment.mimeType!,
-                  displayName: attachment.displayName
-                }
-          ),
+          attachments: toSdkAttachments(input.attachments),
           agentMode: input.agentMode
         })
         return { ok: true, snapshot: active.snapshot }
@@ -1161,7 +1234,29 @@ export function createCopilotSessionService(dependencies: {
       await active.session.abort()
       finishActivity(active)
       updateSnapshot(active, { phase: 'idle', error: null })
+      refreshQueue(active)
       return true
+    },
+    cancelQueued: async ({ threadId, queuedId }: CopilotCancelQueuedInput) => {
+      const active = sessions.get(threadId)
+      if (!active) return { ok: false, error: 'Connect to Copilot to change queued messages.' }
+      try {
+        const { removed } = await active.session.rpc.queue.removeAt({ id: queuedId })
+        if (removed && sessions.get(threadId) === active)
+          updateSnapshot(active, {
+            queuedMessages: active.snapshot.queuedMessages.filter((item) => item.id !== queuedId)
+          })
+        refreshQueue(active)
+        return removed
+          ? { ok: true, snapshot: active.snapshot }
+          : {
+              ok: false,
+              error: 'That message has already been sent to Copilot.',
+              snapshot: active.snapshot
+            }
+      } catch (error) {
+        return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
+      }
     },
     setModel: async (input: CopilotSetModelInput) => {
       const startResult = await start(input.threadId)
@@ -1295,7 +1390,9 @@ export function createCopilotSessionService(dependencies: {
     broadcastSession({
       ...active.snapshot,
       phase: 'disconnected',
-      pendingInteraction: null
+      pendingInteraction: null,
+      queuedMessages: [],
+      steeringMessages: []
     })
     try {
       await active.session.disconnect()
