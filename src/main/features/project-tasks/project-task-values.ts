@@ -31,7 +31,7 @@ export function sameTaskTags(
 }
 
 export function normalizePersistedTask(task: PersistedProjectTask): PersistedProjectTask {
-  const title = normalizeTaskTitle(task.title) ?? 'Untitled task'
+  const title = normalizeTaskTitle(task.title) ?? ''
   const description = normalizeTaskDescription(task.description) ?? ''
   const currentTags = Array.isArray(task.tags) ? task.tags : []
   const tags = normalizeTaskTags(currentTags)
@@ -55,20 +55,10 @@ export function validateRepositoryTaskValues(input: {
   tags: ProjectTaskTag[]
   allowedTags: readonly ProjectTaskTag[]
 }): ProjectTaskValidationResult {
-  const title = normalizeTaskTitle(input.title)
-  if (!title) {
-    return { ok: false, error: 'Task title is required.' }
-  }
-
-  const description = normalizeTaskDescription(input.description)
-  if (!description) {
-    return { ok: false, error: 'Task description is required.' }
-  }
-
   return {
     ok: true,
-    title,
-    description,
+    title: normalizeTaskTitle(input.title) ?? '',
+    description: normalizeTaskDescription(input.description) ?? '',
     tags: normalizeTaskTagsAgainstAllowed(input.tags, input.allowedTags)
   }
 }

@@ -8,6 +8,7 @@ import type {
   RepositoryBackend,
   UpdateRepositoryInput
 } from '../../../shared/app-types'
+import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 
 type FilePickerResult = {
   canceled: boolean
@@ -192,6 +193,11 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         return dependencies.failureResult('Post-worktree-remove script is invalid.')
       }
 
+      const taskTagsInput =
+        input.taskTagsInput === undefined
+          ? (repository.taskTagsInput ?? '')
+          : normalizeTaskTagsInput(input.taskTagsInput)
+
       if (
         (input.icon === undefined || input.icon === repository.icon) &&
         (input.iconColor === undefined || input.iconColor === repository.iconColor) &&
@@ -199,7 +205,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         repository.runCommand === runCommandValidation.command &&
         repository.solutionFilePath === solutionFileValidation.path &&
         repository.newWorktreeSetupCommand === newWorktreeSetupCommandValidation.command &&
-        repository.postWorktreeRemoveCommand === postWorktreeRemoveCommandValidation.command
+        repository.postWorktreeRemoveCommand === postWorktreeRemoveCommandValidation.command &&
+        (repository.taskTagsInput ?? '') === taskTagsInput
       ) {
         return dependencies.successResult()
       }
@@ -211,6 +218,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       repository.solutionFilePath = solutionFileValidation.path
       repository.newWorktreeSetupCommand = newWorktreeSetupCommandValidation.command
       repository.postWorktreeRemoveCommand = postWorktreeRemoveCommandValidation.command
+      if (input.taskTagsInput !== undefined) repository.taskTagsInput = taskTagsInput
       dependencies.saveState()
       return dependencies.successResult()
     },

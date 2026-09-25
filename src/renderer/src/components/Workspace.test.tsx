@@ -46,6 +46,7 @@ function props(): ComponentProps<typeof Workspace> {
     onCreateRepositoryTask: vi.fn(),
     onCompleteRepositoryTask: vi.fn(),
     onUpdateRepositoryTask: vi.fn(),
+    onReorderRepositoryTasks: vi.fn(),
     onNewThread: vi.fn(),
     onStartRunCommand: vi.fn(),
     onStopRunCommand: vi.fn(),

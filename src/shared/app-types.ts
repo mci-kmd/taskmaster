@@ -95,6 +95,8 @@ export interface PersistedRepository {
   solutionFilePath: string | null
   newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
+  /** Project-specific task tags, offered in addition to the global settings tags. */
+  taskTagsInput?: string
   addedAt: string
   tasks: PersistedProjectTask[]
 }
@@ -602,6 +604,7 @@ export interface UpdateRepositoryInput {
   solutionFilePath: string | null
   newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
+  taskTagsInput?: string
 }
 
 export interface CreateRepositoryTaskInput {
@@ -614,6 +617,11 @@ export interface CreateRepositoryTaskInput {
 export interface CompleteRepositoryTaskInput {
   repositoryId: string
   taskId: string
+}
+
+export interface ReorderRepositoryTasksInput {
+  repositoryId: string
+  taskIds: string[]
 }
 
 export interface UpdateRepositoryTaskInput {

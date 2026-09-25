@@ -110,7 +110,7 @@ function SettingsForm({
       </Field>
 
       <Field
-        hint="Comma- or newline-separated labels available in project task create/edit forms."
+        hint="Comma- or newline-separated labels available in every project's task create/edit forms. Projects can add their own tags in Edit project."
         label="Task tags"
       >
         <TextArea

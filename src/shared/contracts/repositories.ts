@@ -7,6 +7,7 @@ export type {
   PersistedRepository,
   ProjectTaskSnapshot,
   ProjectTaskTag,
+  ReorderRepositoryTasksInput,
   RepositorySnapshot,
   UpdateRepositoryInput,
   UpdateRepositoryTaskInput

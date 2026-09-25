@@ -31,7 +31,7 @@ describe('project task values', () => {
     expect(normalizePersistedTask(task)).toBe(task)
     expect(normalizePersistedTask({ ...task, title: '   ', tags: [' bug ', 'bug'] })).toEqual({
       ...task,
-      title: 'Untitled task',
+      title: '',
       tags: ['bug']
     })
   })
@@ -53,11 +53,11 @@ describe('project task values', () => {
 
     expect(
       validateRepositoryTaskValues({
-        title: '',
-        description: 'Details',
+        title: '  ',
+        description: '',
         tags: [],
         allowedTags: []
       })
-    ).toEqual({ ok: false, error: 'Task title is required.' })
+    ).toEqual({ ok: true, title: '', description: '', tags: [] })
   })
 })

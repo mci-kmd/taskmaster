@@ -61,27 +61,38 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
       : null
   )
   const postWorktreeRemoveCommand = normalizeRepositoryScript(repository.postWorktreeRemoveCommand)
+  const rawTaskTagsInput = (repository as { taskTagsInput?: unknown }).taskTagsInput
+  const taskTagsInput =
+    typeof rawTaskTagsInput === 'string' ? normalizeTaskTagsInput(rawTaskTagsInput) : undefined
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const tasks = currentTasks.map((task) => normalizePersistedTask(task))
 
-  return sameRepositoryBackend(backend, repository.backend) &&
+  if (
+    sameRepositoryBackend(backend, repository.backend) &&
     runCommand === repository.runCommand &&
     solutionFilePath === rawSolutionFilePath &&
     newWorktreeSetupCommand === repository.newWorktreeSetupCommand &&
     postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
+    taskTagsInput === rawTaskTagsInput &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
     tasks.every((task, index) => task === currentTasks[index])
-    ? repository
-    : {
-        ...repository,
-        backend,
-        runCommand,
-        solutionFilePath,
-        newWorktreeSetupCommand,
-        postWorktreeRemoveCommand,
-        tasks
-      }
+  ) {
+    return repository
+  }
+
+  const { taskTagsInput: _taskTagsInput, ...rest } = repository
+  void _taskTagsInput
+  return {
+    ...rest,
+    backend,
+    runCommand,
+    solutionFilePath,
+    newWorktreeSetupCommand,
+    postWorktreeRemoveCommand,
+    ...(taskTagsInput === undefined ? {} : { taskTagsInput }),
+    tasks
+  }
 }
 
 export function normalizePersistedSettings(

@@ -84,4 +84,65 @@ describe('project task service', () => {
     })
     expect(saveState).toHaveBeenCalledTimes(1)
   })
+
+  it('allows project-level tags in addition to global tags', () => {
+    const repository = {
+      id: 'repo-1',
+      taskTagsInput: 'backend\nBug',
+      tasks: [] as Array<{ id: string; tags: string[] }>
+    }
+    const service = createProjectTaskService({
+      ensureState: () => ({
+        settings: { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: 'bug' }
+      }),
+      findRepository: () => repository as never,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      nowIso: () => '2026-01-01T00:00:00.000Z',
+      createId: () => 'task-1'
+    })
+
+    const result = service.createRepositoryTask({
+      repositoryId: 'repo-1',
+      title: '',
+      description: '',
+      tags: ['bug', 'backend', 'other']
+    })
+
+    expect(result.ok).toBe(true)
+    expect(repository.tasks[0]).toMatchObject({
+      title: '',
+      description: '',
+      tags: ['bug', 'backend']
+    })
+  })
+
+  it('reorders repository tasks, keeping unknown tasks at the end', () => {
+    const saveState = vi.fn()
+    const repository = {
+      id: 'repo-1',
+      tasks: [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+    }
+    const service = createProjectTaskService({
+      ensureState: () => ({
+        settings: { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+      }),
+      findRepository: () => repository as never,
+      saveState,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      nowIso: () => '2026-01-01T00:00:00.000Z',
+      createId: () => 'x'
+    })
+
+    expect(
+      service.reorderRepositoryTasks({ repositoryId: 'repo-1', taskIds: ['a', 'b', 'c'] }).ok
+    ).toBe(true)
+    expect(saveState).not.toHaveBeenCalled()
+
+    service.reorderRepositoryTasks({ repositoryId: 'repo-1', taskIds: ['c', 'missing', 'a', 'c'] })
+    expect(repository.tasks.map((task) => task.id)).toEqual(['c', 'a', 'b'])
+    expect(saveState).toHaveBeenCalledTimes(1)
+  })
 })

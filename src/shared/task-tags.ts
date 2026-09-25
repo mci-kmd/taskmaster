@@ -117,3 +117,11 @@ export function sortTaskTags(tags: readonly string[], preferredOrder: readonly s
 export function mergeTaskTags(primary: readonly string[], secondary: readonly string[]): string[] {
   return normalizeTaskTags([...primary, ...secondary])
 }
+
+/** Global tags first, followed by any project-specific tags not already defined globally. */
+export function resolveProjectTaskTags(
+  globalTags: readonly string[],
+  projectTagsInput: string | null | undefined
+): string[] {
+  return mergeTaskTags(globalTags, parseTaskTagsInput(projectTagsInput))
+}

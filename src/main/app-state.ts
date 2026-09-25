@@ -8,6 +8,7 @@ import type {
   CreateThreadInput,
   MutationResult,
   PickRepositoryFaviconResult,
+  ReorderRepositoryTasksInput,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -260,6 +261,8 @@ export function registerAppStateIpc(): void {
       projectTaskService.completeRepositoryTask(input),
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) =>
       projectTaskService.updateRepositoryTask(input),
+    reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) =>
+      projectTaskService.reorderRepositoryTasks(input),
     createThread: (input: CreateThreadInput) => threadCreateService.createThread(input),
     convertThreadToWorktree: (threadId: string) =>
       threadConvertService.convertThreadToWorktree(threadId),

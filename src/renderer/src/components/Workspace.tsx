@@ -6,6 +6,7 @@ import type {
   ThreadSnapshot,
   UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
+import { resolveProjectTaskTags } from '../../../shared/task-tags'
 import TerminalSessions, {
   type SessionMap,
   type TerminalSessionsHandle,
@@ -56,6 +57,7 @@ type WorkspaceProps = {
   onUpdateRepositoryTask: (
     input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>
   ) => Promise<boolean>
+  onReorderRepositoryTasks: (taskIds: string[]) => Promise<void>
   onNewThread: () => void
   onStartRunCommand: () => void
   onStopRunCommand: () => void
@@ -227,6 +229,7 @@ export default function Workspace({
   onCreateRepositoryTask,
   onCompleteRepositoryTask,
   onUpdateRepositoryTask,
+  onReorderRepositoryTasks,
   onNewThread,
   onStartRunCommand,
   onStopRunCommand,
@@ -527,8 +530,12 @@ export default function Workspace({
               onCompleteTask={onCompleteRepositoryTask}
               onCreateTask={onCreateRepositoryTask}
               onUpdateTask={onUpdateRepositoryTask}
+              onReorderTasks={onReorderRepositoryTasks}
               repository={selectedRepository}
-              taskTags={settings.parsedTaskTags}
+              taskTags={resolveProjectTaskTags(
+                settings.parsedTaskTags,
+                selectedRepository.taskTagsInput
+              )}
             />
           </div>
         ) : null}

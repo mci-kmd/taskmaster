@@ -440,11 +440,26 @@ export default function App(): React.JSX.Element {
           title: input.title,
           description: input.description,
           tags: input.tags
-        }),
-        'Task created.'
+        })
       )
       setBusyAction(null)
       return result.ok
+    },
+    [applyMutation, selectedRepository]
+  )
+
+  const handleReorderRepositoryTasks = useCallback(
+    async (taskIds: string[]): Promise<void> => {
+      if (!selectedRepository) {
+        return
+      }
+
+      await applyMutation(
+        api.appState.reorderRepositoryTasks({
+          repositoryId: selectedRepository.id,
+          taskIds
+        })
+      )
     },
     [applyMutation, selectedRepository]
   )
@@ -680,6 +695,7 @@ export default function App(): React.JSX.Element {
             onCompleteRepositoryTask={handleCompleteRepositoryTask}
             onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
             onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
+            onReorderRepositoryTasks={handleReorderRepositoryTasks}
             onNewThread={() => handleOpenNewThreadDialog()}
             onStartRunCommand={() => void handleStartRunCommand()}
             onStopRunCommand={() => void handleStopRunCommand()}

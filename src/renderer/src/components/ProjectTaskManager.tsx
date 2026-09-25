@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import {
   type CreateRepositoryTaskInput,
   type ProjectTaskSnapshot,
@@ -13,7 +13,7 @@ import Modal from './Modal'
 import Button from './ui/Button'
 import Checkbox from './ui/Checkbox'
 import { Field, TextArea, TextInput } from './ui/Field'
-import { PlusIcon } from './Icons'
+import { GripIcon, PlusIcon } from './Icons'
 
 type ProjectTaskManagerProps = {
   repository: RepositorySnapshot
@@ -22,6 +22,42 @@ type ProjectTaskManagerProps = {
   onCreateTask: (input: Omit<CreateRepositoryTaskInput, 'repositoryId'>) => Promise<boolean>
   onCompleteTask: (taskId: string) => Promise<void>
   onUpdateTask: (input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>) => Promise<boolean>
+  onReorderTasks: (taskIds: string[]) => Promise<void>
+}
+
+type OptimisticOrder = {
+  source: ProjectTaskSnapshot[]
+  taskIds: string[]
+}
+
+type DragState = {
+  taskId: string
+  dropIndex: number | null
+}
+
+function applyTaskOrder(
+  tasks: ProjectTaskSnapshot[],
+  taskIds: readonly string[]
+): ProjectTaskSnapshot[] {
+  const tasksById = new Map(tasks.map((task) => [task.id, task]))
+  const ordered = taskIds.flatMap((id) => {
+    const task = tasksById.get(id)
+    return task ? [task] : []
+  })
+  const orderedIds = new Set(ordered.map((task) => task.id))
+  return [...ordered, ...tasks.filter((task) => !orderedIds.has(task.id))]
+}
+
+function moveTaskId(taskIds: readonly string[], taskId: string, insertIndex: number): string[] {
+  const fromIndex = taskIds.indexOf(taskId)
+  if (fromIndex < 0) {
+    return [...taskIds]
+  }
+
+  const next = taskIds.filter((id) => id !== taskId)
+  const targetIndex = insertIndex > fromIndex ? insertIndex - 1 : insertIndex
+  next.splice(Math.max(0, Math.min(targetIndex, next.length)), 0, taskId)
+  return next
 }
 
 function getTagTone(tag: ProjectTaskTag): string {
@@ -41,7 +77,8 @@ export default function ProjectTaskManager({
   busy,
   onCreateTask,
   onCompleteTask,
-  onUpdateTask
+  onUpdateTask,
+  onReorderTasks
 }: ProjectTaskManagerProps): React.JSX.Element {
   const now = useNow(30_000)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -52,12 +89,103 @@ export default function ProjectTaskManager({
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDescription, setEditingDescription] = useState('')
   const [editingTags, setEditingTags] = useState<ProjectTaskTag[]>([])
+  const [optimisticOrder, setOptimisticOrder] = useState<OptimisticOrder | null>(null)
+  const [dragState, setDragState] = useState<DragState | null>(null)
+  // Optimistic order only applies until the next snapshot replaces repository.tasks.
+  const tasks =
+    optimisticOrder && optimisticOrder.source === repository.tasks
+      ? applyTaskOrder(repository.tasks, optimisticOrder.taskIds)
+      : repository.tasks
   const editingTask =
-    editingTaskId === null
-      ? null
-      : (repository.tasks.find((task) => task.id === editingTaskId) ?? null)
+    editingTaskId === null ? null : (tasks.find((task) => task.id === editingTaskId) ?? null)
   const createTagOptions = taskTags
   const editTagOptions = mergeTaskTags(taskTags, editingTask?.tags ?? [])
+
+  const commitTaskOrder = (taskIds: string[]): void => {
+    const currentIds = tasks.map((task) => task.id)
+    if (taskIds.every((id, index) => id === currentIds[index])) {
+      return
+    }
+
+    setOptimisticOrder({ source: repository.tasks, taskIds })
+    void onReorderTasks(taskIds)
+  }
+
+  const handleDragStart = (event: DragEvent<HTMLElement>, taskId: string): void => {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', taskId)
+    const card = event.currentTarget.closest('article')
+    if (card) {
+      const bounds = card.getBoundingClientRect()
+      event.dataTransfer.setDragImage(card, event.clientX - bounds.left, event.clientY - bounds.top)
+    }
+    setDragState({ taskId, dropIndex: null })
+  }
+
+  const handleDragOverTask = (event: DragEvent<HTMLElement>, index: number): void => {
+    if (!dragState) {
+      return
+    }
+
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const dropIndex = event.clientY < bounds.top + bounds.height / 2 ? index : index + 1
+    if (dropIndex !== dragState.dropIndex) {
+      setDragState({ ...dragState, dropIndex })
+    }
+  }
+
+  const handleDragOverList = (event: DragEvent<HTMLElement>): void => {
+    if (dragState) {
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+    }
+  }
+
+  const handleDrop = (event: DragEvent<HTMLElement>): void => {
+    if (!dragState) {
+      return
+    }
+
+    event.preventDefault()
+    if (dragState.dropIndex !== null) {
+      commitTaskOrder(
+        moveTaskId(
+          tasks.map((task) => task.id),
+          dragState.taskId,
+          dragState.dropIndex
+        )
+      )
+    }
+    setDragState(null)
+  }
+
+  const handleHandleKeyDown = (event: KeyboardEvent<HTMLElement>, index: number): void => {
+    const offset = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0
+    const nextIndex = index + offset
+    if (offset === 0 || nextIndex < 0 || nextIndex >= tasks.length) {
+      return
+    }
+
+    event.preventDefault()
+    const taskIds = tasks.map((task) => task.id)
+    const [taskId] = taskIds.splice(index, 1)
+    taskIds.splice(nextIndex, 0, taskId)
+    commitTaskOrder(taskIds)
+  }
+
+  const isNoopDropIndex = (dropIndex: number | null): boolean => {
+    if (!dragState || dropIndex === null) {
+      return true
+    }
+
+    const fromIndex = tasks.findIndex((task) => task.id === dragState.taskId)
+    return dropIndex === fromIndex || dropIndex === fromIndex + 1
+  }
+
+  const activeDropIndex =
+    dragState && !isNoopDropIndex(dragState.dropIndex) ? dragState.dropIndex : null
 
   const handleToggleTag = (tag: ProjectTaskTag, checked: boolean): void => {
     setTags((current) => {
@@ -149,7 +277,8 @@ export default function ProjectTaskManager({
                   Open tasks
                 </h3>
                 <p className="mt-1 text-[12.5px] text-[var(--color-fg-subtle)]">
-                  {repository.tasks.length} {repository.tasks.length === 1 ? 'task' : 'tasks'}
+                  {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'}
+                  {tasks.length > 1 ? ' · drag to reorder by priority' : ''}
                 </p>
               </div>
               <Button
@@ -163,13 +292,27 @@ export default function ProjectTaskManager({
               </Button>
             </div>
 
-            {repository.tasks.length > 0 ? (
-              <div className="mt-4 space-y-3">
-                {repository.tasks.map((task) => (
+            {tasks.length > 0 ? (
+              <div className="mt-4 space-y-3" onDragOver={handleDragOverList} onDrop={handleDrop}>
+                {tasks.map((task, index) => (
                   <article
                     key={task.id}
-                    className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3"
+                    className={`relative rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3 ${dragState?.taskId === task.id ? 'opacity-50' : ''}`}
+                    data-testid="project-task"
+                    onDragOver={(event) => handleDragOverTask(event, index)}
                   >
+                    {activeDropIndex === index ? (
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 -top-[7px] h-0.5 rounded-full bg-[var(--color-info)]"
+                      />
+                    ) : null}
+                    {activeDropIndex === index + 1 && index === tasks.length - 1 ? (
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-0 -bottom-[7px] h-0.5 rounded-full bg-[var(--color-info)]"
+                      />
+                    ) : null}
                     {editingTaskId === task.id ? (
                       <form
                         className="space-y-4"
@@ -206,7 +349,7 @@ export default function ProjectTaskManager({
                               ))
                             ) : (
                               <p className="text-[12.5px] text-[var(--color-fg-subtle)]">
-                                No task tags configured in Settings.
+                                No task tags configured in Settings or project settings.
                               </p>
                             )}
                           </div>
@@ -250,11 +393,29 @@ export default function ProjectTaskManager({
                       </form>
                     ) : (
                       <div className="flex flex-wrap items-start justify-between gap-3">
+                        <button
+                          aria-label={`Reorder task ${task.title || 'Untitled task'}`}
+                          className="-ml-2 mt-0.5 cursor-grab rounded p-0.5 text-[var(--color-fg-faint)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-fg-muted)] active:cursor-grabbing"
+                          draggable
+                          onDragEnd={() => setDragState(null)}
+                          onDragStart={(event) => handleDragStart(event, task.id)}
+                          onKeyDown={(event) => handleHandleKeyDown(event, index)}
+                          title="Drag to reorder (or focus and use ↑/↓)"
+                          type="button"
+                        >
+                          <GripIcon width={14} height={14} />
+                        </button>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="text-[14px] font-medium text-[var(--color-fg)]">
-                              {task.title}
-                            </h4>
+                            {task.title ? (
+                              <h4 className="text-[14px] font-medium text-[var(--color-fg)]">
+                                {task.title}
+                              </h4>
+                            ) : (
+                              <h4 className="text-[14px] font-medium italic text-[var(--color-fg-subtle)]">
+                                Untitled task
+                              </h4>
+                            )}
                             {sortTaskTags(task.tags, taskTags).map((tag) => (
                               <span
                                 key={tag}
@@ -264,9 +425,11 @@ export default function ProjectTaskManager({
                               </span>
                             ))}
                           </div>
-                          <p className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[var(--color-fg-muted)]">
-                            {task.description}
-                          </p>
+                          {task.description ? (
+                            <p className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[var(--color-fg-muted)]">
+                              {task.description}
+                            </p>
+                          ) : null}
                           <p className="mt-3 text-[11.5px] text-[var(--color-fg-subtle)]">
                             Added {formatRelativeTime(task.createdAt, now)}
                           </p>
@@ -309,8 +472,8 @@ export default function ProjectTaskManager({
       <Modal
         description={
           createTagOptions.length > 0
-            ? 'Add a title, description, and optional tags.'
-            : 'Add a title and description.'
+            ? 'Add an optional title, description, and tags.'
+            : 'Add an optional title and description.'
         }
         onClose={handleCloseCreateDialog}
         open={createDialogOpen}
@@ -352,7 +515,7 @@ export default function ProjectTaskManager({
                 ))
               ) : (
                 <p className="text-[12.5px] text-[var(--color-fg-subtle)]">
-                  No task tags configured in Settings.
+                  No task tags configured in Settings or project settings.
                 </p>
               )}
             </div>

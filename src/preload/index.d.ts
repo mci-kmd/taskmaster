@@ -13,6 +13,7 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  ReorderRepositoryTasksInput,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
   ThreadDiffFileContentRequest,
@@ -45,6 +46,7 @@ declare global {
     createRepositoryTask: (input: CreateRepositoryTaskInput) => Promise<MutationResult>
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) => Promise<MutationResult>
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) => Promise<MutationResult>
+    reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => Promise<MutationResult>
     startThreadRun: (threadId: string) => Promise<MutationResult>
     stopThreadRun: (threadId: string) => Promise<MutationResult>
     updateThread: (input: UpdateThreadInput) => Promise<MutationResult>

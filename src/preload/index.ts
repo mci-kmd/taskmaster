@@ -18,6 +18,7 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  ReorderRepositoryTasksInput,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
   ThreadDiffFileContentRequest,
@@ -94,6 +95,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.completeRepositoryTask, input),
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) =>
       invokeIpc(IPC_CHANNELS.appState.updateRepositoryTask, input),
+    reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) =>
+      invokeIpc(IPC_CHANNELS.appState.reorderRepositoryTasks, input),
     startThreadRun: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.startThreadRun, threadId),
     stopThreadRun: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.stopThreadRun, threadId),
     updateThread: (input: UpdateThreadInput) =>

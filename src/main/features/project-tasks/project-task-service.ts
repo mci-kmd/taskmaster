@@ -5,9 +5,15 @@ import type {
   PersistedAppState,
   PersistedProjectTask,
   PersistedRepository,
+  ReorderRepositoryTasksInput,
   UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
-import { mergeTaskTags, normalizeTaskTags, parseTaskTagsInput } from '../../../shared/task-tags'
+import {
+  mergeTaskTags,
+  normalizeTaskTags,
+  parseTaskTagsInput,
+  resolveProjectTaskTags
+} from '../../../shared/task-tags'
 import { sameTaskTags, validateRepositoryTaskValues } from './project-task-values'
 
 type ProjectTaskServiceDependencies = {
@@ -24,7 +30,14 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
   createRepositoryTask: (input: CreateRepositoryTaskInput) => MutationResult
   updateRepositoryTask: (input: UpdateRepositoryTaskInput) => MutationResult
   completeRepositoryTask: (input: CompleteRepositoryTaskInput) => MutationResult
+  reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => MutationResult
 } {
+  const getAllowedTags = (repository: PersistedRepository): string[] =>
+    resolveProjectTaskTags(
+      parseTaskTagsInput(dependencies.ensureState().settings.taskTagsInput),
+      repository.taskTagsInput
+    )
+
   return {
     createRepositoryTask: (input: CreateRepositoryTaskInput): MutationResult => {
       const repository = dependencies.findRepository(input.repositoryId)
@@ -34,7 +47,7 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
 
       const validation = validateRepositoryTaskValues({
         ...input,
-        allowedTags: parseTaskTagsInput(dependencies.ensureState().settings.taskTagsInput)
+        allowedTags: getAllowedTags(repository)
       })
       if (!validation.ok) {
         return dependencies.failureResult(validation.error)
@@ -66,10 +79,7 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
 
       const validation = validateRepositoryTaskValues({
         ...input,
-        allowedTags: mergeTaskTags(
-          parseTaskTagsInput(dependencies.ensureState().settings.taskTagsInput),
-          task.tags
-        )
+        allowedTags: mergeTaskTags(getAllowedTags(repository), task.tags)
       })
       if (!validation.ok) {
         return dependencies.failureResult(validation.error)
@@ -101,6 +111,41 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
       const nextTasks = currentTasks.filter((task) => task.id !== input.taskId)
       if (nextTasks.length === currentTasks.length) {
         return dependencies.failureResult('Task not found.')
+      }
+
+      repository.tasks = nextTasks
+      dependencies.saveState()
+      return dependencies.successResult()
+    },
+
+    reorderRepositoryTasks: (input: ReorderRepositoryTasksInput): MutationResult => {
+      const repository = dependencies.findRepository(input.repositoryId)
+      if (!repository) {
+        return dependencies.failureResult('Repository not found.')
+      }
+
+      const currentTasks = repository.tasks ?? []
+      const tasksById = new Map(currentTasks.map((task) => [task.id, task]))
+      const orderedIds = Array.isArray(input.taskIds) ? input.taskIds : []
+      const nextTasks: PersistedProjectTask[] = []
+      const seen = new Set<string>()
+      for (const taskId of orderedIds) {
+        const task = tasksById.get(taskId)
+        if (!task || seen.has(taskId)) {
+          continue
+        }
+        seen.add(taskId)
+        nextTasks.push(task)
+      }
+      // Keep tasks the renderer did not know about (e.g. created concurrently) at the end.
+      for (const task of currentTasks) {
+        if (!seen.has(task.id)) {
+          nextTasks.push(task)
+        }
+      }
+
+      if (nextTasks.every((task, index) => task === currentTasks[index])) {
+        return dependencies.successResult()
       }
 
       repository.tasks = nextTasks

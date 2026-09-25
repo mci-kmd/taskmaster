@@ -12,6 +12,7 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  ReorderRepositoryTasksInput,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -43,6 +44,7 @@ type AppStateIpcHandlers = {
   createRepositoryTask: (input: CreateRepositoryTaskInput) => MutationResult
   completeRepositoryTask: (input: CompleteRepositoryTaskInput) => MutationResult
   updateRepositoryTask: (input: UpdateRepositoryTaskInput) => MutationResult
+  reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => MutationResult
   createThread: (input: CreateThreadInput) => MutationResult
   convertThreadToWorktree: (threadId: string) => MutationResult
   closeThread: (threadId: string) => Promise<MutationResult>
@@ -93,6 +95,10 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   handleIpc(
     IPC_CHANNELS.appState.updateRepositoryTask,
     (_event, input: UpdateRepositoryTaskInput) => handlers.updateRepositoryTask(input)
+  )
+  handleIpc(
+    IPC_CHANNELS.appState.reorderRepositoryTasks,
+    (_event, input: ReorderRepositoryTasksInput) => handlers.reorderRepositoryTasks(input)
   )
   handleIpc(IPC_CHANNELS.appState.createThread, (_event, input: CreateThreadInput) =>
     handlers.createThread(input)

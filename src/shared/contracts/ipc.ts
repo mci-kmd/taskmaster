@@ -25,6 +25,7 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  ReorderRepositoryTasksInput,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -60,6 +61,7 @@ export const IPC_CHANNELS = {
     createRepositoryTask: 'app-state:create-repository-task',
     completeRepositoryTask: 'app-state:complete-repository-task',
     updateRepositoryTask: 'app-state:update-repository-task',
+    reorderRepositoryTasks: 'app-state:reorder-repository-tasks',
     startThreadRun: 'app-state:start-thread-run',
     stopThreadRun: 'app-state:stop-thread-run',
     updateThread: 'app-state:update-thread',
@@ -135,6 +137,10 @@ export type IpcInvokeDefinitions = {
   }
   'app-state:update-repository-task': {
     request: [UpdateRepositoryTaskInput]
+    response: MutationResult
+  }
+  'app-state:reorder-repository-tasks': {
+    request: [ReorderRepositoryTasksInput]
     response: MutationResult
   }
   'app-state:start-thread-run': { request: [string]; response: MutationResult }

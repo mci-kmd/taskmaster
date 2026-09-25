@@ -237,3 +237,16 @@ export function TasksIcon(props: IconProps): React.JSX.Element {
     </svg>
   )
 }
+
+export function GripIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} fill="currentColor" stroke="none" {...props}>
+      <circle cx="6" cy="3.5" r="1.1" />
+      <circle cx="10" cy="3.5" r="1.1" />
+      <circle cx="6" cy="8" r="1.1" />
+      <circle cx="10" cy="8" r="1.1" />
+      <circle cx="6" cy="12.5" r="1.1" />
+      <circle cx="10" cy="12.5" r="1.1" />
+    </svg>
+  )
+}

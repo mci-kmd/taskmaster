@@ -5,6 +5,7 @@ import Modal from '../Modal'
 import Button from '../ui/Button'
 import { Field, TextArea, TextInput } from '../ui/Field'
 import type { RepositorySnapshot } from '../../../../shared/app-types'
+import { parseTaskTagsInput } from '../../../../shared/task-tags'
 
 type EditRepositoryDialogProps = {
   open: boolean
@@ -22,6 +23,7 @@ type EditRepositoryDialogProps = {
     solutionFilePath: string | null
     newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
+    taskTagsInput: string
   }) => Promise<boolean>
 }
 
@@ -38,7 +40,7 @@ export default function EditRepositoryDialog({
     <Modal
       description={
         repository
-          ? `Configure the icon, solution file, and project commands for ${repository.name}.`
+          ? `Configure the icon, solution file, project commands, and task tags for ${repository.name}.`
           : 'Pick a repository in the sidebar first.'
       }
       onClose={onClose}
@@ -49,7 +51,7 @@ export default function EditRepositoryDialog({
       {repository ? (
         <EditRepositoryForm
           busy={busy}
-          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}`}
+          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.taskTagsInput ?? ''}`}
           onBrowseFavicon={onBrowseFavicon}
           onBrowseSolutionFile={onBrowseSolutionFile}
           onCancel={onClose}
@@ -92,6 +94,7 @@ type EditRepositoryFormProps = {
     solutionFilePath: string | null
     newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
+    taskTagsInput: string
   }) => Promise<void>
 }
 
@@ -117,6 +120,9 @@ function EditRepositoryForm({
     repository.postWorktreeRemoveCommand ?? ''
   )
 
+  const [taskTagsDraft, setTaskTagsDraft] = useState(repository.taskTagsInput ?? '')
+  const parsedTaskTagsPreview = parseTaskTagsInput(taskTagsDraft)
+
   const dirty =
     icon !== (repository.icon ?? 'folder') ||
     iconColor !== (repository.iconColor ?? 'default') ||
@@ -124,7 +130,8 @@ function EditRepositoryForm({
     runCommandDraft !== (repository.runCommand ?? '') ||
     solutionFilePathDraft !== (repository.solutionFilePath ?? '') ||
     newWorktreeSetupCommandDraft !== (repository.newWorktreeSetupCommand ?? '') ||
-    postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '')
+    postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '') ||
+    taskTagsDraft !== (repository.taskTagsInput ?? '')
 
   return (
     <form
@@ -140,7 +147,8 @@ function EditRepositoryForm({
             runCommand: runCommandDraft.trim() || null,
             solutionFilePath: solutionFilePathDraft.trim() || null,
             newWorktreeSetupCommand: newWorktreeSetupCommandDraft.trim() || null,
-            postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null
+            postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null,
+            taskTagsInput: taskTagsDraft
           })
         }
       }}
@@ -282,6 +290,32 @@ function EditRepositoryForm({
         />
       </Field>
 
+      <Field
+        hint="Optional. Comma- or newline-separated labels for this project's tasks, offered in addition to the global task tags from Settings."
+        label="Project task tags"
+      >
+        <TextArea
+          className="min-w-0 w-full"
+          onChange={(event) => setTaskTagsDraft(event.target.value)}
+          placeholder={'backend\nui'}
+          rows={3}
+          spellCheck={false}
+          value={taskTagsDraft}
+        />
+        {parsedTaskTagsPreview.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {parsedTaskTagsPreview.map((tag) => (
+              <span
+                className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-1 text-[11.5px] text-[var(--color-fg)]"
+                key={tag}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </Field>
+
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
         Repository root: <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>
       </div>
@@ -297,7 +331,8 @@ function EditRepositoryForm({
                 runCommandDraft.length === 0 &&
                 solutionFilePathDraft.length === 0 &&
                 newWorktreeSetupCommandDraft.length === 0 &&
-                postWorktreeRemoveCommandDraft.length === 0)
+                postWorktreeRemoveCommandDraft.length === 0 &&
+                taskTagsDraft.length === 0)
             }
             onClick={() => {
               setIcon('folder')
@@ -307,6 +342,7 @@ function EditRepositoryForm({
               setSolutionFilePathDraft('')
               setNewWorktreeSetupCommandDraft('')
               setPostWorktreeRemoveCommandDraft('')
+              setTaskTagsDraft('')
             }}
             title="Clear project fields"
             type="button"

@@ -92,6 +92,27 @@ describe('repository service', () => {
     expect(repository.icon).toBe('code')
   })
 
+  it('saves normalized project task tags and skips unchanged tags', () => {
+    const saveState = vi.fn()
+    const repository = createTestRepository()
+    const service = createTestRepositoryService({ findRepository: () => repository, saveState })
+    const input = {
+      repositoryId: repository.id,
+      faviconPath: null,
+      runCommand: null,
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null,
+      postWorktreeRemoveCommand: null
+    }
+
+    expect(service.updateRepository({ ...input, taskTagsInput: ' backend, ui\nUI ' }).ok).toBe(true)
+    expect(repository.taskTagsInput).toBe('backend\nui')
+    expect(service.updateRepository({ ...input, taskTagsInput: 'backend\nui' }).ok).toBe(true)
+    expect(service.updateRepository(input).ok).toBe(true)
+    expect(repository.taskTagsInput).toBe('backend\nui')
+    expect(saveState).toHaveBeenCalledTimes(1)
+  })
+
   it('updates repository settings when validated values change', () => {
     const saveState = vi.fn()
     const repository = createTestRepository()
