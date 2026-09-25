@@ -107,6 +107,29 @@ describe('unified thread state', () => {
     expect(state.threads[0].resumeSessionId).toBe(before[0].resumeSessionId)
   })
 
+  it('keeps the project selected when settling its last active thread', () => {
+    const { state, threads } = harness()
+    state.repositories.push(repository('other'))
+    state.threads = [
+      thread('only', 'shared'),
+      { ...thread('elsewhere', 'other'), lastActivityAt: '2026-01-05T00:00:00.000Z' }
+    ]
+    threads.updateThread({ threadId: 'only', settled: true })
+    expect(state.ui).toMatchObject({ selectedRepositoryId: 'shared', selectedThreadId: null })
+  })
+
+  it('selects the most recent active thread from the same project after settling', () => {
+    const { state, threads } = harness()
+    state.repositories.push(repository('other'))
+    state.threads.push({
+      ...thread('elsewhere', 'other'),
+      lastActivityAt: '2026-01-06T00:00:00.000Z'
+    })
+    state.threads[2].lastActivityAt = '2026-01-05T00:00:00.000Z'
+    threads.updateThread({ threadId: 'legacy', settled: true })
+    expect(state.ui).toMatchObject({ selectedRepositoryId: 'shared', selectedThreadId: 'next' })
+  })
+
   it('does not move selection when another thread settles', () => {
     const { state, threads } = harness()
     threads.updateThread({ threadId: 'active', settled: true })

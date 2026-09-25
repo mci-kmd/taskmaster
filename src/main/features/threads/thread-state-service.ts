@@ -46,9 +46,14 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
         thread.settledAt = input.settled ? (thread.settledAt ?? dependencies.nowIso()) : null
         if (input.settled && state.ui.selectedThreadId === thread.id) {
           const next = state.threads
-            .filter((item) => !item.settledAt && item.id !== thread.id)
+            .filter(
+              (item) =>
+                !item.settledAt &&
+                item.id !== thread.id &&
+                item.repositoryId === thread.repositoryId
+            )
             .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0]
-          dependencies.updateSelection(next?.repositoryId ?? thread.repositoryId, next?.id ?? null)
+          dependencies.updateSelection(thread.repositoryId, next?.id ?? null)
         }
         dependencies.saveState()
       }
