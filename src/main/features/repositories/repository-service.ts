@@ -9,6 +9,7 @@ import type {
   UpdateRepositoryInput
 } from '../../../shared/app-types'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
+import { validateRepositoryPreviewUrlInput } from './repository-values'
 
 type FilePickerResult = {
   canceled: boolean
@@ -198,6 +199,14 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
           ? (repository.taskTagsInput ?? '')
           : normalizeTaskTagsInput(input.taskTagsInput)
 
+      const previewUrlValidation =
+        input.previewUrl === undefined
+          ? ({ ok: true, url: repository.previewUrl ?? null } as const)
+          : validateRepositoryPreviewUrlInput(input.previewUrl)
+      if (!previewUrlValidation.ok) {
+        return dependencies.failureResult(previewUrlValidation.error)
+      }
+
       if (
         (input.icon === undefined || input.icon === repository.icon) &&
         (input.iconColor === undefined || input.iconColor === repository.iconColor) &&
@@ -206,7 +215,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         repository.solutionFilePath === solutionFileValidation.path &&
         repository.newWorktreeSetupCommand === newWorktreeSetupCommandValidation.command &&
         repository.postWorktreeRemoveCommand === postWorktreeRemoveCommandValidation.command &&
-        (repository.taskTagsInput ?? '') === taskTagsInput
+        (repository.taskTagsInput ?? '') === taskTagsInput &&
+        (repository.previewUrl ?? null) === previewUrlValidation.url
       ) {
         return dependencies.successResult()
       }
@@ -219,6 +229,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       repository.newWorktreeSetupCommand = newWorktreeSetupCommandValidation.command
       repository.postWorktreeRemoveCommand = postWorktreeRemoveCommandValidation.command
       if (input.taskTagsInput !== undefined) repository.taskTagsInput = taskTagsInput
+      if (previewUrlValidation.url) repository.previewUrl = previewUrlValidation.url
+      else delete repository.previewUrl
       dependencies.saveState()
       return dependencies.successResult()
     },

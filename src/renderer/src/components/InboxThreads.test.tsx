@@ -20,6 +20,7 @@ function thread(id: string, activity: string, settledAt?: string): ThreadSnapsho
     executionCwd: '/repo',
     backend: { kind: 'native' },
     isRunCommandRunning: false,
+    previewUrl: null,
     customTitle: id,
     displayTitle: id,
     lastActivityAt: activity,

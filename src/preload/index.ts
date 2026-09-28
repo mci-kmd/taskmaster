@@ -18,6 +18,7 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  PreviewCaptureRequest,
   ReorderRepositoryTasksInput,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -191,6 +192,10 @@ const api = {
       onIpc(IPC_CHANNELS.copilot.session, callback),
     onSdkStatus: (callback: (payload: CopilotSdkStatusEvent) => void) =>
       onIpc(IPC_CHANNELS.copilot.sdkStatus, callback)
+  },
+  preview: {
+    captureElement: (request: PreviewCaptureRequest) =>
+      invokeIpc(IPC_CHANNELS.preview.captureElement, request)
   }
 }
 

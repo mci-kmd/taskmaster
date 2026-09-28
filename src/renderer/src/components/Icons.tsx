@@ -71,6 +71,32 @@ export function ArrowRightIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function ArrowLeftIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M13 8H5" />
+      <path d="m8 4-4 4 4 4" />
+    </svg>
+  )
+}
+
+export function ExternalLinkIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M9.5 2.5h4v4M13.5 2.5 8 8M12 9.5v3a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3" />
+    </svg>
+  )
+}
+
+export function InspectIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M13 7V3.5a1 1 0 0 0-1-1H3.5a1 1 0 0 0-1 1V12a1 1 0 0 0 1 1H7" />
+      <path d="m9 9 5.5 2-2.3 1.2L11 14.5 9 9Z" fill="currentColor" />
+    </svg>
+  )
+}
+
 export function ChevronDownIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

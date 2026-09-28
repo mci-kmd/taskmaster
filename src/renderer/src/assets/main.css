@@ -351,8 +351,13 @@ select {
     color 140ms ease;
 }
 
-.tm-segmented__option:hover:not([data-active='true']) {
+.tm-segmented__option:hover:not([data-active='true']):not([aria-disabled='true']) {
   color: var(--color-fg);
+}
+
+.tm-segmented__option[aria-disabled='true'] {
+  color: var(--color-fg-faint);
+  cursor: not-allowed;
 }
 
 .tm-segmented__option[data-active='true'] {

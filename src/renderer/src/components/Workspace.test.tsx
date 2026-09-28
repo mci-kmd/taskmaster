@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { ComponentProps } from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import Workspace from './Workspace'
 
@@ -18,21 +18,31 @@ vi.mock('../shared/hooks/use-branch-status', () => ({
 }))
 vi.mock('./TerminalSessions', () => ({ default: () => null }))
 vi.mock('./CopilotThreadView', () => ({ default: () => <div>Conversation</div> }))
+vi.mock('./preview/ThreadPreviewView', () => ({
+  default: ({ previewUrl }: { previewUrl: string }) => <div>Preview of {previewUrl}</div>
+}))
 
-function props(): ComponentProps<typeof Workspace> {
+function props(
+  threadOverrides: Partial<ThreadSnapshot> = {},
+  repositoryOverrides: Partial<RepositorySnapshot> = {}
+): ComponentProps<typeof Workspace> {
   const thread = {
     id: 'thread',
     repositoryId: 'repo',
     displayTitle: 'Thread',
     cwd: '/repo',
-    mode: 'active-branch'
+    mode: 'active-branch',
+    previewUrl: null,
+    isRunCommandRunning: false,
+    ...threadOverrides
   } as ThreadSnapshot
   return {
     selectedRepository: {
       id: 'repo',
       name: 'Project',
       path: '/repo',
-      backend: { kind: 'native' }
+      backend: { kind: 'native' },
+      ...repositoryOverrides
     } as RepositorySnapshot,
     selectedThread: thread,
     threads: [thread],
@@ -65,4 +75,45 @@ afterEach(() => {
 it('opens SDK conversations for selected threads', async () => {
   render(<Workspace {...props()} />)
   await screen.findByText('Conversation')
+})
+
+it('offers the preview only for projects that opt in', () => {
+  render(<Workspace {...props()} />)
+  expect(screen.queryByRole('radio', { name: 'Preview' })).toBeNull()
+})
+
+it('disables the preview until the run command is running', async () => {
+  const { rerender } = render(
+    <Workspace {...props({ previewUrl: 'http://localhost:4000' }, { runCommand: 'bun run dev' })} />
+  )
+  const tab = screen.getByRole('radio', { name: 'Preview' })
+  expect(tab.getAttribute('aria-disabled')).toBe('true')
+  expect(tab.getAttribute('title')).toMatch(/Start the run command/)
+  fireEvent.click(tab)
+  await screen.findByText('Conversation')
+  expect(screen.queryByText(/Preview of/)).toBeNull()
+
+  rerender(
+    <Workspace
+      {...props(
+        { previewUrl: 'http://localhost:4000', isRunCommandRunning: true },
+        { runCommand: 'bun run dev' }
+      )}
+    />
+  )
+  fireEvent.click(screen.getByRole('radio', { name: 'Preview' }))
+  await screen.findByText('Preview of http://localhost:4000')
+
+  rerender(
+    <Workspace {...props({ previewUrl: 'http://localhost:4000' }, { runCommand: 'bun run dev' })} />
+  )
+  await screen.findByText('Conversation')
+  expect(screen.queryByText(/Preview of/)).toBeNull()
+})
+
+it('explains that the preview needs a run command', () => {
+  render(<Workspace {...props({ previewUrl: 'http://localhost:4000' })} />)
+  expect(screen.getByRole('radio', { name: 'Preview' }).getAttribute('title')).toMatch(
+    /Add a run command/
+  )
 })

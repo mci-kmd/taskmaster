@@ -25,6 +25,7 @@ import {
 import { registerNativeMenuIpc } from './native-menu'
 import { createCopilotSessionService } from './copilot/copilot-session-service'
 import { registerCopilotIpc } from './copilot/copilot-ipc'
+import { hardenPreviewWebviews, registerPreviewIpc } from './preview/preview-webviews'
 
 const devUserDataPath = resolveDevUserDataPath(app.getPath('appData'), isDevMode)
 if (devUserDataPath) {
@@ -48,9 +49,12 @@ function createWindow(): void {
     ...(process.platform !== 'darwin' ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      webviewTag: true
     }
   })
+
+  hardenPreviewWebviews(mainWindow.webContents, join(__dirname, '../preload/preview.js'))
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -133,6 +137,7 @@ app.whenReady().then(() => {
     has: copilotService.hasSession
   })
   registerCopilotIpc(copilotService)
+  registerPreviewIpc()
   let copilotShutdownComplete = false
   app.on('before-quit', (event) => {
     if (copilotShutdownComplete || event.defaultPrevented) return

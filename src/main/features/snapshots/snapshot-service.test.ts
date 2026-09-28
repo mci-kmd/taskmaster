@@ -67,6 +67,7 @@ describe('snapshot service', () => {
       buildRepositoryFaviconUrl: () => null,
       parseTaskTagsInput: (input) => input.split(' '),
       resolveTerminalFontFamily: () => 'monospace',
+      resolveThreadPreviewUrl: () => null,
       sidebarWidth: {
         default: 268,
         min: 220,
@@ -79,7 +80,8 @@ describe('snapshot service', () => {
     expect(snapshot.sidebarWidth).toBe(560)
     expect(snapshot.repositories[0]?.threads[0]).toMatchObject({
       id: 'thread-1',
-      cwd: 'C:\\repo'
+      cwd: 'C:\\repo',
+      previewUrl: null
     })
     expect(snapshot.settings.yoloEnabled).toBe(true)
   })
@@ -144,6 +146,7 @@ describe('snapshot service', () => {
       buildRepositoryFaviconUrl: () => null,
       parseTaskTagsInput: () => [],
       resolveTerminalFontFamily: () => 'monospace',
+      resolveThreadPreviewUrl: () => null,
       sidebarWidth: {
         default: 268,
         min: 220,
@@ -295,6 +298,7 @@ describe('snapshot service', () => {
       buildRepositoryFaviconUrl: () => null,
       parseTaskTagsInput: () => [],
       resolveTerminalFontFamily: () => 'monospace',
+      resolveThreadPreviewUrl: () => null,
       sidebarWidth: {
         default: 268,
         min: 220,

@@ -2,6 +2,8 @@ type Option<T extends string> = {
   value: T
   label: string
   description?: string
+  /** Keeps the option focusable so its description still explains why it is unavailable. */
+  disabled?: boolean
 }
 
 type SegmentedControlProps<T extends string> = {
@@ -24,10 +26,13 @@ export default function SegmentedControl<T extends string>({
         return (
           <button
             aria-checked={active}
+            aria-disabled={option.disabled || undefined}
             className="tm-segmented__option"
             data-active={active}
             key={option.value}
-            onClick={() => onChange(option.value)}
+            onClick={() => {
+              if (!option.disabled) onChange(option.value)
+            }}
             role="radio"
             title={option.description ?? option.label}
             type="button"

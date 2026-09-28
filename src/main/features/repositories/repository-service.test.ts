@@ -113,6 +113,34 @@ describe('repository service', () => {
     expect(saveState).toHaveBeenCalledTimes(1)
   })
 
+  it('saves, keeps, and clears the opt-in preview URL', () => {
+    const saveState = vi.fn()
+    const repository = createTestRepository()
+    const service = createTestRepositoryService({ findRepository: () => repository, saveState })
+    const input = {
+      repositoryId: repository.id,
+      faviconPath: null,
+      runCommand: null,
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null,
+      postWorktreeRemoveCommand: null
+    }
+
+    expect(
+      service.updateRepository({ ...input, previewUrl: ' http://localhost:{BRANCH-PORT} ' }).ok
+    ).toBe(true)
+    expect(repository.previewUrl).toBe('http://localhost:{BRANCH-PORT}')
+    expect(service.updateRepository(input).ok).toBe(true)
+    expect(repository.previewUrl).toBe('http://localhost:{BRANCH-PORT}')
+    expect(service.updateRepository({ ...input, previewUrl: 'file:///C:/app.html' })).toMatchObject(
+      { ok: false }
+    )
+    expect(repository.previewUrl).toBe('http://localhost:{BRANCH-PORT}')
+    expect(service.updateRepository({ ...input, previewUrl: null }).ok).toBe(true)
+    expect(repository).not.toHaveProperty('previewUrl')
+    expect(saveState).toHaveBeenCalledTimes(2)
+  })
+
   it('updates repository settings when validated values change', () => {
     const saveState = vi.fn()
     const repository = createTestRepository()

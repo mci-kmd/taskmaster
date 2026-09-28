@@ -38,6 +38,7 @@ import {
 const api = getRendererApi()
 const LazyThreadDiffView = lazy(() => import('./ThreadDiffView'))
 const LazyCopilotThreadView = lazy(() => import('./CopilotThreadView'))
+const LazyThreadPreviewView = lazy(() => import('./preview/ThreadPreviewView'))
 
 type WorkspaceProps = {
   threads: ThreadSnapshot[]
@@ -67,7 +68,7 @@ type WorkspaceProps = {
   onSessionsChange: (sessions: SessionMap) => void
 }
 
-type ThreadWorkspaceViewId = 'copilot' | 'terminal' | 'diff'
+type ThreadWorkspaceViewId = 'copilot' | 'preview' | 'terminal' | 'diff'
 
 type TerminalViewVisual = {
   tone: 'idle' | 'progress' | 'error' | 'stopped'
@@ -84,10 +85,16 @@ const IDLE_STATE: ThreadSessionState = {
   lastUserMessage: null
 }
 
-function buildThreadViewOptions(agentLabel: string): Array<{
+type ThreadPreviewAvailability = { enabled: true } | { enabled: false; reason: string }
+
+function buildThreadViewOptions(
+  agentLabel: string,
+  preview: ThreadPreviewAvailability | null
+): Array<{
   value: ThreadWorkspaceViewId
   label: string
   description: string
+  disabled?: boolean
 }> {
   return [
     {
@@ -95,6 +102,18 @@ function buildThreadViewOptions(agentLabel: string): Array<{
       label: agentLabel,
       description: `${agentLabel} session and recent prompt`
     },
+    ...(preview
+      ? [
+          {
+            value: 'preview' as const,
+            label: 'Preview',
+            description: preview.enabled
+              ? `Browse the running app and point ${agentLabel} at elements to change`
+              : preview.reason,
+            disabled: !preview.enabled
+          }
+        ]
+      : []),
     {
       value: 'terminal',
       label: 'Terminal',
@@ -245,7 +264,23 @@ export default function Workspace({
     Map<string, ThreadWorkspaceViewId>
   >(new Map())
   const selectedCustomThreadId = selectedThread?.id ?? null
-  const threadViewOptions = useMemo(() => buildThreadViewOptions(COPILOT_LABEL), [])
+  const selectedPreviewUrl = selectedThread?.previewUrl ?? null
+  const selectedRunCommandRunning = selectedThread?.isRunCommandRunning ?? false
+  const selectedHasRunCommand = Boolean(selectedRepository?.runCommand)
+  const previewAvailability = useMemo<ThreadPreviewAvailability | null>(() => {
+    if (!selectedPreviewUrl) return null
+    if (selectedRunCommandRunning) return { enabled: true }
+    return {
+      enabled: false,
+      reason: selectedHasRunCommand
+        ? 'Start the run command (▶ in the toolbar) to open the preview'
+        : 'Add a run command in Edit project to use the preview'
+    }
+  }, [selectedHasRunCommand, selectedPreviewUrl, selectedRunCommandRunning])
+  const threadViewOptions = useMemo(
+    () => buildThreadViewOptions(COPILOT_LABEL, previewAvailability),
+    [previewAvailability]
+  )
   const threadViewControlWidthPx = threadViewOptions.length * 88
   const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
 
@@ -291,11 +326,14 @@ export default function Workspace({
     return terminalSessions.get(selectedThread.id) ?? IDLE_STATE
   }, [selectedThread, terminalSessions])
 
-  const selectedView = getSelectedThreadView(threadViewSelections, selectedThread?.id)
+  const requestedView = getSelectedThreadView(threadViewSelections, selectedThread?.id)
+  // The preview follows the run command and comes back once the command runs again.
+  const selectedView: ThreadWorkspaceViewId =
+    requestedView === 'preview' && !previewAvailability?.enabled ? 'copilot' : requestedView
   const activeSession =
     selectedView === 'terminal'
       ? selectedTerminalSession
-      : selectedView === 'copilot'
+      : selectedView === 'copilot' || selectedView === 'preview'
         ? selectedCopilotSession
         : IDLE_STATE
   const isRunning = activeSession.phase === 'running'
@@ -469,7 +507,7 @@ export default function Workspace({
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
           aria-hidden={!hasThread}
-          className={`flex h-full flex-col ${selectedView === 'copilot' ? '' : 'p-5'} transition-opacity duration-200 ${
+          className={`flex h-full flex-col ${selectedView === 'copilot' || selectedView === 'preview' ? '' : 'p-5'} transition-opacity duration-200 ${
             hasThread ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >
@@ -495,6 +533,24 @@ export default function Workspace({
                   >
                     <LazyCopilotThreadView
                       onSessionChange={handleCustomCopilotSessionChange}
+                      thread={selectedThread}
+                    />
+                  </Suspense>
+                </div>
+              ) : null}
+
+              {selectedThread && selectedView === 'preview' && selectedPreviewUrl ? (
+                <div className="absolute inset-0">
+                  <Suspense
+                    fallback={
+                      <div className="p-6 text-sm text-[var(--color-fg-muted)]" role="status">
+                        Opening preview…
+                      </div>
+                    }
+                  >
+                    <LazyThreadPreviewView
+                      onSessionChange={handleCustomCopilotSessionChange}
+                      previewUrl={selectedPreviewUrl}
                       thread={selectedThread}
                     />
                   </Suspense>

@@ -38,6 +38,10 @@ type SnapshotServiceDependencies = {
     repository: Pick<PersistedRepository, 'path' | 'backend'>
   ) => string
   buildRepositoryFaviconUrl: (repositoryPath: string, faviconPath: string | null) => string | null
+  resolveThreadPreviewUrl: (
+    repository: PersistedRepository,
+    thread: PersistedThread
+  ) => string | null
   parseTaskTagsInput: (input: string) => string[]
   resolveTerminalFontFamily: (settings: PersistedAppState['settings']) => string
   sidebarWidth: {
@@ -118,7 +122,8 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
       backend: repository.backend,
       displayBranchName: thread.branchName,
       displayTitle: thread.customTitle ?? thread.branchName,
-      isRunCommandRunning: runningRunThreadIds.has(thread.id)
+      isRunCommandRunning: runningRunThreadIds.has(thread.id),
+      previewUrl: dependencies.resolveThreadPreviewUrl(repository, thread)
     }
   }
 

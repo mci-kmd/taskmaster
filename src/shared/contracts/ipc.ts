@@ -25,6 +25,8 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  PreviewCaptureRequest,
+  PreviewCaptureResult,
   ReorderRepositoryTasksInput,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
@@ -119,6 +121,9 @@ export const IPC_CHANNELS = {
     pickAttachments: 'copilot:pick-attachments',
     session: 'copilot:session',
     sdkStatus: 'copilot:sdk-status'
+  },
+  preview: {
+    captureElement: 'preview:capture-element'
   }
 } as const
 
@@ -233,6 +238,7 @@ export type IpcInvokeDefinitions = {
     response: CopilotStartResult
   }
   'copilot:pick-attachments': { request: []; response: CopilotPickAttachmentsResult }
+  'preview:capture-element': { request: [PreviewCaptureRequest]; response: PreviewCaptureResult }
 }
 
 export type IpcSendDefinitions = {

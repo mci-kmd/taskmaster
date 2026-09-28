@@ -21,7 +21,7 @@ import SessionTimeline from './copilot/SessionTimeline'
 import SessionPromptInput from './copilot/SessionPromptInput'
 import SendButton from './copilot/SendButton'
 import PendingMessages from './copilot/PendingMessages'
-import { useSessionDraft } from './copilot/session-drafts'
+import { registerComposer, useSessionDraft } from './copilot/session-drafts'
 import {
   attachmentPreview,
   hasAttachmentMarker,
@@ -236,6 +236,9 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
     })
     if (mounted.current) promptRef.current?.focus()
   }
+  const attachRef = useRef(attach)
+  attachRef.current = attach
+  useEffect(() => registerComposer(thread.id, (added) => attachRef.current(added)), [thread.id])
   const addFiles = (files: File[], replaceSelection = false): void => {
     if (busyRef.current) {
       setError('Wait for the current action to finish, then attach your files again.')

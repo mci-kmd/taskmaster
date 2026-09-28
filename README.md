@@ -27,6 +27,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Automatically sign in to MCP servers that require authentication when a session connects; use the session view to retry if needed. Copilot uses persistent OAuth storage for later sessions
 - Remove owned worktrees and branches when closing a worktree-backed thread
 - Configure optional setup and cleanup scripts for worktree-backed threads
+- Opt into a Preview view by setting a project's Preview URL next to its run command (supports the same branch tokens). While the thread's run command runs, browse the app beside the conversation and use Comment (or Ctrl+Shift+C in the page) to pick an element: it lands in the composer as a screenshot chip, and Copilot also receives its page, selector, role, text, HTML, and, when available, React/Vue/Svelte/Angular component names and source file. The preview waits for the dev server to come up, is disabled with an explanation while the run command is stopped, and keeps each project's site storage in its own isolated partition
 
 Existing SDK conversations from both former views remain in the unified list. Embedded-CLI threads are discarded; no CLI session migration is performed.
 
@@ -98,6 +99,7 @@ Renderer dev server runs on port `5175`.
 - `src/main/ipc/typed-ipc.ts` is the only place that should call `ipcMain.handle`; main features register through that adapter.
 - `src/main/copilot` manages Copilot SDK sessions and runtime updates; `src/main/terminal` runs plain shells.
 - `src/main/backends` contains native command, path, and git helpers.
+- `src/main/preview` hardens preview `<webview>` guests (http(s) only, sandboxed, no Node or Taskmaster IPC, permissions denied except sanitized clipboard writes, popups opened in the default browser) and captures element screenshots; `src/preload/preview.ts` is the guest-only element inspector preload, which messages only its host view.
 - `src/main/features` is where main-process feature logic now lives; persistence, project-task rules, branch-status parsing, and snapshot building have started moving out of `app-state.ts`.
 - `src/renderer/src/shared/api/client.ts` is the renderer bridge seam; renderer code should not use `window.api` directly.
 - `src/renderer/src/shared/hooks` owns renderer orchestration hooks like app snapshot loading and branch-status polling so `App.tsx` and workspace components stay smaller.

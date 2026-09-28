@@ -23,6 +23,7 @@ type EditRepositoryDialogProps = {
     solutionFilePath: string | null
     newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
+    previewUrl: string | null
     taskTagsInput: string
   }) => Promise<boolean>
 }
@@ -51,7 +52,7 @@ export default function EditRepositoryDialog({
       {repository ? (
         <EditRepositoryForm
           busy={busy}
-          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.taskTagsInput ?? ''}`}
+          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.previewUrl ?? ''}:${repository.taskTagsInput ?? ''}`}
           onBrowseFavicon={onBrowseFavicon}
           onBrowseSolutionFile={onBrowseSolutionFile}
           onCancel={onClose}
@@ -94,6 +95,7 @@ type EditRepositoryFormProps = {
     solutionFilePath: string | null
     newWorktreeSetupCommand: string | null
     postWorktreeRemoveCommand: string | null
+    previewUrl: string | null
     taskTagsInput: string
   }) => Promise<void>
 }
@@ -120,6 +122,8 @@ function EditRepositoryForm({
     repository.postWorktreeRemoveCommand ?? ''
   )
 
+  const [previewUrlDraft, setPreviewUrlDraft] = useState(repository.previewUrl ?? '')
+
   const [taskTagsDraft, setTaskTagsDraft] = useState(repository.taskTagsInput ?? '')
   const parsedTaskTagsPreview = parseTaskTagsInput(taskTagsDraft)
 
@@ -131,6 +135,7 @@ function EditRepositoryForm({
     solutionFilePathDraft !== (repository.solutionFilePath ?? '') ||
     newWorktreeSetupCommandDraft !== (repository.newWorktreeSetupCommand ?? '') ||
     postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '') ||
+    previewUrlDraft !== (repository.previewUrl ?? '') ||
     taskTagsDraft !== (repository.taskTagsInput ?? '')
 
   return (
@@ -148,6 +153,7 @@ function EditRepositoryForm({
             solutionFilePath: solutionFilePathDraft.trim() || null,
             newWorktreeSetupCommand: newWorktreeSetupCommandDraft.trim() || null,
             postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null,
+            previewUrl: previewUrlDraft.trim() || null,
             taskTagsInput: taskTagsDraft
           })
         }
@@ -230,6 +236,19 @@ function EditRepositoryForm({
           rows={5}
           spellCheck={false}
           value={runCommandDraft}
+        />
+      </Field>
+
+      <Field
+        hint="Optional. Set this if the run command serves a website to enable the Preview view, where you can browse the app and pick elements to comment on. Available while the run command is running. Supports the same tokens as the run command."
+        label="Preview URL"
+      >
+        <TextInput
+          className="min-w-0 w-full"
+          onChange={(event) => setPreviewUrlDraft(event.target.value)}
+          placeholder="http://localhost:{BRANCH-PORT}"
+          spellCheck={false}
+          value={previewUrlDraft}
         />
       </Field>
 
@@ -332,6 +351,7 @@ function EditRepositoryForm({
                 solutionFilePathDraft.length === 0 &&
                 newWorktreeSetupCommandDraft.length === 0 &&
                 postWorktreeRemoveCommandDraft.length === 0 &&
+                previewUrlDraft.length === 0 &&
                 taskTagsDraft.length === 0)
             }
             onClick={() => {
@@ -342,6 +362,7 @@ function EditRepositoryForm({
               setSolutionFilePathDraft('')
               setNewWorktreeSetupCommandDraft('')
               setPostWorktreeRemoveCommandDraft('')
+              setPreviewUrlDraft('')
               setTaskTagsDraft('')
             }}
             title="Clear project fields"

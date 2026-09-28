@@ -969,6 +969,19 @@ it('records activity when a running turn completes, but not when opening an idle
   await service.shutdown()
 })
 
+it('ends the turn on assistant.idle while background shells defer session.idle', async () => {
+  const service = setup()
+  await service.start('thread-1')
+  emit('assistant.turn_start', { turnId: 'turn-1' })
+  expect(service.getSession('thread-1')?.phase).toBe('running')
+  emit('assistant.idle', {})
+  expect(service.getSession('thread-1')?.phase).toBe('idle')
+  expect(harness.activity).toHaveBeenCalledExactlyOnceWith('thread-1')
+  emit('session.idle', {})
+  expect(harness.activity).toHaveBeenCalledOnce()
+  await service.shutdown()
+})
+
 describe('messages sent while Copilot works', () => {
   const message = (prompt: string, delivery?: 'steer' | 'queue'): CopilotSendInput => ({
     threadId: 'thread',
@@ -1182,6 +1195,44 @@ describe('session skills and prompt history', () => {
       agentMode: 'interactive',
       attachments: [{ type: 'file', path: '/repo/file', displayName: 'file' }]
     })
+  })
+
+  it('sends picked preview elements as hidden context next to their screenshots', async () => {
+    const service = setup()
+    const attachment = {
+      id: 'a',
+      type: 'blob' as const,
+      data: 'AA==',
+      mimeType: 'image/png',
+      displayName: 'button “Save”',
+      previewUrl: 'data:image/png;base64,AA==',
+      element: {
+        pageUrl: 'http://localhost:4000/',
+        pageTitle: 'App',
+        selector: '#save',
+        tagName: 'button',
+        role: 'button',
+        accessibleName: 'Save',
+        text: 'Save',
+        html: '<button id="save">Save</button>',
+        components: [],
+        sourceFile: null,
+        rect: { x: 0, y: 0, width: 10, height: 10 },
+        viewport: { width: 100, height: 100 }
+      }
+    }
+    const prompt = 'Make [📎 button “Save”] blue'
+    expect((await service.send({ ...input, prompt, attachments: [attachment] })).ok).toBe(true)
+    const sent = harness.send.mock.lastCall?.[0]
+    expect(sent).toMatchObject({
+      displayPrompt: prompt,
+      attachments: [
+        { type: 'blob', data: 'AA==', mimeType: 'image/png', displayName: 'button “Save”' }
+      ]
+    })
+    expect(sent.prompt).toMatch(/^Make \[📎 button “Save”\] blue\n\n<preview_feedback>/)
+    expect(sent.prompt).toContain('- Selector: `#save`')
+    expect(sent.attachments[0]).not.toHaveProperty('element')
   })
 
   it('accepts the leading dollar skill syntax without executing arbitrary CLI commands', async () => {

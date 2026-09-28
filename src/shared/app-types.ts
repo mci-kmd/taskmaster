@@ -95,6 +95,8 @@ export interface PersistedRepository {
   solutionFilePath: string | null
   newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
+  /** Opt-in address served by the run command; may contain the run command's branch tokens. */
+  previewUrl?: string
   /** Project-specific task tags, offered in addition to the global settings tags. */
   taskTagsInput?: string
   addedAt: string
@@ -143,6 +145,8 @@ export interface ThreadSnapshot extends PersistedThread {
   /** Fallback label when no live or persisted Copilot title is available. */
   displayTitle: string
   isRunCommandRunning: boolean
+  /** The project's preview URL with this thread's branch tokens applied, or null when not opted in. */
+  previewUrl: string | null
 }
 
 export interface RepositorySnapshot extends PersistedRepository {
@@ -372,6 +376,49 @@ export interface CopilotAttachment {
   mimeType?: string
   /** Small image data URL shown in the composer; never sent to Copilot. */
   previewUrl?: string
+  /** Set when this attachment is a screenshot of an element picked in the preview. */
+  element?: PreviewElementReference
+}
+
+export interface PreviewRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface PreviewElementReference {
+  pageUrl: string
+  pageTitle: string
+  selector: string
+  tagName: string
+  role: string | null
+  accessibleName: string | null
+  text: string
+  html: string
+  /** Innermost first, e.g. ['SaveButton', 'ProfileForm']. Best effort, dev builds only. */
+  components: string[]
+  sourceFile: string | null
+  rect: PreviewRect
+  viewport: { width: number; height: number }
+}
+
+export interface PreviewCaptureRequest {
+  webContentsId: number
+  rect: PreviewRect
+  viewport: { width: number; height: number }
+}
+
+export interface PreviewCaptureResult {
+  ok: boolean
+  data?: string
+  mimeType?: string
+  thumbnailUrl?: string
+  error?: string
+}
+
+export interface PreviewApi {
+  captureElement: (request: PreviewCaptureRequest) => Promise<PreviewCaptureResult>
 }
 
 export type CopilotTimelineItem =
@@ -605,6 +652,7 @@ export interface UpdateRepositoryInput {
   solutionFilePath: string | null
   newWorktreeSetupCommand: string | null
   postWorktreeRemoveCommand: string | null
+  previewUrl?: string | null
   taskTagsInput?: string
 }
 

@@ -10,6 +10,8 @@ type ResizeHandleProps = {
   title?: string
   collapseWidth?: number
   className?: string
+  /** Set when the resized pane sits to the right of the handle. */
+  invert?: boolean
 }
 
 export default function ResizeHandle({
@@ -21,7 +23,8 @@ export default function ResizeHandle({
   ariaLabel = 'Resize sidebar',
   title = 'Drag to resize · double-click to collapse',
   collapseWidth,
-  className = ''
+  className = '',
+  invert = false
 }: ResizeHandleProps): React.JSX.Element {
   const [dragging, setDragging] = useState(false)
 
@@ -35,7 +38,7 @@ export default function ResizeHandle({
       const clamp = (value: number): number => Math.min(max, Math.max(min, value))
 
       const handleMove = (moveEvent: MouseEvent): void => {
-        const next = clamp(startWidth + (moveEvent.clientX - startX))
+        const next = clamp(startWidth + (moveEvent.clientX - startX) * (invert ? -1 : 1))
         final = next
         onResize(next)
       }
@@ -53,7 +56,7 @@ export default function ResizeHandle({
       document.body.classList.add('tm-resizing')
       setDragging(true)
     },
-    [width, min, max, onResize, onResizeEnd]
+    [width, min, max, invert, onResize, onResizeEnd]
   )
 
   const handleDoubleClick = useCallback((): void => {

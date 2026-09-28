@@ -29,6 +29,7 @@ import type {
 } from '../shared/app-types'
 import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from '../shared/app-types'
 import { parseTaskTagsInput } from '../shared/task-tags'
+import { isHttpUrl } from '../shared/preview'
 import { normalizeCopilotTitle } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
 import { createRepositoryService } from './features/repositories/repository-service'
@@ -72,6 +73,7 @@ import { createThreadRunService } from './features/threads/thread-run-service'
 import { createThreadStateService } from './features/threads/thread-state-service'
 import { normalizeCustomTitle, normalizeTrackedText } from './features/threads/thread-values'
 import { createThreadWorkspaceService } from './features/threads/thread-workspace-service'
+import { applyThreadBranchTokens } from './features/threads/thread-worktree-utils'
 import { sanitizeUserFacingMessage } from './features/shared/user-facing-messages'
 import { hasSessionsForThread, killSessionsForThread } from './terminal'
 import {
@@ -111,6 +113,11 @@ const snapshotService = createSnapshotService({
   getThreadUiCwd,
   getThreadExecutionCwd,
   buildRepositoryFaviconUrl,
+  resolveThreadPreviewUrl: (repository, thread) => {
+    if (!repository.previewUrl) return null
+    const url = applyThreadBranchTokens(repository.previewUrl, repository, thread)
+    return isHttpUrl(url) ? url : null
+  },
   parseTaskTagsInput,
   resolveTerminalFontFamily,
   sidebarWidth: {

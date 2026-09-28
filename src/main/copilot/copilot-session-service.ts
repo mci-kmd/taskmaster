@@ -1,4 +1,5 @@
 import { expandSkillPrompt, listSessionSkills } from './copilot-skills'
+import { withPreviewElementContext } from './preview-element-context'
 import { resumeOrCreateSession } from './session-resume'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
@@ -791,6 +792,13 @@ export function createCopilotSessionService(dependencies: {
           })
         }
         break
+      // session.idle is deferred while background work (e.g. an async dev server shell)
+      // is in flight; assistant.idle marks the end of the agent's turn regardless.
+      case 'assistant.idle':
+        if (active.snapshot.phase === 'running') dependencies.onActivity?.(active.snapshot.threadId)
+        updateSnapshot(active, { phase: 'idle', error: null })
+        refreshQueue(active)
+        break
       case 'session.idle':
         if (active.snapshot.phase === 'running') dependencies.onActivity?.(active.snapshot.threadId)
         finishActivity(active)
@@ -1169,7 +1177,11 @@ export function createCopilotSessionService(dependencies: {
     // Stopping the turn clears the runtime queue, so it also cancels this message.
     const sendRevision = active.sendRevision
     try {
-      const expanded = await expandSkillPrompt(active.session, input.prompt)
+      const expanded = withPreviewElementContext(
+        await expandSkillPrompt(active.session, input.prompt),
+        input.prompt,
+        input.attachments
+      )
       if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active)
         return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
       await active.session.send({
@@ -1276,7 +1288,11 @@ export function createCopilotSessionService(dependencies: {
         error: null
       })
       try {
-        const expanded = await expandSkillPrompt(active.session, input.prompt)
+        const expanded = withPreviewElementContext(
+          await expandSkillPrompt(active.session, input.prompt),
+          input.prompt,
+          input.attachments
+        )
         if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active) {
           return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
         }

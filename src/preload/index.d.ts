@@ -13,6 +13,7 @@ import type {
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  PreviewApi,
   ReorderRepositoryTasksInput,
   SidebarContextMenuActionEvent,
   SidebarContextMenuRequest,
@@ -90,6 +91,7 @@ declare global {
       terminal: TerminalApi
       copilot: CopilotApi
       appState: AppStateApi
+      preview: PreviewApi
     }
   }
 }

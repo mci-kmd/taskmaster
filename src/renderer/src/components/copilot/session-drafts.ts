@@ -1,5 +1,6 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import type { CopilotAgentMode, CopilotAttachment } from '../../../../shared/app-types'
+import { insertAttachmentMarkers, withUniqueNames } from './attachment-markers'
 
 type Draft = {
   prompt: string
@@ -29,4 +30,33 @@ export function useSessionDraft(
     [threadId]
   )
   return [draft, update]
+}
+
+type AttachHandler = (attachments: CopilotAttachment[]) => void
+const composers = new Map<string, AttachHandler>()
+
+/** Lets an open composer place attachments from elsewhere at its caret. */
+export function registerComposer(threadId: string, attach: AttachHandler): () => void {
+  composers.set(threadId, attach)
+  return () => {
+    if (composers.get(threadId) === attach) composers.delete(threadId)
+  }
+}
+
+export function attachToDraft(threadId: string, attachments: CopilotAttachment[]): void {
+  if (!attachments.length) return
+  const composer = composers.get(threadId)
+  if (composer) {
+    composer(attachments)
+    return
+  }
+  const current = drafts.get(threadId) ?? emptyDraft
+  const named = withUniqueNames(attachments, current.attachments)
+  const { prompt } = insertAttachmentMarkers(
+    current.prompt,
+    named.map((item) => item.displayName),
+    current.prompt.length
+  )
+  drafts.set(threadId, { ...current, prompt, attachments: [...current.attachments, ...named] })
+  listeners.forEach((listener) => listener())
 }

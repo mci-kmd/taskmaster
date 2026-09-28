@@ -13,7 +13,11 @@ import {
   DEFAULT_TASK_TAGS_INPUT
 } from '../settings/settings-values'
 import { normalizeRepositorySolutionFilePath } from '../repositories/repository-solution-file-service'
-import { normalizeRepositoryScript, normalizeRunCommand } from '../repositories/repository-values'
+import {
+  normalizeRepositoryPreviewUrl,
+  normalizeRepositoryScript,
+  normalizeRunCommand
+} from '../repositories/repository-values'
 import { normalizeTrackedText } from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
@@ -64,6 +68,8 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   const rawTaskTagsInput = (repository as { taskTagsInput?: unknown }).taskTagsInput
   const taskTagsInput =
     typeof rawTaskTagsInput === 'string' ? normalizeTaskTagsInput(rawTaskTagsInput) : undefined
+  const rawPreviewUrl = (repository as { previewUrl?: unknown }).previewUrl
+  const previewUrl = normalizeRepositoryPreviewUrl(rawPreviewUrl) ?? undefined
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const tasks = currentTasks.map((task) => normalizePersistedTask(task))
 
@@ -74,6 +80,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     newWorktreeSetupCommand === repository.newWorktreeSetupCommand &&
     postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
     taskTagsInput === rawTaskTagsInput &&
+    previewUrl === rawPreviewUrl &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
     tasks.every((task, index) => task === currentTasks[index])
@@ -81,8 +88,9 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     return repository
   }
 
-  const { taskTagsInput: _taskTagsInput, ...rest } = repository
+  const { taskTagsInput: _taskTagsInput, previewUrl: _previewUrl, ...rest } = repository
   void _taskTagsInput
+  void _previewUrl
   return {
     ...rest,
     backend,
@@ -90,6 +98,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     solutionFilePath,
     newWorktreeSetupCommand,
     postWorktreeRemoveCommand,
+    ...(previewUrl === undefined ? {} : { previewUrl }),
     ...(taskTagsInput === undefined ? {} : { taskTagsInput }),
     tasks
   }
