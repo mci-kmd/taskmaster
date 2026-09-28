@@ -14,6 +14,9 @@ const mock = vi.hoisted(() => ({
   respond: vi.fn(),
   authenticateMcpServer: vi.fn(),
   setModel: vi.fn(),
+  getFavoriteModels: vi.fn(),
+  setModelFavorite: vi.fn(),
+  onFavoriteModels: vi.fn(),
   getSdkStatus: vi.fn(),
   updateSdk: vi.fn(),
   pickAttachments: vi.fn(),
@@ -82,6 +85,8 @@ beforeEach(() => {
     return vi.fn()
   })
   mock.onSdkStatus.mockReturnValue(vi.fn())
+  mock.getFavoriteModels.mockResolvedValue([])
+  mock.onFavoriteModels.mockReturnValue(vi.fn())
   mock.send.mockResolvedValue({ ok: true })
   mock.respond.mockResolvedValue(true)
 })

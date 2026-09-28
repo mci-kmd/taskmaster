@@ -49,6 +49,21 @@ describe('persisted state store', () => {
       createPersistedStateStore(options).ensureState().settings.lastCopilotModelSelection
     ).toEqual({ model: 'chosen-model', reasoningEffort: 'high' })
   })
+  it('preserves favorite models and drops invalid or duplicate entries', () => {
+    const directory = mkdtempSync(join(process.cwd(), '.test-taskmaster-favorite-models-'))
+    tempDirs.push(directory)
+    const options = {
+      getStorePath: () => join(directory, 'state.json'),
+      createDefaultState: createState,
+      migrateState: migrateAppState
+    }
+    const store = createPersistedStateStore(options)
+    store.ensureState().settings.favoriteCopilotModels = ['a', 'b', 'a', '', 3 as never]
+    store.saveState()
+    expect(createPersistedStateStore(options).ensureState().settings.favoriteCopilotModels).toEqual(
+      ['a', 'b']
+    )
+  })
   it('normalizes selection against current repositories and threads', () => {
     const state = createState()
     state.repositories.push({

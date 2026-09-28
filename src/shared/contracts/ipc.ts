@@ -10,6 +10,8 @@ import type {
   CopilotPickAttachmentsResult,
   CopilotSdkStatus,
   CopilotSdkStatusEvent,
+  CopilotFavoriteModelsEvent,
+  CopilotSetModelFavoriteInput,
   CopilotSendInput,
   CopilotSkillsResult,
   CopilotSessionEvent,
@@ -115,6 +117,9 @@ export const IPC_CHANNELS = {
     cancelQueued: 'copilot:cancel-queued',
     abort: 'copilot:abort',
     setModel: 'copilot:set-model',
+    getFavoriteModels: 'copilot:get-favorite-models',
+    setModelFavorite: 'copilot:set-model-favorite',
+    favoriteModels: 'copilot:favorite-models',
     respond: 'copilot:respond',
     authenticateMcpServer: 'copilot:authenticate-mcp-server',
     pickAttachments: 'copilot:pick-attachments',
@@ -230,6 +235,8 @@ export type IpcInvokeDefinitions = {
   'copilot:cancel-queued': { request: [CopilotCancelQueuedInput]; response: CopilotStartResult }
   'copilot:abort': { request: [string]; response: boolean }
   'copilot:set-model': { request: [CopilotSetModelInput]; response: CopilotStartResult }
+  'copilot:get-favorite-models': { request: []; response: string[] }
+  'copilot:set-model-favorite': { request: [CopilotSetModelFavoriteInput]; response: string[] }
   'copilot:respond': { request: [CopilotInteractionResponse]; response: boolean }
   'copilot:authenticate-mcp-server': {
     request: [CopilotMcpAuthInput]
@@ -252,6 +259,7 @@ export type IpcEventDefinitions = {
   'copilot:session': { payload: CopilotSessionEvent }
   'copilot:performance-sample': { payload: ModelPerformanceSampleEvent }
   'copilot:sdk-status': { payload: CopilotSdkStatusEvent }
+  'copilot:favorite-models': { payload: CopilotFavoriteModelsEvent }
 }
 
 export type IpcInvokeChannel = keyof IpcInvokeDefinitions

@@ -177,3 +177,97 @@ describe('nested model families', () => {
     expect(onChange).toHaveBeenCalledWith('gpt-4.1', 'low')
   })
 })
+
+describe('favorite models', () => {
+  function renderFavorites(favorites: string[]): {
+    onChange: ReturnType<typeof vi.fn>
+    onToggleFavorite: ReturnType<typeof vi.fn>
+    rerender: (favorites: string[]) => void
+  } {
+    const onChange = vi.fn()
+    const onToggleFavorite = vi.fn()
+    const element = (favoriteModels: string[]): React.JSX.Element => (
+      <SessionModelControls
+        session={session}
+        disabled={false}
+        busy={false}
+        disabledReason=""
+        favoriteModels={favoriteModels}
+        onChange={onChange}
+        onToggleFavorite={onToggleFavorite}
+      />
+    )
+    const view = render(element(favorites))
+    return {
+      onChange,
+      onToggleFavorite,
+      rerender: (next) => view.rerender(element(next))
+    }
+  }
+
+  it('hides the favorites group when nothing is starred', () => {
+    renderFavorites([])
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
+    expect(screen.queryByRole('group', { name: 'Favorites' })).toBeNull()
+    expect(screen.queryByText('Favorites')).toBeNull()
+  })
+
+  it('stars models from a family and lists favorites below the families', () => {
+    const { onChange, onToggleFavorite, rerender } = renderFavorites([])
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
+    const star = screen.getByRole('button', { name: 'Add Claude Haiku 4.5 to favorites' })
+    expect(star.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(star)
+    expect(onToggleFavorite).toHaveBeenCalledWith('claude-haiku-4.5', true)
+    expect(onChange).not.toHaveBeenCalled()
+
+    rerender(['claude-haiku-4.5', 'retired-model', 'gemini-2.5-pro'])
+    expect(
+      within(screen.getByRole('group', { name: 'Claude models' }))
+        .getByRole('button', { name: 'Remove Claude Haiku 4.5 from favorites' })
+        .getAttribute('aria-pressed')
+    ).toBe('true')
+    const tree = screen.getByRole('tree', { name: 'Model families' })
+    const favorites = within(tree).getByRole('group', { name: 'Favorites' })
+    expect(
+      within(favorites)
+        .getAllByRole('treeitem')
+        .map((row) => row.getAttribute('aria-label'))
+    ).toEqual(['Claude Haiku 4.5', 'Gemini 2.5 Pro'])
+    expect(
+      within(tree)
+        .getAllByRole('treeitem')
+        .map((row) => row.getAttribute('aria-label'))
+    ).toEqual(['Claude', 'GPT', 'Gemini', 'Other models', 'Claude Haiku 4.5', 'Gemini 2.5 Pro'])
+
+    fireEvent.click(within(favorites).getByRole('treeitem', { name: 'Gemini 2.5 Pro' }))
+    expect(onChange).toHaveBeenCalledWith('gemini-2.5-pro', 'high')
+    expect(screen.queryByRole('tree')).toBeNull()
+  })
+
+  it('reaches favorites and toggles stars with the keyboard', () => {
+    const { onChange, onToggleFavorite } = renderFavorites(['gpt-4.1'])
+    const trigger = screen.getByRole('combobox', { name: 'Model' })
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    fireEvent.keyDown(trigger, { key: 'End' })
+    const favorite = within(screen.getByRole('group', { name: 'Favorites' })).getByRole(
+      'treeitem',
+      { name: 'GPT-4.1' }
+    )
+    expect(trigger.getAttribute('aria-activedescendant')).toBe(favorite.id)
+    fireEvent.keyDown(trigger, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith('gpt-4.1', 'high')
+
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' })
+    fireEvent.keyDown(trigger, { key: 'End' })
+    fireEvent.keyDown(trigger, { key: '*' })
+    expect(onToggleFavorite).toHaveBeenCalledWith('gpt-4.1', false)
+    expect(trigger.getAttribute('aria-activedescendant')).toBe(
+      screen.getByRole('treeitem', { name: 'Other models' }).id
+    )
+    fireEvent.keyDown(trigger, { key: 'ArrowRight' })
+    fireEvent.keyDown(trigger, { key: '*' })
+    expect(onToggleFavorite).toHaveBeenLastCalledWith('new-model', true)
+  })
+})

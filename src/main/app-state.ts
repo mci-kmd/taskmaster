@@ -357,6 +357,15 @@ export function rememberCopilotModelSelection(selection: CopilotModelSelection):
   saveState()
 }
 
+export function getFavoriteCopilotModels(): string[] {
+  return ensureState().settings.favoriteCopilotModels ?? []
+}
+
+export function setFavoriteCopilotModels(models: string[]): void {
+  ensureState().settings.favoriteCopilotModels = [...models]
+  saveState()
+}
+
 export function updateCopilotThreadTitle(threadId: string, title: string): void {
   threadStateService.updateThreadCopilotTitle({ threadId, title })
   electronUi.broadcastThreadRunState(threadId)

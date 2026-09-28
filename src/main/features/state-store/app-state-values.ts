@@ -117,17 +117,29 @@ export function normalizePersistedSettings(
     currentTaskTagsInput === undefined
       ? DEFAULT_TASK_TAGS_INPUT
       : normalizeTaskTagsInput(currentTaskTagsInput)
+  const favoriteCopilotModels = normalizeFavoriteModels(settings.favoriteCopilotModels)
 
   return yoloEnabled === settings.yoloEnabled &&
     terminalFontFamilyInput === settings.terminalFontFamilyInput &&
-    taskTagsInput === currentTaskTagsInput
+    taskTagsInput === currentTaskTagsInput &&
+    favoriteCopilotModels === settings.favoriteCopilotModels
     ? settings
     : {
         ...settings,
         yoloEnabled,
         terminalFontFamilyInput,
-        taskTagsInput
+        taskTagsInput,
+        ...(favoriteCopilotModels ? { favoriteCopilotModels } : {})
       }
+}
+
+function normalizeFavoriteModels(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) return []
+  const models = [
+    ...new Set(value.filter((item): item is string => typeof item === 'string' && item !== ''))
+  ]
+  return models.length === value.length ? (value as string[]) : models
 }
 
 export function normalizePersistedState(state: PersistedAppState): PersistedAppState {

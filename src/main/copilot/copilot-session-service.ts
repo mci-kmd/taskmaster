@@ -19,6 +19,7 @@ import type {
   CopilotSendInput,
   CopilotSkillsResult,
   CopilotSessionSnapshot,
+  CopilotSetModelFavoriteInput,
   CopilotSetModelInput,
   CopilotStartResult,
   CopilotTimelineItem,
@@ -343,6 +344,8 @@ function permissionDescription(request: PermissionRequest): string {
 export function createCopilotSessionService(dependencies: {
   getModelDefaults?: () => CopilotModelSelection | null
   onModelSelected?: (selection: CopilotModelSelection) => void
+  getFavoriteModels?: () => string[]
+  setFavoriteModels?: (models: string[]) => void
   resolveThread: (threadId: string) => ThreadContext | null
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
@@ -361,6 +364,8 @@ export function createCopilotSessionService(dependencies: {
   cancelQueued: (input: CopilotCancelQueuedInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
+  getFavoriteModels: () => string[]
+  setModelFavorite: (input: CopilotSetModelFavoriteInput) => string[]
   respond: (input: CopilotInteractionResponse) => boolean
   authenticateMcpServer: (input: CopilotMcpAuthInput) => Promise<CopilotStartResult>
   pickAttachments: () => Promise<{
@@ -1343,6 +1348,17 @@ export function createCopilotSessionService(dependencies: {
       } catch (error) {
         return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
       }
+    },
+    getFavoriteModels: () => [...(dependencies.getFavoriteModels?.() ?? [])],
+    setModelFavorite: ({ model, favorite }) => {
+      const current = dependencies.getFavoriteModels?.() ?? []
+      if (typeof model !== 'string' || !model || current.includes(model) === favorite)
+        return [...current]
+      const models = favorite ? [...current, model] : current.filter((id) => id !== model)
+      dependencies.setFavoriteModels?.(models)
+      for (const window of BrowserWindow.getAllWindows())
+        sendIpc(window.webContents, IPC_CHANNELS.copilot.favoriteModels, { models })
+      return [...models]
     },
     setModel: async (input: CopilotSetModelInput) => {
       const startResult = await start(input.threadId)

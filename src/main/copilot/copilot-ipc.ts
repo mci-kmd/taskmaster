@@ -3,6 +3,7 @@ import type {
   CopilotInteractionResponse,
   CopilotMcpAuthInput,
   CopilotSendInput,
+  CopilotSetModelFavoriteInput,
   CopilotSetModelInput
 } from '../../shared/app-types'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
@@ -30,6 +31,10 @@ export function registerCopilotIpc(service: CopilotSessionService): void {
   handleIpc(IPC_CHANNELS.copilot.abort, (_event, threadId: string) => service.abort(threadId))
   handleIpc(IPC_CHANNELS.copilot.setModel, (_event, input: CopilotSetModelInput) =>
     service.setModel(input)
+  )
+  handleIpc(IPC_CHANNELS.copilot.getFavoriteModels, () => service.getFavoriteModels())
+  handleIpc(IPC_CHANNELS.copilot.setModelFavorite, (_event, input: CopilotSetModelFavoriteInput) =>
+    service.setModelFavorite(input)
   )
   handleIpc(IPC_CHANNELS.copilot.respond, (_event, input: CopilotInteractionResponse) =>
     service.respond(input)

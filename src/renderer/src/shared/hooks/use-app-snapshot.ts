@@ -6,19 +6,16 @@ const api = getRendererApi()
 
 type UseAppSnapshotOptions = {
   onSnapshotLoaded?: (snapshot: AppSnapshot) => void
-  onMutationFeedback?: (result: MutationResult, successMessage?: string) => void
+  onMutationResult?: (result: MutationResult) => void
 }
 
 export function useAppSnapshot(options: UseAppSnapshotOptions = {}): {
   snapshot: AppSnapshot | null
   setSnapshot: React.Dispatch<React.SetStateAction<AppSnapshot | null>>
   refreshSnapshot: () => Promise<void>
-  applyMutation: (
-    action: Promise<MutationResult>,
-    successMessage?: string
-  ) => Promise<MutationResult>
+  applyMutation: (action: Promise<MutationResult>) => Promise<MutationResult>
 } {
-  const { onMutationFeedback, onSnapshotLoaded } = options
+  const { onMutationResult, onSnapshotLoaded } = options
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null)
 
   useEffect(() => {
@@ -58,17 +55,17 @@ export function useAppSnapshot(options: UseAppSnapshotOptions = {}): {
   }, [refreshSnapshot])
 
   const applyMutation = useCallback(
-    async (action: Promise<MutationResult>, successMessage?: string): Promise<MutationResult> => {
+    async (action: Promise<MutationResult>): Promise<MutationResult> => {
       const result = await action
 
       if (result.snapshot) {
         setSnapshot(result.snapshot)
       }
 
-      onMutationFeedback?.(result, successMessage)
+      onMutationResult?.(result)
       return result
     },
-    [onMutationFeedback]
+    [onMutationResult]
   )
 
   return {

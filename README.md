@@ -10,7 +10,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Tag tasks with global labels from Settings plus optional project-specific labels from Edit project
 - Create Copilot threads on a branch or worktree; settling preserves sessions, branches, and worktrees without cleanup, and keeps the current project selected
 - Choose a predefined project icon and color as a fallback for custom favicons
-- Browse available Copilot models through nested family submenus, preserving the active model and per-model reasoning settings
+- Browse available Copilot models through nested family submenus, preserving the active model and per-model reasoning settings; star models (click the star or press `*`) to list them as favorites at the bottom of the picker
 - Change model and reasoning effort while Copilot works; the queued choice applies to the next message
 - Quitting while Copilot agents are still working asks for confirmation and lists the busy threads
 - Open Model performance beside Settings to compare end-to-end output tokens/second and time to first token for used models over 1h, 1d, 1w, or 30 days; hover or focus chart intervals (arrow keys move between them) for each model's measurements. Completed intervals stay fixed while the current interval updates; the labeled vertical scale adjusts for new maxima. Samples are collected from new calls and kept locally for 30 days

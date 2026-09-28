@@ -10,24 +10,11 @@ describe('Toast', () => {
     vi.useRealTimers()
   })
 
-  it('auto-dismisses success toasts', () => {
+  it('stays visible until dismissed manually', () => {
     vi.useFakeTimers()
     const onDismiss = vi.fn()
 
-    render(<Toast tone="success" message="Saved." onDismiss={onDismiss} />)
-
-    act(() => {
-      vi.advanceTimersByTime(3500)
-    })
-
-    expect(onDismiss).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps error toasts visible until dismissed manually', () => {
-    vi.useFakeTimers()
-    const onDismiss = vi.fn()
-
-    render(<Toast tone="error" message="Save failed." onDismiss={onDismiss} />)
+    render(<Toast message="Save failed." onDismiss={onDismiss} />)
 
     act(() => {
       vi.advanceTimersByTime(30000)

@@ -7,7 +7,9 @@ type Props = {
   disabled: boolean
   busy: boolean
   disabledReason: string
+  favoriteModels?: string[]
   onChange: (model: string, effort: CopilotReasoningEffort | null) => void
+  onToggleFavorite?: (model: string, favorite: boolean) => void
 }
 
 export default function SessionModelControls({
@@ -15,7 +17,9 @@ export default function SessionModelControls({
   disabled,
   busy,
   disabledReason,
-  onChange
+  favoriteModels,
+  onChange,
+  onToggleFavorite
 }: Props): React.JSX.Element {
   const model = session?.nextModelSelection?.model ?? session?.model
   const selected = session?.models.find((option) => option.id === model)
@@ -34,6 +38,8 @@ export default function SessionModelControls({
         <ModelPicker
           models={session?.models ?? []}
           value={model ?? ''}
+          favorites={favoriteModels}
+          onToggleFavorite={onToggleFavorite}
           disabled={disabled || !session?.models.length}
           placeholder={
             session?.models.length ? 'Choose model' : session ? 'No models available' : 'Loading…'

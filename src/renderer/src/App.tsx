@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar'
 import Workspace from './components/Workspace'
 import ModelPerformanceView from './components/ModelPerformanceView'
-import Toast, { type ToastTone } from './components/Toast'
+import Toast from './components/Toast'
 import EditRepositoryDialog from './components/dialogs/EditRepositoryDialog'
 import EditThreadDialog from './components/dialogs/EditThreadDialog'
 import NewThreadDialog from './components/dialogs/NewThreadDialog'
@@ -25,11 +25,6 @@ import {
   type UpdateRepositoryInput,
   type UpdateRepositoryTaskInput
 } from '../../shared/app-types'
-
-type Feedback = {
-  tone: ToastTone
-  message: string
-}
 
 type DialogKey = 'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | null
 
@@ -87,7 +82,7 @@ function applyThreadSelection(snapshot: AppSnapshot, threadId: string | null): A
 }
 
 export default function App(): React.JSX.Element {
-  const [feedback, setFeedback] = useState<Feedback | null>(null)
+  const [toastError, setToastError] = useState<string | null>(null)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [dialog, setDialog] = useState<DialogKey>(null)
   const [editingRepositoryId, setEditingRepositoryId] = useState<string | null>(null)
@@ -106,27 +101,17 @@ export default function App(): React.JSX.Element {
   const handleSnapshotLoaded = useCallback((nextSnapshot: AppSnapshot): void => {
     setSidebarWidth(nextSnapshot.sidebarWidth)
   }, [])
-  const handleMutationFeedback = useCallback(
-    (
-      result: { ok: boolean; cancelled?: boolean; error?: string },
-      successMessage?: string
-    ): void => {
-      if (result.ok) {
-        if (successMessage) {
-          setFeedback({ tone: 'success', message: successMessage })
-        }
-        return
-      }
-
-      if (!result.cancelled) {
-        setFeedback({ tone: 'error', message: result.error ?? 'Request failed.' })
+  const handleMutationError = useCallback(
+    (result: { ok: boolean; cancelled?: boolean; error?: string }): void => {
+      if (!result.ok && !result.cancelled) {
+        setToastError(result.error ?? 'Request failed.')
       }
     },
     []
   )
   const { applyMutation, refreshSnapshot, setSnapshot, snapshot } = useAppSnapshot({
     onSnapshotLoaded: handleSnapshotLoaded,
-    onMutationFeedback: handleMutationFeedback
+    onMutationResult: handleMutationError
   })
 
   const settlingThreadIds = useRef(new Set<string>())
@@ -137,10 +122,7 @@ export default function App(): React.JSX.Element {
       try {
         await applyMutation(api.appState.updateThread({ threadId, settled }))
       } catch (error) {
-        setFeedback({
-          tone: 'error',
-          message: error instanceof Error ? error.message : String(error)
-        })
+        setToastError(error instanceof Error ? error.message : String(error))
       } finally {
         settlingThreadIds.current.delete(threadId)
       }
@@ -249,7 +231,7 @@ export default function App(): React.JSX.Element {
 
   const handleAddRepository = useCallback(async (): Promise<void> => {
     setBusyAction('add-repository')
-    const result = await applyMutation(api.appState.addRepository(), 'Repository added.')
+    const result = await applyMutation(api.appState.addRepository())
     if (result.ok && result.snapshot?.selectedRepositoryId) {
       setInboxProjectId(result.snapshot.selectedRepositoryId)
       setRepositoryViewId(null)
@@ -370,7 +352,7 @@ export default function App(): React.JSX.Element {
   const handleSaveSettings = useCallback(
     async (input: UpdateSettingsInput): Promise<boolean> => {
       setBusyAction('save-settings')
-      const result = await applyMutation(api.appState.updateSettings(input), 'Settings saved.')
+      const result = await applyMutation(api.appState.updateSettings(input))
       setBusyAction(null)
       return result.ok
     },
@@ -389,7 +371,7 @@ export default function App(): React.JSX.Element {
       }
 
       if ('error' in result) {
-        setFeedback({ tone: 'error', message: result.error })
+        setToastError(result.error)
       }
 
       return null
@@ -409,7 +391,7 @@ export default function App(): React.JSX.Element {
       }
 
       if ('error' in result) {
-        setFeedback({ tone: 'error', message: result.error })
+        setToastError(result.error)
       }
 
       return null
@@ -420,7 +402,7 @@ export default function App(): React.JSX.Element {
   const handleSaveRepository = useCallback(
     async (input: UpdateRepositoryInput): Promise<boolean> => {
       setBusyAction('save-repository')
-      const result = await applyMutation(api.appState.updateRepository(input), 'Project updated.')
+      const result = await applyMutation(api.appState.updateRepository(input))
       setBusyAction(null)
       return result.ok
     },
@@ -475,8 +457,7 @@ export default function App(): React.JSX.Element {
         api.appState.completeRepositoryTask({
           repositoryId: selectedRepository.id,
           taskId
-        }),
-        'Task completed.'
+        })
       )
       setBusyAction(null)
     },
@@ -497,8 +478,7 @@ export default function App(): React.JSX.Element {
           title: input.title,
           description: input.description,
           tags: input.tags
-        }),
-        'Task updated.'
+        })
       )
       setBusyAction(null)
       return result.ok
@@ -529,7 +509,7 @@ export default function App(): React.JSX.Element {
   const handleSaveThread = useCallback(
     async (input: { threadId: string; customTitle: string | null }): Promise<boolean> => {
       setBusyAction('save-thread')
-      const result = await applyMutation(api.appState.updateThread(input), 'Thread updated.')
+      const result = await applyMutation(api.appState.updateThread(input))
       setBusyAction(null)
       return result.ok
     },
@@ -540,12 +520,9 @@ export default function App(): React.JSX.Element {
     async (threadId: string): Promise<void> => {
       setBusyAction('close-thread')
       try {
-        await applyMutation(api.appState.closeThread(threadId), 'Thread closed.')
+        await applyMutation(api.appState.closeThread(threadId))
       } catch (error) {
-        setFeedback({
-          tone: 'error',
-          message: error instanceof Error ? error.message : String(error)
-        })
+        setToastError(error instanceof Error ? error.message : String(error))
       } finally {
         setBusyAction(null)
       }
@@ -557,15 +534,9 @@ export default function App(): React.JSX.Element {
     async (threadId: string): Promise<void> => {
       setBusyAction('convert-thread-to-worktree')
       try {
-        await applyMutation(
-          api.appState.convertThreadToWorktree(threadId),
-          'Thread converted to work tree.'
-        )
+        await applyMutation(api.appState.convertThreadToWorktree(threadId))
       } catch (error) {
-        setFeedback({
-          tone: 'error',
-          message: error instanceof Error ? error.message : String(error)
-        })
+        setToastError(error instanceof Error ? error.message : String(error))
       } finally {
         setBusyAction(null)
       }
@@ -580,7 +551,7 @@ export default function App(): React.JSX.Element {
 
     const result = await api.appState.openThreadWorkingDirectory(selectedThread.id)
     if (!result.ok) {
-      setFeedback({ tone: 'error', message: result.error })
+      setToastError(result.error)
     }
   }, [selectedThread])
 
@@ -591,11 +562,8 @@ export default function App(): React.JSX.Element {
 
     const result = await api.appState.openThreadWorkspaceInVscode(selectedThread.id)
     if (!result.ok) {
-      setFeedback({ tone: 'error', message: result.error })
-      return
+      setToastError(result.error)
     }
-
-    setFeedback({ tone: 'success', message: 'Opened workspace in VS Code.' })
   }, [selectedThread])
 
   const handleOpenSolutionInVisualStudio = useCallback(async (): Promise<void> => {
@@ -605,11 +573,8 @@ export default function App(): React.JSX.Element {
 
     const result = await api.appState.openThreadSolutionInVisualStudio(selectedThread.id)
     if (!result.ok) {
-      setFeedback({ tone: 'error', message: result.error })
-      return
+      setToastError(result.error)
     }
-
-    setFeedback({ tone: 'success', message: 'Opened solution in Visual Studio.' })
   }, [selectedThread])
 
   // Refresh repo state (current branch, primary branch, etc.) every time the
@@ -772,13 +737,7 @@ export default function App(): React.JSX.Element {
         thread={editingThread}
       />
 
-      {feedback ? (
-        <Toast
-          message={feedback.message}
-          onDismiss={() => setFeedback(null)}
-          tone={feedback.tone}
-        />
-      ) : null}
+      {toastError ? <Toast message={toastError} onDismiss={() => setToastError(null)} /> : null}
     </div>
   )
 }

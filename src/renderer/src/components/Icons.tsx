@@ -192,6 +192,17 @@ export function TrashIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function StarIcon({
+  filled,
+  ...props
+}: IconProps & { filled?: boolean }): React.JSX.Element {
+  return (
+    <svg {...baseProps} fill={filled ? 'currentColor' : 'none'} {...props}>
+      <path d="m8 2.2 1.75 3.6 3.95.55-2.87 2.77.7 3.93L8 11.18l-3.53 1.87.7-3.93L2.3 6.35l3.95-.55Z" />
+    </svg>
+  )
+}
+
 export function BranchIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

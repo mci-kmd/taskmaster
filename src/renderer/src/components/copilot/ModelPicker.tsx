@@ -1,30 +1,42 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { CopilotModelOption } from '../../../../shared/app-types'
-import { ChevronDownIcon, ChevronRightIcon } from '../Icons'
+import { ChevronDownIcon, ChevronRightIcon, StarIcon } from '../Icons'
 import { modelFamily } from './model-families'
 
 type ModelChoice = CopilotModelOption & { disabled?: boolean }
+type TopItem =
+  | { key: string; kind: 'family'; name: string }
+  | { key: string; kind: 'favorite'; model: ModelChoice }
+
+const familyKey = (name: string): string => `family:${name}`
+const favoriteKey = (id: string): string => `favorite:${id}`
+const topLabel = (item: TopItem): string => (item.kind === 'family' ? item.name : item.model.name)
 
 export default function ModelPicker({
   models,
   value,
   disabled,
   placeholder,
-  onChange
+  favorites = [],
+  onChange,
+  onToggleFavorite
 }: {
   models: CopilotModelOption[]
   value: string
   disabled: boolean
   placeholder: string
+  /** Starred model ids, in the order they appear at the bottom of the menu. */
+  favorites?: string[]
   onChange: (id: string) => void
+  onToggleFavorite?: (id: string, favorite: boolean) => void
 }): React.JSX.Element {
   const id = useId()
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const submenu = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
-  const [family, setFamily] = useState<string | null>(null)
+  const [highlight, setHighlight] = useState<string | null>(null)
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null)
   const [activeModel, setActiveModel] = useState<string | null>(null)
   const search = useRef({ text: '', time: 0 })
@@ -48,22 +60,37 @@ export default function ModelPicker({
       }
     ])
   const families = [...groups.keys()]
+  const favoriteSet = new Set(favorites)
+  const favoriteModels = favorites.flatMap((favorite) => {
+    const model = models.find((item) => item.id === favorite)
+    return model ? [model] : []
+  })
+  const topItems: TopItem[] = [
+    ...families.map((name) => ({ key: familyKey(name), kind: 'family' as const, name })),
+    ...favoriteModels.map((model) => ({
+      key: favoriteKey(model.id),
+      kind: 'favorite' as const,
+      model
+    }))
+  ]
+  const highlighted = topItems.find((item) => item.key === highlight) ?? null
   const choices = expandedFamily ? (groups.get(expandedFamily) ?? []) : []
   const enabled = choices.filter((model) => !model.disabled)
   const visible = open && !disabled
-  const familyId = (name: string): string => `${id}-family-${families.indexOf(name)}`
+  const topId = (key: string): string =>
+    `${id}-top-${topItems.findIndex((item) => item.key === key)}`
   const modelId = (name: string): string =>
     `${id}-model-${choices.findIndex((model) => model.id === name)}`
 
   function show(): void {
     setOpen(true)
-    setFamily(selected ? modelFamily(selected) : (families[0] ?? null))
+    setHighlight(selected ? familyKey(modelFamily(selected)) : (topItems[0]?.key ?? null))
     setExpandedFamily(null)
     setActiveModel(null)
     search.current = { text: '', time: 0 }
   }
   function expand(name: string, keyboard = false): void {
-    setFamily(name)
+    setHighlight(familyKey(name))
     setExpandedFamily(name)
     const items = groups.get(name) ?? []
     setActiveModel(
@@ -84,6 +111,15 @@ export default function ModelPicker({
     trigger.current?.focus()
     onChange(model.id)
   }
+  function toggleFavorite(model: ModelChoice): void {
+    if (!onToggleFavorite || model.disabled) return
+    const favorite = !favoriteSet.has(model.id)
+    if (!favorite && highlight === favoriteKey(model.id)) {
+      const index = topItems.findIndex((item) => item.key === highlight)
+      setHighlight(topItems[index - 1]?.key ?? topItems[index + 1]?.key ?? null)
+    }
+    onToggleFavorite(model.id, favorite)
+  }
   function keyDown(event: KeyboardEvent): void {
     if (disabled || event.nativeEvent.isComposing) return
     if (event.key === 'Tab') {
@@ -95,6 +131,17 @@ export default function ModelPicker({
       event.stopPropagation()
       if (expandedFamily) collapse()
       else setOpen(false)
+      return
+    }
+    if (event.key === '*' && visible) {
+      event.preventDefault()
+      const model =
+        activeModel !== null
+          ? choices.find((item) => item.id === activeModel)
+          : highlighted?.kind === 'favorite'
+            ? highlighted.model
+            : undefined
+      if (model) toggleFavorite(model)
       return
     }
     if (
@@ -112,18 +159,19 @@ export default function ModelPicker({
         return
       }
       if (event.key === 'ArrowRight') {
-        if (family) expand(family, true)
+        if (highlighted?.kind === 'family') expand(highlighted.name, true)
         return
       }
       if (event.key === 'Enter' || event.key === ' ') {
         const model = choices.find((item) => item.id === activeModel)
         if (model) choose(model)
-        else if (family) expand(family, true)
+        else if (highlighted?.kind === 'favorite') choose(highlighted.model)
+        else if (highlighted) expand(highlighted.name, true)
         return
       }
       const inModels = activeModel !== null
-      const items = inModels ? enabled.map((model) => model.id) : families
-      const current = items.indexOf(inModels ? activeModel! : (family ?? ''))
+      const items = inModels ? enabled.map((model) => model.id) : topItems.map((item) => item.key)
+      const current = items.indexOf(inModels ? activeModel! : (highlight ?? ''))
       const next =
         event.key === 'Home'
           ? 0
@@ -132,7 +180,7 @@ export default function ModelPicker({
             : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
       if (inModels) setActiveModel(items[next] ?? null)
       else {
-        setFamily(items[next] ?? null)
+        setHighlight(items[next] ?? null)
         collapse()
       }
     } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
@@ -147,9 +195,11 @@ export default function ModelPicker({
         )
         if (match) setActiveModel(match.id)
       } else {
-        const match = families.find((name) => name.toLowerCase().startsWith(text.toLowerCase()))
+        const match = topItems.find((item) =>
+          topLabel(item).toLowerCase().startsWith(text.toLowerCase())
+        )
         if (match) {
-          setFamily(match)
+          setHighlight(match.key)
           collapse()
         }
       }
@@ -193,7 +243,7 @@ export default function ModelPicker({
       window.removeEventListener('resize', position)
       window.removeEventListener('scroll', position, true)
     }
-  }, [visible, expandedFamily, models.length])
+  }, [visible, expandedFamily, models.length, favoriteModels.length])
 
   useEffect(() => {
     if (!visible) return
@@ -218,7 +268,31 @@ export default function ModelPicker({
       (activeModel ? submenu : menu).current
         ?.querySelector('[data-highlighted="true"]')
         ?.scrollIntoView?.({ block: 'nearest' })
-  }, [visible, family, activeModel])
+  }, [visible, highlight, activeModel])
+
+  const star = (model: ModelChoice): React.JSX.Element | null => {
+    if (!onToggleFavorite || model.disabled) return null
+    const favorite = favoriteSet.has(model.id)
+    return (
+      <button
+        type="button"
+        tabIndex={-1}
+        className="tm-picker-star"
+        aria-pressed={favorite}
+        aria-label={
+          favorite ? `Remove ${model.name} from favorites` : `Add ${model.name} to favorites`
+        }
+        title={favorite ? 'Remove from favorites (*)' : 'Add to favorites (*)'}
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          event.stopPropagation()
+          toggleFavorite(model)
+        }}
+      >
+        <StarIcon filled={favorite} width={13} height={13} />
+      </button>
+    )
+  }
 
   return (
     <div className="tm-picker tm-picker--compact">
@@ -234,8 +308,8 @@ export default function ModelPicker({
           visible
             ? activeModel
               ? modelId(activeModel)
-              : family
-                ? familyId(family)
+              : highlighted
+                ? topId(highlighted.key)
                 : undefined
             : undefined
         }
@@ -265,13 +339,13 @@ export default function ModelPicker({
               {families.map((name) => (
                 <div
                   key={name}
-                  id={familyId(name)}
+                  id={topId(familyKey(name))}
                   role="treeitem"
                   aria-label={name}
                   aria-expanded={expandedFamily === name}
                   aria-owns={expandedFamily === name ? `${id}-children` : undefined}
                   className="tm-picker-option"
-                  data-highlighted={family === name}
+                  data-highlighted={highlight === familyKey(name)}
                   onPointerDown={(event) => event.preventDefault()}
                   onPointerMove={() => {
                     if (expandedFamily !== name || activeModel) expand(name)
@@ -287,6 +361,40 @@ export default function ModelPicker({
                   <ChevronRightIcon width={12} height={12} />
                 </div>
               ))}
+              {favoriteModels.length > 0 && (
+                <div role="group" aria-label="Favorites" className="tm-picker-favorites">
+                  <div className="tm-picker-group-label" aria-hidden="true">
+                    Favorites
+                  </div>
+                  {favoriteModels.map((model) => (
+                    <div
+                      key={model.id}
+                      id={topId(favoriteKey(model.id))}
+                      role="treeitem"
+                      aria-label={model.name}
+                      aria-selected={model.id === value}
+                      className="tm-picker-option"
+                      data-highlighted={highlight === favoriteKey(model.id)}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onPointerMove={() => {
+                        if (highlight !== favoriteKey(model.id) || expandedFamily) {
+                          setHighlight(favoriteKey(model.id))
+                          collapse()
+                        }
+                      }}
+                      onClick={() => choose(model)}
+                    >
+                      <span className="tm-picker-option-text">
+                        <span className="tm-picker-label">{model.name}</span>
+                      </span>
+                      <span className="tm-picker-check" aria-hidden="true">
+                        {model.id === value ? '✓' : ''}
+                      </span>
+                      {star(model)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             {expandedFamily && (
               <div
@@ -320,6 +428,7 @@ export default function ModelPicker({
                     <span className="tm-picker-check" aria-hidden="true">
                       {model.id === value ? '✓' : ''}
                     </span>
+                    {star(model)}
                   </div>
                 ))}
               </div>

@@ -179,7 +179,8 @@ function migrateSettings(
     yoloEnabled: true,
     terminalFontFamilyInput: settings.terminalFontFamilyInput,
     taskTagsInput: settings.taskTagsInput,
-    lastCopilotModelSelection: settings.lastCopilotModelSelection
+    lastCopilotModelSelection: settings.lastCopilotModelSelection,
+    favoriteCopilotModels: settings.favoriteCopilotModels
   }
 }
 

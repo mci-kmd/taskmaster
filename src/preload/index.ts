@@ -8,6 +8,8 @@ import type {
   CopilotSendInput,
   CopilotSessionEvent,
   CopilotSdkStatusEvent,
+  CopilotFavoriteModelsEvent,
+  CopilotSetModelFavoriteInput,
   CopilotSetModelInput,
   CreateThreadInput,
   CreateRepositoryTaskInput,
@@ -182,6 +184,11 @@ const api = {
       invokeIpc(IPC_CHANNELS.copilot.cancelQueued, input),
     abort: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.abort, threadId),
     setModel: (input: CopilotSetModelInput) => invokeIpc(IPC_CHANNELS.copilot.setModel, input),
+    getFavoriteModels: () => invokeIpc(IPC_CHANNELS.copilot.getFavoriteModels),
+    setModelFavorite: (input: CopilotSetModelFavoriteInput) =>
+      invokeIpc(IPC_CHANNELS.copilot.setModelFavorite, input),
+    onFavoriteModels: (callback: (payload: CopilotFavoriteModelsEvent) => void) =>
+      onIpc(IPC_CHANNELS.copilot.favoriteModels, callback),
     respond: (input: CopilotInteractionResponse) => invokeIpc(IPC_CHANNELS.copilot.respond, input),
     authenticateMcpServer: (input: CopilotMcpAuthInput) =>
       invokeIpc(IPC_CHANNELS.copilot.authenticateMcpServer, input),

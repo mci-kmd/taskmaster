@@ -76,6 +76,8 @@ export interface PersistedSettings {
   terminalFontFamilyInput: string
   taskTagsInput: string
   lastCopilotModelSelection?: CopilotModelSelection
+  /** Model ids starred in the model picker, in the order they were starred. */
+  favoriteCopilotModels?: string[]
 }
 
 export type CopilotModelSelection = {
@@ -616,6 +618,15 @@ export interface CopilotSdkStatusEvent {
   status: CopilotSdkStatus
 }
 
+export interface CopilotSetModelFavoriteInput {
+  model: string
+  favorite: boolean
+}
+
+export interface CopilotFavoriteModelsEvent {
+  models: string[]
+}
+
 export interface CopilotApi {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
@@ -628,6 +639,9 @@ export interface CopilotApi {
   cancelQueued: (input: CopilotCancelQueuedInput) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
+  getFavoriteModels: () => Promise<string[]>
+  setModelFavorite: (input: CopilotSetModelFavoriteInput) => Promise<string[]>
+  onFavoriteModels: (callback: (payload: CopilotFavoriteModelsEvent) => void) => () => void
   respond: (input: CopilotInteractionResponse) => Promise<boolean>
   authenticateMcpServer: (input: CopilotMcpAuthInput) => Promise<CopilotStartResult>
   pickAttachments: () => Promise<CopilotPickAttachmentsResult>

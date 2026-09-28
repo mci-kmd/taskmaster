@@ -971,6 +971,22 @@ it('records activity when a running turn completes, but not when opening an idle
   await service.shutdown()
 })
 
+it('persists favorite models and broadcasts changes', () => {
+  let saved = ['a']
+  const setFavoriteModels = vi.fn((models: string[]) => {
+    saved = models
+  })
+  const service = setup(true, { getFavoriteModels: () => saved, setFavoriteModels })
+  expect(service.getFavoriteModels()).toEqual(['a'])
+  expect(service.setModelFavorite({ model: 'b', favorite: true })).toEqual(['a', 'b'])
+  expect(harness.broadcast).toHaveBeenLastCalledWith('copilot:favorite-models', {
+    models: ['a', 'b']
+  })
+  expect(service.setModelFavorite({ model: 'b', favorite: true })).toEqual(['a', 'b'])
+  expect(service.setModelFavorite({ model: 'a', favorite: false })).toEqual(['b'])
+  expect(setFavoriteModels).toHaveBeenCalledTimes(2)
+  expect(saved).toEqual(['b'])
+})
 it('ends the turn on assistant.idle while background shells defer session.idle', async () => {
   const service = setup()
   await service.start('thread-1')

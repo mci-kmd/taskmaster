@@ -83,6 +83,7 @@ export default function CopilotThreadView(props: Props): React.JSX.Element {
 function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
   const [session, setSession] = useState<CopilotSessionSnapshot | null>(null)
   const [sdk, setSdk] = useState<CopilotSdkStatus | null>(null)
+  const [favoriteModels, setFavoriteModels] = useState<string[]>([])
   const [draft, updateDraft] = useSessionDraft(thread.id)
   const { prompt, attachments } = draft
   const agentMode = draft.agentMode ?? session?.agentMode ?? 'interactive'
@@ -182,6 +183,39 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
       unsubscribeStatus()
     }
   }, [thread.id, updateSession, acceptResult])
+
+  useEffect(() => {
+    let cancelled = false
+    let changed = false
+    const unsubscribe = api.copilot.onFavoriteModels(({ models }) => {
+      changed = true
+      setFavoriteModels(models)
+    })
+    void api.copilot
+      .getFavoriteModels()
+      .then((models) => {
+        if (!cancelled && !changed) setFavoriteModels(models)
+      })
+      .catch(() => {
+        /* Favorites are optional; the picker works without them. */
+      })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [])
+
+  const toggleFavoriteModel = useCallback((model: string, favorite: boolean): void => {
+    setFavoriteModels((current) =>
+      favorite
+        ? [...current.filter((id) => id !== model), model]
+        : current.filter((id) => id !== model)
+    )
+    void api.copilot
+      .setModelFavorite({ model, favorite })
+      .then(setFavoriteModels)
+      .catch((cause) => setError(message(cause)))
+  }, [])
 
   const jumpToLatest = useCallback(() => {
     followOutput.current = true
@@ -664,7 +698,9 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
                     ? 'Wait for the current action to finish'
                     : 'Connect to Copilot to change models'
               }
+              favoriteModels={favoriteModels}
               onChange={changeModel}
+              onToggleFavorite={toggleFavoriteModel}
             />
             <div className="ml-auto flex items-center gap-2">
               {running || session?.pendingInteraction || stopping ? (
