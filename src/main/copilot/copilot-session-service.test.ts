@@ -50,6 +50,8 @@ vi.mock('./copilot-sdk-manager', () => ({
   CopilotSdkManager: class {
     setStatusListener = vi.fn()
     setRuntimeStatus = vi.fn()
+    startUpdateChecks = vi.fn()
+    stopUpdateChecks = vi.fn()
     loadSdk = async (): Promise<unknown> => ({
       version: 'test',
       runtimePath: 'C:\\runtime\\copilot-runtime.exe',

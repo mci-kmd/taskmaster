@@ -50,4 +50,29 @@ describe('CopilotSdkManager', () => {
       )
     )
   })
+
+  it('checks for updates on start and then once per day', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn(async () => Response.json({ version: '1.0.0' }))
+    vi.stubGlobal('fetch', fetchMock)
+    const manager = new CopilotSdkManager()
+    try {
+      manager.startUpdateChecks()
+      manager.startUpdateChecks()
+      await vi.waitFor(async () => expect((await manager.getStatus()).latestVersion).toBe('1.0.0'))
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(23 * 60 * 60 * 1000)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+      manager.stopUpdateChecks()
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      manager.stopUpdateChecks()
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
 })

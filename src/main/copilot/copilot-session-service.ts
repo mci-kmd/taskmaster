@@ -352,7 +352,6 @@ export function createCopilotSessionService(dependencies: {
   getPerformanceSamples: () => ModelPerformanceSample[]
 }): {
   getSdkStatus: () => Promise<CopilotSdkStatus>
-  checkForSdkUpdate: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
   start: (threadId: string) => Promise<CopilotStartResult>
   getSession: (threadId: string) => CopilotSessionSnapshot | null
@@ -422,6 +421,7 @@ export function createCopilotSessionService(dependencies: {
       sendIpc(window.webContents, IPC_CHANNELS.copilot.sdkStatus, { status })
     }
   })
+  sdkManager.startUpdateChecks()
 
   const updateSnapshot = (active: ActiveSession, patch: Partial<CopilotSessionSnapshot>): void => {
     active.snapshot = { ...active.snapshot, ...patch }
@@ -1201,7 +1201,6 @@ export function createCopilotSessionService(dependencies: {
 
   return {
     getSdkStatus: () => sdkManager.getStatus(),
-    checkForSdkUpdate: () => sdkManager.checkForUpdate(),
     updateSdk: async () => {
       if (sdkUpdateInProgress) return sdkManager.getStatus()
 
@@ -1429,6 +1428,7 @@ export function createCopilotSessionService(dependencies: {
           )
         }),
     shutdown: async () => {
+      sdkManager.stopUpdateChecks()
       for (const operation of startingThreads.values()) {
         operation.cancelled = true
       }

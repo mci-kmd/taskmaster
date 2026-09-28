@@ -14,7 +14,6 @@ type CopilotSessionService = ReturnType<
 
 export function registerCopilotIpc(service: CopilotSessionService): void {
   handleIpc(IPC_CHANNELS.copilot.getSdkStatus, () => service.getSdkStatus())
-  handleIpc(IPC_CHANNELS.copilot.checkForSdkUpdate, () => service.checkForSdkUpdate())
   handleIpc(IPC_CHANNELS.copilot.updateSdk, () => service.updateSdk())
   handleIpc(IPC_CHANNELS.copilot.start, (_event, threadId: string) => service.start(threadId))
   handleIpc(IPC_CHANNELS.copilot.getSession, (_event, threadId: string) =>

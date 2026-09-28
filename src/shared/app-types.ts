@@ -618,7 +618,6 @@ export interface CopilotSdkStatusEvent {
 
 export interface CopilotApi {
   getSdkStatus: () => Promise<CopilotSdkStatus>
-  checkForSdkUpdate: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
   start: (threadId: string) => Promise<CopilotStartResult>
   getSession: (threadId: string) => Promise<CopilotSessionSnapshot | null>

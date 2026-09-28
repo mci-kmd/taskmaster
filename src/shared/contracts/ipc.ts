@@ -105,7 +105,6 @@ export const IPC_CHANNELS = {
   },
   copilot: {
     getSdkStatus: 'copilot:get-sdk-status',
-    checkForSdkUpdate: 'copilot:check-for-sdk-update',
     updateSdk: 'copilot:update-sdk',
     start: 'copilot:start',
     getSession: 'copilot:get-session',
@@ -222,7 +221,6 @@ export type IpcInvokeDefinitions = {
   'terminal:kill': { request: [string]; response: boolean }
   'terminal:read-clipboard-text': { request: []; response: string }
   'copilot:get-sdk-status': { request: []; response: CopilotSdkStatus }
-  'copilot:check-for-sdk-update': { request: []; response: CopilotSdkStatus }
   'copilot:update-sdk': { request: []; response: CopilotSdkStatus }
   'copilot:start': { request: [string]; response: CopilotStartResult }
   'copilot:get-session': { request: [string]; response: CopilotSessionSnapshot | null }

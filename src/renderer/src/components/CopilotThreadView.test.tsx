@@ -15,7 +15,6 @@ const mock = vi.hoisted(() => ({
   authenticateMcpServer: vi.fn(),
   setModel: vi.fn(),
   getSdkStatus: vi.fn(),
-  checkForSdkUpdate: vi.fn(),
   updateSdk: vi.fn(),
   pickAttachments: vi.fn(),
   getPathForFile: vi.fn(),
@@ -78,7 +77,6 @@ beforeEach(() => {
   mock.getSession.mockImplementation(async (id) => snapshot(id))
   mock.listSkills.mockResolvedValue({ skills: [] })
   mock.getSdkStatus.mockResolvedValue(null)
-  mock.checkForSdkUpdate.mockResolvedValue(null)
   mock.onSession.mockImplementation((callback) => {
     listener = callback
     return vi.fn()
@@ -147,7 +145,6 @@ describe('Copilot session composer', () => {
       blockingThreads: []
     }
     mock.getSdkStatus.mockResolvedValue(sdkStatus)
-    mock.checkForSdkUpdate.mockResolvedValue(sdkStatus)
     render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
     await ready()
 
@@ -1037,14 +1034,14 @@ describe('Copilot session settings and surrounding controls', () => {
     expect((screen.getByRole('button', { name: 'Stop' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('does not let a late update check replace newer connection status', async () => {
-    const check = deferred<{ installedVersion: string }>()
-    mock.checkForSdkUpdate.mockReturnValue(check.promise)
+  it('does not let a late status read replace newer connection status', async () => {
+    const status = deferred<{ installedVersion: string }>()
+    mock.getSdkStatus.mockReturnValue(status.promise)
     render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
     await ready()
     const onStatus = mock.onSdkStatus.mock.calls[0][0]
     act(() => onStatus({ status: { installedVersion: '2.0.0', runtimeVersion: 'current' } }))
-    await act(async () => check.resolve({ installedVersion: '1.0.0' }))
+    await act(async () => status.resolve({ installedVersion: '1.0.0' }))
     expect(screen.getByRole('status').getAttribute('title')).toContain('2.0.0')
   })
 })

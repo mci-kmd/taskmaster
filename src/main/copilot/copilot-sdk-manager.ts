@@ -9,6 +9,7 @@ import type { CopilotSdkStatus, CopilotSdkUpdateBlocker } from '../../shared/app
 const BUNDLED_VERSION = '1.0.14'
 const SUPPORTED_MAJOR = 1
 const REGISTRY_URL = 'https://registry.npmjs.org/@github%2Fcopilot-sdk/latest'
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 type CopilotSdkModule = {
   CopilotClient: typeof BundledCopilotClient
@@ -89,6 +90,7 @@ export class CopilotSdkManager {
   private authLabel: string | null = null
   private runtimeVersion: string | null = null
   private blockingThreads: CopilotSdkUpdateBlocker[] = []
+  private updateTimer: ReturnType<typeof setInterval> | null = null
   private onStatusChanged: (status: CopilotSdkStatus) => void = () => undefined
 
   setStatusListener(listener: (status: CopilotSdkStatus) => void): void {
@@ -175,6 +177,23 @@ export class CopilotSdkManager {
       runtimeVersion: this.runtimeVersion,
       blockingThreads: this.blockingThreads.map((thread) => ({ ...thread }))
     }
+  }
+
+  /** Checks now, then once per interval (24h by default). */
+  startUpdateChecks(intervalMs = UPDATE_CHECK_INTERVAL_MS): void {
+    if (this.updateTimer) return
+    const check = (): void => {
+      if (this.updateState === 'checking' || this.updateState === 'installing') return
+      void this.checkForUpdate()
+    }
+    check()
+    this.updateTimer = setInterval(check, intervalMs)
+    this.updateTimer.unref?.()
+  }
+
+  stopUpdateChecks(): void {
+    if (this.updateTimer) clearInterval(this.updateTimer)
+    this.updateTimer = null
   }
 
   async checkForUpdate(): Promise<CopilotSdkStatus> {

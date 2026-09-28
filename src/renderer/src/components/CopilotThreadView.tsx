@@ -175,15 +175,6 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
       .catch((cause) => {
         if (!cancelled) setError(message(cause))
       })
-    const updateCheckRevision = statusRevision
-    void api.copilot
-      .checkForSdkUpdate()
-      .then((status) => {
-        if (!cancelled && statusRevision === updateCheckRevision) setSdk(status)
-      })
-      .catch(() => {
-        /* Update checks must not prevent the conversation from loading. */
-      })
     return () => {
       cancelled = true
       mounted.current = false

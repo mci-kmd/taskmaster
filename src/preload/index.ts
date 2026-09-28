@@ -170,7 +170,6 @@ const api = {
   },
   copilot: {
     getSdkStatus: () => invokeIpc(IPC_CHANNELS.copilot.getSdkStatus),
-    checkForSdkUpdate: () => invokeIpc(IPC_CHANNELS.copilot.checkForSdkUpdate),
     updateSdk: () => invokeIpc(IPC_CHANNELS.copilot.updateSdk),
     start: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.start, threadId),
     getSession: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.getSession, threadId),
