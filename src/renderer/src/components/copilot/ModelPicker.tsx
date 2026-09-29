@@ -14,7 +14,7 @@ const favoriteKey = (id: string): string => `favorite:${id}`
 const topLabel = (item: TopItem): string => (item.kind === 'family' ? item.name : item.model.name)
 
 export default function ModelPicker({
-  models,
+  models: catalog,
   value,
   disabled,
   placeholder,
@@ -40,6 +40,15 @@ export default function ModelPicker({
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null)
   const [activeModel, setActiveModel] = useState<string | null>(null)
   const search = useRef({ text: '', time: 0 })
+  // Hover must not scroll the menus; only keyboard/open navigation reveals the highlight.
+  const pointerNavigation = useRef(false)
+  const seen = new Set<string>()
+  // Duplicate ids break React keys and highlight lookup, so keep the first entry.
+  const models = catalog.filter((model) => {
+    if (seen.has(model.id)) return false
+    seen.add(model.id)
+    return true
+  })
   const groups = new Map<string, ModelChoice[]>()
   for (const model of models) {
     const name = modelFamily(model)
@@ -83,6 +92,7 @@ export default function ModelPicker({
     `${id}-model-${choices.findIndex((model) => model.id === name)}`
 
   function show(): void {
+    pointerNavigation.current = false
     setOpen(true)
     setHighlight(selected ? familyKey(modelFamily(selected)) : (topItems[0]?.key ?? null))
     setExpandedFamily(null)
@@ -122,6 +132,7 @@ export default function ModelPicker({
   }
   function keyDown(event: KeyboardEvent): void {
     if (disabled || event.nativeEvent.isComposing) return
+    pointerNavigation.current = false
     if (event.key === 'Tab') {
       setOpen(false)
       return
@@ -264,7 +275,7 @@ export default function ModelPicker({
     }
   }, [visible])
   useEffect(() => {
-    if (visible)
+    if (visible && !pointerNavigation.current)
       (activeModel ? submenu : menu).current
         ?.querySelector('[data-highlighted="true"]')
         ?.scrollIntoView?.({ block: 'nearest' })
@@ -348,6 +359,7 @@ export default function ModelPicker({
                   data-highlighted={highlight === familyKey(name)}
                   onPointerDown={(event) => event.preventDefault()}
                   onPointerMove={() => {
+                    pointerNavigation.current = true
                     if (expandedFamily !== name || activeModel) expand(name)
                   }}
                   onClick={() => expand(name, true)}
@@ -377,6 +389,7 @@ export default function ModelPicker({
                       data-highlighted={highlight === favoriteKey(model.id)}
                       onPointerDown={(event) => event.preventDefault()}
                       onPointerMove={() => {
+                        pointerNavigation.current = true
                         if (highlight !== favoriteKey(model.id) || expandedFamily) {
                           setHighlight(favoriteKey(model.id))
                           collapse()
@@ -418,6 +431,7 @@ export default function ModelPicker({
                     data-highlighted={activeModel === model.id}
                     onPointerDown={(event) => event.preventDefault()}
                     onPointerMove={() => {
+                      pointerNavigation.current = true
                       if (!model.disabled) setActiveModel(model.id)
                     }}
                     onClick={() => choose(model)}

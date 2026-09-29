@@ -848,7 +848,12 @@ export function createCopilotSessionService(dependencies: {
       .listModels()
       .then((catalog) => {
         if (client !== sdkClient) return
-        models = catalog.map(mapModel)
+        const seen = new Set<string>()
+        models = catalog.flatMap((model) => {
+          if (seen.has(model.id)) return []
+          seen.add(model.id)
+          return [mapModel(model)]
+        })
         for (const active of sessions.values()) updateSnapshot(active, { models })
       })
       .catch((error) => {

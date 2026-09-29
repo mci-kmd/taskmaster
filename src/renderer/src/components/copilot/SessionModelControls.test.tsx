@@ -143,6 +143,35 @@ describe('nested model families', () => {
     expect(screen.getByRole('treeitem', { name: 'GPT' })).toBeTruthy()
   })
 
+  it('lists duplicate catalog entries once and keeps families separate', () => {
+    renderPicker({ ...session, models: [...models, ...models] })
+    fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
+    fireEvent.pointerMove(screen.getByRole('treeitem', { name: 'GPT' }))
+    fireEvent.pointerMove(screen.getByRole('treeitem', { name: 'Claude' }))
+    expect(
+      within(screen.getByRole('group', { name: 'Claude models' }))
+        .getAllByRole('treeitem')
+        .map((row) => row.getAttribute('aria-label'))
+    ).toEqual(['Claude Sonnet 4.5', 'Claude Haiku 4.5'])
+  })
+
+  it('does not scroll menus when hovering models', () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      renderPicker()
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))
+      scrollIntoView.mockClear()
+      fireEvent.pointerMove(screen.getByRole('treeitem', { name: 'Claude' }))
+      fireEvent.pointerMove(screen.getByRole('treeitem', { name: 'Claude Haiku 4.5' }))
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      fireEvent.keyDown(screen.getByRole('combobox', { name: 'Model' }), { key: 'ArrowUp' })
+      expect(scrollIntoView).toHaveBeenCalled()
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView
+    }
+  })
+
   it('retains the chosen effort when switching to a model that supports it', () => {
     const onChange = renderPicker({ ...session, reasoningEffort: 'low' })
     fireEvent.click(screen.getByRole('combobox', { name: 'Model' }))

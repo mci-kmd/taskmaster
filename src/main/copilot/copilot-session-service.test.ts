@@ -493,6 +493,13 @@ describe('background model discovery', () => {
     }
   })
 
+  it('drops duplicate catalog entries by id', async () => {
+    harness.listModels.mockResolvedValueOnce([...catalog, ...catalog])
+    const service = setup()
+    await service.start('thread')
+    await vi.waitFor(() => expect(service.getSession('thread')?.models).toHaveLength(1))
+  })
+
   it('ignores catalog results from a replaced SDK client', async () => {
     const stale = deferred<ModelInfo[]>()
     harness.listModels.mockReturnValueOnce(stale.promise)
