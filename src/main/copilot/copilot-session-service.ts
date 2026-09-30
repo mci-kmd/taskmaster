@@ -45,6 +45,7 @@ import type {
 } from '@github/copilot-sdk'
 import { CopilotSdkManager } from './copilot-sdk-manager'
 import { collectCopilotSdkUpdateBlockers } from './copilot-update-guard'
+import type { PromptSummaryRecord } from './prompt-summary-store'
 
 type ThreadContext = {
   thread: PersistedThread
@@ -77,6 +78,10 @@ type ActiveSession = {
   modelChangePending: boolean
   sendRevision: number
   queueRevision: number
+  /** The prompt currently being worked on, from the user's message until the agent goes idle. */
+  prompt: { startedAt: string; nanoAiu: number | null } | null
+  /** Receives usage reported after its prompt finished, e.g. by background sub-agents. */
+  lastSummary: PromptSummaryRecord | null
   unsubscribe: () => void
 }
 
@@ -269,6 +274,16 @@ function timelineItemFromEvent(event: SessionEvent): CopilotTimelineItem | null 
   }
 }
 
+function summaryItem(record: PromptSummaryRecord): CopilotTimelineItem {
+  return {
+    id: record.id,
+    type: 'summary',
+    timestamp: record.timestamp,
+    durationMs: record.durationMs,
+    nanoAiu: record.nanoAiu
+  }
+}
+
 function mergeTimelineItem(
   previous: CopilotTimelineItem,
   next: CopilotTimelineItem
@@ -353,6 +368,8 @@ export function createCopilotSessionService(dependencies: {
   onActivity?: (threadId: string) => void
   recordPerformanceSample: (sample: ModelPerformanceSample) => void
   getPerformanceSamples: () => ModelPerformanceSample[]
+  getPromptSummaries?: (sessionId: string) => PromptSummaryRecord[]
+  savePromptSummary?: (record: PromptSummaryRecord) => void
 }): {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
@@ -468,6 +485,46 @@ export function createCopilotSessionService(dependencies: {
         action: 'cancel'
       })
     updateSnapshot(active, { pendingInteraction: null })
+  }
+
+  const saveSummary = (record: PromptSummaryRecord): void => {
+    if (!record.sessionId || !record.anchorId) return
+    try {
+      dependencies.savePromptSummary?.(record)
+    } catch (error) {
+      console.error('Could not save prompt summary:', error)
+    }
+  }
+
+  const completePrompt = (active: ActiveSession, timestamp: string): void => {
+    const prompt = active.prompt
+    if (!prompt) return
+    active.prompt = null
+    const anchor = active.snapshot.timeline.findLast((item) => item.type !== 'summary')
+    const durationMs = Date.parse(timestamp) - Date.parse(prompt.startedAt)
+    const record: PromptSummaryRecord = {
+      sessionId: active.snapshot.sessionId ?? '',
+      id: `summary:${randomUUID()}`,
+      anchorId: anchor?.id ?? '',
+      timestamp,
+      durationMs: Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0,
+      nanoAiu: prompt.nanoAiu
+    }
+    active.lastSummary = record
+    upsertTimeline(active, summaryItem(record))
+    saveSummary(record)
+  }
+
+  const addUsage = (active: ActiveSession, nanoAiu: number): void => {
+    if (active.prompt) {
+      active.prompt.nanoAiu = (active.prompt.nanoAiu ?? 0) + nanoAiu
+      return
+    }
+    if (!active.lastSummary) return
+    const record = { ...active.lastSummary, nanoAiu: (active.lastSummary.nanoAiu ?? 0) + nanoAiu }
+    active.lastSummary = record
+    upsertTimeline(active, summaryItem(record))
+    saveSummary(record)
   }
 
   const finishActivity = (active: ActiveSession): void => {
@@ -692,6 +749,9 @@ export function createCopilotSessionService(dependencies: {
 
   const handleEvent = (active: ActiveSession, event: SessionEvent): void => {
     if (event.type === 'assistant.usage') {
+      const nanoAiu = event.data.copilotUsage?.totalNanoAiu
+      if (nanoAiu !== undefined && Number.isFinite(nanoAiu) && nanoAiu >= 0)
+        addUsage(active, nanoAiu)
       const { model, outputTokens, duration, timeToFirstTokenMs } = event.data
       if (
         model &&
@@ -771,6 +831,11 @@ export function createCopilotSessionService(dependencies: {
     }
 
     const item = timelineItemFromEvent(event)
+    // A new (non-steering) prompt ends the previous one, e.g. when a queued message starts.
+    if (item?.type === 'user' && !item.steered) {
+      completePrompt(active, event.timestamp)
+      active.prompt = { startedAt: event.timestamp, nanoAiu: null }
+    }
     if (item) upsertTimeline(active, item)
 
     switch (event.type) {
@@ -788,6 +853,7 @@ export function createCopilotSessionService(dependencies: {
         })
         break
       case 'assistant.turn_start':
+        active.prompt ??= { startedAt: event.timestamp, nanoAiu: null }
         updateSnapshot(active, { phase: 'running', error: null })
         break
       case 'session.mode_changed':
@@ -801,6 +867,7 @@ export function createCopilotSessionService(dependencies: {
       // is in flight; assistant.idle marks the end of the agent's turn regardless.
       case 'assistant.idle':
         if (active.snapshot.phase === 'running') dependencies.onActivity?.(active.snapshot.threadId)
+        completePrompt(active, event.timestamp)
         updateSnapshot(active, { phase: 'idle', error: null })
         refreshQueue(active)
         break
@@ -808,6 +875,7 @@ export function createCopilotSessionService(dependencies: {
         if (active.snapshot.phase === 'running') dependencies.onActivity?.(active.snapshot.threadId)
         finishActivity(active)
         cancelInteractions(active)
+        completePrompt(active, event.timestamp)
         updateSnapshot(active, { phase: 'idle', error: null })
         refreshQueue(active)
         break
@@ -817,6 +885,7 @@ export function createCopilotSessionService(dependencies: {
       case 'session.error':
         finishActivity(active)
         cancelInteractions(active)
+        completePrompt(active, event.timestamp)
         updateSnapshot(active, { phase: 'error', error: event.data.message })
         break
       case 'session.mcp_servers_loaded':
@@ -981,6 +1050,8 @@ export function createCopilotSessionService(dependencies: {
         modelChangePending: false,
         sendRevision: 0,
         queueRevision: 0,
+        prompt: null,
+        lastSummary: null,
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder, context.yoloEnabled)
@@ -1032,6 +1103,18 @@ export function createCopilotSessionService(dependencies: {
         } else {
           timeline.push(item)
         }
+      }
+      let summaries: PromptSummaryRecord[] = []
+      try {
+        summaries = dependencies.getPromptSummaries?.(session.sessionId) ?? []
+      } catch (error) {
+        console.error('Could not load prompt summaries:', error)
+      }
+      for (const record of summaries) {
+        let index = timeline.findIndex((existingItem) => existingItem.id === record.anchorId)
+        if (index < 0 || timeline.some((existingItem) => existingItem.id === record.id)) continue
+        while (timeline[index + 1]?.type === 'summary') index++
+        timeline.splice(index + 1, 0, summaryItem(record))
       }
       placeholder.snapshot = {
         ...placeholder.snapshot,
@@ -1329,6 +1412,7 @@ export function createCopilotSessionService(dependencies: {
       cancelInteractions(active)
       await active.session.abort()
       finishActivity(active)
+      completePrompt(active, new Date().toISOString())
       updateSnapshot(active, { phase: 'idle', error: null })
       refreshQueue(active)
       return true

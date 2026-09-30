@@ -227,6 +227,91 @@ it('records model usage with call timing, including subagents, and ignores unmea
   )
 })
 
+describe('prompt summaries', () => {
+  const at = (seconds: number): { timestamp: string } => ({
+    timestamp: new Date(Date.UTC(2026, 8, 18, 10, 0, seconds)).toISOString()
+  })
+  const usage = (nanoAiu: number, extra = {}): SessionEvent =>
+    event(
+      'assistant.usage',
+      { model: 'model', copilotUsage: { totalNanoAiu: nanoAiu, tokenDetails: [] } },
+      extra
+    )
+  const summaries = (service: ReturnType<typeof setup>): unknown[] =>
+    service.getSession('thread')!.timeline.filter((item) => item.type === 'summary')
+
+  it('adds duration and billed usage, including sub-agents, when the prompt finishes', async () => {
+    const savePromptSummary = vi.fn()
+    const service = setup(true, { savePromptSummary })
+    await service.start('thread')
+    harness.listener!(event('user.message', { content: 'Hi', messageId: 'u1' }, at(0)))
+    harness.listener!(event('assistant.turn_start', {}, at(1)))
+    harness.listener!(usage(2_000_000_000))
+    harness.listener!(usage(500_000_000, { agentId: 'child' }))
+    harness.listener!(usage(Number.NaN))
+    harness.listener!(event('assistant.message', { messageId: 'a1', content: 'Hello' }, at(70)))
+    expect(summaries(service)).toEqual([])
+    harness.listener!(event('assistant.idle', {}, at(72)))
+    const timeline = service.getSession('thread')!.timeline
+    expect(timeline.map((item) => item.type)).toEqual(['user', 'assistant', 'summary'])
+    expect(timeline[2]).toMatchObject({ durationMs: 72_000, nanoAiu: 2_500_000_000 })
+    expect(savePromptSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-id',
+        anchorId: 'assistant:a1',
+        durationMs: 72_000,
+        nanoAiu: 2_500_000_000
+      })
+    )
+    harness.listener!(usage(100_000_000, { agentId: 'background' }))
+    expect(summaries(service)).toEqual([expect.objectContaining({ nanoAiu: 2_600_000_000 })])
+    expect(savePromptSummary).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: timeline[2].id, nanoAiu: 2_600_000_000 })
+    )
+  })
+
+  it('reports time only without billing data and splits queued prompts', async () => {
+    const service = setup()
+    await service.start('thread')
+    harness.listener!(event('user.message', { content: 'One', messageId: 'u1' }, at(0)))
+    harness.listener!(event('user.message', { content: 'Steer', delivery: 'steering' }, at(2)))
+    harness.listener!(event('user.message', { content: 'Two', messageId: 'u2' }, at(5)))
+    harness.listener!(usage(1_000_000_000))
+    harness.listener!(event('assistant.idle', {}, at(9)))
+    expect(summaries(service)).toEqual([
+      expect.objectContaining({ durationMs: 5000, nanoAiu: null }),
+      expect.objectContaining({ durationMs: 4000, nanoAiu: 1_000_000_000 })
+    ])
+  })
+
+  it('restores saved summaries after their anchor item on resume', async () => {
+    harness.getEvents.mockResolvedValue([
+      event('user.message', { content: 'Hi', messageId: 'u1' }),
+      event('assistant.message', { messageId: 'a1', content: 'Hello' }),
+      event('user.message', { content: 'Again', messageId: 'u2' })
+    ])
+    const record = (id: string, anchorId: string): Record<string, unknown> => ({
+      sessionId: 'session-id',
+      id,
+      anchorId,
+      timestamp: '2026-09-18T10:00:00Z',
+      durationMs: 1000,
+      nanoAiu: 5
+    })
+    const service = setup(true, {
+      getPromptSummaries: () =>
+        [record('summary:1', 'assistant:a1'), record('summary:2', 'missing')] as never
+    })
+    await service.start('thread')
+    expect(service.getSession('thread')!.timeline.map((item) => item.id)).toEqual([
+      'user:u1',
+      'assistant:a1',
+      'summary:1',
+      'user:u2'
+    ])
+  })
+})
+
 describe('MCP server sign-in', () => {
   it('automatically reconnects servers using cached credentials without a browser', async () => {
     harness.listMcpServers.mockResolvedValue({

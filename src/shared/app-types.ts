@@ -450,6 +450,15 @@ export type CopilotTimelineItem =
       timestamp: string
       tone: 'info' | 'warning' | 'error'
     }
+  | {
+      id: string
+      /** Shown when a prompt finishes: how long it ran and what it cost. */
+      type: 'summary'
+      timestamp: string
+      durationMs: number
+      /** Billed usage in nano AI credits, including sub-agents; null when none was reported. */
+      nanoAiu: number | null
+    }
 
 export type CopilotInteraction =
   | {

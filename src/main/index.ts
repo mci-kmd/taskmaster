@@ -2,6 +2,7 @@ import { app, dialog, shell, BrowserWindow, type MessageBoxOptions } from 'elect
 import { join } from 'path'
 import { createQuitGuard } from './quit-guard'
 import { createModelPerformanceStore } from './copilot/model-performance-store'
+import { createPromptSummaryStore } from './copilot/prompt-summary-store'
 import { IPC_CHANNELS } from '../shared/contracts/ipc'
 import { sendIpc } from './ipc/typed-ipc'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -114,7 +115,12 @@ app.whenReady().then(() => {
   const performanceStore = createModelPerformanceStore(
     join(app.getPath('userData'), 'model-performance.json')
   )
+  const promptSummaryStore = createPromptSummaryStore(
+    join(app.getPath('userData'), 'prompt-summaries.jsonl')
+  )
   const copilotService = createCopilotSessionService({
+    getPromptSummaries: promptSummaryStore.getSummaries,
+    savePromptSummary: promptSummaryStore.saveSummary,
     getPerformanceSamples: performanceStore.getSamples,
     recordPerformanceSample: (sample) => {
       try {

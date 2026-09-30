@@ -3,6 +3,12 @@ import type { CopilotTimelineItem } from '../../../../shared/app-types'
 import SessionMarkdown, { CopyButton } from './SessionMarkdown'
 import { PaperclipIcon } from '../Icons'
 import { splitAttachmentMarkers } from './attachment-markers'
+import {
+  PROMPT_COST_BASIS,
+  formatPromptCredits,
+  formatPromptDkk,
+  formatPromptDuration
+} from './prompt-cost'
 
 export default memo(function SessionTimelineItem({
   item
@@ -34,6 +40,21 @@ export default memo(function SessionTimelineItem({
   }
   if (item.type === 'notice') {
     return <div className={`tm-session-notice tm-session-notice--${item.tone}`}>{item.content}</div>
+  }
+  if (item.type === 'summary') {
+    return (
+      <div className="tm-session-summary" aria-label="Prompt summary" title={PROMPT_COST_BASIS}>
+        <span>{formatPromptDuration(item.durationMs)}</span>
+        {item.nanoAiu !== null ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{formatPromptCredits(item.nanoAiu)}</span>
+            <span aria-hidden="true">·</span>
+            <span>{formatPromptDkk(item.nanoAiu)}</span>
+          </>
+        ) : null}
+      </div>
+    )
   }
   if (item.type === 'reasoning') {
     return (

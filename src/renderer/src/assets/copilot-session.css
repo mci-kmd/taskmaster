@@ -49,6 +49,15 @@
   border-radius: 4px;
   padding: 2px 5px;
 }
+.tm-session-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -10px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-subtle);
+}
 .tm-session-copy:hover {
   background: var(--color-hover);
   color: var(--color-fg);
