@@ -56,6 +56,7 @@ type WorkspaceProps = {
     input: Omit<CreateRepositoryTaskInput, 'repositoryId'>
   ) => Promise<boolean>
   onCompleteRepositoryTask: (taskId: string) => Promise<void>
+  onReopenRepositoryTask: (taskId: string) => Promise<void>
   onUpdateRepositoryTask: (
     input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>
   ) => Promise<boolean>
@@ -253,6 +254,7 @@ export default function Workspace({
   onAddRepository,
   onCreateRepositoryTask,
   onCompleteRepositoryTask,
+  onReopenRepositoryTask,
   onUpdateRepositoryTask,
   onReorderRepositoryTasks,
   onNewThread,
@@ -601,6 +603,7 @@ export default function Workspace({
               key={selectedRepository.id}
               onCompleteTask={onCompleteRepositoryTask}
               onCreateTask={onCreateRepositoryTask}
+              onReopenTask={onReopenRepositoryTask}
               onUpdateTask={onUpdateRepositoryTask}
               onReorderTasks={onReorderRepositoryTasks}
               repository={selectedRepository}

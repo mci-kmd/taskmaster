@@ -15,6 +15,7 @@ import type {
   CreateRepositoryTaskInput,
   ModelPerformanceSampleEvent,
   CompleteRepositoryTaskInput,
+  ReopenRepositoryTaskInput,
   OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
@@ -96,6 +97,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.createRepositoryTask, input),
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) =>
       invokeIpc(IPC_CHANNELS.appState.completeRepositoryTask, input),
+    reopenRepositoryTask: (input: ReopenRepositoryTaskInput) =>
+      invokeIpc(IPC_CHANNELS.appState.reopenRepositoryTask, input),
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) =>
       invokeIpc(IPC_CHANNELS.appState.updateRepositoryTask, input),
     reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) =>

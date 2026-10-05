@@ -7,6 +7,7 @@ import type {
   CreateThreadInput,
   CreateRepositoryTaskInput,
   CompleteRepositoryTaskInput,
+  ReopenRepositoryTaskInput,
   MutationResult,
   OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
@@ -46,6 +47,7 @@ declare global {
     updateRepository: (input: UpdateRepositoryInput) => Promise<MutationResult>
     createRepositoryTask: (input: CreateRepositoryTaskInput) => Promise<MutationResult>
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) => Promise<MutationResult>
+    reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => Promise<MutationResult>
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) => Promise<MutationResult>
     reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => Promise<MutationResult>
     startThreadRun: (threadId: string) => Promise<MutationResult>

@@ -145,4 +145,48 @@ describe('project task service', () => {
     expect(repository.tasks.map((task) => task.id)).toEqual(['c', 'a', 'b'])
     expect(saveState).toHaveBeenCalledTimes(1)
   })
+
+  it('moves completed tasks to completed history and reopens them', () => {
+    const saveState = vi.fn()
+    const repository: {
+      id: string
+      tasks: Array<{ id: string; title: string }>
+      completedTasks?: Array<{ id: string; title: string; completedAt: string }>
+    } = {
+      id: 'repo-1',
+      tasks: [
+        { id: 'a', title: 'A' },
+        { id: 'b', title: 'B' }
+      ]
+    }
+    let now = '2026-01-02T00:00:00.000Z'
+    const service = createProjectTaskService({
+      ensureState: () => ({
+        settings: { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+      }),
+      findRepository: () => repository as never,
+      saveState,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      nowIso: () => now,
+      createId: () => 'x'
+    })
+
+    expect(service.completeRepositoryTask({ repositoryId: 'repo-1', taskId: 'a' }).ok).toBe(true)
+    now = '2026-01-03T00:00:00.000Z'
+    expect(service.completeRepositoryTask({ repositoryId: 'repo-1', taskId: 'b' }).ok).toBe(true)
+    expect(service.completeRepositoryTask({ repositoryId: 'repo-1', taskId: 'b' }).ok).toBe(false)
+
+    expect(repository.tasks).toEqual([])
+    expect(repository.completedTasks).toEqual([
+      { id: 'b', title: 'B', completedAt: '2026-01-03T00:00:00.000Z' },
+      { id: 'a', title: 'A', completedAt: '2026-01-02T00:00:00.000Z' }
+    ])
+
+    expect(service.reopenRepositoryTask({ repositoryId: 'repo-1', taskId: 'a' }).ok).toBe(true)
+    expect(service.reopenRepositoryTask({ repositoryId: 'repo-1', taskId: 'a' }).ok).toBe(false)
+    expect(repository.tasks).toEqual([{ id: 'a', title: 'A' }])
+    expect(repository.completedTasks?.map((task) => task.id)).toEqual(['b'])
+    expect(saveState).toHaveBeenCalledTimes(3)
+  })
 })

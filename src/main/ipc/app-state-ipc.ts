@@ -4,6 +4,7 @@ import type {
   BranchStatusRequest,
   BranchStatusSnapshot,
   CompleteRepositoryTaskInput,
+  ReopenRepositoryTaskInput,
   CreateRepositoryTaskInput,
   CreateThreadInput,
   MutationResult,
@@ -43,6 +44,7 @@ type AppStateIpcHandlers = {
   addRepository: () => Promise<MutationResult>
   createRepositoryTask: (input: CreateRepositoryTaskInput) => MutationResult
   completeRepositoryTask: (input: CompleteRepositoryTaskInput) => MutationResult
+  reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => MutationResult
   updateRepositoryTask: (input: UpdateRepositoryTaskInput) => MutationResult
   reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => MutationResult
   createThread: (input: CreateThreadInput) => MutationResult
@@ -91,6 +93,10 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   handleIpc(
     IPC_CHANNELS.appState.completeRepositoryTask,
     (_event, input: CompleteRepositoryTaskInput) => handlers.completeRepositoryTask(input)
+  )
+  handleIpc(
+    IPC_CHANNELS.appState.reopenRepositoryTask,
+    (_event, input: ReopenRepositoryTaskInput) => handlers.reopenRepositoryTask(input)
   )
   handleIpc(
     IPC_CHANNELS.appState.updateRepositoryTask,

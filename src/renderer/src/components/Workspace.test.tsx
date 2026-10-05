@@ -55,6 +55,7 @@ function props(
     onAddRepository: vi.fn(),
     onCreateRepositoryTask: vi.fn(),
     onCompleteRepositoryTask: vi.fn(),
+    onReopenRepositoryTask: vi.fn(),
     onUpdateRepositoryTask: vi.fn(),
     onReorderRepositoryTasks: vi.fn(),
     onNewThread: vi.fn(),

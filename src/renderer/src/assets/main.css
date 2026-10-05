@@ -320,6 +320,68 @@ select {
   padding: 0;
 }
 
+/* Task search + filters. Classes beat the unlayered input/button resets. */
+.tm-task-search {
+  border: 1px solid var(--color-border);
+  background: var(--color-input);
+  color: var(--color-fg);
+  font-size: 13px;
+  line-height: 20px;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+.tm-task-search:focus {
+  border-color: var(--color-border-strong);
+  background: #1c1c1c;
+}
+.tm-task-search::-webkit-search-cancel-button {
+  display: none;
+}
+
+.tm-label-chip {
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-subtle);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+}
+.tm-label-chip:hover:not([aria-pressed='true']),
+.tm-label-chip:focus-visible:not([aria-pressed='true']) {
+  border-color: var(--color-border-strong);
+  color: var(--color-fg-muted);
+}
+.tm-label-chip[aria-pressed='true'] {
+  border-color: var(--tm-chip-border);
+  background: var(--tm-chip-bg);
+  color: var(--tm-chip-fg);
+}
+.tm-label-chip:focus-visible {
+  outline: 1px solid var(--color-fg);
+  outline-offset: 2px;
+}
+
+.tm-quiet-link {
+  color: var(--color-fg-faint);
+  font-size: 11.5px;
+  line-height: 16px;
+  transition: color 150ms ease;
+}
+.tm-quiet-link:hover,
+.tm-quiet-link:focus-visible {
+  color: var(--color-fg-muted);
+}
+.tm-quiet-link:focus-visible {
+  outline: 1px solid var(--color-border-strong);
+  outline-offset: 2px;
+}
+
 /* Segmented control */
 .tm-segmented {
   display: flex;

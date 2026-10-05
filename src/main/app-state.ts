@@ -3,6 +3,7 @@ import type {
   AppSnapshot,
   BranchStatusRequest,
   CompleteRepositoryTaskInput,
+  ReopenRepositoryTaskInput,
   CopilotModelSelection,
   CreateRepositoryTaskInput,
   CreateThreadInput,
@@ -266,6 +267,8 @@ export function registerAppStateIpc(): void {
       projectTaskService.createRepositoryTask(input),
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) =>
       projectTaskService.completeRepositoryTask(input),
+    reopenRepositoryTask: (input: ReopenRepositoryTaskInput) =>
+      projectTaskService.reopenRepositoryTask(input),
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) =>
       projectTaskService.updateRepositoryTask(input),
     reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) =>

@@ -1,14 +1,30 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ProjectTaskSnapshot, RepositorySnapshot } from '../../../shared/app-types'
+import type {
+  CompletedProjectTaskSnapshot,
+  ProjectTaskSnapshot,
+  RepositorySnapshot
+} from '../../../shared/app-types'
 import ProjectTaskManager from './ProjectTaskManager'
 
-function task(id: string, title: string, description = ''): ProjectTaskSnapshot {
-  return { id, title, description, tags: [], createdAt: '2026-01-01T00:00:00.000Z' }
+function task(
+  id: string,
+  title: string,
+  description = '',
+  tags: string[] = []
+): ProjectTaskSnapshot {
+  return { id, title, description, tags, createdAt: '2026-01-01T00:00:00.000Z' }
 }
 
-function repository(tasks: ProjectTaskSnapshot[]): RepositorySnapshot {
+function completed(id: string, title: string, completedAt: string): CompletedProjectTaskSnapshot {
+  return { ...task(id, title), completedAt }
+}
+
+function repository(
+  tasks: ProjectTaskSnapshot[],
+  completedTasks?: CompletedProjectTaskSnapshot[]
+): RepositorySnapshot {
   return {
     id: 'repo',
     name: 'repo',
@@ -23,6 +39,7 @@ function repository(tasks: ProjectTaskSnapshot[]): RepositorySnapshot {
     addedAt: '2026-01-01',
     lastActivityAt: '2026-01-01',
     tasks,
+    completedTasks,
     currentBranch: 'main',
     primaryBranch: 'main',
     branchOptions: [],
@@ -33,14 +50,16 @@ function repository(tasks: ProjectTaskSnapshot[]): RepositorySnapshot {
 
 function renderManager(
   tasks: ProjectTaskSnapshot[],
-  overrides: Partial<React.ComponentProps<typeof ProjectTaskManager>> = {}
+  overrides: Partial<React.ComponentProps<typeof ProjectTaskManager>> = {},
+  completedTasks?: CompletedProjectTaskSnapshot[]
 ): React.ComponentProps<typeof ProjectTaskManager> {
   const props: React.ComponentProps<typeof ProjectTaskManager> = {
-    repository: repository(tasks),
+    repository: repository(tasks, completedTasks),
     taskTags: [],
     busy: false,
     onCreateTask: vi.fn(async () => true),
     onCompleteTask: vi.fn(async () => {}),
+    onReopenTask: vi.fn(async () => {}),
     onUpdateTask: vi.fn(async () => true),
     onReorderTasks: vi.fn(async () => {}),
     ...overrides
@@ -54,7 +73,10 @@ function taskTitles(): string[] {
 }
 
 describe('ProjectTaskManager', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('shows untitled tasks and hides empty descriptions', () => {
     renderManager([task('a', '')])
@@ -106,5 +128,109 @@ describe('ProjectTaskManager', () => {
     await vi.waitFor(() =>
       expect(props.onCreateTask).toHaveBeenCalledWith({ title: '', description: '', tags: [] })
     )
+  })
+
+  it('filters by title or description after a 300ms debounce and highlights matches', () => {
+    vi.useFakeTimers()
+    renderManager([
+      task('a', 'Fix login', ''),
+      task('b', 'Write docs', 'Explain the LOGIN flow'),
+      task('c', 'Refactor', '')
+    ])
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search tasks' }), {
+      target: { value: 'login' }
+    })
+    act(() => vi.advanceTimersByTime(299))
+    expect(taskTitles()).toEqual(['Fix login', 'Write docs', 'Refactor'])
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(taskTitles()).toEqual(['Fix login', 'Write docs'])
+    expect(screen.getByText('2 of 3 tasks')).toBeTruthy()
+    expect(Array.from(document.querySelectorAll('mark')).map((mark) => mark.textContent)).toEqual([
+      'login',
+      'LOGIN'
+    ])
+  })
+
+  it('filters by label and clears the whole search and filter', () => {
+    vi.useFakeTimers()
+    renderManager(
+      [task('a', 'Crash', '', ['bug']), task('b', 'New page', '', ['feature']), task('c', 'Other')],
+      { taskTags: ['bug', 'feature'] }
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'bug' }))
+    expect(taskTitles()).toEqual(['Crash'])
+    fireEvent.click(screen.getByRole('button', { name: 'feature' }))
+    expect(taskTitles()).toEqual(['Crash', 'New page'])
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'page' } })
+    act(() => vi.advanceTimersByTime(300))
+    expect(taskTitles()).toEqual(['New page'])
+
+    fireEvent.click(screen.getByTitle('Clear search and label filters'))
+    expect(taskTitles()).toEqual(['Crash', 'New page', 'Other'])
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('')
+    expect(screen.getByRole('button', { name: 'bug' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('shows a no-match state with a clear action', () => {
+    vi.useFakeTimers()
+    renderManager([task('a', 'First')])
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'zzz' } })
+    act(() => vi.advanceTimersByTime(300))
+
+    expect(screen.getByText('No open tasks match your search.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(taskTitles()).toEqual(['First'])
+  })
+
+  it('reorders within a filtered list relative to the full task order', () => {
+    vi.useFakeTimers()
+    const props = renderManager([
+      task('a', 'Alpha match'),
+      task('b', 'Hidden'),
+      task('c', 'Gamma match')
+    ])
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'match' } })
+    act(() => vi.advanceTimersByTime(300))
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Reorder task Gamma match' }), {
+      key: 'ArrowUp'
+    })
+
+    expect(props.onReorderTasks).toHaveBeenCalledWith(['c', 'a', 'b'])
+  })
+
+  it('shows completed tasks most recent first, searchable, and reopenable', () => {
+    vi.useFakeTimers()
+    const props = renderManager([task('open', 'Open task')], {}, [
+      completed('old', 'Old fix', '2026-01-02T00:00:00.000Z'),
+      completed('new', 'New fix', '2026-01-05T00:00:00.000Z'),
+      completed('mid', 'Mid docs', '2026-01-03T00:00:00.000Z')
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: '3 completed tasks' }))
+
+    expect(screen.getByRole('heading', { name: 'Completed tasks' })).toBeTruthy()
+    expect(taskTitles()).toEqual(['New fix', 'Mid docs', 'Old fix'])
+
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'fix' } })
+    act(() => vi.advanceTimersByTime(300))
+    expect(taskTitles()).toEqual(['New fix', 'Old fix'])
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reopen' })[1])
+    expect(props.onReopenTask).toHaveBeenCalledWith('old')
+
+    fireEvent.click(screen.getByTitle('Back to open tasks'))
+    expect(screen.getByRole('heading', { name: 'Open tasks' })).toBeTruthy()
+  })
+
+  it('hides the completed tasks link when nothing has been completed', () => {
+    renderManager([task('a', 'First')])
+
+    expect(screen.queryByRole('button', { name: /completed task/ })).toBeNull()
   })
 })

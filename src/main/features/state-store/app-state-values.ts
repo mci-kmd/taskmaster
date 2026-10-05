@@ -14,7 +14,10 @@ import {
 import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../shared/project-icons'
 import { normalizeCopilotTitle } from '../../../shared/thread-title'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
-import { normalizePersistedTask } from '../project-tasks/project-task-values'
+import {
+  normalizePersistedCompletedTasks,
+  normalizePersistedTask
+} from '../project-tasks/project-task-values'
 import { normalizeRepositoryBackend } from '../../backends/repository-backend'
 import {
   normalizeTerminalFontFamilyInput,
@@ -93,13 +96,15 @@ function normalizeGeneralProject(
   const tasks = Array.isArray(repository.tasks)
     ? repository.tasks.map((task) => normalizePersistedTask(task))
     : []
+  const completedTasks = normalizePersistedCompletedTasks(repository.completedTasks)
   const normalized: PersistedRepository = {
     ...createGeneralProject(repository.addedAt, homePath),
     id: repository.id,
     name,
     icon,
     iconColor,
-    tasks
+    tasks,
+    ...(completedTasks ? { completedTasks } : {})
   }
   return JSON.stringify(normalized) === JSON.stringify(repository) ? repository : normalized
 }
@@ -154,6 +159,8 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   const previewUrl = normalizeRepositoryPreviewUrl(rawPreviewUrl) ?? undefined
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const tasks = currentTasks.map((task) => normalizePersistedTask(task))
+  const rawCompletedTasks = (repository as { completedTasks?: unknown }).completedTasks
+  const completedTasks = normalizePersistedCompletedTasks(rawCompletedTasks)
 
   if (
     sameRepositoryBackend(backend, repository.backend) &&
@@ -163,6 +170,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
     taskTagsInput === rawTaskTagsInput &&
     previewUrl === rawPreviewUrl &&
+    completedTasks === rawCompletedTasks &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
     tasks.every((task, index) => task === currentTasks[index])
@@ -170,9 +178,15 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     return repository
   }
 
-  const { taskTagsInput: _taskTagsInput, previewUrl: _previewUrl, ...rest } = repository
+  const {
+    taskTagsInput: _taskTagsInput,
+    previewUrl: _previewUrl,
+    completedTasks: _completedTasks,
+    ...rest
+  } = repository
   void _taskTagsInput
   void _previewUrl
+  void _completedTasks
   return {
     ...rest,
     backend,
@@ -182,7 +196,8 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     postWorktreeRemoveCommand,
     ...(previewUrl === undefined ? {} : { previewUrl }),
     ...(taskTagsInput === undefined ? {} : { taskTagsInput }),
-    tasks
+    tasks,
+    ...(completedTasks === undefined ? {} : { completedTasks })
   }
 }
 

@@ -19,6 +19,7 @@ import type {
   CopilotSetModelInput,
   CopilotStartResult,
   CompleteRepositoryTaskInput,
+  ReopenRepositoryTaskInput,
   CreateRepositoryTaskInput,
   CreateThreadInput,
   MutationResult,
@@ -64,6 +65,7 @@ export const IPC_CHANNELS = {
     updateRepository: 'app-state:update-repository',
     createRepositoryTask: 'app-state:create-repository-task',
     completeRepositoryTask: 'app-state:complete-repository-task',
+    reopenRepositoryTask: 'app-state:reopen-repository-task',
     updateRepositoryTask: 'app-state:update-repository-task',
     reorderRepositoryTasks: 'app-state:reorder-repository-tasks',
     startThreadRun: 'app-state:start-thread-run',
@@ -142,6 +144,10 @@ export type IpcInvokeDefinitions = {
   }
   'app-state:complete-repository-task': {
     request: [CompleteRepositoryTaskInput]
+    response: MutationResult
+  }
+  'app-state:reopen-repository-task': {
+    request: [ReopenRepositoryTaskInput]
     response: MutationResult
   }
   'app-state:update-repository-task': {

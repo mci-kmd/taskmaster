@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  normalizePersistedCompletedTasks,
   normalizePersistedTask,
   normalizeTaskDescription,
   normalizeTaskTitle,
@@ -59,5 +60,23 @@ describe('project task values', () => {
         allowedTags: []
       })
     ).toEqual({ ok: true, title: '', description: '', tags: [] })
+  })
+
+  it('normalizes completed tasks, keeping the same array when unchanged', () => {
+    const task = {
+      id: '1',
+      title: 'Task',
+      description: '',
+      tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      completedAt: '2026-01-02T00:00:00.000Z'
+    }
+    const completed = [task]
+    expect(normalizePersistedCompletedTasks(completed)).toBe(completed)
+    expect(normalizePersistedCompletedTasks(undefined)).toBeUndefined()
+    expect(normalizePersistedCompletedTasks('nope')).toBeUndefined()
+    expect(
+      normalizePersistedCompletedTasks([{ ...task, title: ' Task ', completedAt: undefined }])
+    ).toEqual([{ ...task, completedAt: task.createdAt }])
   })
 })

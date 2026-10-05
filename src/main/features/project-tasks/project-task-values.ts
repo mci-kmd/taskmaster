@@ -1,4 +1,8 @@
-import type { PersistedProjectTask, ProjectTaskTag } from '../../../shared/app-types'
+import type {
+  PersistedCompletedProjectTask,
+  PersistedProjectTask,
+  ProjectTaskTag
+} from '../../../shared/app-types'
 import { normalizeTaskTags, normalizeTaskTagsAgainstAllowed } from '../../../shared/task-tags'
 
 export type ProjectTaskValidationResult =
@@ -47,6 +51,29 @@ export function normalizePersistedTask(task: PersistedProjectTask): PersistedPro
         description,
         tags
       }
+}
+
+export function normalizePersistedCompletedTask(
+  task: PersistedCompletedProjectTask
+): PersistedCompletedProjectTask {
+  const normalized = normalizePersistedTask(task)
+  const completedAt = typeof task.completedAt === 'string' ? task.completedAt : task.createdAt
+  return normalized === task && completedAt === task.completedAt
+    ? task
+    : { ...normalized, completedAt }
+}
+
+/** Returns the same array when nothing changed, and undefined when absent or invalid. */
+export function normalizePersistedCompletedTasks(
+  value: unknown
+): PersistedCompletedProjectTask[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined
+  }
+
+  const tasks = value as PersistedCompletedProjectTask[]
+  const normalized = tasks.map((task) => normalizePersistedCompletedTask(task))
+  return normalized.every((task, index) => task === tasks[index]) ? tasks : normalized
 }
 
 export function validateRepositoryTaskValues(input: {

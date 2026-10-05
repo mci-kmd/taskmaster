@@ -167,6 +167,15 @@ export function CloseIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function SearchIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <circle cx="7" cy="7" r="4.25" />
+      <path d="m10.2 10.2 3.3 3.3" />
+    </svg>
+  )
+}
+
 export function CopyIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

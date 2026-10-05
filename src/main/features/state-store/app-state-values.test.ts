@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { PersistedRepository } from '../../../shared/app-types'
-import { createGeneralProject, ensureGeneralProject } from './app-state-values'
+import {
+  createGeneralProject,
+  ensureGeneralProject,
+  normalizePersistedRepository
+} from './app-state-values'
 
 const NOW = (): string => '2026-01-01T00:00:00.000Z'
 
@@ -78,5 +82,29 @@ describe('ensureGeneralProject', () => {
     )
     expect(repositories.map((item) => item.id)).toEqual(['alpha', 'general'])
     expect(repositories[1]).toMatchObject({ name: 'Computer', icon: 'monitor' })
+  })
+})
+
+describe('completed task persistence', () => {
+  const completedTask = {
+    id: 'done',
+    title: 'Done',
+    description: '',
+    tags: [],
+    createdAt: NOW(),
+    completedAt: NOW()
+  }
+
+  it('keeps completed tasks on repositories without replacing normalized ones', () => {
+    const value = { ...repository('alpha'), completedTasks: [completedTask] }
+    expect(normalizePersistedRepository(value)).toBe(value)
+    expect(normalizePersistedRepository(repository('alpha')).completedTasks).toBeUndefined()
+  })
+
+  it('keeps completed tasks on the general project', () => {
+    const general = { ...createGeneralProject(NOW(), '/home/me'), completedTasks: [completedTask] }
+    const [normalized] = ensureGeneralProject([general], NOW, '/home/me')
+    expect(normalized).toBe(general)
+    expect(normalized.completedTasks).toEqual([completedTask])
   })
 })

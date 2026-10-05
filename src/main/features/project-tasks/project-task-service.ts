@@ -5,6 +5,7 @@ import type {
   PersistedAppState,
   PersistedProjectTask,
   PersistedRepository,
+  ReopenRepositoryTaskInput,
   ReorderRepositoryTasksInput,
   UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
@@ -30,6 +31,7 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
   createRepositoryTask: (input: CreateRepositoryTaskInput) => MutationResult
   updateRepositoryTask: (input: UpdateRepositoryTaskInput) => MutationResult
   completeRepositoryTask: (input: CompleteRepositoryTaskInput) => MutationResult
+  reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => MutationResult
   reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => MutationResult
 } {
   const getAllowedTags = (repository: PersistedRepository): string[] =>
@@ -108,12 +110,36 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
       }
 
       const currentTasks = repository.tasks ?? []
-      const nextTasks = currentTasks.filter((task) => task.id !== input.taskId)
-      if (nextTasks.length === currentTasks.length) {
+      const task = currentTasks.find((item) => item.id === input.taskId)
+      if (!task) {
         return dependencies.failureResult('Task not found.')
       }
 
-      repository.tasks = nextTasks
+      repository.tasks = currentTasks.filter((item) => item !== task)
+      repository.completedTasks = [
+        { ...task, completedAt: dependencies.nowIso() },
+        ...(repository.completedTasks ?? [])
+      ]
+      dependencies.saveState()
+      return dependencies.successResult()
+    },
+
+    reopenRepositoryTask: (input: ReopenRepositoryTaskInput): MutationResult => {
+      const repository = dependencies.findRepository(input.repositoryId)
+      if (!repository) {
+        return dependencies.failureResult('Repository not found.')
+      }
+
+      const completedTasks = repository.completedTasks ?? []
+      const completedTask = completedTasks.find((item) => item.id === input.taskId)
+      if (!completedTask) {
+        return dependencies.failureResult('Task not found.')
+      }
+
+      const { completedAt: _completedAt, ...task } = completedTask
+      void _completedAt
+      repository.completedTasks = completedTasks.filter((item) => item !== completedTask)
+      repository.tasks = [task, ...(repository.tasks ?? [])]
       dependencies.saveState()
       return dependencies.successResult()
     },

@@ -25,6 +25,10 @@ export interface PersistedProjectTask {
   createdAt: string
 }
 
+export interface PersistedCompletedProjectTask extends PersistedProjectTask {
+  completedAt: string
+}
+
 export interface TerminalCreateRequest {
   cols: number
   rows: number
@@ -108,6 +112,8 @@ export interface PersistedRepository {
   taskTagsInput?: string
   addedAt: string
   tasks: PersistedProjectTask[]
+  /** Completed tasks, most recently completed first. Absent until a task is completed. */
+  completedTasks?: PersistedCompletedProjectTask[]
 }
 
 export interface PersistedThread {
@@ -169,6 +175,7 @@ export interface RepositorySnapshot extends PersistedRepository {
 }
 
 export type ProjectTaskSnapshot = PersistedProjectTask
+export type CompletedProjectTaskSnapshot = PersistedCompletedProjectTask
 
 export interface BranchStatusSnapshot {
   ahead: number
@@ -694,6 +701,11 @@ export interface CreateRepositoryTaskInput {
 }
 
 export interface CompleteRepositoryTaskInput {
+  repositoryId: string
+  taskId: string
+}
+
+export interface ReopenRepositoryTaskInput {
   repositoryId: string
   taskId: string
 }

@@ -502,6 +502,24 @@ export default function App(): React.JSX.Element {
     [applyMutation, selectedRepository]
   )
 
+  const handleReopenRepositoryTask = useCallback(
+    async (taskId: string): Promise<void> => {
+      if (!selectedRepository) {
+        return
+      }
+
+      setBusyAction('reopen-task')
+      await applyMutation(
+        api.appState.reopenRepositoryTask({
+          repositoryId: selectedRepository.id,
+          taskId
+        })
+      )
+      setBusyAction(null)
+    },
+    [applyMutation, selectedRepository]
+  )
+
   const handleUpdateRepositoryTask = useCallback(
     async (input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>): Promise<boolean> => {
       if (!selectedRepository) {
@@ -697,6 +715,7 @@ export default function App(): React.JSX.Element {
             onAddRepository={() => void handleAddRepository()}
             onCompleteRepositoryTask={handleCompleteRepositoryTask}
             onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
+            onReopenRepositoryTask={handleReopenRepositoryTask}
             onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
             onReorderRepositoryTasks={handleReorderRepositoryTasks}
             onNewThread={() => handleOpenNewThreadDialog()}
@@ -710,6 +729,7 @@ export default function App(): React.JSX.Element {
             repositoryTaskBusy={
               busyAction === 'create-task' ||
               busyAction === 'complete-task' ||
+              busyAction === 'reopen-task' ||
               busyAction === 'update-task'
             }
             runCommandBusy={busyAction === 'run-command'}
