@@ -14,6 +14,7 @@ function thread(id: string, activity: string, settledAt?: string): ThreadSnapsho
     lastUserMessage: null,
     resumeSessionId: null,
     mode: 'active-branch',
+    projectKind: 'repository',
     branchName: 'main',
     worktreePath: null,
     createdAt: activity,

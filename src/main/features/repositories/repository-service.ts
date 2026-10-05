@@ -8,6 +8,7 @@ import type {
   RepositoryBackend,
   UpdateRepositoryInput
 } from '../../../shared/app-types'
+import { isGeneralProject, normalizeGeneralProjectName } from '../../../shared/general-project'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import { validateRepositoryPreviewUrlInput } from './repository-values'
 
@@ -109,13 +110,15 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       const repositoryPath = gitRoot
 
       const state = dependencies.ensureState()
-      const existing = state.repositories.find((repository) =>
-        dependencies.isSameRepositoryPath(
-          repository.path,
-          repository.backend,
-          repositoryPath,
-          backend
-        )
+      const existing = state.repositories.find(
+        (repository) =>
+          !isGeneralProject(repository) &&
+          dependencies.isSameRepositoryPath(
+            repository.path,
+            repository.backend,
+            repositoryPath,
+            backend
+          )
       )
       if (existing) {
         dependencies.updateSelection(existing.id, null)
@@ -159,6 +162,27 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       ) {
         return dependencies.failureResult('Invalid project icon color.')
       }
+
+      if (isGeneralProject(repository)) {
+        const name =
+          input.name === undefined ? repository.name : normalizeGeneralProjectName(input.name)
+        if (!name) {
+          return dependencies.failureResult('Project title is invalid.')
+        }
+        if (
+          name === repository.name &&
+          (input.icon === undefined || input.icon === repository.icon) &&
+          (input.iconColor === undefined || input.iconColor === repository.iconColor)
+        ) {
+          return dependencies.successResult()
+        }
+        repository.name = name
+        if (input.icon !== undefined) repository.icon = input.icon
+        if (input.iconColor !== undefined) repository.iconColor = input.iconColor
+        dependencies.saveState()
+        return dependencies.successResult()
+      }
+
       const faviconValidation = dependencies.validateRepositoryFaviconInput(
         repository.path,
         input.faviconPath
@@ -240,6 +264,9 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       if (!repository) {
         return { ok: false, error: 'Repository not found.' }
       }
+      if (isGeneralProject(repository)) {
+        return { ok: false, error: 'This project does not support favicons.' }
+      }
 
       const dialogResult = await dependencies.pickRepositoryFaviconFile(repository)
       if (dialogResult.canceled || dialogResult.filePaths.length === 0) {
@@ -258,6 +285,9 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       const repository = dependencies.findRepository(repositoryId)
       if (!repository) {
         return { ok: false, error: 'Repository not found.' }
+      }
+      if (isGeneralProject(repository)) {
+        return { ok: false, error: 'This project does not support solution files.' }
       }
 
       const dialogResult = await dependencies.pickRepositorySolutionFile(repository)

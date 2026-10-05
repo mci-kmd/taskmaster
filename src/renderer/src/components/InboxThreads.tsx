@@ -56,6 +56,10 @@ export default function InboxThreads({
     const session = sessions.get(thread.id)
     const title = composeThreadTitle(thread, session?.runtimeTitle)
     const status = session?.copilotStatus ?? 'idle'
+    const subtitle =
+      thread.projectKind === 'general'
+        ? repository.name
+        : `${repository.name} · ${thread.displayBranchName}`
     return (
       <li
         key={thread.id}
@@ -70,7 +74,7 @@ export default function InboxThreads({
           type="button"
           onClick={() => onSelectThread(thread.id)}
           className="flex min-w-0 flex-1 items-start gap-2.5 px-2 py-2.5 text-left"
-          title={`${title}\n${repository.name} · ${thread.displayBranchName}\n${thread.cwd}`}
+          title={`${title}\n${subtitle}\n${thread.cwd}`}
         >
           <span className="mt-0.5">
             <ProjectIcon repository={repository} />
@@ -78,7 +82,7 @@ export default function InboxThreads({
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[12.5px] font-medium">{title}</span>
             <span className="mt-1 block truncate text-[11px] text-[var(--color-fg-subtle)]">
-              {repository.name} · {thread.displayBranchName}
+              {subtitle}
             </span>
             <span className="mt-1 flex items-center gap-1.5 text-[10.5px] text-[var(--color-fg-subtle)]">
               <span

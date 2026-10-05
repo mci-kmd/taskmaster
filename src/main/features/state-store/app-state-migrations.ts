@@ -6,7 +6,7 @@ import type {
 } from '../../../shared/app-types'
 import { createNativeBackend } from '../../backends/repository-backend'
 import { DEFAULT_TASK_TAGS_INPUT } from '../settings/settings-values'
-import { normalizePersistedState, STATE_VERSION } from './app-state-values'
+import { createGeneralProject, normalizePersistedState, STATE_VERSION } from './app-state-values'
 import { normalizeSelection } from './persisted-state-store'
 import { migrateSharedProjects, type LegacyViewState } from './shared-project-migration'
 
@@ -156,6 +156,7 @@ type MigratedInput =
   | LegacyAppStateV1
 
 export function createDefaultState(): PersistedAppState {
+  const generalProject = createGeneralProject(new Date().toISOString())
   return {
     version: STATE_VERSION,
     settings: {
@@ -163,10 +164,10 @@ export function createDefaultState(): PersistedAppState {
       terminalFontFamilyInput: '',
       taskTagsInput: DEFAULT_TASK_TAGS_INPUT
     },
-    repositories: [],
+    repositories: [generalProject],
     threads: [],
     ui: {
-      selectedRepositoryId: null,
+      selectedRepositoryId: generalProject.id,
       selectedThreadId: null
     }
   }

@@ -16,7 +16,7 @@ export function threadMenuOptions(
 ): ThreadMenuOptions {
   return {
     settled: Boolean(thread.settledAt),
-    convertToWorktreeVisible: thread.mode !== 'worktree',
+    convertToWorktreeVisible: thread.mode !== 'worktree' && thread.projectKind !== 'general',
     convertToWorktreeEnabled: !convertingThread,
     closeThreadEnabled: !closingThread
   }

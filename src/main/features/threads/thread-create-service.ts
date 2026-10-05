@@ -5,6 +5,7 @@ import type {
   PersistedThread,
   ThreadMode
 } from '../../../shared/app-types'
+import { isGeneralProject } from '../../../shared/general-project'
 import { runGit } from '../../backends/git-client'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
 import {
@@ -77,6 +78,23 @@ export function createThreadCreateService(dependencies: {
       }
 
       const customTitle = normalizeCustomTitle(input.title)
+
+      if (isGeneralProject(repository)) {
+        const thread = createThreadRecord(
+          dependencies,
+          repository.id,
+          'active-branch',
+          '',
+          customTitle,
+          null,
+          { ownsBranch: false, ownsWorktree: false }
+        )
+        state.threads.push(thread)
+        dependencies.updateSelection(repository.id, thread.id)
+        dependencies.saveState()
+        return dependencies.successResult()
+      }
+
       const repositoryPath = getRepositoryExecutionPath(repository)
 
       if (input.mode === 'worktree') {

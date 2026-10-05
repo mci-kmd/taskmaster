@@ -146,6 +146,27 @@ describe('createThreadCloseService', () => {
     expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
   })
 
+  it('closes general project threads without git cleanup', async () => {
+    const harness = createHarness(
+      createThread({
+        mode: 'active-branch',
+        branchName: '',
+        worktreePath: null,
+        ownsBranch: true,
+        ownsWorktree: true
+      })
+    )
+    Object.assign(harness.state.repositories[0], { kind: 'general', path: '/home/me' })
+
+    expect(await harness.closeThread('thread-1')).toEqual({ ok: true })
+    expect(harness.state.threads).toEqual([])
+    expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
+    expect(harness.showMessageBox).not.toHaveBeenCalled()
+    expect(branchExists).not.toHaveBeenCalled()
+    expect(removeWorktree).not.toHaveBeenCalled()
+    expect(runGit).not.toHaveBeenCalled()
+  })
+
   it('confirms and cleans up owned worktrees for settled threads', async () => {
     vi.mocked(isDirtyGitPath).mockReturnValue(true)
     const harness = createHarness(

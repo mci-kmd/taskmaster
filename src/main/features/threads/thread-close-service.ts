@@ -4,6 +4,7 @@ import type {
   PersistedThread,
   RepositoryBackend
 } from '../../../shared/app-types'
+import { isGeneralProject } from '../../../shared/general-project'
 import { runGit } from '../../backends/git-client'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
 import {
@@ -252,6 +253,7 @@ export function createThreadCloseService(dependencies: {
         let postWorktreeRemoveError: string | null = null
         let closeWarning: string | null = null
         const repositoryPath = getRepositoryExecutionPath(repository)
+        const usesGit = !isGeneralProject(repository)
         let didStopThreadProcesses = false
         const stopThreadProcesses = async (): Promise<void> => {
           if (didStopThreadProcesses) {
@@ -263,7 +265,7 @@ export function createThreadCloseService(dependencies: {
           dependencies.stopThreadRunSession(threadId)
         }
 
-        if (thread.mode === 'worktree' && ownsWorktree(thread)) {
+        if (usesGit && thread.mode === 'worktree' && ownsWorktree(thread)) {
           let worktreeCleanupCompleted = false
           const branchOwned = ownsBranch(thread)
 
@@ -331,8 +333,8 @@ export function createThreadCloseService(dependencies: {
         }
 
         if (
-          (thread.mode === 'new-branch' && ownsBranch(thread)) ||
-          thread.mode === 'active-branch'
+          usesGit &&
+          ((thread.mode === 'new-branch' && ownsBranch(thread)) || thread.mode === 'active-branch')
         ) {
           const branchRemovalResult = await maybeRemoveLocalBranchForBranchThread(
             thread,

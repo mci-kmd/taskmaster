@@ -3,6 +3,7 @@ import type {
   PersistedAppState,
   PersistedRepository
 } from '../../../shared/app-types'
+import { isGeneralProject } from '../../../shared/general-project'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
 import {
   branchExists,
@@ -45,6 +46,12 @@ export function createThreadConvertService(dependencies: {
       const repository = state.repositories.find((item) => item.id === thread.repositoryId)
       if (!repository) {
         return dependencies.failureResult('Owning repository not found.')
+      }
+
+      if (isGeneralProject(repository)) {
+        return dependencies.failureResult(
+          `Threads in ${repository.name} are not tied to a repository and cannot be converted to a work tree.`
+        )
       }
 
       const repositoryPath = getRepositoryExecutionPath(repository)

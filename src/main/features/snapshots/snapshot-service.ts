@@ -7,6 +7,7 @@ import type {
   RepositorySnapshot,
   ThreadSnapshot
 } from '../../../shared/app-types'
+import { GENERAL_THREAD_FALLBACK_TITLE, isGeneralProject } from '../../../shared/general-project'
 
 export type BuildSnapshotOptions = {
   refreshGit?: boolean
@@ -62,6 +63,21 @@ function compareRepositoriesAlphabetically(
     : left.path.localeCompare(right.path, undefined, { sensitivity: 'base' })
 }
 
+function compareRepositoriesForDisplay(
+  left: RepositorySnapshot,
+  right: RepositorySnapshot
+): number {
+  const generalFirst = Number(isGeneralProject(right)) - Number(isGeneralProject(left))
+  return generalFirst !== 0 ? generalFirst : compareRepositoriesAlphabetically(left, right)
+}
+
+const GENERAL_PROJECT_GIT_STATE: RepositoryGitSnapshotState = {
+  currentBranch: '',
+  primaryBranch: null,
+  branchOptions: [],
+  worktreeOptions: []
+}
+
 function sortRepositoriesForGitRefresh(
   repositories: PersistedRepository[],
   threads: PersistedThread[]
@@ -115,15 +131,18 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
     thread: PersistedThread,
     runningRunThreadIds: Set<string>
   ): ThreadSnapshot {
+    const general = isGeneralProject(repository)
     return {
       ...thread,
+      projectKind: general ? 'general' : 'repository',
       cwd: dependencies.getThreadUiCwd(thread, repository),
       executionCwd: dependencies.getThreadExecutionCwd(thread, repository),
       backend: repository.backend,
-      displayBranchName: thread.branchName,
-      displayTitle: thread.customTitle ?? thread.branchName,
+      displayBranchName: general ? '' : thread.branchName,
+      displayTitle:
+        thread.customTitle ?? (general ? GENERAL_THREAD_FALLBACK_TITLE : thread.branchName),
       isRunCommandRunning: runningRunThreadIds.has(thread.id),
-      previewUrl: dependencies.resolveThreadPreviewUrl(repository, thread)
+      previewUrl: general ? null : dependencies.resolveThreadPreviewUrl(repository, thread)
     }
   }
 
@@ -134,8 +153,9 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
     refreshGit: boolean,
     resolvedGitState?: RepositoryGitSnapshotState
   ): RepositorySnapshot {
-    const repositoryGitState =
-      resolvedGitState ?? dependencies.getRepositoryGitState(repository, refreshGit)
+    const repositoryGitState = isGeneralProject(repository)
+      ? GENERAL_PROJECT_GIT_STATE
+      : (resolvedGitState ?? dependencies.getRepositoryGitState(repository, refreshGit))
     const snapshotThreads = threads
       .filter((thread) => thread.repositoryId === repository.id)
       .map((thread) => buildThreadSnapshot(repository, thread, runningRunThreadIds))
@@ -144,7 +164,9 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
     return {
       ...repository,
       currentBranch: repositoryGitState.currentBranch,
-      faviconUrl: dependencies.buildRepositoryFaviconUrl(repository.path, repository.faviconPath),
+      faviconUrl: isGeneralProject(repository)
+        ? null
+        : dependencies.buildRepositoryFaviconUrl(repository.path, repository.faviconPath),
       primaryBranch: repositoryGitState.primaryBranch,
       branchOptions: repositoryGitState.branchOptions,
       worktreeOptions: repositoryGitState.worktreeOptions,
@@ -171,7 +193,7 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
           gitStateByRepositoryId?.get(repository.id)
         )
       )
-      .sort(compareRepositoriesAlphabetically)
+      .sort(compareRepositoriesForDisplay)
 
     return {
       repositories,
@@ -204,7 +226,10 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
     }
 
     const repositoryGitStates = await Promise.all(
-      sortRepositoriesForGitRefresh(state.repositories, state.threads).map(async (repository) => ({
+      sortRepositoriesForGitRefresh(
+        state.repositories.filter((repository) => !isGeneralProject(repository)),
+        state.threads
+      ).map(async (repository) => ({
         repositoryId: repository.id,
         gitState: await dependencies.refreshRepositoryGitState(repository)
       }))

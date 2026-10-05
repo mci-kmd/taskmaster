@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ThreadSnapshot } from '../../../../shared/app-types'
+import { GENERAL_THREAD_FALLBACK_TITLE } from '../../../../shared/general-project'
 import { getCopilotTitle } from '../../../../shared/thread-title'
 import { composeThreadTitle } from '../../lib/title'
 import Modal from '../Modal'
@@ -93,7 +94,8 @@ function EditThreadForm({
       {
         ...thread,
         customTitle: null,
-        displayTitle: thread.branchName
+        displayTitle:
+          thread.projectKind === 'general' ? GENERAL_THREAD_FALLBACK_TITLE : thread.branchName
       },
       runtimeTitle
     )
@@ -113,7 +115,11 @@ function EditThreadForm({
       }}
     >
       <Field
-        hint="Shown before the live agent title. Leave blank to use the agent title or branch name on its own."
+        hint={
+          thread.projectKind === 'general'
+            ? 'Shown before the live agent title. Leave blank to use the agent title on its own.'
+            : 'Shown before the live agent title. Leave blank to use the agent title or branch name on its own.'
+        }
         label="Title prefix"
       >
         <TextInput
@@ -128,9 +134,12 @@ function EditThreadForm({
         Preview: <span className="text-[var(--color-fg)]">{previewTitle}</span>
       </div>
 
-      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-        Branch: <span className="font-mono text-[var(--color-fg)]">{thread.displayBranchName}</span>
-      </div>
+      {thread.projectKind === 'general' ? null : (
+        <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
+          Branch:{' '}
+          <span className="font-mono text-[var(--color-fg)]">{thread.displayBranchName}</span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between gap-2">
         <Button

@@ -5,6 +5,7 @@ import type {
   RepositorySnapshot,
   ThreadSnapshot
 } from '../../../../shared/app-types'
+import { isGeneralProject } from '../../../../shared/general-project'
 import type { ThreadSessionState } from '../../components/TerminalSessions'
 import { getRendererApi } from '../api/client'
 
@@ -55,7 +56,14 @@ export function useBranchStatus(params: {
   })
   const branchStatusPollMsRef = useRef(IDLE_BRANCH_STATUS_POLL_MS)
 
+  const usesGit = params.selectedThread
+    ? params.selectedThread.projectKind !== 'general'
+    : !isGeneralProject(params.selectedRepository)
+
   const branchStatusTarget = useMemo<BranchStatusRequest | null>(() => {
+    if (!usesGit) {
+      return null
+    }
     if (params.selectedThread) {
       return { threadId: params.selectedThread.id }
     }
@@ -63,13 +71,15 @@ export function useBranchStatus(params: {
       return { repositoryId: params.selectedRepository.id }
     }
     return null
-  }, [params.selectedRepository, params.selectedThread])
+  }, [params.selectedRepository, params.selectedThread, usesGit])
 
-  const branchStatusTargetKey = params.selectedThread
-    ? `thread:${params.selectedThread.id}`
-    : params.selectedRepository
-      ? `repository:${params.selectedRepository.id}`
-      : null
+  const branchStatusTargetKey = !usesGit
+    ? null
+    : params.selectedThread
+      ? `thread:${params.selectedThread.id}`
+      : params.selectedRepository
+        ? `repository:${params.selectedRepository.id}`
+        : null
 
   useEffect(() => {
     const hasActiveThreadSession =

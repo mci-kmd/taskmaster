@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { threadMenuActions } from './sidebar-thread-actions'
+import type { ThreadSnapshot } from './app-types'
+import { threadMenuActions, threadMenuOptions } from './sidebar-thread-actions'
 
 describe('thread menu actions', () => {
+  it('hides worktree conversion for general project threads', () => {
+    const thread = { mode: 'active-branch', projectKind: 'general', settledAt: null }
+    expect(
+      threadMenuOptions(thread as unknown as ThreadSnapshot, false, false).convertToWorktreeVisible
+    ).toBe(false)
+    expect(
+      threadMenuOptions(
+        { ...thread, projectKind: 'repository' } as unknown as ThreadSnapshot,
+        false,
+        false
+      ).convertToWorktreeVisible
+    ).toBe(true)
+  })
+
   it('offers settle, close and conversion on the unified thread list', () => {
     const options = {
       settled: false,

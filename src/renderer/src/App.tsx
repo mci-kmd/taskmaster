@@ -25,6 +25,7 @@ import {
   type UpdateRepositoryInput,
   type UpdateRepositoryTaskInput
 } from '../../shared/app-types'
+import { isGeneralProject } from '../../shared/general-project'
 
 type DialogKey = 'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | null
 
@@ -328,10 +329,47 @@ export default function App(): React.JSX.Element {
     [selectedRepository, setSnapshot]
   )
 
+  const handleCreateGeneralThread = useCallback(
+    async (repositoryId: string): Promise<void> => {
+      if (busyAction === 'create-thread') {
+        return
+      }
+
+      setBusyAction('create-thread')
+      try {
+        const result = await api.appState.createThread({ repositoryId, mode: 'active-branch' })
+        if (result.snapshot) {
+          setSnapshot(result.snapshot)
+        }
+
+        if (result.ok) {
+          setRepositoryViewId(null)
+          setInboxProjectId(null)
+          setPerformanceOpen(false)
+        } else if (!result.cancelled) {
+          setToastError(result.error ?? 'Thread creation failed.')
+        }
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setBusyAction(null)
+      }
+    },
+    [busyAction, setSnapshot]
+  )
+
   const handleOpenNewThreadDialog = useCallback(
     (repositoryId?: string): void => {
       const targetRepositoryId = repositoryId ?? selectedRepository?.id
       if (!targetRepositoryId) {
+        return
+      }
+
+      const targetRepository = snapshot?.repositories.find(
+        (repository) => repository.id === targetRepositoryId
+      )
+      if (isGeneralProject(targetRepository)) {
+        void handleCreateGeneralThread(targetRepositoryId)
         return
       }
 
@@ -341,7 +379,7 @@ export default function App(): React.JSX.Element {
       setNewThreadError(null)
       setDialog('new-thread')
     },
-    [handleSelectRepository, selectedRepository]
+    [handleCreateGeneralThread, handleSelectRepository, selectedRepository, snapshot]
   )
 
   const handleCloseNewThreadDialog = useCallback((): void => {

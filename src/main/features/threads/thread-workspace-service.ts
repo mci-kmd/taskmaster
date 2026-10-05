@@ -5,6 +5,7 @@ import type {
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult
 } from '../../../shared/app-types'
+import { isGeneralProject } from '../../../shared/general-project'
 import { quoteCmdArgument, resolveCommandOnPath } from '../../terminal/command-utils'
 import { backendPathExists, toUiPath } from '../../backends/repository-backend'
 import {
@@ -96,6 +97,9 @@ export function createThreadWorkspaceService(dependencies: {
     if (!context.ok) {
       return { ok: false, error: context.error }
     }
+    if (isGeneralProject(context.repository)) {
+      return { ok: false, error: `VS Code isn't available for ${context.repository.name} threads.` }
+    }
 
     const cwd = toUiPath(context.repository.backend, context.cwd)
     if (!backendPathExists(context.repository.backend, context.cwd, 'directory')) {
@@ -135,6 +139,9 @@ export function createThreadWorkspaceService(dependencies: {
     const context = dependencies.resolveThreadGitContext(threadId)
     if (!context.ok) {
       return { ok: false, error: context.error }
+    }
+    if (isGeneralProject(context.repository)) {
+      return { ok: false, error: `${context.repository.name} has no solution file.` }
     }
 
     if (process.platform !== 'win32') {

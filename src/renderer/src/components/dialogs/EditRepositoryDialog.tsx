@@ -4,7 +4,13 @@ import { ProjectGlyph } from '../ProjectIcon'
 import Modal from '../Modal'
 import Button from '../ui/Button'
 import { Field, TextArea, TextInput } from '../ui/Field'
-import type { RepositorySnapshot } from '../../../../shared/app-types'
+import type { RepositorySnapshot, UpdateRepositoryInput } from '../../../../shared/app-types'
+import {
+  GENERAL_PROJECT_DEFAULTS,
+  GENERAL_PROJECT_NAME_MAX_LENGTH,
+  isGeneralProject,
+  normalizeGeneralProjectName
+} from '../../../../shared/general-project'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
 
 type EditRepositoryDialogProps = {
@@ -14,18 +20,7 @@ type EditRepositoryDialogProps = {
   onClose: () => void
   onBrowseFavicon: (repositoryId: string) => Promise<string | null>
   onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
-  onSubmit: (input: {
-    icon: string
-    iconColor: string
-    repositoryId: string
-    faviconPath: string | null
-    runCommand: string | null
-    solutionFilePath: string | null
-    newWorktreeSetupCommand: string | null
-    postWorktreeRemoveCommand: string | null
-    previewUrl: string | null
-    taskTagsInput: string
-  }) => Promise<boolean>
+  onSubmit: (input: UpdateRepositoryInput) => Promise<boolean>
 }
 
 export default function EditRepositoryDialog({
@@ -40,16 +35,31 @@ export default function EditRepositoryDialog({
   return (
     <Modal
       description={
-        repository
-          ? `Configure the icon, solution file, project commands, and task tags for ${repository.name}.`
-          : 'Pick a repository in the sidebar first.'
+        !repository
+          ? 'Pick a repository in the sidebar first.'
+          : isGeneralProject(repository)
+            ? 'Configure the title and icon of the project for general computer tasks.'
+            : `Configure the icon, solution file, project commands, and task tags for ${repository.name}.`
       }
       onClose={onClose}
       open={open}
       title="Edit project"
       width="md"
     >
-      {repository ? (
+      {repository && isGeneralProject(repository) ? (
+        <EditGeneralProjectForm
+          busy={busy}
+          key={`${repository.id}:${repository.name}:${repository.icon ?? ''}:${repository.iconColor ?? ''}`}
+          onCancel={onClose}
+          onSubmit={async (input) => {
+            const ok = await onSubmit(input)
+            if (ok) {
+              onClose()
+            }
+          }}
+          repository={repository}
+        />
+      ) : repository ? (
         <EditRepositoryForm
           busy={busy}
           key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.previewUrl ?? ''}:${repository.taskTagsInput ?? ''}`}
@@ -86,18 +96,7 @@ type EditRepositoryFormProps = {
   onCancel: () => void
   onBrowseFavicon: (repositoryId: string) => Promise<string | null>
   onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
-  onSubmit: (input: {
-    icon: string
-    iconColor: string
-    repositoryId: string
-    faviconPath: string | null
-    runCommand: string | null
-    solutionFilePath: string | null
-    newWorktreeSetupCommand: string | null
-    postWorktreeRemoveCommand: string | null
-    previewUrl: string | null
-    taskTagsInput: string
-  }) => Promise<void>
+  onSubmit: (input: UpdateRepositoryInput) => Promise<void>
 }
 
 function EditRepositoryForm({
@@ -160,41 +159,12 @@ function EditRepositoryForm({
       }}
     >
       <Field label="Project icon" hint="Used when no custom favicon is available.">
-        <div className="flex flex-wrap gap-1.5" role="group" aria-label="Project icon">
-          {PROJECT_ICONS.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              aria-label={item.label}
-              aria-pressed={icon === item.id}
-              title={item.label}
-              onClick={() => setIcon(item.id)}
-              className={`grid size-8 place-items-center rounded-md border ${icon === item.id ? 'border-[var(--color-fg-muted)] bg-[var(--color-active)]' : 'border-[var(--color-border)] hover:bg-[var(--color-hover)]'}`}
-            >
-              <ProjectGlyph icon={item.id} color={iconColor} />
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Project icon color">
-          {PROJECT_ICON_COLORS.map((item) => (
-            <button
-              type="button"
-              key={item.value}
-              aria-label={item.label}
-              aria-pressed={iconColor === item.value}
-              title={item.label}
-              onClick={() => setIconColor(item.value)}
-              className={`grid size-6 place-items-center rounded-full border ${iconColor === item.value ? 'border-[var(--color-fg)]' : 'border-transparent'}`}
-            >
-              <span
-                className="size-3.5 rounded-full"
-                style={{
-                  backgroundColor: item.value === 'default' ? 'var(--color-fg-subtle)' : item.value
-                }}
-              />
-            </button>
-          ))}
-        </div>
+        <ProjectIconPicker
+          icon={icon}
+          iconColor={iconColor}
+          onIconChange={setIcon}
+          onIconColorChange={setIconColor}
+        />
       </Field>
       <Field
         hint={`Use Browse to pick a file, or paste a relative path manually. Stored relative to ${repository.name}'s repo root so the same path works in worktrees too.`}
@@ -379,6 +349,164 @@ function EditRepositoryForm({
           </Button>
           <Button
             disabled={busy || !dirty}
+            title="Save project settings"
+            type="submit"
+            variant="primary"
+          >
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </form>
+  )
+}
+
+type ProjectIconPickerProps = {
+  icon: string
+  iconColor: string
+  onIconChange: (icon: string) => void
+  onIconColorChange: (iconColor: string) => void
+}
+
+function ProjectIconPicker({
+  icon,
+  iconColor,
+  onIconChange,
+  onIconColorChange
+}: ProjectIconPickerProps): React.JSX.Element {
+  return (
+    <>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Project icon">
+        {PROJECT_ICONS.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            aria-label={item.label}
+            aria-pressed={icon === item.id}
+            title={item.label}
+            onClick={() => onIconChange(item.id)}
+            className={`grid size-8 place-items-center rounded-md border ${icon === item.id ? 'border-[var(--color-fg-muted)] bg-[var(--color-active)]' : 'border-[var(--color-border)] hover:bg-[var(--color-hover)]'}`}
+          >
+            <ProjectGlyph icon={item.id} color={iconColor} />
+          </button>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Project icon color">
+        {PROJECT_ICON_COLORS.map((item) => (
+          <button
+            type="button"
+            key={item.value}
+            aria-label={item.label}
+            aria-pressed={iconColor === item.value}
+            title={item.label}
+            onClick={() => onIconColorChange(item.value)}
+            className={`grid size-6 place-items-center rounded-full border ${iconColor === item.value ? 'border-[var(--color-fg)]' : 'border-transparent'}`}
+          >
+            <span
+              className="size-3.5 rounded-full"
+              style={{
+                backgroundColor: item.value === 'default' ? 'var(--color-fg-subtle)' : item.value
+              }}
+            />
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+type EditGeneralProjectFormProps = {
+  repository: RepositorySnapshot
+  busy: boolean
+  onCancel: () => void
+  onSubmit: (input: UpdateRepositoryInput) => Promise<void>
+}
+
+function EditGeneralProjectForm({
+  repository,
+  busy,
+  onCancel,
+  onSubmit
+}: EditGeneralProjectFormProps): React.JSX.Element {
+  const initialIcon = repository.icon ?? GENERAL_PROJECT_DEFAULTS.icon
+  const initialIconColor = repository.iconColor ?? GENERAL_PROJECT_DEFAULTS.iconColor
+  const [nameDraft, setNameDraft] = useState<string>(repository.name)
+  const [icon, setIcon] = useState<string>(initialIcon)
+  const [iconColor, setIconColor] = useState<string>(initialIconColor)
+  const name = normalizeGeneralProjectName(nameDraft)
+  const dirty =
+    nameDraft !== repository.name || icon !== initialIcon || iconColor !== initialIconColor
+  const isDefault =
+    nameDraft === GENERAL_PROJECT_DEFAULTS.name &&
+    icon === GENERAL_PROJECT_DEFAULTS.icon &&
+    iconColor === GENERAL_PROJECT_DEFAULTS.iconColor
+
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!busy && dirty && name) {
+          void onSubmit({
+            repositoryId: repository.id,
+            name,
+            icon,
+            iconColor,
+            faviconPath: null,
+            runCommand: null,
+            solutionFilePath: null,
+            newWorktreeSetupCommand: null,
+            postWorktreeRemoveCommand: null
+          })
+        }
+      }}
+    >
+      <Field label="Project title" hint="Shown in the sidebar and project picker.">
+        <TextInput
+          autoFocus
+          aria-label="Project title"
+          className="min-w-0 w-full"
+          maxLength={GENERAL_PROJECT_NAME_MAX_LENGTH}
+          onChange={(event) => setNameDraft(event.target.value)}
+          placeholder={GENERAL_PROJECT_DEFAULTS.name}
+          value={nameDraft}
+        />
+      </Field>
+
+      <Field label="Project icon">
+        <ProjectIconPicker
+          icon={icon}
+          iconColor={iconColor}
+          onIconChange={setIcon}
+          onIconColorChange={setIconColor}
+        />
+      </Field>
+
+      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
+        Sessions run in: <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          disabled={busy || isDefault}
+          onClick={() => {
+            setNameDraft(GENERAL_PROJECT_DEFAULTS.name)
+            setIcon(GENERAL_PROJECT_DEFAULTS.icon)
+            setIconColor(GENERAL_PROJECT_DEFAULTS.iconColor)
+          }}
+          title="Reset title and icon to defaults"
+          type="button"
+          variant="ghost"
+        >
+          Reset to defaults
+        </Button>
+
+        <div className="flex items-center gap-2">
+          <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
+            Cancel
+          </Button>
+          <Button
+            disabled={busy || !dirty || !name}
             title="Save project settings"
             type="submit"
             variant="primary"

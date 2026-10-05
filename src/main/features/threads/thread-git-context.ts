@@ -5,6 +5,7 @@ import type {
   PersistedThread,
   RepositoryBackend
 } from '../../../shared/app-types'
+import { isGeneralProject } from '../../../shared/general-project'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
 import { getThreadExecutionCwd } from './thread-paths'
 
@@ -26,6 +27,8 @@ export function createThreadGitContextService(dependencies: {
   findRepository: (repositoryId: string) => PersistedRepository | undefined
 }): {
   resolveThreadGitContext: (threadId: string) => ThreadGitContext
+  /** Like resolveThreadGitContext, but rejects threads outside a git repository. */
+  resolveRepositoryThreadContext: (threadId: string) => ThreadGitContext
   resolveBranchStatusContext: (
     input: BranchStatusRequest
   ) => { cwd: string; backend: RepositoryBackend } | null
@@ -51,6 +54,12 @@ export function createThreadGitContextService(dependencies: {
 
   return {
     resolveThreadGitContext,
+    resolveRepositoryThreadContext: (threadId: string): ThreadGitContext => {
+      const context = resolveThreadGitContext(threadId)
+      return context.ok && isGeneralProject(context.repository)
+        ? { ok: false, error: `This isn't available for ${context.repository.name} threads.` }
+        : context
+    },
     resolveBranchStatusContext: (
       input: BranchStatusRequest
     ): { cwd: string; backend: RepositoryBackend } | null => {
@@ -63,7 +72,7 @@ export function createThreadGitContextService(dependencies: {
         }
 
         const repository = state.repositories.find((item) => item.id === thread.repositoryId)
-        if (!repository) {
+        if (!repository || isGeneralProject(repository)) {
           return null
         }
 
@@ -75,7 +84,7 @@ export function createThreadGitContextService(dependencies: {
       }
 
       const repository = state.repositories.find((item) => item.id === input.repositoryId)
-      return repository
+      return repository && !isGeneralProject(repository)
         ? { cwd: getRepositoryExecutionPath(repository), backend: repository.backend }
         : null
     }

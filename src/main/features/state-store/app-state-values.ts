@@ -1,9 +1,17 @@
+import { homedir } from 'os'
 import type {
   PersistedAppState,
   PersistedRepository,
   PersistedThread,
   RepositoryBackend
 } from '../../../shared/app-types'
+import {
+  GENERAL_PROJECT_DEFAULTS,
+  GENERAL_PROJECT_ID,
+  isGeneralProject,
+  normalizeGeneralProjectName
+} from '../../../shared/general-project'
+import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../shared/project-icons'
 import { normalizeCopilotTitle } from '../../../shared/thread-title'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import { normalizePersistedTask } from '../project-tasks/project-task-values'
@@ -48,7 +56,81 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
       }
 }
 
+export function createGeneralProject(
+  addedAt: string,
+  homePath: string = homedir()
+): PersistedRepository {
+  return {
+    kind: 'general',
+    id: GENERAL_PROJECT_ID,
+    name: GENERAL_PROJECT_DEFAULTS.name,
+    icon: GENERAL_PROJECT_DEFAULTS.icon,
+    iconColor: GENERAL_PROJECT_DEFAULTS.iconColor,
+    path: homePath,
+    backend: { kind: 'native' },
+    faviconPath: null,
+    runCommand: null,
+    solutionFilePath: null,
+    newWorktreeSetupCommand: null,
+    postWorktreeRemoveCommand: null,
+    addedAt,
+    tasks: []
+  }
+}
+
+/** Keeps only the settings the general project supports and follows the current home directory. */
+function normalizeGeneralProject(
+  repository: PersistedRepository,
+  homePath: string
+): PersistedRepository {
+  const name = normalizeGeneralProjectName(repository.name) ?? GENERAL_PROJECT_DEFAULTS.name
+  const icon = PROJECT_ICONS.some((item) => item.id === repository.icon)
+    ? repository.icon
+    : GENERAL_PROJECT_DEFAULTS.icon
+  const iconColor = PROJECT_ICON_COLORS.some((item) => item.value === repository.iconColor)
+    ? repository.iconColor
+    : GENERAL_PROJECT_DEFAULTS.iconColor
+  const tasks = Array.isArray(repository.tasks)
+    ? repository.tasks.map((task) => normalizePersistedTask(task))
+    : []
+  const normalized: PersistedRepository = {
+    ...createGeneralProject(repository.addedAt, homePath),
+    id: repository.id,
+    name,
+    icon,
+    iconColor,
+    tasks
+  }
+  return JSON.stringify(normalized) === JSON.stringify(repository) ? repository : normalized
+}
+
+export function ensureGeneralProject(
+  repositories: PersistedRepository[],
+  nowIso: () => string = () => new Date().toISOString(),
+  homePath: string = homedir()
+): PersistedRepository[] {
+  const index = repositories.findIndex(isGeneralProject)
+  if (index < 0) {
+    return [createGeneralProject(nowIso(), homePath), ...repositories]
+  }
+
+  const general = normalizeGeneralProject(repositories[index], homePath)
+  const duplicates = repositories.some(
+    (repository, otherIndex) => otherIndex !== index && isGeneralProject(repository)
+  )
+  if (general === repositories[index] && !duplicates) {
+    return repositories
+  }
+
+  return repositories.flatMap((repository, otherIndex) =>
+    otherIndex === index ? [general] : isGeneralProject(repository) ? [] : [repository]
+  )
+}
+
 export function normalizePersistedRepository(repository: PersistedRepository): PersistedRepository {
+  if (isGeneralProject(repository)) {
+    return repository
+  }
   const backend = normalizeRepositoryBackend((repository as { backend?: unknown }).backend)
   const runCommand = normalizeRunCommand(repository.runCommand)
   const rawSolutionFilePath = (repository as { solutionFilePath?: unknown }).solutionFilePath
@@ -145,13 +227,17 @@ function normalizeFavoriteModels(value: unknown): string[] | undefined {
 export function normalizePersistedState(state: PersistedAppState): PersistedAppState {
   const settings = normalizePersistedSettings(state.settings)
   let didChange = settings !== state.settings
-  const repositories = state.repositories.map((repository) => {
+  const normalizedRepositories = state.repositories.map((repository) => {
     const normalizedRepository = normalizePersistedRepository(repository)
     if (normalizedRepository !== repository) {
       didChange = true
     }
     return normalizedRepository
   })
+  const repositories = ensureGeneralProject(normalizedRepositories)
+  if (repositories !== normalizedRepositories) {
+    didChange = true
+  }
   const threads = state.threads.map((thread) => {
     const normalizedThread = normalizePersistedThread(thread)
     if (normalizedThread !== thread) {

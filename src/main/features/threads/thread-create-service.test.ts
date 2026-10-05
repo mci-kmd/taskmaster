@@ -142,6 +142,34 @@ describe('createThreadCreateService', () => {
     expect(harness.state.threads[0]).not.toHaveProperty('viewMode')
   })
 
+  it('creates general project threads directly without git', () => {
+    const harness = createHarness()
+    harness.state.repositories.unshift({
+      ...harness.state.repositories[0],
+      kind: 'general',
+      id: 'general',
+      name: 'Computer',
+      path: '/home/me'
+    })
+
+    const result = harness.createThread({ repositoryId: 'general', mode: 'worktree' })
+
+    expect(result).toEqual({ ok: true })
+    expect(harness.state.threads[0]).toMatchObject({
+      repositoryId: 'general',
+      mode: 'active-branch',
+      branchName: '',
+      worktreePath: null,
+      ownsBranch: false,
+      ownsWorktree: false
+    })
+    expect(harness.updateSelection).toHaveBeenCalledWith('general', 'thread-1')
+    expect(getCurrentBranchName).not.toHaveBeenCalled()
+    expect(listRepositoryWorktrees).not.toHaveBeenCalled()
+    expect(createWorktree).not.toHaveBeenCalled()
+    expect(runGit).not.toHaveBeenCalled()
+  })
+
   it('creates a thread on the active branch when branch input is blank', () => {
     const harness = createHarness()
 

@@ -203,7 +203,7 @@ const threadWorkspaceService = createThreadWorkspaceService({
 })
 const threadRunService = createThreadRunService({
   findThread,
-  resolveThreadGitContext: threadGitContextService.resolveThreadGitContext,
+  resolveThreadGitContext: threadGitContextService.resolveRepositoryThreadContext,
   successResult,
   failureResult,
   broadcastThreadRunState: electronUi.broadcastThreadRunState,
@@ -248,7 +248,7 @@ const branchStatusService = createBranchStatusService({
   resolveBranchStatusContext: threadGitContextService.resolveBranchStatusContext
 })
 const threadDiffService = createThreadDiffService({
-  resolveThreadGitContext: threadGitContextService.resolveThreadGitContext
+  resolveThreadGitContext: threadGitContextService.resolveRepositoryThreadContext
 })
 
 export function initializeAppState(): void {

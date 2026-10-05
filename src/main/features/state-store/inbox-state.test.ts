@@ -87,7 +87,10 @@ describe('unified thread state', () => {
     expect(state.ui.selectedThreadId).toBe('active')
     const restored = createPersistedStateStore(options).ensureState()
     expect(restored.ui).toEqual(state.ui)
-    expect(restored.repositories).toEqual(state.repositories)
+    expect(restored.repositories).toEqual([
+      expect.objectContaining({ id: 'general', kind: 'general' }),
+      ...state.repositories
+    ])
     expect(restored.threads.map((item) => item.id)).toEqual(['legacy', 'active', 'next'])
   })
 
@@ -218,8 +221,9 @@ describe('migration from mode-specific project configurations', () => {
         }
       }
     })
-    expect(migrated.repositories).toHaveLength(2)
-    expect(migrated.repositories[0]).toMatchObject({
+    expect(migrated.repositories).toHaveLength(3)
+    expect(migrated.repositories[0]).toMatchObject({ id: 'general', kind: 'general' })
+    expect(migrated.repositories[1]).toMatchObject({
       id: 'original',
       runCommand: 'bun dev',
       icon: 'globe'

@@ -6,6 +6,7 @@ import type {
   ThreadSnapshot,
   UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
+import { isGeneralProject } from '../../../shared/general-project'
 import { resolveProjectTaskTags } from '../../../shared/task-tags'
 import TerminalSessions, {
   type SessionMap,
@@ -89,7 +90,8 @@ type ThreadPreviewAvailability = { enabled: true } | { enabled: false; reason: s
 
 function buildThreadViewOptions(
   agentLabel: string,
-  preview: ThreadPreviewAvailability | null
+  preview: ThreadPreviewAvailability | null,
+  includeDiff: boolean
 ): Array<{
   value: ThreadWorkspaceViewId
   label: string
@@ -119,11 +121,15 @@ function buildThreadViewOptions(
       label: 'Terminal',
       description: 'Plain shell in the thread working directory'
     },
-    {
-      value: 'diff',
-      label: 'Diff',
-      description: 'Changed files and patches for this thread'
-    }
+    ...(includeDiff
+      ? [
+          {
+            value: 'diff' as const,
+            label: 'Diff',
+            description: 'Changed files and patches for this thread'
+          }
+        ]
+      : [])
   ]
 }
 
@@ -277,9 +283,12 @@ export default function Workspace({
         : 'Add a run command in Edit project to use the preview'
     }
   }, [selectedHasRunCommand, selectedPreviewUrl, selectedRunCommandRunning])
+  const generalProject = selectedThread
+    ? selectedThread.projectKind === 'general'
+    : isGeneralProject(selectedRepository)
   const threadViewOptions = useMemo(
-    () => buildThreadViewOptions(COPILOT_LABEL, previewAvailability),
-    [previewAvailability]
+    () => buildThreadViewOptions(COPILOT_LABEL, previewAvailability, !generalProject),
+    [generalProject, previewAvailability]
   )
   const threadViewControlWidthPx = threadViewOptions.length * 88
   const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
@@ -329,7 +338,10 @@ export default function Workspace({
   const requestedView = getSelectedThreadView(threadViewSelections, selectedThread?.id)
   // The preview follows the run command and comes back once the command runs again.
   const selectedView: ThreadWorkspaceViewId =
-    requestedView === 'preview' && !previewAvailability?.enabled ? 'copilot' : requestedView
+    (requestedView === 'preview' && !previewAvailability?.enabled) ||
+    (requestedView === 'diff' && generalProject)
+      ? 'copilot'
+      : requestedView
   const activeSession =
     selectedView === 'terminal'
       ? selectedTerminalSession
@@ -340,16 +352,18 @@ export default function Workspace({
   const hasThread = Boolean(selectedThread)
   const hasRunCommand = Boolean(selectedRepository?.runCommand)
   const runCommandRunning = selectedThread?.isRunCommandRunning ?? false
-  const showRunCommandButton = hasRunCommand || runCommandRunning
+  const showRunCommandButton = !generalProject && (hasRunCommand || runCommandRunning)
   const headerTitle = selectedThread
     ? composeThreadTitle(selectedThread, selectedCopilotSession.runtimeTitle)
     : selectedRepository
       ? selectedRepository.name
       : 'Taskmaster'
 
-  const headerBranch = selectedThread
-    ? selectedThread.displayBranchName
-    : selectedRepository?.currentBranch
+  const headerBranch = generalProject
+    ? (selectedThread?.cwd ?? selectedRepository?.path)
+    : selectedThread
+      ? selectedThread.displayBranchName
+      : selectedRepository?.currentBranch
   const selectedThreadId = selectedThread?.id ?? null
   const { branchStatusSummary, branchStatusTitle } = useBranchStatus({
     selectedRepository,
@@ -398,7 +412,7 @@ export default function Workspace({
               <h1 className="truncate text-[14px] font-medium tracking-tight text-[var(--color-fg)]">
                 {headerTitle}
               </h1>
-              {selectedThread ? (
+              {selectedThread && !generalProject ? (
                 <span
                   className="grid size-4 place-items-center rounded text-[var(--color-fg-subtle)]"
                   title={
@@ -467,18 +481,20 @@ export default function Workspace({
                 <FolderIcon width={13} height={13} />
               </Button>
 
-              <Button
-                aria-label="Open workspace in VS Code"
-                iconOnly
-                onClick={onOpenWorkingDirectoryInVscode}
-                size="sm"
-                title="Open workspace in VS Code"
-                variant="ghost"
-              >
-                <CodeIcon width={13} height={13} />
-              </Button>
+              {generalProject ? null : (
+                <Button
+                  aria-label="Open workspace in VS Code"
+                  iconOnly
+                  onClick={onOpenWorkingDirectoryInVscode}
+                  size="sm"
+                  title="Open workspace in VS Code"
+                  variant="ghost"
+                >
+                  <CodeIcon width={13} height={13} />
+                </Button>
+              )}
 
-              {hasSolutionFile ? (
+              {hasSolutionFile && !generalProject ? (
                 <Button
                   aria-label="Open solution in Visual Studio"
                   iconOnly

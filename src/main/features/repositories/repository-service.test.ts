@@ -54,6 +54,72 @@ function createTestRepositoryService(
 }
 
 describe('repository service', () => {
+  it('limits general project edits to title, icon, and color', async () => {
+    const saveState = vi.fn()
+    const general = createTestRepository({
+      kind: 'general',
+      id: 'general',
+      name: 'Computer',
+      path: 'C:\\Users\\me',
+      icon: 'monitor',
+      iconColor: 'default'
+    })
+    const pickRepositoryFaviconFile = vi.fn()
+    const service = createTestRepositoryService({
+      findRepository: () => general,
+      saveState,
+      pickRepositoryFaviconFile
+    })
+    const input = {
+      repositoryId: general.id,
+      faviconPath: 'favicon.ico',
+      runCommand: 'bun dev',
+      solutionFilePath: 'App.slnx',
+      newWorktreeSetupCommand: 'bun install',
+      postWorktreeRemoveCommand: 'echo done',
+      previewUrl: 'http://localhost:3000',
+      taskTagsInput: 'ops'
+    }
+
+    expect(
+      service.updateRepository({ ...input, name: '  My   PC ', icon: 'code', iconColor: '#7aa2f7' })
+        .ok
+    ).toBe(true)
+    expect(general).toMatchObject({
+      name: 'My PC',
+      icon: 'code',
+      iconColor: '#7aa2f7',
+      faviconPath: null,
+      runCommand: null,
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null,
+      postWorktreeRemoveCommand: null
+    })
+    expect(general.previewUrl).toBeUndefined()
+    expect(general.taskTagsInput).toBeUndefined()
+    expect(service.updateRepository({ ...input, name: '   ' }).ok).toBe(false)
+    expect(service.updateRepository({ ...input, name: 'x'.repeat(81) }).ok).toBe(false)
+    expect(general.name).toBe('My PC')
+    expect(service.updateRepository(input).ok).toBe(true)
+    expect(saveState).toHaveBeenCalledTimes(1)
+    expect(await service.pickRepositoryFavicon(general.id)).toMatchObject({ ok: false })
+    expect(await service.pickRepositorySolutionFile(general.id)).toMatchObject({ ok: false })
+    expect(pickRepositoryFaviconFile).not.toHaveBeenCalled()
+  })
+
+  it('adds a repository at the home directory separately from the general project', async () => {
+    const general = createTestRepository({ kind: 'general', id: 'general', path: 'C:\\Users\\me' })
+    const state = { repositories: [general] }
+    const service = createTestRepositoryService({
+      ensureState: () => state,
+      selectRepositoryDirectory: async () => ({ canceled: false, filePaths: [general.path] }),
+      resolveGitRoot: () => general.path,
+      isSameRepositoryPath: () => true
+    })
+    expect((await service.addRepository()).ok).toBe(true)
+    expect(state.repositories.map((repository) => repository.id)).toEqual(['general', 'repo-2'])
+  })
+
   it('reuses the configured project when its folder is added from inbox', async () => {
     const project = createTestRepository({ icon: 'code', runCommand: 'bun dev' })
     const state = {

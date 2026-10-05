@@ -85,7 +85,12 @@ export type CopilotModelSelection = {
   reasoningEffort: CopilotReasoningEffort | null
 }
 
+/** 'general' is the built-in project for non-repository work, rooted in the user's home directory. */
+export type ProjectKind = 'repository' | 'general'
+
 export interface PersistedRepository {
+  /** Absent for regular git repositories. */
+  kind?: ProjectKind
   icon?: string
   iconColor?: string
   id: string
@@ -140,6 +145,7 @@ export interface AppSettingsSnapshot extends PersistedSettings {
 }
 
 export interface ThreadSnapshot extends PersistedThread {
+  projectKind: ProjectKind
   cwd: string
   executionCwd: string
   backend: RepositoryBackend
@@ -666,6 +672,8 @@ export interface UpdateSettingsInput {
 }
 
 export interface UpdateRepositoryInput {
+  /** Only honored for the general project. */
+  name?: string
   icon?: string
   iconColor?: string
   repositoryId: string
