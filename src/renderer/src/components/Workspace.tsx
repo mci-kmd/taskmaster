@@ -337,6 +337,22 @@ export default function Workspace({
     return customCopilotSessions.get(selectedThread.id) ?? IDLE_STATE
   }, [customCopilotSessions, selectedThread])
 
+  // Another thread's Copilot working in this checkout would race an AI commit.
+  const sharedCheckoutBusy = useMemo(() => {
+    const cwd = selectedThread?.executionCwd?.toLowerCase()
+    if (!selectedThread || !cwd) return false
+    return threads.some((thread) => {
+      if (thread.id === selectedThread.id || thread.executionCwd?.toLowerCase() !== cwd)
+        return false
+      const session = customCopilotSessions.get(thread.id)
+      return (
+        session?.copilotPhase === 'running' ||
+        session?.copilotPhase === 'connecting' ||
+        session?.copilotStatus === 'input'
+      )
+    })
+  }, [customCopilotSessions, selectedThread, threads])
+
   const selectedTerminalSession: ThreadSessionState = useMemo(() => {
     if (!selectedThread) return IDLE_STATE
     return terminalSessions.get(selectedThread.id) ?? IDLE_STATE
@@ -581,6 +597,7 @@ export default function Workspace({
                   >
                     <LazyCopilotThreadView
                       onSessionChange={handleCustomCopilotSessionChange}
+                      sharedCheckoutBusy={sharedCheckoutBusy}
                       thread={selectedThread}
                     />
                   </Suspense>
@@ -599,6 +616,7 @@ export default function Workspace({
                     <LazyThreadPreviewView
                       onSessionChange={handleCustomCopilotSessionChange}
                       previewUrl={selectedPreviewUrl}
+                      sharedCheckoutBusy={sharedCheckoutBusy}
                       thread={selectedThread}
                     />
                   </Suspense>

@@ -242,6 +242,59 @@ describe('repository service', () => {
     expect(saveState).toHaveBeenCalledTimes(1)
   })
 
+  it('saves the commit model and auto-push, storing defaults as absent', () => {
+    const saveState = vi.fn()
+    const repository = createTestRepository()
+    const service = createTestRepositoryService({ findRepository: () => repository, saveState })
+    const input = {
+      repositoryId: repository.id,
+      faviconPath: null,
+      runCommand: null,
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null,
+      postWorktreeRemoveCommand: null
+    }
+
+    expect(
+      service.updateRepository({
+        ...input,
+        commitMessageModel: { model: ' fast-model ', reasoningEffort: 'high' },
+        autoPushAfterCommit: true
+      }).ok
+    ).toBe(true)
+    expect(repository).toMatchObject({
+      commitMessageModel: { model: 'fast-model', reasoningEffort: 'high' },
+      autoPushAfterCommit: true
+    })
+    expect(service.updateRepository(input).ok).toBe(true)
+    expect(
+      service.updateRepository({
+        ...input,
+        commitMessageModel: { model: 'fast-model', reasoningEffort: 'bogus' as never }
+      })
+    ).toMatchObject({ ok: false, error: 'Commit message model is invalid.' })
+    expect(repository.commitMessageModel?.reasoningEffort).toBe('high')
+    expect(saveState).toHaveBeenCalledTimes(1)
+
+    expect(
+      service.updateRepository({
+        ...input,
+        commitMessageModel: { model: 'gpt-6-luna', reasoningEffort: 'medium' },
+        autoPushAfterCommit: false
+      }).ok
+    ).toBe(true)
+    expect(repository).not.toHaveProperty('commitMessageModel')
+    expect(repository).not.toHaveProperty('autoPushAfterCommit')
+
+    service.updateRepository({
+      ...input,
+      commitMessageModel: { model: 'x', reasoningEffort: null }
+    })
+    expect(service.updateRepository({ ...input, commitMessageModel: null }).ok).toBe(true)
+    expect(repository).not.toHaveProperty('commitMessageModel')
+    expect(saveState).toHaveBeenCalledTimes(4)
+  })
+
   it('returns a validated solution path from the picker', async () => {
     const repository = createTestRepository()
 

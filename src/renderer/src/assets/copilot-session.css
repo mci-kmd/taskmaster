@@ -868,6 +868,73 @@
   line-height: 1.45;
 }
 
+/* AI commit: a spinning ring while Copilot writes the message, an amber
+   pulse while a pre-commit hook runs, then a quiet ring to finish up. */
+.tm-commit {
+  position: relative;
+  animation: tm-pop-in 200ms ease-out both;
+}
+.tm-commit[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+.tm-commit[aria-disabled='true']:not([data-phase]) {
+  opacity: 0.5;
+}
+.tm-commit[data-phase] {
+  cursor: progress;
+}
+.tm-btn.tm-commit[aria-disabled='true']:hover {
+  background: transparent;
+}
+.tm-btn.tm-commit[aria-disabled='true']:not([data-phase]):hover {
+  color: var(--color-fg-muted);
+}
+.tm-commit-icon {
+  transition:
+    color 200ms ease,
+    transform 200ms ease;
+}
+.tm-commit-ring {
+  position: absolute;
+  inset: 3px;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.tm-commit[data-phase] .tm-commit-icon {
+  transform: scale(0.78);
+}
+.tm-commit[data-phase] .tm-commit-ring {
+  opacity: 1;
+  border-top-color: currentColor;
+  animation: tm-spin 0.9s linear infinite;
+}
+.tm-btn.tm-commit[data-phase='generating'] {
+  color: var(--color-info);
+}
+.tm-commit[data-phase='generating'] .tm-commit-ring {
+  border-color: rgb(158 197 255 / 0.2);
+  border-top-color: var(--color-info);
+}
+.tm-btn.tm-commit[data-phase='hook'] {
+  color: var(--color-warning);
+}
+.tm-commit[data-phase='hook'] .tm-commit-icon {
+  animation: tm-pulse 1.1s ease-in-out infinite;
+}
+.tm-commit[data-phase='hook'] .tm-commit-ring {
+  border-color: rgb(245 201 122 / 0.25);
+  border-top-color: var(--color-warning);
+  border-right-color: var(--color-warning);
+  animation-duration: 1.4s;
+}
+.tm-btn.tm-commit[data-phase='committing'],
+.tm-btn.tm-commit[data-phase='pushing'] {
+  color: var(--color-fg);
+}
+
 .tm-session-pending {
   display: flex;
   flex-direction: column;
@@ -933,6 +1000,8 @@
 @media (prefers-reduced-motion: reduce) {
   .tm-send,
   .tm-send *,
+  .tm-commit,
+  .tm-commit *,
   .tm-session-pending-item,
   .tm-session-pending-item * {
     animation: none !important;

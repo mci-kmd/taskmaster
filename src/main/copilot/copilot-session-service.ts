@@ -9,6 +9,7 @@ import type {
   CopilotCancelQueuedInput,
   CopilotInteraction,
   CopilotInteractionResponse,
+  CopilotListModelsResult,
   CopilotMcpAuthInput,
   CopilotModelOption,
   CopilotModelSelection,
@@ -53,6 +54,17 @@ type ThreadContext = {
   cwd: string
   yoloEnabled: boolean
 }
+
+export type CopilotGenerateTextInput = {
+  cwd: string
+  model: string
+  reasoningEffort: CopilotReasoningEffort | null
+  systemMessage: string
+  prompt: string
+  timeoutMs?: number
+}
+
+const GENERATE_TEXT_TIMEOUT_MS = 120_000
 
 type UserInputRequest = {
   question: string
@@ -398,6 +410,8 @@ export function createCopilotSessionService(dependencies: {
   hasSession: (threadId: string) => boolean
   isThreadWorking: (threadId: string) => boolean
   runningThreadNames: () => string[]
+  listModels: () => Promise<CopilotListModelsResult>
+  generateText: (input: CopilotGenerateTextInput) => Promise<string>
   shutdown: () => Promise<void>
 } {
   const sdkManager = new CopilotSdkManager()
@@ -1038,6 +1052,15 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  const mapCatalog = (catalog: ModelInfo[]): CopilotModelOption[] => {
+    const seen = new Set<string>()
+    return catalog.flatMap((model) => {
+      if (seen.has(model.id)) return []
+      seen.add(model.id)
+      return [mapModel(model)]
+    })
+  }
+
   const discoverModels = (sdkClient: CopilotClient): void => {
     if (modelCatalogClient === sdkClient) return
     modelCatalogClient = sdkClient
@@ -1047,12 +1070,7 @@ export function createCopilotSessionService(dependencies: {
       .listModels()
       .then((catalog) => {
         if (client !== sdkClient) return
-        const seen = new Set<string>()
-        models = catalog.flatMap((model) => {
-          if (seen.has(model.id)) return []
-          seen.add(model.id)
-          return [mapModel(model)]
-        })
+        models = mapCatalog(catalog)
         for (const active of sessions.values()) updateSnapshot(active, { models })
       })
       .catch((error) => {
@@ -1668,6 +1686,43 @@ export function createCopilotSessionService(dependencies: {
             'Untitled thread'
           )
         }),
+    listModels: async () => {
+      try {
+        const sdkClient = await ensureClient()
+        if (models.length) return { models }
+        const catalog = mapCatalog(await sdkClient.listModels())
+        if (client === sdkClient) models = catalog
+        return { models: catalog }
+      } catch (error) {
+        return { models, error: errorMessage(error) }
+      }
+    },
+    generateText: async (input) => {
+      const sdkClient = await ensureClient()
+      // A throwaway, tool-less session: it only reads the prompt and replies.
+      const session = await sdkClient.createSession({
+        workingDirectory: input.cwd,
+        model: input.model,
+        ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
+        enableConfigDiscovery: false,
+        availableTools: [],
+        streaming: false,
+        systemMessage: { mode: 'replace', content: input.systemMessage },
+        onPermissionRequest: async () => ({ kind: 'reject' })
+      })
+      try {
+        const reply = await session.sendAndWait(
+          { prompt: input.prompt },
+          input.timeoutMs ?? GENERATE_TEXT_TIMEOUT_MS
+        )
+        const content = reply?.data.content?.trim()
+        if (!content) throw new Error('Copilot returned an empty response.')
+        return content
+      } finally {
+        await session.disconnect().catch(() => undefined)
+        await sdkClient.deleteSession(session.sessionId).catch(() => undefined)
+      }
+    },
     shutdown: async () => {
       sdkManager.stopUpdateChecks()
       for (const operation of startingThreads.values()) {

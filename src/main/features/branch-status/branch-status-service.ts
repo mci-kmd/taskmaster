@@ -14,6 +14,7 @@ export function createBranchStatusService(dependencies: {
   ) => { cwd: string; backend: RepositoryBackend } | null
 }): {
   getBranchStatus: (input: BranchStatusRequest) => Promise<BranchStatusSnapshot | null>
+  invalidate: (cwd: string) => void
 } {
   const branchStatusCache = new Map<
     string,
@@ -22,6 +23,12 @@ export function createBranchStatusService(dependencies: {
   const branchStatusInflight = new Map<string, Promise<BranchStatusSnapshot | null>>()
 
   return {
+    invalidate: (cwd: string): void => {
+      const suffix = `:${cwd.toLowerCase()}`
+      for (const key of branchStatusCache.keys()) {
+        if (key.endsWith(suffix)) branchStatusCache.delete(key)
+      }
+    },
     getBranchStatus: async (input: BranchStatusRequest): Promise<BranchStatusSnapshot | null> => {
       const context = dependencies.resolveBranchStatusContext(input)
       if (!context) {

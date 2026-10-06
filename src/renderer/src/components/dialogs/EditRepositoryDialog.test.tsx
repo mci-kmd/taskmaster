@@ -5,6 +5,28 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../../shared/app-types'
 import EditRepositoryDialog from './EditRepositoryDialog'
 
+const copilot = vi.hoisted(() => ({
+  listModels: vi.fn(async () => ({
+    models: [
+      {
+        id: 'gpt-6-luna',
+        name: 'Luna 6',
+        supportsVision: false,
+        supportedReasoningEfforts: ['low', 'medium', 'high'],
+        defaultReasoningEffort: 'medium'
+      },
+      {
+        id: 'fast-model',
+        name: 'Fast model',
+        supportsVision: false,
+        supportedReasoningEfforts: [],
+        defaultReasoningEffort: null
+      }
+    ]
+  }))
+}))
+vi.mock('../../shared/api/client', () => ({ getRendererApi: () => ({ copilot }) }))
+
 afterEach(cleanup)
 
 function thread(id: string, settledAt?: string): ThreadSnapshot {
@@ -23,6 +45,7 @@ function thread(id: string, settledAt?: string): ThreadSnapshot {
     backend: { kind: 'native' },
     isRunCommandRunning: false,
     previewUrl: null,
+    commitAutoPush: false,
     customTitle: id,
     displayTitle: id,
     lastActivityAt: '2026-01-01',
@@ -120,4 +143,50 @@ it('does not offer removal for the built-in project', () => {
   renderDialog({ repository: { ...repository, kind: 'general', name: 'Computer' } })
 
   expect(screen.queryByRole('button', { name: 'Remove…' })).toBeNull()
+})
+
+it('defaults the commit model and saves commit settings', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog()
+
+  await screen.findByText('Luna 6')
+  const push = screen.getByRole('checkbox', { name: 'Push to the remote after committing' })
+  expect(push).toHaveProperty('checked', false)
+  expect(screen.getByRole('button', { name: 'Save' })).toHaveProperty('disabled', true)
+
+  await user.click(screen.getByRole('combobox', { name: 'Commit message reasoning effort' }))
+  await user.click(screen.getByRole('option', { name: 'High' }))
+  await user.click(push)
+  await user.click(screen.getByRole('button', { name: 'Save' }))
+
+  expect(props.onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({
+      commitMessageModel: { model: 'gpt-6-luna', reasoningEffort: 'high' },
+      autoPushAfterCommit: true
+    })
+  )
+})
+
+it('saves the default commit model as a reset and clears commit settings', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog({
+    repository: {
+      ...repository,
+      commitMessageModel: { model: 'fast-model', reasoningEffort: null },
+      autoPushAfterCommit: true
+    }
+  })
+
+  await screen.findByText('Fast model')
+  expect(
+    screen.getByRole('checkbox', { name: 'Push to the remote after committing' })
+  ).toHaveProperty('checked', true)
+
+  await user.click(screen.getByRole('button', { name: 'Clear fields' }))
+  await screen.findByText('Luna 6')
+  await user.click(screen.getByRole('button', { name: 'Save' }))
+
+  expect(props.onSubmit).toHaveBeenCalledWith(
+    expect.objectContaining({ commitMessageModel: null, autoPushAfterCommit: false })
+  )
 })

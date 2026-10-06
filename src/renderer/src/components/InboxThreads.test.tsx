@@ -22,6 +22,7 @@ function thread(id: string, activity: string, settledAt?: string): ThreadSnapsho
     backend: { kind: 'native' },
     isRunCommandRunning: false,
     previewUrl: null,
+    commitAutoPush: false,
     customTitle: id,
     displayTitle: id,
     lastActivityAt: activity,

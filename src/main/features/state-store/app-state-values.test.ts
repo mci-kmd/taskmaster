@@ -108,3 +108,25 @@ describe('completed task persistence', () => {
     expect(normalized.completedTasks).toEqual([completedTask])
   })
 })
+
+describe('commit settings persistence', () => {
+  it('keeps valid commit settings and drops invalid ones', () => {
+    const value: PersistedRepository = {
+      ...repository('alpha'),
+      commitMessageModel: { model: 'fast-model', reasoningEffort: 'high' },
+      autoPushAfterCommit: true
+    }
+    expect(normalizePersistedRepository(value)).toBe(value)
+
+    const invalid = normalizePersistedRepository({
+      ...repository('alpha'),
+      commitMessageModel: { model: '', reasoningEffort: 'medium' },
+      autoPushAfterCommit: 'yes' as never
+    })
+    expect(invalid).not.toHaveProperty('commitMessageModel')
+    expect(invalid).not.toHaveProperty('autoPushAfterCommit')
+    expect(
+      normalizePersistedRepository({ ...repository('alpha'), autoPushAfterCommit: false })
+    ).not.toHaveProperty('autoPushAfterCommit')
+  })
+})

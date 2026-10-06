@@ -21,6 +21,7 @@ import {
   updateCopilotActivity,
   registerAppStateIpc,
   resolveCopilotThread,
+  setCommitMessageGenerator,
   setCopilotThreadController,
   updateCopilotLastUserMessage,
   updateCopilotThreadTitle
@@ -147,6 +148,7 @@ app.whenReady().then(() => {
     has: copilotService.hasSession,
     isWorking: copilotService.isThreadWorking
   })
+  setCommitMessageGenerator(copilotService.generateText)
   registerCopilotIpc(copilotService)
   registerPreviewIpc()
   let copilotShutdownComplete = false

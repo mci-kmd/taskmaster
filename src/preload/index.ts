@@ -35,6 +35,7 @@ import type {
   ThreadDiffRangeOptionsResult,
   ThreadDiffSummaryResult,
   ThreadRunStateEvent,
+  ThreadCommitProgressEvent,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -155,6 +156,10 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.selectRepository, repositoryId),
     selectThread: (threadId: string | null) =>
       invokeIpc(IPC_CHANNELS.appState.selectThread, threadId),
+    commitThreadChanges: (threadId: string) =>
+      invokeIpc(IPC_CHANNELS.appState.commitThreadChanges, threadId),
+    onCommitProgress: (callback: (payload: ThreadCommitProgressEvent) => void) =>
+      onIpc(IPC_CHANNELS.appState.commitProgress, callback),
     showSidebarContextMenu: (input: SidebarContextMenuRequest) =>
       invokeIpc(IPC_CHANNELS.nativeMenu.showSidebarContextMenu, input),
     onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) =>
@@ -198,6 +203,7 @@ const api = {
     authenticateMcpServer: (input: CopilotMcpAuthInput) =>
       invokeIpc(IPC_CHANNELS.copilot.authenticateMcpServer, input),
     pickAttachments: () => invokeIpc(IPC_CHANNELS.copilot.pickAttachments),
+    listModels: () => invokeIpc(IPC_CHANNELS.copilot.listModels),
     getPathForFile: (file: unknown) => webUtils.getPathForFile(file as File),
     onSession: (callback: (payload: CopilotSessionEvent) => void) =>
       onIpc(IPC_CHANNELS.copilot.session, callback),

@@ -85,7 +85,11 @@ import {
 } from './backends/repository-backend'
 import { registerAppStateIpcHandlers } from './ipc/app-state-ipc'
 import { electronUi } from './platform/electron-ui'
-import { runGit } from './backends/git-client'
+import { runGit, tryGitAsync } from './backends/git-client'
+import {
+  createThreadCommitService,
+  type CommitMessageRequest
+} from './features/commits/thread-commit-service'
 
 const persistedStateStore = createAppStateStore()
 const repositoryGitStateService = createRepositoryGitStateService()
@@ -265,6 +269,39 @@ const branchStatusService = createBranchStatusService({
 const threadDiffService = createThreadDiffService({
   resolveThreadGitContext: threadGitContextService.resolveRepositoryThreadContext
 })
+let generateCommitMessage: ((request: CommitMessageRequest) => Promise<string>) | null = null
+const threadCommitService = createThreadCommitService({
+  resolveThreadContext: threadGitContextService.resolveRepositoryThreadContext,
+  getThreadIdsSharingCwd: (threadId) => {
+    const context = threadGitContextService.resolveThreadGitContext(threadId)
+    if (!context.ok) return [threadId]
+    const state = ensureState()
+    return state.threads
+      .filter((thread) => {
+        const repository = state.repositories.find((item) => item.id === thread.repositoryId)
+        return (
+          repository &&
+          isSameRepositoryPath(
+            getThreadExecutionCwd(thread, repository),
+            repository.backend,
+            context.cwd,
+            context.repository.backend
+          )
+        )
+      })
+      .map((thread) => thread.id)
+  },
+  isThreadWorking: (threadId) => isCopilotThreadWorking(threadId),
+  generateCommitMessage: (request) => {
+    if (!generateCommitMessage) return Promise.reject(new Error('Copilot is not available.'))
+    return generateCommitMessage(request)
+  },
+  runGit: tryGitAsync,
+  onProgress: (threadId, phase) => electronUi.broadcastCommitProgress({ threadId, phase }),
+  onFinished: (cwd) => {
+    branchStatusService.invalidate(cwd)
+  }
+})
 
 export function initializeAppState(): void {
   ensureState()
@@ -330,8 +367,19 @@ export function registerAppStateIpc(): void {
       threadWorkspaceService.openThreadSolutionInVisualStudio(threadId),
     selectRepository: (repositoryId: string | null) =>
       threadStateService.selectRepository(repositoryId),
-    selectThread: (threadId: string | null) => threadStateService.selectThread(threadId)
+    selectThread: (threadId: string | null) => threadStateService.selectThread(threadId),
+    commitThreadChanges: async (threadId: string) => {
+      const result = await threadCommitService.commitThreadChanges(threadId)
+      if (result.committed) electronUi.broadcastThreadRunState(threadId)
+      return result
+    }
   })
+}
+
+export function setCommitMessageGenerator(
+  generator: (request: CommitMessageRequest) => Promise<string>
+): void {
+  generateCommitMessage = generator
 }
 
 export function setCopilotThreadController(controller: {

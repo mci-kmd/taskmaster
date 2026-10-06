@@ -54,6 +54,7 @@ type Props = {
   thread: ThreadSnapshot
   previewUrl: string
   onSessionChange: (threadId: string, state: ThreadSessionState) => void
+  sharedCheckoutBusy?: boolean
 }
 
 const RETRY_DELAY_MS = 1500
@@ -109,7 +110,12 @@ export default function ThreadPreviewView(props: Props): React.JSX.Element {
   return <PreviewPane key={`${props.thread.id}:${props.previewUrl}`} {...props} />
 }
 
-function PreviewPane({ thread, previewUrl, onSessionChange }: Props): React.JSX.Element {
+function PreviewPane({
+  thread,
+  previewUrl,
+  onSessionChange,
+  sharedCheckoutBusy
+}: Props): React.JSX.Element {
   const webviewRef = useRef<WebviewElement | null>(null)
   const [initialUrl] = useState(() => {
     const last = lastUrls.get(thread.id)
@@ -475,7 +481,11 @@ function PreviewPane({ thread, previewUrl, onSessionChange }: Props): React.JSX.
           collapseWidth={CONVERSATION_WIDTH.default}
           width={width}
         />
-        <CopilotThreadView thread={thread} onSessionChange={onSessionChange} />
+        <CopilotThreadView
+          thread={thread}
+          onSessionChange={onSessionChange}
+          sharedCheckoutBusy={sharedCheckoutBusy}
+        />
       </aside>
     </div>
   )

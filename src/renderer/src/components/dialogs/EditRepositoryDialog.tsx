@@ -12,6 +12,13 @@ import {
   normalizeGeneralProjectName
 } from '../../../../shared/general-project'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
+import {
+  DEFAULT_COMMIT_MESSAGE_MODEL,
+  isSameModelSelection,
+  resolveCommitMessageModel
+} from '../../../../shared/commit'
+import Checkbox from '../ui/Checkbox'
+import CommitModelPicker from './CommitModelPicker'
 
 type EditRepositoryDialogProps = {
   open: boolean
@@ -64,7 +71,7 @@ export default function EditRepositoryDialog({
             ? `${repository.name} will be removed from Taskmaster. This cannot be undone.`
             : isGeneralProject(repository)
               ? 'Configure the title and icon of the project for general computer tasks.'
-              : `Configure the icon, solution file, project commands, and task tags for ${repository.name}.`
+              : `Configure the icon, solution file, project commands, task tags, and commit settings for ${repository.name}.`
       }
       onClose={confirmingRemoval ? () => setConfirmingRemovalId(null) : handleClose}
       open={open}
@@ -103,7 +110,7 @@ export default function EditRepositoryDialog({
         <div hidden={confirmingRemoval}>
           <EditRepositoryForm
             busy={busy}
-            key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.previewUrl ?? ''}:${repository.taskTagsInput ?? ''}`}
+            key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.previewUrl ?? ''}:${repository.taskTagsInput ?? ''}:${repository.commitMessageModel?.model ?? ''}:${repository.commitMessageModel?.reasoningEffort ?? ''}:${repository.autoPushAfterCommit === true}`}
             onBrowseFavicon={onBrowseFavicon}
             onBrowseSolutionFile={onBrowseSolutionFile}
             onCancel={handleClose}
@@ -259,6 +266,11 @@ function EditRepositoryForm({
   const [taskTagsDraft, setTaskTagsDraft] = useState(repository.taskTagsInput ?? '')
   const parsedTaskTagsPreview = parseTaskTagsInput(taskTagsDraft)
 
+  const savedCommitModel = resolveCommitMessageModel(repository)
+  const [commitModelDraft, setCommitModelDraft] = useState(savedCommitModel)
+  const savedAutoPush = repository.autoPushAfterCommit === true
+  const [autoPushDraft, setAutoPushDraft] = useState(savedAutoPush)
+
   const dirty =
     icon !== (repository.icon ?? 'folder') ||
     iconColor !== (repository.iconColor ?? 'default') ||
@@ -268,7 +280,9 @@ function EditRepositoryForm({
     newWorktreeSetupCommandDraft !== (repository.newWorktreeSetupCommand ?? '') ||
     postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '') ||
     previewUrlDraft !== (repository.previewUrl ?? '') ||
-    taskTagsDraft !== (repository.taskTagsInput ?? '')
+    taskTagsDraft !== (repository.taskTagsInput ?? '') ||
+    !isSameModelSelection(commitModelDraft, savedCommitModel) ||
+    autoPushDraft !== savedAutoPush
 
   return (
     <form
@@ -286,7 +300,11 @@ function EditRepositoryForm({
             newWorktreeSetupCommand: newWorktreeSetupCommandDraft.trim() || null,
             postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null,
             previewUrl: previewUrlDraft.trim() || null,
-            taskTagsInput: taskTagsDraft
+            taskTagsInput: taskTagsDraft,
+            commitMessageModel: isSameModelSelection(commitModelDraft, DEFAULT_COMMIT_MESSAGE_MODEL)
+              ? null
+              : commitModelDraft,
+            autoPushAfterCommit: autoPushDraft
           })
         }
       }}
@@ -438,6 +456,26 @@ function EditRepositoryForm({
         ) : null}
       </Field>
 
+      <Field
+        hint="Model Copilot uses to write messages for the commit button in Copilot threads (Ctrl+S)."
+        label="Commit message model"
+      >
+        <CommitModelPicker
+          disabled={busy}
+          onChange={setCommitModelDraft}
+          value={commitModelDraft}
+        />
+        <div className="mt-2.5">
+          <Checkbox
+            checked={autoPushDraft}
+            disabled={busy}
+            label="Push to the remote after committing"
+            onChange={setAutoPushDraft}
+            title="Run git push after each AI commit"
+          />
+        </div>
+      </Field>
+
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
         Repository root: <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>
       </div>
@@ -483,7 +521,9 @@ function EditRepositoryForm({
                 newWorktreeSetupCommandDraft.length === 0 &&
                 postWorktreeRemoveCommandDraft.length === 0 &&
                 previewUrlDraft.length === 0 &&
-                taskTagsDraft.length === 0)
+                taskTagsDraft.length === 0 &&
+                isSameModelSelection(commitModelDraft, DEFAULT_COMMIT_MESSAGE_MODEL) &&
+                !autoPushDraft)
             }
             onClick={() => {
               setIcon('folder')
@@ -495,6 +535,8 @@ function EditRepositoryForm({
               setPostWorktreeRemoveCommandDraft('')
               setPreviewUrlDraft('')
               setTaskTagsDraft('')
+              setCommitModelDraft(DEFAULT_COMMIT_MESSAGE_MODEL)
+              setAutoPushDraft(false)
             }}
             title="Clear project fields"
             type="button"

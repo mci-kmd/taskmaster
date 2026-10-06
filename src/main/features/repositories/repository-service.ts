@@ -9,6 +9,11 @@ import type {
   UpdateRepositoryInput
 } from '../../../shared/app-types'
 import { isGeneralProject, normalizeGeneralProjectName } from '../../../shared/general-project'
+import {
+  DEFAULT_COMMIT_MESSAGE_MODEL,
+  isSameModelSelection,
+  normalizeCommitMessageModel
+} from '../../../shared/commit'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import { validateRepositoryPreviewUrlInput } from './repository-values'
 
@@ -231,6 +236,24 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         return dependencies.failureResult(previewUrlValidation.error)
       }
 
+      let commitMessageModel = repository.commitMessageModel
+      if (input.commitMessageModel === null) {
+        commitMessageModel = undefined
+      } else if (input.commitMessageModel !== undefined) {
+        const normalized = normalizeCommitMessageModel(input.commitMessageModel)
+        if (!normalized) {
+          return dependencies.failureResult('Commit message model is invalid.')
+        }
+        // Storing the default would pin it; leave it absent so default changes apply.
+        commitMessageModel = isSameModelSelection(normalized, DEFAULT_COMMIT_MESSAGE_MODEL)
+          ? undefined
+          : normalized
+      }
+      const autoPushAfterCommit =
+        input.autoPushAfterCommit === undefined
+          ? repository.autoPushAfterCommit === true
+          : input.autoPushAfterCommit === true
+
       if (
         (input.icon === undefined || input.icon === repository.icon) &&
         (input.iconColor === undefined || input.iconColor === repository.iconColor) &&
@@ -240,7 +263,9 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         repository.newWorktreeSetupCommand === newWorktreeSetupCommandValidation.command &&
         repository.postWorktreeRemoveCommand === postWorktreeRemoveCommandValidation.command &&
         (repository.taskTagsInput ?? '') === taskTagsInput &&
-        (repository.previewUrl ?? null) === previewUrlValidation.url
+        (repository.previewUrl ?? null) === previewUrlValidation.url &&
+        isSameModelSelection(repository.commitMessageModel, commitMessageModel) &&
+        (repository.autoPushAfterCommit === true) === autoPushAfterCommit
       ) {
         return dependencies.successResult()
       }
@@ -255,6 +280,10 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       if (input.taskTagsInput !== undefined) repository.taskTagsInput = taskTagsInput
       if (previewUrlValidation.url) repository.previewUrl = previewUrlValidation.url
       else delete repository.previewUrl
+      if (commitMessageModel) repository.commitMessageModel = commitMessageModel
+      else delete repository.commitMessageModel
+      if (autoPushAfterCommit) repository.autoPushAfterCommit = true
+      else delete repository.autoPushAfterCommit
       dependencies.saveState()
       return dependencies.successResult()
     },

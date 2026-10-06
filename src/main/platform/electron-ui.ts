@@ -8,7 +8,7 @@ import {
   type OpenDialogOptions,
   type OpenDialogReturnValue
 } from 'electron'
-import type { PersistedRepository } from '../../shared/app-types'
+import type { PersistedRepository, ThreadCommitProgressEvent } from '../../shared/app-types'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
 import { sendIpc } from '../ipc/typed-ipc'
 import { sanitizeUserFacingMessage } from '../features/shared/user-facing-messages'
@@ -125,6 +125,15 @@ export const electronUi = {
         continue
       }
       sendIpc(window.webContents, IPC_CHANNELS.appState.threadRunState, { threadId })
+    }
+  },
+
+  broadcastCommitProgress: (payload: ThreadCommitProgressEvent): void => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) {
+        continue
+      }
+      sendIpc(window.webContents, IPC_CHANNELS.appState.commitProgress, payload)
     }
   },
 

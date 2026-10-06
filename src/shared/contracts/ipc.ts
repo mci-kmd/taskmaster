@@ -4,6 +4,7 @@ import type {
   BranchStatusSnapshot,
   CopilotCancelQueuedInput,
   CopilotInteractionResponse,
+  CopilotListModelsResult,
   CopilotMcpAuthInput,
   ModelPerformanceSample,
   ModelPerformanceSampleEvent,
@@ -43,6 +44,8 @@ import type {
   ThreadDiffRangeOptionsResult,
   ThreadDiffSummaryResult,
   ThreadRunStateEvent,
+  ThreadCommitProgressEvent,
+  ThreadCommitResult,
   TerminalCreateRequest,
   TerminalDataEvent,
   TerminalExitEvent,
@@ -93,6 +96,8 @@ export const IPC_CHANNELS = {
     openThreadSolutionInVisualStudio: 'app-state:open-thread-solution-in-visual-studio',
     selectRepository: 'app-state:select-repository',
     selectThread: 'app-state:select-thread',
+    commitThreadChanges: 'app-state:commit-thread-changes',
+    commitProgress: 'app-state:commit-progress',
     threadRunState: 'app-state:thread-run-state'
   },
   nativeMenu: {
@@ -126,6 +131,7 @@ export const IPC_CHANNELS = {
     respond: 'copilot:respond',
     authenticateMcpServer: 'copilot:authenticate-mcp-server',
     pickAttachments: 'copilot:pick-attachments',
+    listModels: 'copilot:list-models',
     session: 'copilot:session',
     sdkStatus: 'copilot:sdk-status'
   },
@@ -226,6 +232,7 @@ export type IpcInvokeDefinitions = {
   }
   'app-state:select-repository': { request: [string | null]; response: AppSnapshot }
   'app-state:select-thread': { request: [string | null]; response: AppSnapshot }
+  'app-state:commit-thread-changes': { request: [string]; response: ThreadCommitResult }
   'native-menu:show-sidebar-context-menu': {
     request: [SidebarContextMenuRequest]
     response: boolean
@@ -251,6 +258,7 @@ export type IpcInvokeDefinitions = {
     response: CopilotStartResult
   }
   'copilot:pick-attachments': { request: []; response: CopilotPickAttachmentsResult }
+  'copilot:list-models': { request: []; response: CopilotListModelsResult }
   'preview:capture-element': { request: [PreviewCaptureRequest]; response: PreviewCaptureResult }
 }
 
@@ -261,6 +269,7 @@ export type IpcSendDefinitions = {
 
 export type IpcEventDefinitions = {
   'app-state:thread-run-state': { payload: ThreadRunStateEvent }
+  'app-state:commit-progress': { payload: ThreadCommitProgressEvent }
   'native-menu:sidebar-context-menu-action': { payload: SidebarContextMenuActionEvent }
   'terminal:data': { payload: TerminalDataEvent }
   'terminal:exit': { payload: TerminalExitEvent }

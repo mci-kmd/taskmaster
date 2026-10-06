@@ -142,7 +142,8 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
       displayTitle:
         thread.customTitle ?? (general ? GENERAL_THREAD_FALLBACK_TITLE : thread.branchName),
       isRunCommandRunning: runningRunThreadIds.has(thread.id),
-      previewUrl: general ? null : dependencies.resolveThreadPreviewUrl(repository, thread)
+      previewUrl: general ? null : dependencies.resolveThreadPreviewUrl(repository, thread),
+      commitAutoPush: !general && repository.autoPushAfterCommit === true
     }
   }
 

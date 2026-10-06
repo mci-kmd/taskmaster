@@ -110,6 +110,10 @@ export interface PersistedRepository {
   previewUrl?: string
   /** Project-specific task tags, offered in addition to the global settings tags. */
   taskTagsInput?: string
+  /** Model that writes AI commit messages. Absent means DEFAULT_COMMIT_MESSAGE_MODEL. */
+  commitMessageModel?: CopilotModelSelection
+  /** Push to the remote after an AI commit. Absent means off. */
+  autoPushAfterCommit?: boolean
   addedAt: string
   tasks: PersistedProjectTask[]
   /** Completed tasks, most recently completed first. Absent until a task is completed. */
@@ -161,6 +165,8 @@ export interface ThreadSnapshot extends PersistedThread {
   isRunCommandRunning: boolean
   /** The project's preview URL with this thread's branch tokens applied, or null when not opted in. */
   previewUrl: string | null
+  /** Whether the AI commit action also pushes to the remote. */
+  commitAutoPush: boolean
 }
 
 export interface RepositorySnapshot extends PersistedRepository {
@@ -663,6 +669,11 @@ export interface CopilotFavoriteModelsEvent {
   models: string[]
 }
 
+export interface CopilotListModelsResult {
+  models: CopilotModelOption[]
+  error?: string
+}
+
 export interface CopilotApi {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
@@ -681,6 +692,7 @@ export interface CopilotApi {
   respond: (input: CopilotInteractionResponse) => Promise<boolean>
   authenticateMcpServer: (input: CopilotMcpAuthInput) => Promise<CopilotStartResult>
   pickAttachments: () => Promise<CopilotPickAttachmentsResult>
+  listModels: () => Promise<CopilotListModelsResult>
   getPathForFile: (file: unknown) => string
   onSession: (callback: (payload: CopilotSessionEvent) => void) => () => void
   onSdkStatus: (callback: (payload: CopilotSdkStatusEvent) => void) => () => void
@@ -705,6 +717,25 @@ export interface UpdateRepositoryInput {
   postWorktreeRemoveCommand: string | null
   previewUrl?: string | null
   taskTagsInput?: string
+  /** Null restores the default commit message model. */
+  commitMessageModel?: CopilotModelSelection | null
+  autoPushAfterCommit?: boolean
+}
+
+export type ThreadCommitPhase = 'generating' | 'hook' | 'committing' | 'pushing'
+
+export interface ThreadCommitProgressEvent {
+  threadId: string
+  phase: ThreadCommitPhase
+}
+
+export interface ThreadCommitResult {
+  ok: boolean
+  error?: string
+  /** True once the commit exists, even if a later push failed. */
+  committed?: boolean
+  pushed?: boolean
+  message?: string
 }
 
 export interface CreateRepositoryTaskInput {

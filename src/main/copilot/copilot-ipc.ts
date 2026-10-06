@@ -43,4 +43,5 @@ export function registerCopilotIpc(service: CopilotSessionService): void {
     service.authenticateMcpServer(input)
   )
   handleIpc(IPC_CHANNELS.copilot.pickAttachments, () => service.pickAttachments())
+  handleIpc(IPC_CHANNELS.copilot.listModels, () => service.listModels())
 }

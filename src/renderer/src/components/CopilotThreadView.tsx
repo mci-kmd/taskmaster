@@ -1,6 +1,7 @@
 import Select from './ui/Select'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
+  BranchStatusSnapshot,
   CopilotAttachment,
   CopilotInteractionResponse,
   CopilotReasoningEffort,
@@ -8,6 +9,7 @@ import type {
   CopilotSendDelivery,
   CopilotSessionSnapshot,
   CopilotStartResult,
+  ThreadCommitPhase,
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { getRendererApi } from '../shared/api/client'
@@ -20,6 +22,7 @@ import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimeline from './copilot/SessionTimeline'
 import SessionPromptInput from './copilot/SessionPromptInput'
 import SendButton from './copilot/SendButton'
+import CommitButton from './copilot/CommitButton'
 import PendingMessages from './copilot/PendingMessages'
 import { registerComposer, useSessionDraft } from './copilot/session-drafts'
 import {
@@ -35,8 +38,16 @@ const api = getRendererApi()
 type Props = {
   thread: ThreadSnapshot
   onSessionChange: (threadId: string, state: ThreadSessionState) => void
+  // Another session is working in this thread's checkout, so committing now would race it.
+  sharedCheckoutBusy?: boolean
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+const WORKING_TREE_POLL_MS = 15_000
+const hasChanges = (status: BranchStatusSnapshot | null): boolean =>
+  Boolean(
+    status &&
+    status.staged + status.modified + status.deleted + status.untracked + status.conflicted > 0
+  )
 
 async function imagePreview(file: File): Promise<string | undefined> {
   if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return undefined
@@ -80,7 +91,11 @@ export default function CopilotThreadView(props: Props): React.JSX.Element {
   return <SessionView key={props.thread.id} {...props} />
 }
 
-function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
+function SessionView({
+  thread,
+  onSessionChange,
+  sharedCheckoutBusy = false
+}: Props): React.JSX.Element {
   const [session, setSession] = useState<CopilotSessionSnapshot | null>(null)
   const [sdk, setSdk] = useState<CopilotSdkStatus | null>(null)
   const [favoriteModels, setFavoriteModels] = useState<string[]>([])
@@ -374,6 +389,84 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
       )
     })
   }
+
+  const usesGit = thread.projectKind !== 'general'
+  const idle = session?.phase === 'idle'
+  const [workingTree, setWorkingTree] = useState<BranchStatusSnapshot | null>(null)
+  const [commitPhase, setCommitPhase] = useState<ThreadCommitPhase | null>(null)
+  const commitActive = useRef(false)
+  const workingTreeRevision = useRef(0)
+  const refreshWorkingTree = useCallback(async (): Promise<void> => {
+    const revision = ++workingTreeRevision.current
+    try {
+      const status = await api.appState.getBranchStatus({ threadId: thread.id })
+      if (mounted.current && revision === workingTreeRevision.current) setWorkingTree(status)
+    } catch {
+      /* Without a status the commit button just stays hidden. */
+    }
+  }, [thread.id])
+  // Check the working tree whenever a turn ends, then keep it fresh while idle.
+  useEffect(() => {
+    if (!usesGit || !idle) return
+    void refreshWorkingTree()
+    const interval = window.setInterval(() => void refreshWorkingTree(), WORKING_TREE_POLL_MS)
+    const onFocus = (): void => void refreshWorkingTree()
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [usesGit, idle, sharedCheckoutBusy, refreshWorkingTree])
+  useEffect(
+    () =>
+      api.appState.onCommitProgress(({ threadId, phase }) => {
+        if (threadId === thread.id && commitActive.current) setCommitPhase(phase)
+      }),
+    [thread.id]
+  )
+  const showCommit =
+    usesGit && (commitPhase !== null || (ready && !sharedCheckoutBusy && hasChanges(workingTree)))
+  const commitDisabledReason =
+    (workingTree?.conflicted ?? 0) > 0
+      ? 'Resolve merge conflicts before committing'
+      : busy
+        ? 'Wait for the current action to finish'
+        : null
+  const commit = (): void => {
+    if (!showCommit || commitPhase || commitDisabledReason || busyRef.current) return
+    commitActive.current = true
+    setCommitPhase('generating')
+    void run('commit', async () => {
+      try {
+        const result = await api.appState.commitThreadChanges(thread.id)
+        // Hide the button until a fresh status confirms what's left to commit.
+        if (result.committed && mounted.current) setWorkingTree(null)
+        if (!result.ok) throw new Error(result.error ?? 'Could not commit the changes.')
+      } finally {
+        commitActive.current = false
+        if (mounted.current) setCommitPhase(null)
+        void refreshWorkingTree()
+      }
+    })
+  }
+  const commitRef = useRef(commit)
+  commitRef.current = commit
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        event.altKey ||
+        event.shiftKey ||
+        event.key.toLowerCase() !== 's' ||
+        document.querySelector('[role="dialog"][aria-modal="true"]')
+      )
+        return
+      event.preventDefault()
+      if (!event.repeat) commitRef.current()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
   const status = stopping
     ? 'Stopping…'
     : busy === 'start'
@@ -717,6 +810,14 @@ function SessionView({ thread, onSessionChange }: Props): React.JSX.Element {
                 >
                   {stopping ? 'Stopping…' : 'Stop'}
                 </Button>
+              ) : null}
+              {showCommit ? (
+                <CommitButton
+                  phase={commitPhase}
+                  autoPush={thread.commitAutoPush}
+                  disabledReason={commitDisabledReason}
+                  onCommit={commit}
+                />
               ) : null}
               <SendButton
                 running={running}

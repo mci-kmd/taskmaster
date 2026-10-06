@@ -81,7 +81,8 @@ describe('snapshot service', () => {
     expect(snapshot.repositories[0]?.threads[0]).toMatchObject({
       id: 'thread-1',
       cwd: 'C:\\repo',
-      previewUrl: null
+      previewUrl: null,
+      commitAutoPush: false
     })
     expect(snapshot.settings.yoloEnabled).toBe(true)
   })

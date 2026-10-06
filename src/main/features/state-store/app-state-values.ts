@@ -1,10 +1,12 @@
 import { homedir } from 'os'
 import type {
+  CopilotModelSelection,
   PersistedAppState,
   PersistedRepository,
   PersistedThread,
   RepositoryBackend
 } from '../../../shared/app-types'
+import { isSameModelSelection, normalizeCommitMessageModel } from '../../../shared/commit'
 import {
   GENERAL_PROJECT_DEFAULTS,
   GENERAL_PROJECT_ID,
@@ -157,6 +159,18 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     typeof rawTaskTagsInput === 'string' ? normalizeTaskTagsInput(rawTaskTagsInput) : undefined
   const rawPreviewUrl = (repository as { previewUrl?: unknown }).previewUrl
   const previewUrl = normalizeRepositoryPreviewUrl(rawPreviewUrl) ?? undefined
+  const rawCommitMessageModel = (repository as { commitMessageModel?: unknown }).commitMessageModel
+  const normalizedCommitMessageModel = normalizeCommitMessageModel(rawCommitMessageModel)
+  const commitMessageModel =
+    normalizedCommitMessageModel &&
+    isSameModelSelection(
+      normalizedCommitMessageModel,
+      rawCommitMessageModel as CopilotModelSelection
+    )
+      ? (rawCommitMessageModel as CopilotModelSelection)
+      : (normalizedCommitMessageModel ?? undefined)
+  const rawAutoPush = (repository as { autoPushAfterCommit?: unknown }).autoPushAfterCommit
+  const autoPushAfterCommit = rawAutoPush === true ? true : undefined
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const tasks = currentTasks.map((task) => normalizePersistedTask(task))
   const rawCompletedTasks = (repository as { completedTasks?: unknown }).completedTasks
@@ -170,6 +184,8 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     postWorktreeRemoveCommand === repository.postWorktreeRemoveCommand &&
     taskTagsInput === rawTaskTagsInput &&
     previewUrl === rawPreviewUrl &&
+    commitMessageModel === rawCommitMessageModel &&
+    autoPushAfterCommit === rawAutoPush &&
     completedTasks === rawCompletedTasks &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
@@ -181,11 +197,15 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   const {
     taskTagsInput: _taskTagsInput,
     previewUrl: _previewUrl,
+    commitMessageModel: _commitMessageModel,
+    autoPushAfterCommit: _autoPushAfterCommit,
     completedTasks: _completedTasks,
     ...rest
   } = repository
   void _taskTagsInput
   void _previewUrl
+  void _commitMessageModel
+  void _autoPushAfterCommit
   void _completedTasks
   return {
     ...rest,
@@ -196,6 +216,8 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     postWorktreeRemoveCommand,
     ...(previewUrl === undefined ? {} : { previewUrl }),
     ...(taskTagsInput === undefined ? {} : { taskTagsInput }),
+    ...(commitMessageModel === undefined ? {} : { commitMessageModel }),
+    ...(autoPushAfterCommit === undefined ? {} : { autoPushAfterCommit }),
     tasks,
     ...(completedTasks === undefined ? {} : { completedTasks })
   }

@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CopilotApi, CopilotSessionSnapshot, ThreadSnapshot } from '../../../shared/app-types'
+import type {
+  BranchStatusSnapshot,
+  CopilotApi,
+  CopilotSessionSnapshot,
+  ThreadCommitPhase,
+  ThreadSnapshot
+} from '../../../shared/app-types'
 import CopilotThreadView from './CopilotThreadView'
 
 const mock = vi.hoisted(() => ({
@@ -24,8 +30,14 @@ const mock = vi.hoisted(() => ({
   onSession: vi.fn(),
   onSdkStatus: vi.fn()
 }))
-vi.mock('../shared/api/client', () => ({ getRendererApi: () => ({ copilot: mock }) }))
+const appState = vi.hoisted(() => ({
+  getBranchStatus: vi.fn(),
+  commitThreadChanges: vi.fn(),
+  onCommitProgress: vi.fn()
+}))
+vi.mock('../shared/api/client', () => ({ getRendererApi: () => ({ copilot: mock, appState }) }))
 let listener: Parameters<CopilotApi['onSession']>[0]
+let commitProgress: (payload: { threadId: string; phase: ThreadCommitPhase }) => void
 let threadCount = 0
 const thread = (): ThreadSnapshot => ({ id: `test-${++threadCount}` }) as ThreadSnapshot
 function snapshot(
@@ -89,6 +101,11 @@ beforeEach(() => {
   mock.onFavoriteModels.mockReturnValue(vi.fn())
   mock.send.mockResolvedValue({ ok: true })
   mock.respond.mockResolvedValue(true)
+  appState.getBranchStatus.mockResolvedValue(null)
+  appState.onCommitProgress.mockImplementation((callback) => {
+    commitProgress = callback
+    return vi.fn()
+  })
 })
 afterEach(() => {
   cleanup()
@@ -1225,4 +1242,146 @@ it('completes inline dollar references while preserving the surrounding draft', 
   expect(input().value).toBe('Please use $review on this diff')
   expect(input().selectionStart).toBe(19)
   expect(mock.send).not.toHaveBeenCalled()
+})
+
+describe('AI commit button', () => {
+  const dirty: BranchStatusSnapshot = {
+    ahead: 0,
+    behind: 0,
+    staged: 0,
+    modified: 2,
+    deleted: 0,
+    untracked: 1,
+    conflicted: 0
+  }
+  const clean: BranchStatusSnapshot = { ...dirty, modified: 0, untracked: 0 }
+  const commitButton = (): HTMLButtonElement | null =>
+    document.querySelector<HTMLButtonElement>('.tm-commit')
+
+  it('appears left of Send only while idle with uncommitted changes', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    const t = thread()
+    const view = render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    const button = commitButton()!
+    expect(appState.getBranchStatus).toHaveBeenCalledWith({ threadId: t.id })
+    expect(button.title).toBe('Commit all changes with an AI-written message (Ctrl+S)')
+    expect(button.getAttribute('aria-label')).toBe('Commit')
+    expect(button.querySelector('svg')).toBeTruthy()
+    expect(button.nextElementSibling?.classList.contains('tm-send')).toBe(true)
+
+    act(() => listener({ snapshot: snapshot(t.id, { phase: 'running' }) }))
+    expect(commitButton()).toBeNull()
+    act(() => listener({ snapshot: snapshot(t.id) }))
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+
+    view.rerender(<CopilotThreadView thread={t} onSessionChange={vi.fn()} sharedCheckoutBusy />)
+    expect(commitButton()).toBeNull()
+  })
+
+  it('stays hidden for clean trees and general projects', async () => {
+    appState.getBranchStatus.mockResolvedValue(clean)
+    const view = render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(appState.getBranchStatus).toHaveBeenCalled())
+    expect(commitButton()).toBeNull()
+    view.unmount()
+
+    appState.getBranchStatus.mockClear()
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    render(
+      <CopilotThreadView
+        thread={{ ...thread(), projectKind: 'general' }}
+        onSessionChange={vi.fn()}
+      />
+    )
+    await ready()
+    expect(appState.getBranchStatus).not.toHaveBeenCalled()
+    expect(commitButton()).toBeNull()
+  })
+
+  it('mentions pushing in the tooltip when the project pushes after committing', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    render(
+      <CopilotThreadView thread={{ ...thread(), commitAutoPush: true }} onSessionChange={vi.fn()} />
+    )
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    expect(commitButton()!.title).toBe(
+      'Commit and push all changes with an AI-written message (Ctrl+S)'
+    )
+    expect(commitButton()!.getAttribute('aria-label')).toBe('Commit and push')
+  })
+
+  it('shows each phase while committing and blocks sending until done', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    const pending = deferred<{ ok: boolean; committed?: boolean }>()
+    appState.commitThreadChanges.mockReturnValue(pending.promise)
+    const t = thread()
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    fireEvent.change(input(), { target: { value: 'Next task' } })
+
+    fireEvent.click(commitButton()!)
+    expect(appState.commitThreadChanges).toHaveBeenCalledWith(t.id)
+    expect(commitButton()!.dataset.phase).toBe('generating')
+    expect(commitButton()!.title).toBe('Writing commit message…')
+    expect(send().disabled).toBe(true)
+
+    act(() => commitProgress({ threadId: 'other', phase: 'hook' }))
+    expect(commitButton()!.dataset.phase).toBe('generating')
+    act(() => commitProgress({ threadId: t.id, phase: 'hook' }))
+    expect(commitButton()!.dataset.phase).toBe('hook')
+    expect(commitButton()!.title).toBe('Running pre-commit hook…')
+    fireEvent.click(commitButton()!)
+    expect(appState.commitThreadChanges).toHaveBeenCalledTimes(1)
+
+    appState.getBranchStatus.mockResolvedValue(clean)
+    await act(async () => pending.resolve({ ok: true, committed: true }))
+    await waitFor(() => expect(commitButton()).toBeNull())
+    expect(send().disabled).toBe(false)
+  })
+
+  it('commits with Ctrl+S and reports failures', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    appState.commitThreadChanges.mockResolvedValue({
+      ok: false,
+      committed: true,
+      error: 'Committed, but push failed: rejected'
+    })
+    const t = thread()
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+
+    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true })
+    act(() => {
+      window.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(true)
+    expect(appState.commitThreadChanges).toHaveBeenCalledWith(t.id)
+    expect(await screen.findByText('Committed, but push failed: rejected')).toBeTruthy()
+  })
+
+  it('ignores Ctrl+S without changes and disables commits with conflicts', async () => {
+    appState.getBranchStatus.mockResolvedValue(clean)
+    const view = render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(appState.getBranchStatus).toHaveBeenCalled())
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(appState.commitThreadChanges).not.toHaveBeenCalled()
+    view.unmount()
+
+    appState.getBranchStatus.mockResolvedValue({ ...dirty, conflicted: 1 })
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    expect(commitButton()!.getAttribute('aria-disabled')).toBe('true')
+    expect(commitButton()!.title).toBe('Resolve merge conflicts before committing')
+    fireEvent.click(commitButton()!)
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(appState.commitThreadChanges).not.toHaveBeenCalled()
+  })
 })

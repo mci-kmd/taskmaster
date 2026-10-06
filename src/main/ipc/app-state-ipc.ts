@@ -23,6 +23,7 @@ import type {
   ThreadDiffQuery,
   ThreadDiffRangeOptionsResult,
   ThreadDiffSummaryResult,
+  ThreadCommitResult,
   UpdateRepositoryInput,
   UpdateRepositoryTaskInput,
   UpdateSettingsInput,
@@ -77,6 +78,7 @@ type AppStateIpcHandlers = {
   ) => Promise<OpenThreadSolutionInVisualStudioResult>
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
+  commitThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
 }
 
 export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void {
@@ -189,5 +191,8 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.selectThread, (_event, threadId: string | null) =>
     handlers.selectThread(threadId)
+  )
+  handleIpc(IPC_CHANNELS.appState.commitThreadChanges, (_event, threadId: string) =>
+    handlers.commitThreadChanges(threadId)
   )
 }
