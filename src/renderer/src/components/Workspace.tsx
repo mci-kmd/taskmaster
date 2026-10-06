@@ -19,6 +19,7 @@ import Button from './ui/Button'
 import SegmentedControl from './ui/SegmentedControl'
 import {
   BranchIcon,
+  CheckIcon,
   CodeIcon,
   FolderIcon,
   PlayIcon,
@@ -32,6 +33,8 @@ import { COPILOT_LABEL } from '../../../shared/copilot'
 import { getRendererApi } from '../shared/api/client'
 import { useBranchStatus } from '../shared/hooks/use-branch-status'
 import {
+  dismissCopilotThreadDone,
+  isDoneDismissKey,
   mergeCopilotThreadSessionState,
   toCopilotThreadSessionState
 } from '../lib/copilot-thread-status'
@@ -271,7 +274,6 @@ export default function Workspace({
   const [threadViewSelections, setThreadViewSelections] = useState<
     Map<string, ThreadWorkspaceViewId>
   >(new Map())
-  const selectedCustomThreadId = selectedThread?.id ?? null
   const selectedPreviewUrl = selectedThread?.previewUrl ?? null
   const selectedRunCommandRunning = selectedThread?.isRunCommandRunning ?? false
   const selectedHasRunCommand = Boolean(selectedRepository?.runCommand)
@@ -303,19 +305,22 @@ export default function Workspace({
     (threadId: string, state: ThreadSessionState): void => {
       setCustomCopilotSessions((current) => {
         const next = new Map(current)
-        next.set(
-          threadId,
-          mergeCopilotThreadSessionState(
-            current.get(threadId),
-            state,
-            selectedCustomThreadId === threadId
-          )
-        )
+        next.set(threadId, mergeCopilotThreadSessionState(current.get(threadId), state))
         return next
       })
     },
-    [selectedCustomThreadId]
+    []
   )
+
+  const dismissDone = useCallback((threadId: string): void => {
+    setCustomCopilotSessions((current) => {
+      const session = current.get(threadId)
+      if (session?.copilotStatus !== 'done') return current
+      const next = new Map(current)
+      next.set(threadId, dismissCopilotThreadDone(session))
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     return api.copilot.onSession(({ snapshot }) => {
@@ -367,6 +372,16 @@ export default function Workspace({
       ? selectedThread.displayBranchName
       : selectedRepository?.currentBranch
   const selectedThreadId = selectedThread?.id ?? null
+  const selectedDone = selectedCopilotSession.copilotStatus === 'done'
+  const handleWorkspacePointerDown = useCallback((): void => {
+    if (selectedThreadId && selectedDone) dismissDone(selectedThreadId)
+  }, [dismissDone, selectedDone, selectedThreadId])
+  const handleWorkspaceKeyDown = useCallback(
+    (event: React.KeyboardEvent): void => {
+      if (isDoneDismissKey(event.key)) handleWorkspacePointerDown()
+    },
+    [handleWorkspacePointerDown]
+  )
   const { branchStatusSummary, branchStatusTitle } = useBranchStatus({
     selectedRepository,
     selectedThread,
@@ -406,7 +421,11 @@ export default function Workspace({
   }, [selectedThread])
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-bg)]">
+    <main
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-bg)]"
+      onKeyDownCapture={handleWorkspaceKeyDown}
+      onPointerDownCapture={handleWorkspacePointerDown}
+    >
       <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-5">
         <div className="flex min-w-0 items-center gap-3">
           <div className="min-w-0">
@@ -431,6 +450,17 @@ export default function Workspace({
                     <BranchIcon width={11} height={11} />
                   )}
                 </span>
+              ) : null}
+              {selectedThread && selectedDone ? (
+                <button
+                  type="button"
+                  className="tm-done-pill"
+                  title="Thread finished — click or interact with the thread to dismiss"
+                  aria-label="Dismiss done state"
+                >
+                  <CheckIcon width={11} height={11} />
+                  Done
+                </button>
               ) : null}
             </div>
             <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-[var(--color-fg-subtle)]">

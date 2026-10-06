@@ -1,13 +1,22 @@
 // @vitest-environment jsdom
 import type { ComponentProps } from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import Workspace from './Workspace'
 
-const api = vi.hoisted(() => ({
-  copilot: { onSession: () => () => {} }
-}))
+const api = vi.hoisted(() => {
+  const listeners = new Set<(event: { snapshot: unknown }) => void>()
+  return {
+    listeners,
+    copilot: {
+      onSession: (listener: (event: { snapshot: unknown }) => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      }
+    }
+  }
+})
 vi.mock('../shared/api/client', () => ({ getRendererApi: () => api }))
 vi.mock('../shared/hooks/use-branch-status', () => ({
   useBranchStatus: () => ({
@@ -117,4 +126,40 @@ it('explains that the preview needs a run command', () => {
   expect(screen.getByRole('radio', { name: 'Preview' }).getAttribute('title')).toMatch(
     /Add a run command/
   )
+})
+
+function emitSession(phase: 'running' | 'idle'): void {
+  act(() => {
+    for (const listener of api.listeners) {
+      listener({
+        snapshot: {
+          threadId: 'thread',
+          title: null,
+          phase,
+          timeline: [],
+          pendingInteraction: null,
+          error: null
+        }
+      })
+    }
+  })
+}
+
+it('keeps the open thread done until the user interacts with it', async () => {
+  const onSessionsChange = vi.fn()
+  render(<Workspace {...props()} onSessionsChange={onSessionsChange} />)
+  const conversation = await screen.findByText('Conversation')
+  emitSession('running')
+  emitSession('idle')
+  emitSession('idle')
+
+  expect(screen.getByRole('button', { name: 'Dismiss done state' })).toBeTruthy()
+  expect(onSessionsChange.mock.lastCall?.[0].get('thread').copilotStatus).toBe('done')
+
+  fireEvent.keyDown(conversation, { key: 'Alt' })
+  expect(screen.getByRole('button', { name: 'Dismiss done state' })).toBeTruthy()
+
+  fireEvent.pointerDown(conversation)
+  expect(screen.queryByRole('button', { name: 'Dismiss done state' })).toBeNull()
+  expect(onSessionsChange.mock.lastCall?.[0].get('thread').copilotStatus).toBe('idle')
 })

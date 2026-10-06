@@ -73,6 +73,7 @@ type ActiveSession = {
   session: CopilotSession
   snapshot: CopilotSessionSnapshot
   pending: PendingInteraction[]
+  mcpAuthRequired: Set<string>
   mcpAuthAttempted: Set<string>
   mcpAuthInFlight: Map<string, Promise<CopilotStartResult>>
   modelChangePending: boolean
@@ -674,7 +675,7 @@ export function createCopilotSessionService(dependencies: {
   ): Promise<CopilotStartResult> => {
     if (sessions.get(active.snapshot.threadId) !== active)
       return Promise.resolve({ ok: false, error: 'Connect to Copilot before signing in.' })
-    if (!active.snapshot.mcpServersNeedingAuth.includes(serverName))
+    if (!active.mcpAuthRequired.has(serverName))
       return Promise.resolve({ ok: true, snapshot: active.snapshot })
     const pending = active.mcpAuthInFlight.get(serverName)
     if (pending) return pending
@@ -688,6 +689,7 @@ export function createCopilotSessionService(dependencies: {
         })
         if (sessions.get(active.snapshot.threadId) !== active)
           return { ok: false, error: 'Session closed before sign-in completed.' }
+        if (!active.mcpAuthRequired.has(serverName)) return { ok: true, snapshot: active.snapshot }
         if (!authorizationUrl) {
           setMcpServerNeedsAuth(active, serverName, false)
           return { ok: true, snapshot: active.snapshot }
@@ -698,16 +700,31 @@ export function createCopilotSessionService(dependencies: {
         await shell.openExternal(authorizationUrl)
         if (sessions.get(active.snapshot.threadId) !== active)
           return { ok: false, error: 'Session closed before sign-in completed.' }
-        if (
-          active.snapshot.mcpServersNeedingAuth.includes(serverName) &&
-          !active.snapshot.mcpServersSigningIn.includes(serverName)
-        ) {
+        if (active.mcpAuthRequired.has(serverName)) {
           updateSnapshot(active, {
-            mcpServersSigningIn: [...active.snapshot.mcpServersSigningIn, serverName]
+            mcpServersNeedingAuth: active.snapshot.mcpServersNeedingAuth.includes(serverName)
+              ? active.snapshot.mcpServersNeedingAuth
+              : [...active.snapshot.mcpServersNeedingAuth, serverName],
+            mcpServersSigningIn: active.snapshot.mcpServersSigningIn.includes(serverName)
+              ? active.snapshot.mcpServersSigningIn
+              : [...active.snapshot.mcpServersSigningIn, serverName]
           })
         }
         return { ok: true, snapshot: active.snapshot }
       } catch (error) {
+        if (
+          sessions.get(active.snapshot.threadId) === active &&
+          active.mcpAuthRequired.has(serverName)
+        ) {
+          updateSnapshot(active, {
+            mcpServersNeedingAuth: active.snapshot.mcpServersNeedingAuth.includes(serverName)
+              ? active.snapshot.mcpServersNeedingAuth
+              : [...active.snapshot.mcpServersNeedingAuth, serverName],
+            mcpServersSigningIn: active.snapshot.mcpServersSigningIn.filter(
+              (name) => name !== serverName
+            )
+          })
+        }
         return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
       }
     })()
@@ -732,19 +749,26 @@ export function createCopilotSessionService(dependencies: {
     serverName: string,
     needsAuth: boolean
   ): void => {
-    const current = active.snapshot.mcpServersNeedingAuth
-    if (current.includes(serverName) !== needsAuth) {
-      updateSnapshot(active, {
-        mcpServersNeedingAuth: needsAuth
-          ? [...current, serverName]
-          : current.filter((name) => name !== serverName),
-        mcpServersSigningIn: needsAuth
-          ? active.snapshot.mcpServersSigningIn
-          : active.snapshot.mcpServersSigningIn.filter((name) => name !== serverName)
-      })
-      if (!needsAuth) active.mcpAuthAttempted.delete(serverName)
+    if (needsAuth) {
+      active.mcpAuthRequired.add(serverName)
+      autoSignInToMcpServer(active, serverName)
+      return
     }
-    if (needsAuth) autoSignInToMcpServer(active, serverName)
+    active.mcpAuthRequired.delete(serverName)
+    active.mcpAuthAttempted.delete(serverName)
+    if (
+      active.snapshot.mcpServersNeedingAuth.includes(serverName) ||
+      active.snapshot.mcpServersSigningIn.includes(serverName)
+    ) {
+      updateSnapshot(active, {
+        mcpServersNeedingAuth: active.snapshot.mcpServersNeedingAuth.filter(
+          (name) => name !== serverName
+        ),
+        mcpServersSigningIn: active.snapshot.mcpServersSigningIn.filter(
+          (name) => name !== serverName
+        )
+      })
+    }
   }
 
   const handleEvent = (active: ActiveSession, event: SessionEvent): void => {
@@ -889,7 +913,7 @@ export function createCopilotSessionService(dependencies: {
         updateSnapshot(active, { phase: 'error', error: event.data.message })
         break
       case 'session.mcp_servers_loaded':
-        for (const name of active.snapshot.mcpServersNeedingAuth) {
+        for (const name of active.mcpAuthRequired) {
           if (!event.data.servers.some((server) => server.name === name))
             setMcpServerNeedsAuth(active, name, false)
         }
@@ -1045,6 +1069,7 @@ export function createCopilotSessionService(dependencies: {
         session: null as unknown as CopilotSession,
         snapshot,
         pending: [],
+        mcpAuthRequired: new Set(),
         mcpAuthAttempted: new Set(),
         mcpAuthInFlight: new Map(),
         modelChangePending: false,

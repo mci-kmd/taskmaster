@@ -523,6 +523,7 @@ export interface CopilotSessionSnapshot {
   models: CopilotModelOption[]
   timeline: CopilotTimelineItem[]
   pendingInteraction: CopilotInteraction | null
+  /** Servers needing browser sign-in or manual retry, excluding silent automatic sign-ins. */
   mcpServersNeedingAuth: string[]
   mcpServersSigningIn: string[]
   /** Messages waiting to start their own turn, in the order they will run. */

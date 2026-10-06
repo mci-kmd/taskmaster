@@ -5,7 +5,7 @@ import { useState } from 'react'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
 import ProjectIcon from './ProjectIcon'
-import { ChevronRightIcon, PencilIcon, GearIcon, TasksIcon } from './Icons'
+import { ChevronRightIcon, CheckIcon, PencilIcon, GearIcon, QuestionIcon, TasksIcon } from './Icons'
 import { composeThreadTitle } from '../lib/title'
 import { formatRelativeTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
@@ -85,19 +85,28 @@ export default function InboxThreads({
               {subtitle}
             </span>
             <span className="mt-1 flex items-center gap-1.5 text-[10.5px] text-[var(--color-fg-subtle)]">
-              <span
-                className={
-                  status === 'working' || status === 'connecting'
-                    ? 'text-[var(--color-info)]'
-                    : status === 'input'
-                      ? 'text-[#c4a7ff]'
+              {status === 'done' || status === 'input' ? (
+                <span className="tm-status-badge" data-status={status}>
+                  {status === 'done' ? (
+                    <CheckIcon width={10} height={10} />
+                  ) : (
+                    <QuestionIcon width={10} height={10} />
+                  )}
+                  {status === 'done' ? 'Done' : 'Needs input'}
+                </span>
+              ) : (
+                <span
+                  className={
+                    status === 'working' || status === 'connecting'
+                      ? 'text-[var(--color-info)]'
                       : status === 'error'
                         ? 'text-[var(--color-danger)]'
                         : ''
-                }
-              >
-                {status}
-              </span>
+                  }
+                >
+                  {status}
+                </span>
+              )}
               <span>·</span>
               <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
             </span>

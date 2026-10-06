@@ -256,6 +256,45 @@ describe('inbox', () => {
     )
   })
 
+  it('shows done and input states as status pills', () => {
+    const handlers = callbacks()
+    const session = (copilotStatus: 'done' | 'input') =>
+      ({
+        phase: 'running',
+        exitCode: null,
+        errorMessage: null,
+        runtimeTitle: null,
+        lastUserMessage: null,
+        copilotStatus,
+        copilotPhase: copilotStatus === 'done' ? 'idle' : 'running'
+      }) as const
+    render(
+      <InboxThreads
+        repositories={repositories}
+        selectedRepository={repositories[0]}
+        selectedThread={null}
+        sessions={
+          new Map([
+            ['Newest', session('done')],
+            ['Older', session('input')]
+          ])
+        }
+        convertingThread={false}
+        closingThread={false}
+        {...handlers}
+      />
+    )
+    const rows = within(screen.getByRole('list', { name: 'Active threads' })).getAllByRole(
+      'listitem'
+    )
+    const done = within(rows[0]).getByText('Done')
+    expect(done.getAttribute('data-status')).toBe('done')
+    expect(done.className).toContain('tm-status-badge')
+    const input = within(rows[1]).getByText('Needs input')
+    expect(input.getAttribute('data-status')).toBe('input')
+    expect(input.className).toContain('tm-status-badge')
+  })
+
   it('prefers a custom favicon and falls back to the colored project icon on failure', () => {
     const { container, rerender } = render(
       <ProjectIcon repository={{ ...repositories[0], faviconUrl: 'file:///icon.png' }} />

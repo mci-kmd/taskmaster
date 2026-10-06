@@ -193,6 +193,15 @@ export function CheckIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function QuestionIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M5.75 5.75a2.25 2.25 0 1 1 3.4 1.93c-.68.4-1.15.94-1.15 1.72v.35" />
+      <path d="M8 12.25v.01" />
+    </svg>
+  )
+}
+
 export function TrashIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

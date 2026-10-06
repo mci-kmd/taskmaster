@@ -26,7 +26,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Open a plain shell terminal in a thread's working directory
 - Resume Copilot conversations by persisted session ID
 - Configure automatic permission approval (enabled by default); managed-policy approvals still prompt. Settings apply to newly opened sessions
-- Automatically sign in to MCP servers that require authentication when a session connects; use the session view to retry if needed. Copilot uses persistent OAuth storage for later sessions
+- Automatically sign in to MCP servers that require authentication when a session connects, without flashing a login button; show sign-in controls only when browser sign-in or manual retry is needed. Copilot uses persistent OAuth storage for later sessions
 - Remove owned worktrees and branches when closing a worktree-backed thread
 - Configure optional setup and cleanup scripts for worktree-backed threads
 - Opt into a Preview view by setting a project's Preview URL next to its run command (supports the same branch tokens). While the thread's run command runs, browse the app beside the conversation and use Comment (or Ctrl+Shift+C in the page) to pick an element: it lands in the composer as a screenshot chip, and Copilot also receives its page, selector, role, text, HTML, and, when available, React/Vue/Svelte/Angular component names and source file. The preview waits for the dev server to come up, is disabled with an explanation while the run command is stopped, and keeps each project's site storage in its own isolated partition
