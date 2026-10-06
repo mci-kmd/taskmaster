@@ -43,3 +43,15 @@ it('skips damaged lines and rejects invalid records', () => {
   expect(store.getSummaries('a')).toEqual([record('1')])
   expect(() => store.saveSummary({ ...record('2'), durationMs: -1 })).toThrow()
 })
+
+it('persists sub-agent usage and rejects malformed entries', () => {
+  const path = file()
+  const subagents = [{ id: 'x', model: 'm', reasoningEffort: null, durationMs: 10, nanoAiu: null }]
+  createPromptSummaryStore(path).saveSummary(record('1', { subagents }))
+  const store = createPromptSummaryStore(path)
+  expect(store.getSummaries('a')).toEqual([record('1', { subagents })])
+  expect(() =>
+    store.saveSummary(record('2', { subagents: [{ ...subagents[0], durationMs: -1 }] }))
+  ).toThrow()
+  expect(() => store.saveSummary(record('2', { subagents: [{ id: 'x' }] as never }))).toThrow()
+})

@@ -272,6 +272,63 @@ describe('prompt summaries', () => {
     )
   })
 
+  it('tracks sub-agents with model, effort, runtime and usage, including background ones', async () => {
+    const savePromptSummary = vi.fn()
+    const service = setup(true, { savePromptSummary })
+    await service.start('thread')
+    const agent = (agentId: string, type: string, data: object): SessionEvent =>
+      event(type, data, { agentId })
+    harness.listener!(event('user.message', { content: 'Hi', messageId: 'u1' }, at(0)))
+    harness.listener!(usage(1_000_000_000))
+    harness.listener!(agent('a', 'subagent.started', { toolCallId: 'c1', model: 'm1' }))
+    harness.listener!(agent('a', 'subagent.configured', { model: 'm2', reasoningEffort: 'high' }))
+    harness.listener!(agent('a', 'assistant.turn_start', {}))
+    harness.listener!(usage(200_000_000, { agentId: 'a' }))
+    harness.listener!(agent('a', 'subagent.completed', { toolCallId: 'c1', durationMs: 3000 }))
+    harness.listener!(agent('b', 'subagent.started', { toolCallId: 'c2' }))
+    harness.listener!(
+      event(
+        'assistant.usage',
+        {
+          model: 'm3',
+          reasoningEffort: 'low',
+          copilotUsage: { totalNanoAiu: 50_000_000, tokenDetails: [] }
+        },
+        { agentId: 'b' }
+      )
+    )
+    harness.listener!(event('assistant.idle', {}, at(10)))
+    expect(service.getSession('thread')!.phase).toBe('idle')
+    expect(summaries(service)).toEqual([
+      expect.objectContaining({
+        nanoAiu: 1_250_000_000,
+        subagents: [
+          { id: 'a', model: 'm2', reasoningEffort: 'high', durationMs: 3000, nanoAiu: 200_000_000 },
+          { id: 'b', model: 'm3', reasoningEffort: 'low', durationMs: null, nanoAiu: 50_000_000 }
+        ]
+      })
+    ])
+    // Background agent b finishes after the prompt, during the next one.
+    harness.listener!(event('user.message', { content: 'Next', messageId: 'u2' }, at(20)))
+    harness.listener!(usage(10_000_000, { agentId: 'b' }))
+    harness.listener!(agent('b', 'subagent.completed', { toolCallId: 'c2', durationMs: 9000 }))
+    harness.listener!(agent('b', 'subagent.completed', { toolCallId: 'c2', durationMs: 9000 }))
+    harness.listener!(event('assistant.idle', {}, at(25)))
+    expect(summaries(service)).toEqual([
+      expect.objectContaining({
+        nanoAiu: 1_260_000_000,
+        subagents: [
+          expect.objectContaining({ id: 'a' }),
+          expect.objectContaining({ id: 'b', durationMs: 9000, nanoAiu: 60_000_000 })
+        ]
+      }),
+      expect.objectContaining({ nanoAiu: null, subagents: [] })
+    ])
+    expect(savePromptSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ subagents: [expect.anything(), expect.anything()] })
+    )
+  })
+
   it('reports time only without billing data and splits queued prompts', async () => {
     const service = setup()
     await service.start('thread')
@@ -311,6 +368,7 @@ describe('prompt summaries', () => {
       'summary:1',
       'user:u2'
     ])
+    expect(summaries(service)).toEqual([expect.objectContaining({ subagents: [] })])
   })
 })
 

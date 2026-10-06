@@ -14,14 +14,25 @@ export function formatPromptDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
-export function formatPromptCredits(nanoAiu: number): string {
+/** Credits without a unit, for tables with a unit header. */
+export function formatCredits(nanoAiu: number): string {
   const credits = nanoAiu / 1e9
-  if (credits > 0 && credits < 0.01) return '<0.01 credits'
-  return `${credits.toFixed(credits < 100 ? 2 : 0)} credits`
+  if (credits > 0 && credits < 0.01) return '<0.01'
+  return credits.toFixed(credits < 100 ? 2 : 0)
+}
+
+export function formatPromptCredits(nanoAiu: number): string {
+  return `${formatCredits(nanoAiu)} credits`
+}
+
+/** DKK estimate without a unit, for tables with a unit header. */
+export function formatDkk(nanoAiu: number): string {
+  const dkk = (nanoAiu / 1e9) * USD_PER_AI_CREDIT * DKK_PER_USD
+  if (dkk > 0 && dkk < 0.01) return '<0.01'
+  return dkk.toFixed(2)
 }
 
 export function formatPromptDkk(nanoAiu: number): string {
-  const dkk = (nanoAiu / 1e9) * USD_PER_AI_CREDIT * DKK_PER_USD
-  if (dkk > 0 && dkk < 0.01) return '<0.01 DKK'
-  return `≈${dkk.toFixed(2)} DKK`
+  const dkk = formatDkk(nanoAiu)
+  return dkk.startsWith('<') ? `${dkk} DKK` : `≈${dkk} DKK`
 }

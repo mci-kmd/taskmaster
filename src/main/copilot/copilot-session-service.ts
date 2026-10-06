@@ -22,6 +22,7 @@ import type {
   CopilotSetModelFavoriteInput,
   CopilotSetModelInput,
   CopilotStartResult,
+  CopilotSubagentUsage,
   CopilotTimelineItem,
   PersistedThread
 } from '../../shared/app-types'
@@ -80,7 +81,7 @@ type ActiveSession = {
   sendRevision: number
   queueRevision: number
   /** The prompt currently being worked on, from the user's message until the agent goes idle. */
-  prompt: { startedAt: string; nanoAiu: number | null } | null
+  prompt: { startedAt: string; nanoAiu: number | null; subagents: CopilotSubagentUsage[] } | null
   /** Receives usage reported after its prompt finished, e.g. by background sub-agents. */
   lastSummary: PromptSummaryRecord | null
   unsubscribe: () => void
@@ -281,7 +282,8 @@ function summaryItem(record: PromptSummaryRecord): CopilotTimelineItem {
     type: 'summary',
     timestamp: record.timestamp,
     durationMs: record.durationMs,
-    nanoAiu: record.nanoAiu
+    nanoAiu: record.nanoAiu,
+    subagents: record.subagents ?? []
   }
 }
 
@@ -510,23 +512,110 @@ export function createCopilotSessionService(dependencies: {
       anchorId: anchor?.id ?? '',
       timestamp,
       durationMs: Number.isFinite(durationMs) ? Math.max(0, durationMs) : 0,
-      nanoAiu: prompt.nanoAiu
+      nanoAiu: prompt.nanoAiu,
+      subagents: prompt.subagents
     }
     active.lastSummary = record
     upsertTimeline(active, summaryItem(record))
     saveSummary(record)
   }
 
-  const addUsage = (active: ActiveSession, nanoAiu: number): void => {
-    if (active.prompt) {
-      active.prompt.nanoAiu = (active.prompt.nanoAiu ?? 0) + nanoAiu
-      return
-    }
-    if (!active.lastSummary) return
-    const record = { ...active.lastSummary, nanoAiu: (active.lastSummary.nanoAiu ?? 0) + nanoAiu }
+  const updateLastSummary = (active: ActiveSession, record: PromptSummaryRecord): void => {
     active.lastSummary = record
     upsertTimeline(active, summaryItem(record))
     saveSummary(record)
+  }
+
+  const addNanoAiu = (total: number | null, nanoAiu: number | null): number | null =>
+    nanoAiu === null ? total : (total ?? 0) + nanoAiu
+
+  const addUsage = (active: ActiveSession, nanoAiu: number): void => {
+    if (active.prompt) {
+      active.prompt.nanoAiu = addNanoAiu(active.prompt.nanoAiu, nanoAiu)
+      return
+    }
+    if (!active.lastSummary) return
+    updateLastSummary(active, {
+      ...active.lastSummary,
+      nanoAiu: addNanoAiu(active.lastSummary.nanoAiu, nanoAiu)
+    })
+  }
+
+  const addSubagent = (active: ActiveSession, agent: CopilotSubagentUsage): void => {
+    const owner = active.prompt ?? active.lastSummary
+    if (!owner || owner.subagents?.some((existing) => existing.id === agent.id)) return
+    if (active.prompt) {
+      active.prompt.subagents = [...active.prompt.subagents, agent]
+      return
+    }
+    const last = active.lastSummary!
+    updateLastSummary(active, { ...last, subagents: [...(last.subagents ?? []), agent] })
+  }
+
+  /**
+   * Updates a sub-agent in the running prompt or, for background agents outliving it, the last
+   * summary. Billed usage is added to the same prompt's total. Returns false for unknown agents.
+   */
+  const updateSubagent = (
+    active: ActiveSession,
+    id: string,
+    update: (agent: CopilotSubagentUsage) => CopilotSubagentUsage,
+    nanoAiu: number | null = null
+  ): boolean => {
+    const apply = (agents: CopilotSubagentUsage[]): CopilotSubagentUsage[] =>
+      agents.map((agent) => (agent.id === id ? update(agent) : agent))
+    const prompt = active.prompt
+    if (prompt?.subagents.some((agent) => agent.id === id)) {
+      prompt.subagents = apply(prompt.subagents)
+      prompt.nanoAiu = addNanoAiu(prompt.nanoAiu, nanoAiu)
+      return true
+    }
+    const last = active.lastSummary
+    if (!last?.subagents?.some((agent) => agent.id === id)) return false
+    updateLastSummary(active, {
+      ...last,
+      subagents: apply(last.subagents),
+      nanoAiu: addNanoAiu(last.nanoAiu, nanoAiu)
+    })
+    return true
+  }
+
+  const handleSubagentEvent = (active: ActiveSession, event: SessionEvent): boolean => {
+    switch (event.type) {
+      case 'subagent.started':
+        addSubagent(active, {
+          id: event.agentId ?? event.data.toolCallId,
+          model: event.data.model ?? null,
+          reasoningEffort: null,
+          durationMs: null,
+          nanoAiu: null
+        })
+        return true
+      case 'subagent.configured':
+        if (event.agentId)
+          updateSubagent(active, event.agentId, (agent) => ({
+            ...agent,
+            model: event.data.model || agent.model,
+            reasoningEffort: event.data.reasoningEffort ?? agent.reasoningEffort
+          }))
+        return true
+      case 'subagent.completed':
+      case 'subagent.failed': {
+        const { durationMs, model } = event.data
+        updateSubagent(active, event.agentId ?? event.data.toolCallId, (agent) => ({
+          ...agent,
+          model: model ?? agent.model,
+          // Teardown repeats completion with the same duration, so it is set rather than added.
+          durationMs:
+            durationMs !== undefined && Number.isFinite(durationMs) && durationMs >= 0
+              ? durationMs
+              : agent.durationMs
+        }))
+        return true
+      }
+      default:
+        return false
+    }
   }
 
   const finishActivity = (active: ActiveSession): void => {
@@ -775,8 +864,23 @@ export function createCopilotSessionService(dependencies: {
   const handleEvent = (active: ActiveSession, event: SessionEvent): void => {
     if (event.type === 'assistant.usage') {
       const nanoAiu = event.data.copilotUsage?.totalNanoAiu
-      if (nanoAiu !== undefined && Number.isFinite(nanoAiu) && nanoAiu >= 0)
-        addUsage(active, nanoAiu)
+      if (nanoAiu !== undefined && Number.isFinite(nanoAiu) && nanoAiu >= 0) {
+        const { model, reasoningEffort } = event.data
+        const counted =
+          event.agentId !== undefined &&
+          updateSubagent(
+            active,
+            event.agentId,
+            (agent) => ({
+              ...agent,
+              model: agent.model ?? (model || null),
+              reasoningEffort: agent.reasoningEffort ?? reasoningEffort ?? null,
+              nanoAiu: (agent.nanoAiu ?? 0) + nanoAiu
+            }),
+            nanoAiu
+          )
+        if (!counted) addUsage(active, nanoAiu)
+      }
       const { model, outputTokens, duration, timeToFirstTokenMs } = event.data
       if (
         model &&
@@ -808,6 +912,7 @@ export function createCopilotSessionService(dependencies: {
       return
     }
 
+    if (handleSubagentEvent(active, event)) return
     if (event.agentId) return
 
     if (event.type === 'assistant.message_delta') {
@@ -859,7 +964,7 @@ export function createCopilotSessionService(dependencies: {
     // A new (non-steering) prompt ends the previous one, e.g. when a queued message starts.
     if (item?.type === 'user' && !item.steered) {
       completePrompt(active, event.timestamp)
-      active.prompt = { startedAt: event.timestamp, nanoAiu: null }
+      active.prompt = { startedAt: event.timestamp, nanoAiu: null, subagents: [] }
     }
     if (item) upsertTimeline(active, item)
 
@@ -878,7 +983,7 @@ export function createCopilotSessionService(dependencies: {
         })
         break
       case 'assistant.turn_start':
-        active.prompt ??= { startedAt: event.timestamp, nanoAiu: null }
+        active.prompt ??= { startedAt: event.timestamp, nanoAiu: null, subagents: [] }
         updateSnapshot(active, { phase: 'running', error: null })
         break
       case 'session.mode_changed':

@@ -58,6 +58,85 @@
   font-variant-numeric: tabular-nums;
   color: var(--color-fg-subtle);
 }
+.tm-session-summary-costs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tm-session-subagents {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 4px;
+  padding: 1px 3px;
+  margin: -1px -3px;
+  cursor: default;
+}
+.tm-session-subagents:hover,
+.tm-session-subagents:focus-visible {
+  background: var(--color-hover);
+  color: var(--color-fg);
+}
+.tm-session-subagents > svg {
+  width: 12px;
+  height: 12px;
+}
+.tm-session-subagents-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  z-index: 50;
+  display: grid;
+  gap: 8px;
+  max-width: calc(100vw - 16px);
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-pop);
+  color: var(--color-fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.tm-session-subagents-tooltip strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.tm-session-subagents-tooltip small {
+  color: var(--color-fg-muted);
+  font-size: 10px;
+}
+.tm-session-subagents-tooltip table {
+  border-collapse: collapse;
+}
+.tm-session-subagents-tooltip th,
+.tm-session-subagents-tooltip td {
+  padding: 2px 0 2px 14px;
+  text-align: left;
+}
+.tm-session-subagents-tooltip :is(th, td):first-child {
+  padding-left: 0;
+}
+.tm-session-subagents-tooltip .tm-num {
+  text-align: right;
+}
+.tm-session-subagents-tooltip thead th {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 4px;
+  color: var(--color-fg-muted);
+  font-weight: 400;
+}
+.tm-session-subagents-tooltip tbody tr:first-child td {
+  padding-top: 5px;
+}
+.tm-session-subagents-tooltip tfoot :is(th, td) {
+  border-top: 1px solid var(--color-border);
+  padding-top: 5px;
+  font-weight: 550;
+}
 .tm-session-copy:hover {
   background: var(--color-hover);
   color: var(--color-fg);

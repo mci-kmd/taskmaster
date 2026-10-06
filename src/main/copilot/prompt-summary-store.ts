@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname } from 'path'
+import type { CopilotSubagentUsage } from '../../shared/app-types'
 
 // Usage events are not persisted by the runtime, so summaries are kept here to survive restarts.
 export interface PromptSummaryRecord {
@@ -10,6 +11,23 @@ export interface PromptSummaryRecord {
   timestamp: string
   durationMs: number
   nanoAiu: number | null
+  /** Absent in summaries saved before sub-agents were tracked. */
+  subagents?: CopilotSubagentUsage[]
+}
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+function isSubagent(value: unknown): value is CopilotSubagentUsage {
+  if (!value || typeof value !== 'object') return false
+  const agent = value as Record<string, unknown>
+  return (
+    typeof agent.id === 'string' &&
+    (agent.model === null || typeof agent.model === 'string') &&
+    (agent.reasoningEffort === null || typeof agent.reasoningEffort === 'string') &&
+    (agent.durationMs === null || (isFiniteNumber(agent.durationMs) && agent.durationMs >= 0)) &&
+    (agent.nanoAiu === null || isFiniteNumber(agent.nanoAiu))
+  )
 }
 
 function isRecord(value: unknown): value is PromptSummaryRecord {
@@ -20,11 +38,11 @@ function isRecord(value: unknown): value is PromptSummaryRecord {
     typeof record.id === 'string' &&
     typeof record.anchorId === 'string' &&
     typeof record.timestamp === 'string' &&
-    typeof record.durationMs === 'number' &&
-    Number.isFinite(record.durationMs) &&
+    isFiniteNumber(record.durationMs) &&
     record.durationMs >= 0 &&
-    (record.nanoAiu === null ||
-      (typeof record.nanoAiu === 'number' && Number.isFinite(record.nanoAiu)))
+    (record.nanoAiu === null || isFiniteNumber(record.nanoAiu)) &&
+    (record.subagents === undefined ||
+      (Array.isArray(record.subagents) && record.subagents.every(isSubagent)))
   )
 }
 

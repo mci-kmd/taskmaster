@@ -9,6 +9,7 @@ import {
   formatPromptDkk,
   formatPromptDuration
 } from './prompt-cost'
+import SubagentUsageBadge from './SubagentUsageBadge'
 
 export default memo(function SessionTimelineItem({
   item
@@ -43,14 +44,22 @@ export default memo(function SessionTimelineItem({
   }
   if (item.type === 'summary') {
     return (
-      <div className="tm-session-summary" aria-label="Prompt summary" title={PROMPT_COST_BASIS}>
-        <span>{formatPromptDuration(item.durationMs)}</span>
-        {item.nanoAiu !== null ? (
+      <div className="tm-session-summary" aria-label="Prompt summary">
+        <span className="tm-session-summary-costs" title={PROMPT_COST_BASIS}>
+          <span>{formatPromptDuration(item.durationMs)}</span>
+          {item.nanoAiu !== null ? (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>{formatPromptCredits(item.nanoAiu)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{formatPromptDkk(item.nanoAiu)}</span>
+            </>
+          ) : null}
+        </span>
+        {item.subagents.length ? (
           <>
             <span aria-hidden="true">·</span>
-            <span>{formatPromptCredits(item.nanoAiu)}</span>
-            <span aria-hidden="true">·</span>
-            <span>{formatPromptDkk(item.nanoAiu)}</span>
+            <SubagentUsageBadge agents={item.subagents} />
           </>
         ) : null}
       </div>

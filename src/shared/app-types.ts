@@ -471,7 +471,20 @@ export type CopilotTimelineItem =
       durationMs: number
       /** Billed usage in nano AI credits, including sub-agents; null when none was reported. */
       nanoAiu: number | null
+      /** Sub-agents started during the prompt. */
+      subagents: CopilotSubagentUsage[]
     }
+
+export interface CopilotSubagentUsage {
+  /** Sub-agent instance id. */
+  id: string
+  model: string | null
+  reasoningEffort: string | null
+  /** Null while running or when the runtime did not report it. */
+  durationMs: number | null
+  /** Billed usage in nano AI credits; null when none was reported. */
+  nanoAiu: number | null
+}
 
 export type CopilotInteraction =
   | {

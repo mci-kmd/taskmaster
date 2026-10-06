@@ -305,3 +305,13 @@ export function GripIcon(props: IconProps): React.JSX.Element {
     </svg>
   )
 }
+
+export function AgentIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <rect x="3" y="5" width="10" height="8" rx="2" />
+      <path d="M8 5V2.8M6.2 8.6v1M9.8 8.6v1M1.5 8.5v2M14.5 8.5v2" />
+      <circle cx="8" cy="2.3" r="0.6" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
