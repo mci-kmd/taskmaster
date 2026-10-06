@@ -45,6 +45,7 @@ declare global {
     refresh: () => Promise<AppSnapshot>
     addRepository: () => Promise<MutationResult>
     updateRepository: (input: UpdateRepositoryInput) => Promise<MutationResult>
+    removeRepository: (repositoryId: string) => Promise<MutationResult>
     createRepositoryTask: (input: CreateRepositoryTaskInput) => Promise<MutationResult>
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) => Promise<MutationResult>
     reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => Promise<MutationResult>

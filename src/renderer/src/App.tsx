@@ -447,6 +447,43 @@ export default function App(): React.JSX.Element {
     [applyMutation]
   )
 
+  const handleRemoveRepository = useCallback(
+    async (repositoryId: string): Promise<boolean> => {
+      setBusyAction('remove-repository')
+      try {
+        const result = await applyMutation(
+          api.appState.removeRepository(repositoryId).then((removal) => {
+            if (removal.ok) {
+              setDialog(null)
+              setEditingRepositoryId(null)
+              setInboxProjectId((current) => (current === repositoryId ? null : current))
+              setRepositoryViewId((current) => (current === repositoryId ? null : current))
+            }
+            return removal
+          })
+        )
+        return result.ok
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+        return false
+      } finally {
+        setBusyAction(null)
+      }
+    },
+    [applyMutation]
+  )
+
+  const editingRepositoryWorkingThreadCount = useMemo(() => {
+    if (!editingRepository) {
+      return 0
+    }
+
+    return editingRepository.threads.filter((thread) => {
+      const phase = sessions.get(thread.id)?.copilotPhase
+      return phase === 'running' || phase === 'connecting'
+    }).length
+  }, [editingRepository, sessions])
+
   const handleCreateRepositoryTask = useCallback(
     async (input: Omit<CreateRepositoryTaskInput, 'repositoryId'>): Promise<boolean> => {
       if (!selectedRepository) {
@@ -781,9 +818,12 @@ export default function App(): React.JSX.Element {
         onBrowseFavicon={handleBrowseRepositoryFavicon}
         onBrowseSolutionFile={handleBrowseRepositorySolutionFile}
         onClose={handleCloseRepositoryEditor}
+        onRemove={handleRemoveRepository}
         onSubmit={handleSaveRepository}
         open={dialog === 'edit-repository'}
+        removing={busyAction === 'remove-repository'}
         repository={editingRepository}
+        workingThreadCount={editingRepositoryWorkingThreadCount}
       />
 
       <EditThreadDialog

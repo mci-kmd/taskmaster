@@ -63,6 +63,7 @@ export const IPC_CHANNELS = {
     refresh: 'app-state:refresh',
     addRepository: 'app-state:add-repository',
     updateRepository: 'app-state:update-repository',
+    removeRepository: 'app-state:remove-repository',
     createRepositoryTask: 'app-state:create-repository-task',
     completeRepositoryTask: 'app-state:complete-repository-task',
     reopenRepositoryTask: 'app-state:reopen-repository-task',
@@ -138,6 +139,7 @@ export type IpcInvokeDefinitions = {
   'app-state:refresh': { request: []; response: AppSnapshot }
   'app-state:add-repository': { request: []; response: MutationResult }
   'app-state:update-repository': { request: [UpdateRepositoryInput]; response: MutationResult }
+  'app-state:remove-repository': { request: [string]; response: MutationResult }
   'app-state:create-repository-task': {
     request: [CreateRepositoryTaskInput]
     response: MutationResult

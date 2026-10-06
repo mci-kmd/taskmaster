@@ -93,6 +93,8 @@ const api = {
     addRepository: () => invokeIpc(IPC_CHANNELS.appState.addRepository),
     updateRepository: (input: UpdateRepositoryInput) =>
       invokeIpc(IPC_CHANNELS.appState.updateRepository, input),
+    removeRepository: (repositoryId: string) =>
+      invokeIpc(IPC_CHANNELS.appState.removeRepository, repositoryId),
     createRepositoryTask: (input: CreateRepositoryTaskInput) =>
       invokeIpc(IPC_CHANNELS.appState.createRepositoryTask, input),
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) =>

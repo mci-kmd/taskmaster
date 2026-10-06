@@ -394,6 +394,7 @@ export function createCopilotSessionService(dependencies: {
   }>
   stopThread: (threadId: string) => Promise<void>
   hasSession: (threadId: string) => boolean
+  isThreadWorking: (threadId: string) => boolean
   runningThreadNames: () => string[]
   shutdown: () => Promise<void>
 } {
@@ -1544,6 +1545,11 @@ export function createCopilotSessionService(dependencies: {
     },
     stopThread,
     hasSession: (threadId) => sessions.has(threadId) || startingThreads.has(threadId),
+    isThreadWorking: (threadId) => {
+      if (startingThreads.has(threadId)) return true
+      const phase = sessions.get(threadId)?.snapshot.phase
+      return phase === 'running' || phase === 'connecting'
+    },
     runningThreadNames: () =>
       [...sessions.values()]
         .filter((active) => active.snapshot.phase === 'running')

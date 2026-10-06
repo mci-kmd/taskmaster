@@ -22,6 +22,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Browse Copilot skills with `/` at the start of a message or `$` within it; filter by name or description, select with arrows and Enter/Tab, and dismiss with Escape
 - Discover project and personal Copilot skills from the session configuration and expand selected skills through the SDK when sending, retaining the original prompt in history
 - Add git repositories from a folder picker
+- Remove a project from Edit project: a confirmation lists the active and settled threads and tasks that will be lost. Only Taskmaster's metadata is deleted; the repository, branches, and worktrees are untouched. Unavailable while any of the project's threads are working
 - Create persisted threads on the active branch, an existing branch, a new branch, or a worktree
 - Open a plain shell terminal in a thread's working directory
 - Resume Copilot conversations by persisted session ID

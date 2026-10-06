@@ -144,7 +144,8 @@ app.whenReady().then(() => {
   copilotSessionService = copilotService
   setCopilotThreadController({
     stop: copilotService.stopThread,
-    has: copilotService.hasSession
+    has: copilotService.hasSession,
+    isWorking: copilotService.isThreadWorking
   })
   registerCopilotIpc(copilotService)
   registerPreviewIpc()

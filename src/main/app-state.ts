@@ -33,6 +33,7 @@ import { parseTaskTagsInput } from '../shared/task-tags'
 import { isHttpUrl } from '../shared/preview'
 import { normalizeCopilotTitle } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
+import { createRepositoryRemoveService } from './features/repositories/repository-remove-service'
 import { createRepositoryService } from './features/repositories/repository-service'
 import {
   buildRepositoryFaviconUrl,
@@ -105,6 +106,7 @@ const nowIso = (): string => new Date().toISOString()
 let threadRunServiceRef: ReturnType<typeof createThreadRunService> | null = null
 let stopCopilotThread: (threadId: string) => Promise<void> = async () => undefined
 let hasCopilotSession: (threadId: string) => boolean = () => false
+let isCopilotThreadWorking: (threadId: string) => boolean = () => false
 
 const snapshotService = createSnapshotService({
   ensureState,
@@ -245,6 +247,18 @@ const threadCloseService = createThreadCloseService({
   },
   showMessageBox: electronUi.showMessageBox
 })
+const repositoryRemoveService = createRepositoryRemoveService({
+  ensureState,
+  saveState,
+  successResult,
+  failureResult,
+  isThreadWorking: (threadId) => isCopilotThreadWorking(threadId),
+  stopThreadProcesses: async (threadId) => {
+    killSessionsForThread(threadId)
+    await stopCopilotThread(threadId)
+    threadRunService.stopThreadRunSession(threadId)
+  }
+})
 const branchStatusService = createBranchStatusService({
   resolveBranchStatusContext: threadGitContextService.resolveBranchStatusContext
 })
@@ -278,6 +292,8 @@ export function registerAppStateIpc(): void {
       threadConvertService.convertThreadToWorktree(threadId),
     closeThread: (threadId: string) => threadCloseService.closeThread(threadId),
     updateRepository: (input: UpdateRepositoryInput) => repositoryService.updateRepository(input),
+    removeRepository: (repositoryId: string) =>
+      repositoryRemoveService.removeRepository(repositoryId),
     startThreadRun: (threadId: string) => threadRunService.startThreadRun(threadId),
     stopThreadRun: (threadId: string) => threadRunService.stopThreadRun(threadId),
     updateThread: (input: UpdateThreadInput) => threadStateService.updateThread(input),
@@ -321,9 +337,11 @@ export function registerAppStateIpc(): void {
 export function setCopilotThreadController(controller: {
   stop: (threadId: string) => Promise<void>
   has: (threadId: string) => boolean
+  isWorking: (threadId: string) => boolean
 }): void {
   stopCopilotThread = controller.stop
   hasCopilotSession = controller.has
+  isCopilotThreadWorking = controller.isWorking
 }
 
 export function resolveCopilotThread(threadId: string): {

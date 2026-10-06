@@ -51,6 +51,7 @@ type AppStateIpcHandlers = {
   convertThreadToWorktree: (threadId: string) => MutationResult
   closeThread: (threadId: string) => Promise<MutationResult>
   updateRepository: (input: UpdateRepositoryInput) => MutationResult
+  removeRepository: (repositoryId: string) => Promise<MutationResult>
   startThreadRun: (threadId: string) => MutationResult
   stopThreadRun: (threadId: string) => MutationResult
   updateThread: (input: UpdateThreadInput) => MutationResult
@@ -117,6 +118,9 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.updateRepository, (_event, input: UpdateRepositoryInput) =>
     handlers.updateRepository(input)
+  )
+  handleIpc(IPC_CHANNELS.appState.removeRepository, (_event, repositoryId: string) =>
+    handlers.removeRepository(repositoryId)
   )
   handleIpc(IPC_CHANNELS.appState.startThreadRun, (_event, threadId: string) =>
     handlers.startThreadRun(threadId)

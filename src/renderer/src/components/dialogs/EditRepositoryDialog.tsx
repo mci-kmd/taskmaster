@@ -17,70 +17,115 @@ type EditRepositoryDialogProps = {
   open: boolean
   repository: RepositorySnapshot | null
   busy: boolean
+  removing: boolean
+  /** Threads of this project whose Copilot session is currently working; blocks removal. */
+  workingThreadCount: number
   onClose: () => void
   onBrowseFavicon: (repositoryId: string) => Promise<string | null>
   onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
   onSubmit: (input: UpdateRepositoryInput) => Promise<boolean>
+  onRemove: (repositoryId: string) => Promise<boolean>
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`
+}
+
+function workingThreadsMessage(count: number): string {
+  return `${pluralize(count, 'thread is', 'threads are')} still working. Wait for ${count === 1 ? 'it' : 'them'} to finish before removing this project.`
 }
 
 export default function EditRepositoryDialog({
   open,
   repository,
   busy,
+  removing,
+  workingThreadCount,
   onClose,
   onBrowseFavicon,
   onBrowseSolutionFile,
-  onSubmit
+  onSubmit,
+  onRemove
 }: EditRepositoryDialogProps): React.JSX.Element {
+  const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(null)
+  const confirmingRemoval =
+    repository !== null && !isGeneralProject(repository) && confirmingRemovalId === repository.id
+  const handleClose = (): void => {
+    setConfirmingRemovalId(null)
+    onClose()
+  }
+
   return (
     <Modal
       description={
         !repository
           ? 'Pick a repository in the sidebar first.'
-          : isGeneralProject(repository)
-            ? 'Configure the title and icon of the project for general computer tasks.'
-            : `Configure the icon, solution file, project commands, and task tags for ${repository.name}.`
+          : confirmingRemoval
+            ? `${repository.name} will be removed from Taskmaster. This cannot be undone.`
+            : isGeneralProject(repository)
+              ? 'Configure the title and icon of the project for general computer tasks.'
+              : `Configure the icon, solution file, project commands, and task tags for ${repository.name}.`
       }
-      onClose={onClose}
+      onClose={confirmingRemoval ? () => setConfirmingRemovalId(null) : handleClose}
       open={open}
-      title="Edit project"
+      title={confirmingRemoval ? 'Remove project?' : 'Edit project'}
       width="md"
     >
+      {repository && confirmingRemoval ? (
+        <RemoveRepositoryConfirmation
+          onCancel={() => setConfirmingRemovalId(null)}
+          onConfirm={async () => {
+            const ok = await onRemove(repository.id)
+            if (ok) {
+              setConfirmingRemovalId(null)
+            }
+          }}
+          removing={removing}
+          repository={repository}
+          workingThreadCount={workingThreadCount}
+        />
+      ) : null}
       {repository && isGeneralProject(repository) ? (
         <EditGeneralProjectForm
           busy={busy}
           key={`${repository.id}:${repository.name}:${repository.icon ?? ''}:${repository.iconColor ?? ''}`}
-          onCancel={onClose}
+          onCancel={handleClose}
           onSubmit={async (input) => {
             const ok = await onSubmit(input)
             if (ok) {
-              onClose()
+              handleClose()
             }
           }}
           repository={repository}
         />
       ) : repository ? (
-        <EditRepositoryForm
-          busy={busy}
-          key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.previewUrl ?? ''}:${repository.taskTagsInput ?? ''}`}
-          onBrowseFavicon={onBrowseFavicon}
-          onBrowseSolutionFile={onBrowseSolutionFile}
-          onCancel={onClose}
-          onSubmit={async (input) => {
-            const ok = await onSubmit(input)
-            if (ok) {
-              onClose()
-            }
-          }}
-          repository={repository}
-        />
+        // Kept mounted while confirming removal so unsaved edits survive a cancelled removal.
+        <div hidden={confirmingRemoval}>
+          <EditRepositoryForm
+            busy={busy}
+            key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.previewUrl ?? ''}:${repository.taskTagsInput ?? ''}`}
+            onBrowseFavicon={onBrowseFavicon}
+            onBrowseSolutionFile={onBrowseSolutionFile}
+            onCancel={handleClose}
+            onRequestRemove={() => setConfirmingRemovalId(repository.id)}
+            onSubmit={async (input) => {
+              const ok = await onSubmit(input)
+              if (ok) {
+                handleClose()
+              }
+            }}
+            removing={removing}
+            repository={repository}
+            workingThreadCount={workingThreadCount}
+          />
+        </div>
       ) : (
         <div className="space-y-5">
           <p className="text-[13px] text-[var(--color-fg-muted)]">
             Select a repository, then reopen the editor.
           </p>
           <div className="flex justify-end">
-            <Button onClick={onClose} title="Close dialog" variant="secondary">
+            <Button onClick={handleClose} title="Close dialog" variant="secondary">
               Close
             </Button>
           </div>
@@ -90,10 +135,95 @@ export default function EditRepositoryDialog({
   )
 }
 
+type RemoveRepositoryConfirmationProps = {
+  repository: RepositorySnapshot
+  removing: boolean
+  workingThreadCount: number
+  onCancel: () => void
+  onConfirm: () => Promise<void>
+}
+
+function RemoveRepositoryConfirmation({
+  repository,
+  removing,
+  workingThreadCount,
+  onCancel,
+  onConfirm
+}: RemoveRepositoryConfirmationProps): React.JSX.Element {
+  const settledThreadCount = repository.threads.filter((thread) => thread.settledAt).length
+  const activeThreadCount = repository.threads.length - settledThreadCount
+  const openTaskCount = repository.tasks.length
+  const completedTaskCount = repository.completedTasks?.length ?? 0
+  const losses = [
+    { label: 'Active threads', count: activeThreadCount },
+    { label: 'Settled threads', count: settledThreadCount },
+    {
+      label: 'Tasks',
+      count: openTaskCount + completedTaskCount,
+      detail:
+        completedTaskCount > 0 ? `${openTaskCount} open, ${completedTaskCount} completed` : null
+    }
+  ]
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[13px] leading-5 text-[var(--color-fg-muted)]">
+        The following Taskmaster data for this project will be permanently deleted:
+      </p>
+      <ul
+        aria-label="Data that will be lost"
+        className="divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)] bg-[var(--color-input)]"
+      >
+        {losses.map((item) => (
+          <li className="flex items-baseline justify-between gap-3 px-3 py-2" key={item.label}>
+            <span className="text-[13px] text-[var(--color-fg)]">
+              {item.label}
+              {item.detail ? (
+                <span className="ml-2 text-[11.5px] text-[var(--color-fg-subtle)]">
+                  {item.detail}
+                </span>
+              ) : null}
+            </span>
+            <span className="font-mono text-[13px] tabular-nums text-[var(--color-fg)]">
+              {item.count}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
+        The repository at{' '}
+        <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>, its branches,
+        and its worktrees are left untouched.
+      </p>
+      {workingThreadCount > 0 ? (
+        <p className="text-[12.5px] leading-5 text-[var(--color-danger)]" role="status">
+          {workingThreadsMessage(workingThreadCount)}
+        </p>
+      ) : null}
+      <div className="flex items-center justify-end gap-2">
+        <Button autoFocus onClick={onCancel} title="Keep project (Esc)" variant="ghost">
+          Cancel
+        </Button>
+        <Button
+          disabled={removing || workingThreadCount > 0}
+          onClick={() => void onConfirm()}
+          title="Remove project and its threads and tasks"
+          variant="danger"
+        >
+          {removing ? 'Removing…' : 'Remove project'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 type EditRepositoryFormProps = {
   repository: RepositorySnapshot
   busy: boolean
+  removing: boolean
+  workingThreadCount: number
   onCancel: () => void
+  onRequestRemove: () => void
   onBrowseFavicon: (repositoryId: string) => Promise<string | null>
   onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
   onSubmit: (input: UpdateRepositoryInput) => Promise<void>
@@ -102,7 +232,10 @@ type EditRepositoryFormProps = {
 function EditRepositoryForm({
   repository,
   busy,
+  removing,
+  workingThreadCount,
   onCancel,
+  onRequestRemove,
   onBrowseFavicon,
   onBrowseSolutionFile,
   onSubmit
@@ -308,6 +441,34 @@ function EditRepositoryForm({
       <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
         Repository root: <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>
       </div>
+
+      <section
+        aria-label="Remove project"
+        className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] px-3 py-2.5"
+      >
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-[var(--color-fg)]">Remove project</p>
+          <p className="mt-0.5 text-[12px] leading-5 text-[var(--color-fg-muted)]">
+            {workingThreadCount > 0
+              ? workingThreadsMessage(workingThreadCount)
+              : "Deletes this project's threads and tasks from Taskmaster. The repository is not touched."}
+          </p>
+        </div>
+        <Button
+          className="shrink-0"
+          disabled={busy || removing || workingThreadCount > 0}
+          onClick={onRequestRemove}
+          title={
+            workingThreadCount > 0
+              ? 'Unavailable while threads are working'
+              : 'Remove this project from Taskmaster'
+          }
+          type="button"
+          variant="danger"
+        >
+          Remove…
+        </Button>
+      </section>
 
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
