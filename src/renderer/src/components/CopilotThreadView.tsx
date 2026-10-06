@@ -405,7 +405,9 @@ function SessionView({
       /* Without a status the commit button just stays hidden. */
     }
   }, [thread.id])
-  // Check the working tree whenever a turn ends, then keep it fresh while idle.
+  // Re-check whenever a session connects (e.g. after a restart) or a turn ends, then keep it
+  // fresh while idle.
+  const connectedSessionId = idle ? (session?.sessionId ?? null) : null
   useEffect(() => {
     if (!usesGit || !idle) return
     void refreshWorkingTree()
@@ -416,7 +418,7 @@ function SessionView({
       window.clearInterval(interval)
       window.removeEventListener('focus', onFocus)
     }
-  }, [usesGit, idle, sharedCheckoutBusy, refreshWorkingTree])
+  }, [usesGit, idle, connectedSessionId, sharedCheckoutBusy, refreshWorkingTree])
   useEffect(
     () =>
       api.appState.onCommitProgress(({ threadId, phase }) => {

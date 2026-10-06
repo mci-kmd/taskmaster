@@ -1385,3 +1385,43 @@ describe('AI commit button', () => {
     expect(appState.commitThreadChanges).not.toHaveBeenCalled()
   })
 })
+
+describe('AI commit button after reconnecting', () => {
+  it('checks the working tree when the session connects', async () => {
+    appState.getBranchStatus.mockResolvedValue({
+      ahead: 0,
+      behind: 0,
+      staged: 0,
+      modified: 1,
+      deleted: 0,
+      untracked: 0,
+      conflicted: 0
+    })
+    const t = thread()
+    mock.getSession.mockResolvedValue(snapshot(t.id, { phase: 'disconnected', sessionId: null }))
+    mock.start.mockResolvedValue({ ok: true, snapshot: snapshot(t.id, { phase: 'connecting' }) })
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await waitFor(() => expect(mock.start).toHaveBeenCalled())
+    act(() => listener({ snapshot: snapshot(t.id) }))
+    await waitFor(() => expect(document.querySelector('.tm-commit')).not.toBeNull())
+  })
+
+  it('re-checks the working tree when a new session replaces an idle one', async () => {
+    appState.getBranchStatus.mockResolvedValue(null)
+    const t = thread()
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await waitFor(() => expect(appState.getBranchStatus).toHaveBeenCalled())
+    expect(document.querySelector('.tm-commit')).toBeNull()
+    appState.getBranchStatus.mockResolvedValue({
+      ahead: 0,
+      behind: 0,
+      staged: 0,
+      modified: 1,
+      deleted: 0,
+      untracked: 0,
+      conflicted: 0
+    })
+    act(() => listener({ snapshot: snapshot(t.id, { sessionId: 'reconnected' }) }))
+    await waitFor(() => expect(document.querySelector('.tm-commit')).not.toBeNull())
+  })
+})
