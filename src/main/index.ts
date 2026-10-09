@@ -9,6 +9,8 @@ import { sendIpc } from './ipc/typed-ipc'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import iconIco from '../../build/icon.ico?asset'
 import iconPng from '../../resources/icon.png?asset'
+import devIconIco from '../../build/icon-dev.ico?asset'
+import devIconPng from '../../resources/icon-dev.png?asset'
 import { isDevMode } from '../shared/runtime-mode'
 import { resolveDevUserDataPath } from './dev-user-data-path'
 import { registerTerminalIpc } from './terminal'
@@ -43,7 +45,15 @@ if (devUserDataPath) {
 let quitGuard: ReturnType<typeof createQuitGuard<BusyThread>> | null = null
 
 function createWindow(): void {
-  const windowIcon = process.platform === 'win32' ? iconIco : iconPng
+  // Dev builds use an orange icon so they are easy to tell apart from the installed app.
+  const windowIcon =
+    process.platform === 'win32'
+      ? isDevMode
+        ? devIconIco
+        : iconIco
+      : isDevMode
+        ? devIconPng
+        : iconPng
 
   const mainWindow = new BrowserWindow({
     title: 'Taskmaster',
@@ -84,6 +94,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.taskmaster.app')
+  if (isDevMode && process.platform === 'darwin') app.dock?.setIcon(devIconPng)
   let copilotSessionService: ReturnType<typeof createCopilotSessionService> | null = null
   const guard = createQuitGuard<BusyThread>({
     getRunningThreads: () => [

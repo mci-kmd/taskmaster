@@ -105,6 +105,8 @@ bun run build:linux
 
 Renderer dev server runs on port `5175`.
 
+Dev builds use an orange variant of the app icon (`resources/icon-dev.png`, `build/icon-dev.ico`) so they are easy to tell apart from the installed app in the taskbar.
+
 ## Architecture
 
 - `src/shared/contracts` is the source of truth for IPC channels and shared DTOs.
