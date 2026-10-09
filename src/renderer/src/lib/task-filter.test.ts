@@ -10,6 +10,13 @@ describe('task filter', () => {
     expect(matchesTaskFilter(task, { query: 'bug', labels: [] })).toBe(false)
   })
 
+  it('matches "#N" queries against the task number', () => {
+    const numbered = { ...task, number: 12 }
+    expect(matchesTaskFilter(numbered, { query: '#12', labels: [] })).toBe(true)
+    expect(matchesTaskFilter(numbered, { query: '#1', labels: [] })).toBe(false)
+    expect(matchesTaskFilter(task, { query: '#12', labels: [] })).toBe(false)
+  })
+
   it('matches any selected label combined with the query', () => {
     expect(matchesTaskFilter(task, { query: '', labels: ['bug'] })).toBe(true)
     expect(matchesTaskFilter(task, { query: '', labels: ['feature', 'bug'] })).toBe(true)

@@ -15,7 +15,11 @@ import {
   parseTaskTagsInput,
   resolveProjectTaskTags
 } from '../../../shared/task-tags'
-import { sameTaskTags, validateRepositoryTaskValues } from './project-task-values'
+import {
+  getNextTaskNumber,
+  sameTaskTags,
+  validateRepositoryTaskValues
+} from './project-task-values'
 
 type ProjectTaskServiceDependencies = {
   ensureState: () => Pick<PersistedAppState, 'settings'>
@@ -28,6 +32,7 @@ type ProjectTaskServiceDependencies = {
 }
 
 export function createProjectTaskService(dependencies: ProjectTaskServiceDependencies): {
+  getRepositoryTaskTags: (repositoryId: string) => string[]
   createRepositoryTask: (input: CreateRepositoryTaskInput) => MutationResult
   updateRepositoryTask: (input: UpdateRepositoryTaskInput) => MutationResult
   completeRepositoryTask: (input: CompleteRepositoryTaskInput) => MutationResult
@@ -41,6 +46,11 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
     )
 
   return {
+    getRepositoryTaskTags: (repositoryId: string): string[] => {
+      const repository = dependencies.findRepository(repositoryId)
+      return repository ? getAllowedTags(repository) : []
+    },
+
     createRepositoryTask: (input: CreateRepositoryTaskInput): MutationResult => {
       const repository = dependencies.findRepository(input.repositoryId)
       if (!repository) {
@@ -57,6 +67,7 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
 
       const task: PersistedProjectTask = {
         id: dependencies.createId(),
+        number: getNextTaskNumber(repository.tasks ?? [], repository.completedTasks ?? []),
         title: validation.title,
         description: validation.description,
         tags: validation.tags,

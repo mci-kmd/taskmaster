@@ -364,6 +364,14 @@ export default function ProjectTaskManager({
   const renderTaskSummary = (task: ProjectTaskSnapshot, meta: string): React.JSX.Element => (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-2">
+        {task.number ? (
+          <span
+            className="font-mono text-[12px] text-[var(--color-fg-subtle)]"
+            title={`Task #${task.number}`}
+          >
+            #{task.number}
+          </span>
+        ) : null}
         {task.title ? (
           <h4 className="text-[14px] font-medium text-[var(--color-fg)]">
             <HighlightedText query={query} text={task.title} />

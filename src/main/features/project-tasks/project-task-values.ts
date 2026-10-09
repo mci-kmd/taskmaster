@@ -76,6 +76,61 @@ export function normalizePersistedCompletedTasks(
   return normalized.every((task, index) => task === tasks[index]) ? tasks : normalized
 }
 
+function isTaskNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+export function getNextTaskNumber(
+  tasks: readonly PersistedProjectTask[],
+  completedTasks: readonly PersistedProjectTask[] = []
+): number {
+  let max = 0
+  for (const task of [...tasks, ...completedTasks]) {
+    if (isTaskNumber(task.number) && task.number > max) max = task.number
+  }
+  return max + 1
+}
+
+/**
+ * Gives every open and completed task a unique number, keeping valid existing ones.
+ * Tasks without one (or with a duplicate) are numbered oldest first after the current maximum.
+ * Returns the same arrays when nothing changed.
+ */
+export function assignTaskNumbers(
+  tasks: PersistedProjectTask[],
+  completedTasks: PersistedCompletedProjectTask[] | undefined
+): {
+  tasks: PersistedProjectTask[]
+  completedTasks: PersistedCompletedProjectTask[] | undefined
+} {
+  const used = new Set<number>()
+  const missing: PersistedProjectTask[] = []
+  for (const task of [...tasks, ...(completedTasks ?? [])]) {
+    if (isTaskNumber(task.number) && !used.has(task.number)) {
+      used.add(task.number)
+    } else {
+      missing.push(task)
+    }
+  }
+  if (missing.length === 0) {
+    return { tasks, completedTasks }
+  }
+
+  let next = getNextTaskNumber(tasks, completedTasks)
+  const assigned = new Map<PersistedProjectTask, number>()
+  const byAge = [...missing].sort((left, right) =>
+    String(left.createdAt ?? '').localeCompare(String(right.createdAt ?? ''))
+  )
+  for (const task of byAge) {
+    assigned.set(task, next++)
+  }
+  const renumber = <T extends PersistedProjectTask>(task: T): T => {
+    const number = assigned.get(task)
+    return number === undefined ? task : { ...task, number }
+  }
+  return { tasks: tasks.map(renumber), completedTasks: completedTasks?.map(renumber) }
+}
+
 export function validateRepositoryTaskValues(input: {
   title: string
   description: string

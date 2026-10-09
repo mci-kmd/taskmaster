@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PersistedRepository } from '../../../shared/app-types'
+import type { PersistedProjectTask, PersistedRepository } from '../../../shared/app-types'
 import {
   createGeneralProject,
   ensureGeneralProject,
@@ -88,6 +88,7 @@ describe('ensureGeneralProject', () => {
 describe('completed task persistence', () => {
   const completedTask = {
     id: 'done',
+    number: 1,
     title: 'Done',
     description: '',
     tags: [],
@@ -106,6 +107,41 @@ describe('completed task persistence', () => {
     const [normalized] = ensureGeneralProject([general], NOW, '/home/me')
     expect(normalized).toBe(general)
     expect(normalized.completedTasks).toEqual([completedTask])
+  })
+
+  it('backfills unique task numbers, oldest first, after existing numbers', () => {
+    const task = (id: string, createdAt: string, number?: unknown): PersistedProjectTask =>
+      ({ id, title: id, description: '', tags: [], createdAt, number }) as PersistedProjectTask
+    const value: PersistedRepository = {
+      ...repository('alpha'),
+      tasks: [
+        task('new', '2026-03-01T00:00:00.000Z'),
+        task('numbered', '2026-01-01T00:00:00.000Z', 4),
+        task('old', '2026-01-01T00:00:00.000Z')
+      ],
+      completedTasks: [
+        { ...task('dup', '2026-02-01T00:00:00.000Z', 4), completedAt: NOW() },
+        { ...task('bad', '2026-01-15T00:00:00.000Z', 'x'), completedAt: NOW() }
+      ]
+    }
+    const normalized = normalizePersistedRepository(value)
+    expect(normalized.tasks.map((item) => [item.id, item.number])).toEqual([
+      ['new', 8],
+      ['numbered', 4],
+      ['old', 5]
+    ])
+    expect(normalized.completedTasks?.map((item) => [item.id, item.number])).toEqual([
+      ['dup', 7],
+      ['bad', 6]
+    ])
+    expect(normalizePersistedRepository(normalized)).toBe(normalized)
+
+    const general = ensureGeneralProject(
+      [{ ...createGeneralProject(NOW(), '/home/me'), tasks: [task('g', NOW())] }],
+      NOW,
+      '/home/me'
+    )[0]
+    expect(general.tasks[0].number).toBe(1)
   })
 })
 

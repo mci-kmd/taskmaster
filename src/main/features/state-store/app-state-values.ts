@@ -17,6 +17,7 @@ import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../shared/project-icon
 import { normalizeCopilotTitle } from '../../../shared/thread-title'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import {
+  assignTaskNumbers,
   normalizePersistedCompletedTasks,
   normalizePersistedTask
 } from '../project-tasks/project-task-values'
@@ -95,10 +96,12 @@ function normalizeGeneralProject(
   const iconColor = PROJECT_ICON_COLORS.some((item) => item.value === repository.iconColor)
     ? repository.iconColor
     : GENERAL_PROJECT_DEFAULTS.iconColor
-  const tasks = Array.isArray(repository.tasks)
-    ? repository.tasks.map((task) => normalizePersistedTask(task))
-    : []
-  const completedTasks = normalizePersistedCompletedTasks(repository.completedTasks)
+  const { tasks, completedTasks } = assignTaskNumbers(
+    Array.isArray(repository.tasks)
+      ? repository.tasks.map((task) => normalizePersistedTask(task))
+      : [],
+    normalizePersistedCompletedTasks(repository.completedTasks)
+  )
   const normalized: PersistedRepository = {
     ...createGeneralProject(repository.addedAt, homePath),
     id: repository.id,
@@ -172,9 +175,11 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   const rawAutoPush = (repository as { autoPushAfterCommit?: unknown }).autoPushAfterCommit
   const autoPushAfterCommit = rawAutoPush === true ? true : undefined
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
-  const tasks = currentTasks.map((task) => normalizePersistedTask(task))
   const rawCompletedTasks = (repository as { completedTasks?: unknown }).completedTasks
-  const completedTasks = normalizePersistedCompletedTasks(rawCompletedTasks)
+  const { tasks, completedTasks } = assignTaskNumbers(
+    currentTasks.map((task) => normalizePersistedTask(task)),
+    normalizePersistedCompletedTasks(rawCompletedTasks)
+  )
 
   if (
     sameRepositoryBackend(backend, repository.backend) &&

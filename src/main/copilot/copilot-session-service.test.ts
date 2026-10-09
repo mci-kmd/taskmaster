@@ -190,6 +190,15 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
+it('registers session tools for the thread', async () => {
+  const tool = { name: 'taskmaster_list_tasks', handler: vi.fn() }
+  const getSessionTools = vi.fn(() => [tool])
+  const service = setup(true, { getSessionTools })
+  await service.start('thread')
+  expect(getSessionTools).toHaveBeenCalledWith('thread')
+  expect(harness.config?.tools).toEqual([tool])
+})
+
 it('records model usage with call timing, including subagents, and ignores unmeasurable calls', async () => {
   const service = setup()
   await service.start('thread')

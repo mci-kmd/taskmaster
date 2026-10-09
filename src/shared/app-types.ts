@@ -19,6 +19,8 @@ export type RepositoryBackend = { kind: 'native' }
 
 export interface PersistedProjectTask {
   id: string
+  /** Per-project number shown to the user and agent as `#N`. Backfilled for legacy tasks. */
+  number: number
   title: string
   description: string
   tags: ProjectTaskTag[]

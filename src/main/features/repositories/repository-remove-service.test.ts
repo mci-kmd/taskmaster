@@ -21,7 +21,14 @@ function repository(id: string, overrides: Partial<PersistedRepository> = {}): P
     postWorktreeRemoveCommand: null,
     addedAt: '2026-01-01T00:00:00.000Z',
     tasks: [
-      { id: `${id}-task`, title: 'Task', description: '', tags: [], createdAt: '2026-01-01' }
+      {
+        id: `${id}-task`,
+        number: 1,
+        title: 'Task',
+        description: '',
+        tags: [],
+        createdAt: '2026-01-01'
+      }
     ],
     ...overrides
   }

@@ -43,7 +43,8 @@ import type {
   PermissionRequest,
   PermissionRequestResult,
   SessionConfig,
-  SessionEvent
+  SessionEvent,
+  Tool
 } from '@github/copilot-sdk'
 import { CopilotSdkManager } from './copilot-sdk-manager'
 import { collectCopilotSdkUpdateBlockers } from './copilot-update-guard'
@@ -366,6 +367,8 @@ function permissionDescription(request: PermissionRequest): string {
       return request.url
     case 'mcp':
       return `${request.serverName}: ${request.toolName}`
+    case 'custom-tool':
+      return `${request.toolName}\n${formatJson(request.args ?? {})}`
     default:
       return formatJson(request)
   }
@@ -385,6 +388,8 @@ export function createCopilotSessionService(dependencies: {
   getPerformanceSamples: () => ModelPerformanceSample[]
   getPromptSummaries?: (sessionId: string) => PromptSummaryRecord[]
   savePromptSummary?: (record: PromptSummaryRecord) => void
+  /** Custom tools registered on every session started for the thread. */
+  getSessionTools?: (threadId: string) => Tool[]
 }): {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
@@ -1189,6 +1194,8 @@ export function createCopilotSessionService(dependencies: {
         // Keep MCP sign-ins in the OS keychain so they survive session restarts.
         mcpOAuthTokenStorage: 'persistent'
       }
+      const tools = dependencies.getSessionTools?.(threadId)
+      if (tools?.length) config.tools = tools
       const placeholder: ActiveSession = {
         session: null as unknown as CopilotSession,
         snapshot,

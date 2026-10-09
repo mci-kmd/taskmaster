@@ -31,6 +31,7 @@ describe('project task service', () => {
     expect(result.ok).toBe(true)
     expect(repository.tasks[0]).toMatchObject({
       id: 'task-1',
+      number: 1,
       title: 'Fix bug',
       description: 'Detail',
       tags: ['bug']
@@ -116,6 +117,28 @@ describe('project task service', () => {
       description: '',
       tags: ['bug', 'backend']
     })
+  })
+
+  it('numbers new tasks after the highest open or completed task number', () => {
+    const repository = {
+      id: 'repo-1',
+      tasks: [{ id: 'a', number: 2 }] as Array<{ id: string; number: number }>,
+      completedTasks: [{ id: 'b', number: 7 }]
+    }
+    const service = createProjectTaskService({
+      ensureState: () => ({
+        settings: { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+      }),
+      findRepository: () => repository as never,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      nowIso: () => '2026-01-01T00:00:00.000Z',
+      createId: () => 'c'
+    })
+
+    service.createRepositoryTask({ repositoryId: 'repo-1', title: 'C', description: '', tags: [] })
+    expect(repository.tasks[0]).toMatchObject({ id: 'c', number: 8 })
   })
 
   it('reorders repository tasks, keeping unknown tasks at the end', () => {

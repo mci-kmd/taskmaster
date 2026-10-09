@@ -53,7 +53,7 @@ export default function TaskFilterBar({
           className="tm-task-search block w-full rounded-md py-1.5 pl-8 pr-3 placeholder:text-[var(--color-fg-faint)]"
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Search title or description"
+          placeholder="Search #number, title or description"
           spellCheck={false}
           type="search"
           value={query}

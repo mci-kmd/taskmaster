@@ -8,13 +8,22 @@ import type {
 } from '../../../shared/app-types'
 import ProjectTaskManager from './ProjectTaskManager'
 
+let nextTaskNumber = 1
+
 function task(
   id: string,
   title: string,
   description = '',
   tags: string[] = []
 ): ProjectTaskSnapshot {
-  return { id, title, description, tags, createdAt: '2026-01-01T00:00:00.000Z' }
+  return {
+    id,
+    number: nextTaskNumber++,
+    title,
+    description,
+    tags,
+    createdAt: '2026-01-01T00:00:00.000Z'
+  }
 }
 
 function completed(id: string, title: string, completedAt: string): CompletedProjectTaskSnapshot {
@@ -82,6 +91,12 @@ describe('ProjectTaskManager', () => {
     renderManager([task('a', '')])
 
     expect(taskTitles()).toEqual(['Untitled task'])
+  })
+
+  it('shows task numbers', () => {
+    renderManager([{ ...task('a', 'First'), number: 42 }])
+
+    expect(screen.getByText('#42')).toBeTruthy()
   })
 
   it('reorders tasks with the keyboard on the drag handle', () => {

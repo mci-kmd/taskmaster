@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import type { Tool } from '@github/copilot-sdk'
 import type {
   AppSnapshot,
   BranchStatusRequest,
@@ -33,6 +34,7 @@ import { parseTaskTagsInput } from '../shared/task-tags'
 import { isHttpUrl } from '../shared/preview'
 import { normalizeCopilotTitle } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
+import { createProjectTaskTools } from './copilot/project-task-tools'
 import { createRepositoryRemoveService } from './features/repositories/repository-remove-service'
 import { createRepositoryService } from './features/repositories/repository-service'
 import {
@@ -406,6 +408,21 @@ export function resolveCopilotThread(threadId: string): {
     cwd: getThreadExecutionCwd(thread, repository),
     yoloEnabled: ensureState().settings.yoloEnabled
   }
+}
+
+export function createCopilotSessionTools(threadId: string): Tool[] {
+  return createProjectTaskTools({
+    resolveRepository: () => {
+      const thread = findThread(threadId)
+      return thread ? findRepository(thread.repositoryId) : undefined
+    },
+    getAllowedTags: projectTaskService.getRepositoryTaskTags,
+    createTask: projectTaskService.createRepositoryTask,
+    updateTask: projectTaskService.updateRepositoryTask,
+    completeTask: projectTaskService.completeRepositoryTask,
+    // Makes open windows refresh their snapshot so task lists show the change.
+    onTasksChanged: () => electronUi.broadcastThreadRunState(threadId)
+  })
 }
 
 export function markCopilotSessionStarted(threadId: string, sessionId: string): void {

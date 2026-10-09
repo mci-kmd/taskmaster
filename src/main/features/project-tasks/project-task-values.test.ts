@@ -24,6 +24,7 @@ describe('project task values', () => {
   it('normalizes persisted tasks without replacing already-normal tasks', () => {
     const task = {
       id: '1',
+      number: 1,
       title: 'Task',
       description: 'Description',
       tags: ['bug'],

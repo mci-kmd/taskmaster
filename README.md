@@ -7,7 +7,9 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - View all threads across projects in activity order, with manual settle/unsettle and a collapsed Settled threads section
 - Choose a project from the sidebar to manage tasks, edit its configuration, or create a thread
 - Drag project tasks by their handle (or focus it and use ↑/↓) to order them by priority; tasks may be added without any title or description
-- Search tasks by title or description (debounced, with highlighted matches), filter by one or more labels, and clear both at once; reordering still works while filtered
+- Search tasks by `#number`, title or description (debounced, with highlighted matches), filter by one or more labels, and clear both at once; reordering still works while filtered
+- Every task has a per-project number shown as `#N` (existing tasks are numbered oldest first on upgrade)
+- Copilot sessions can list/search, create, edit (including labels) and complete the project's tasks via `taskmaster_*` tools; the tools tell the agent these are the user's tasks, to be changed only when asked. Listing needs no approval; changes follow the normal permission prompts
 - Completed tasks are kept rather than deleted: open them from the quiet "N completed tasks" link below the task list, newest first, with the same search and label filters, and reopen any of them
 - Tag tasks with global labels from Settings plus optional project-specific labels from Edit project
 - Create Copilot threads on a branch or worktree; settling preserves sessions, branches, and worktrees without cleanup, and keeps the current project selected

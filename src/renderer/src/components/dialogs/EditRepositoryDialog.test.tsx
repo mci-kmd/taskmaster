@@ -56,7 +56,7 @@ function thread(id: string, settledAt?: string): ThreadSnapshot {
 }
 
 function task(id: string): RepositorySnapshot['tasks'][number] {
-  return { id, title: id, description: '', tags: [], createdAt: '2026-01-01' }
+  return { id, number: 1, title: id, description: '', tags: [], createdAt: '2026-01-01' }
 }
 
 const repository: RepositorySnapshot = {

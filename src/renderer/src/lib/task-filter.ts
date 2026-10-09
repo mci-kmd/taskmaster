@@ -1,43 +1,15 @@
-import type { ProjectTaskSnapshot, ProjectTaskTag } from '../../../shared/app-types'
+import { normalizeTaskQuery } from '../../../shared/task-filter'
 
-export type TaskFilter = {
-  query: string
-  labels: readonly ProjectTaskTag[]
-}
+export {
+  isTaskFilterActive,
+  matchesTaskFilter,
+  normalizeTaskQuery,
+  type TaskFilter
+} from '../../../shared/task-filter'
 
 export type HighlightSegment = {
   text: string
   match: boolean
-}
-
-export function normalizeTaskQuery(query: string): string {
-  return query.trim().toLowerCase()
-}
-
-export function isTaskFilterActive(filter: TaskFilter): boolean {
-  return normalizeTaskQuery(filter.query).length > 0 || filter.labels.length > 0
-}
-
-/** Matches the query against title or description, and any selected label. */
-export function matchesTaskFilter(
-  task: Pick<ProjectTaskSnapshot, 'title' | 'description' | 'tags'>,
-  filter: TaskFilter
-): boolean {
-  const query = normalizeTaskQuery(filter.query)
-  if (
-    query.length > 0 &&
-    !task.title.toLowerCase().includes(query) &&
-    !task.description.toLowerCase().includes(query)
-  ) {
-    return false
-  }
-
-  if (filter.labels.length === 0) {
-    return true
-  }
-
-  const taskLabels = new Set(task.tags.map((tag) => tag.toLowerCase()))
-  return filter.labels.some((label) => taskLabels.has(label.toLowerCase()))
 }
 
 export function splitHighlightSegments(text: string, query: string): HighlightSegment[] {

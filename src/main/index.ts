@@ -12,6 +12,7 @@ import { isDevMode } from '../shared/runtime-mode'
 import { resolveDevUserDataPath } from './dev-user-data-path'
 import { registerTerminalIpc } from './terminal'
 import {
+  createCopilotSessionTools,
   initializeAppState,
   getCopilotModelDefaults,
   rememberCopilotModelSelection,
@@ -140,7 +141,8 @@ app.whenReady().then(() => {
     onSessionStarted: markCopilotSessionStarted,
     onTitleChanged: updateCopilotThreadTitle,
     onUserMessage: updateCopilotLastUserMessage,
-    onActivity: updateCopilotActivity
+    onActivity: updateCopilotActivity,
+    getSessionTools: createCopilotSessionTools
   })
   copilotSessionService = copilotService
   setCopilotThreadController({
