@@ -1,4 +1,4 @@
-import { app, dialog, shell, BrowserWindow, type MessageBoxOptions } from 'electron'
+import { app, dialog, nativeTheme, shell, BrowserWindow, type MessageBoxOptions } from 'electron'
 import { join } from 'path'
 import { createQuitGuard, describeBusyThreads, type BusyThread } from './quit-guard'
 import { createModelPerformanceStore } from './copilot/model-performance-store'
@@ -13,10 +13,12 @@ import devIconIco from '../../build/icon-dev.ico?asset'
 import devIconPng from '../../resources/icon-dev.png?asset'
 import { isDevMode } from '../shared/runtime-mode'
 import { resolveDevUserDataPath } from './dev-user-data-path'
+import { getTheme, type ThemeId } from '../shared/themes'
 import { registerTerminalIpc } from './terminal'
 import {
   createCopilotSessionTools,
   getCommittingThreadNames,
+  getThemeSetting,
   initializeAppState,
   getCopilotModelDefaults,
   rememberCopilotModelSelection,
@@ -28,6 +30,7 @@ import {
   resolveCopilotThread,
   setCommitMessageGenerator,
   setCopilotThreadController,
+  setThemeChangeListener,
   updateCopilotLastUserMessage,
   updateCopilotThreadTitle
 } from './app-state'
@@ -43,6 +46,15 @@ if (devUserDataPath) {
 }
 
 let quitGuard: ReturnType<typeof createQuitGuard<BusyThread>> | null = null
+
+/** Matches native chrome (context menus, the pre-paint window background) to the theme. */
+function applyNativeTheme(themeId: ThemeId): void {
+  const theme = getTheme(themeId)
+  nativeTheme.themeSource = theme.appearance
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.setBackgroundColor(theme.background)
+  }
+}
 
 function createWindow(): void {
   // Dev builds use an orange icon so they are easy to tell apart from the installed app.
@@ -63,7 +75,7 @@ function createWindow(): void {
     minHeight: 760,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#181818',
+    backgroundColor: getTheme(getThemeSetting()).background,
     ...(process.platform !== 'darwin' ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -127,6 +139,8 @@ app.whenReady().then(() => {
   // Runs before every other quit listener so a cancelled quit skips their cleanup.
   app.prependListener('before-quit', guard.beforeQuit)
   initializeAppState()
+  applyNativeTheme(getThemeSetting())
+  setThemeChangeListener(applyNativeTheme)
   registerAppStateIpc()
   registerNativeMenuIpc()
   registerTerminalIpc()

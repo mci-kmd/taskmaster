@@ -1,18 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { usePresence } from '../../lib/motion'
+import Button from './Button'
 
 export default function ActionMenu({
   label,
   items,
-  children
+  children,
+  triggerClassName
 }: {
   label: string
+  /** Extra classes for the ghost icon button that opens the menu. */
+  triggerClassName?: string
   items: Array<{ label: string; disabled?: boolean; onSelect: () => void }>
   children: ReactNode
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
+  const popup = usePresence(open)
 
   function close(restoreFocus: boolean): void {
     setOpen(false)
@@ -60,10 +66,12 @@ export default function ActionMenu({
 
   return (
     <>
-      <button
+      <Button
         ref={trigger}
-        type="button"
-        className="tm-inbox-action grid size-6 place-items-center rounded text-[var(--color-fg-subtle)]"
+        className={triggerClassName}
+        iconOnly
+        size="xs"
+        variant="ghost"
         aria-label={label}
         title={label}
         aria-haspopup="menu"
@@ -77,14 +85,16 @@ export default function ActionMenu({
         }}
       >
         {children}
-      </button>
-      {open
+      </Button>
+      {popup.mounted
         ? createPortal(
             <div
               ref={menu}
               role="menu"
               aria-label={label}
               className="tm-picker-popup"
+              data-motion="drop"
+              data-state={popup.state}
               style={{ position: 'fixed', visibility: 'hidden' }}
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {

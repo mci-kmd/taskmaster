@@ -1,0 +1,356 @@
+/*
+ * Themes. Each block defines every theme-dependent token (see tokens.css for their roles);
+ * the shared block at the end derives the rest. The <html> element always carries a
+ * data-theme; any element may carry another to preview that theme in place.
+ *
+ * Keep --color-bg in sync with `background` in src/shared/themes.ts (the window paints it
+ * before the renderer loads).
+ */
+
+/* Graphite: soft warm graphite; the sidebar sits on the backdrop, the workspace floats. */
+[data-theme='graphite'] {
+  color-scheme: dark;
+
+  --color-bg: #232220;
+  --color-sidebar: transparent;
+  --color-panel: #2b2a28;
+  --color-surface: #292826;
+  --color-surface-2: #252422;
+  --color-input: #32312e;
+  --color-raised: #3a3936;
+  --color-popover: #34332f;
+  --color-overlay: rgb(14 13 12 / 0.5);
+
+  --color-border: #363431;
+  --color-border-strong: #43413d;
+
+  --color-fg: #e8e5df;
+  --color-fg-muted: #b5b0a7;
+  --color-fg-subtle: #9d988f;
+  --color-fg-faint: #6e6a63;
+
+  --color-positive: #62c58e;
+  --color-warning: #e2a64c;
+  --color-danger: #f2786d;
+  --color-info: #7d99f5;
+
+  --color-accent: #7d99f5;
+  --color-accent-hover: #93abf8;
+  --color-accent-fg: #141a2c;
+  --color-accent-soft: #2e3243;
+  --color-accent-soft-strong: #3d4766;
+  --color-accent-ring: rgb(125 153 245 / 0.2);
+  --color-accent-line: rgb(125 153 245 / 0.12);
+
+  --color-accent-2: #ff8a63;
+  --color-accent-2-ink: #ffab8f;
+  --color-accent-2-soft: #3d2c26;
+  --color-accent-2-line: rgb(255 138 99 / 0.22);
+
+  --color-syntax-keyword: #b3a3f0;
+  --color-syntax-property: #8fa8f7;
+  --color-syntax-string: #f0a283;
+  --color-syntax-number: #e2b36c;
+  --color-syntax-comment: #8f8a81;
+  --color-syntax-punctuation: #8a857c;
+
+  --elevation-card:
+    inset 0 1px 0 rgb(255 255 255 / 0.05), 0 0 0 1px rgb(0 0 0 / 0.2), 0 1px 3px rgb(0 0 0 / 0.22),
+    0 18px 44px -14px rgb(0 0 0 / 0.55);
+  --elevation-raised:
+    inset 0 1px 0 rgb(255 255 255 / 0.05), 0 0 0 1px rgb(0 0 0 / 0.14), 0 1px 2px rgb(0 0 0 / 0.22),
+    0 4px 10px -4px rgb(0 0 0 / 0.3);
+  --elevation-pop:
+    inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(0 0 0 / 0.22),
+    0 24px 60px -20px rgb(0 0 0 / 0.6), 0 8px 20px -8px rgb(0 0 0 / 0.4);
+  --elevation-inset: inset 0 1px 2px rgb(0 0 0 / 0.16);
+  --elevation-accent:
+    inset 0 1px 0 rgb(255 255 255 / 0.18), 0 1px 2px rgb(0 0 0 / 0.3),
+    0 4px 12px -6px rgb(125 153 245 / 0.35);
+
+  --sidebar-elevation: none;
+  --sidebar-inset: 0px;
+  --workspace-elevation: var(--elevation-card);
+}
+
+/* Slate: cool blue-grey; the sidebar and the workspace are two floating cards. */
+[data-theme='slate'] {
+  color-scheme: dark;
+
+  --color-bg: #1f232a;
+  --color-sidebar: #272c34;
+  --color-panel: #272c34;
+  --color-surface: #2b3039;
+  --color-surface-2: #22272e;
+  --color-input: #2e343d;
+  --color-raised: #323843;
+  --color-popover: #313741;
+  --color-overlay: rgb(8 12 20 / 0.5);
+
+  --color-border: #333943;
+  --color-border-strong: #3f4652;
+
+  --color-fg: #e4e7eb;
+  --color-fg-muted: #aab1bc;
+  --color-fg-subtle: #9aa2ad;
+  --color-fg-faint: #5d6470;
+
+  --color-positive: #6fd39b;
+  --color-warning: #e8b35e;
+  --color-danger: #f28b82;
+  --color-info: #7fa6f7;
+
+  --color-accent: #7fa6f7;
+  --color-accent-hover: #93b4fa;
+  --color-accent-fg: #11203f;
+  --color-accent-soft: #2c3a52;
+  --color-accent-soft-strong: #3d527a;
+  --color-accent-ring: rgb(127 166 247 / 0.2);
+  --color-accent-line: rgb(127 166 247 / 0.1);
+
+  --color-accent-2: #f59577;
+  --color-accent-2-ink: #ffb197;
+  --color-accent-2-soft: #3a2c2a;
+  --color-accent-2-line: rgb(245 149 119 / 0.22);
+
+  --color-syntax-keyword: #b6a6f4;
+  --color-syntax-property: #8fb2fb;
+  --color-syntax-string: #f2a688;
+  --color-syntax-number: #e6b872;
+  --color-syntax-comment: #8a929e;
+  --color-syntax-punctuation: #7c8491;
+
+  --elevation-card:
+    inset 0 1px 0 rgb(255 255 255 / 0.045), 0 0 0 1px rgb(8 12 20 / 0.28),
+    0 1px 2px rgb(8 12 20 / 0.25), 0 14px 34px -14px rgb(8 12 20 / 0.6);
+  --elevation-raised:
+    inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(8 12 20 / 0.22),
+    0 1px 2px rgb(8 12 20 / 0.28), 0 4px 10px -4px rgb(8 12 20 / 0.4);
+  --elevation-pop:
+    inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(8 12 20 / 0.3),
+    0 24px 60px -20px rgb(8 12 20 / 0.7), 0 8px 20px -8px rgb(8 12 20 / 0.45);
+  --elevation-inset: inset 0 1px 2px rgb(8 12 20 / 0.3), inset 0 0 0 1px rgb(8 12 20 / 0.12);
+  --elevation-accent:
+    inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(8 12 20 / 0.35),
+    0 4px 12px -4px rgb(8 12 20 / 0.5);
+
+  --sidebar-elevation: var(--elevation-card);
+  --sidebar-inset: var(--layout-gutter);
+  --workspace-elevation: var(--elevation-card);
+}
+
+/* Mist: the softest dark; mid-grey haze, near-invisible borders, depth from tone and shadow. */
+[data-theme='mist'] {
+  color-scheme: dark;
+
+  --color-bg: #2c2e32;
+  --color-sidebar: transparent;
+  --color-panel: #34363b;
+  --color-surface: #313338;
+  --color-surface-2: #2e3034;
+  --color-input: #3a3c42;
+  --color-raised: #43454b;
+  --color-popover: #3d3f45;
+  --color-overlay: rgb(18 19 22 / 0.42);
+
+  --color-border: #393b40;
+  --color-border-strong: #44464c;
+
+  --color-fg: #d9dadd;
+  --color-fg-muted: #b9bbc1;
+  --color-fg-subtle: #a9acb2;
+  --color-fg-faint: #6d7078;
+
+  --color-positive: #94d3a8;
+  --color-warning: #e6bb7a;
+  --color-danger: #f0a198;
+  --color-info: #9fb3f2;
+
+  --color-accent: #9fb3f2;
+  --color-accent-hover: #b1c1f5;
+  --color-accent-fg: #1e2333;
+  --color-accent-soft: #394055;
+  --color-accent-soft-strong: #4a5576;
+  --color-accent-ring: rgb(159 179 242 / 0.2);
+  --color-accent-line: rgb(159 179 242 / 0.1);
+
+  --color-accent-2: #f3a68e;
+  --color-accent-2-ink: #f6b9a6;
+  --color-accent-2-soft: #4a3b38;
+  --color-accent-2-line: rgb(243 166 142 / 0.2);
+
+  --color-syntax-keyword: #c2b4f0;
+  --color-syntax-property: #9fb3f2;
+  --color-syntax-string: #f3b29d;
+  --color-syntax-number: #e8c487;
+  --color-syntax-comment: #92959c;
+  --color-syntax-punctuation: #8a8d94;
+
+  --elevation-card:
+    inset 0 1px 0 rgb(255 255 255 / 0.05), 0 0 0 1px rgb(14 16 20 / 0.1),
+    0 1px 2px rgb(14 16 20 / 0.14), 0 18px 48px -16px rgb(14 16 20 / 0.42);
+  --elevation-raised:
+    inset 0 1px 0 rgb(255 255 255 / 0.05), 0 0 0 1px rgb(14 16 20 / 0.08),
+    0 1px 2px rgb(14 16 20 / 0.18), 0 6px 14px -6px rgb(14 16 20 / 0.3);
+  --elevation-pop:
+    inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(14 16 20 / 0.12),
+    0 28px 64px -20px rgb(14 16 20 / 0.55), 0 8px 20px -8px rgb(14 16 20 / 0.3);
+  --elevation-inset: inset 0 1px 2px rgb(14 16 20 / 0.14);
+  --elevation-accent:
+    inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(14 16 20 / 0.25),
+    0 6px 16px -6px rgb(14 16 20 / 0.45);
+
+  --sidebar-elevation: none;
+  --sidebar-inset: 0px;
+  --workspace-elevation: var(--elevation-card);
+}
+
+/* Stone: warm greige with inverted depth; the workspace is a recessed well. */
+[data-theme='stone'] {
+  color-scheme: dark;
+
+  --color-bg: #312e2a;
+  --color-sidebar: transparent;
+  --color-panel: #272522;
+  --color-surface: #2f2c29;
+  --color-surface-2: #22201e;
+  --color-input: #403c37;
+  --color-raised: #44403a;
+  --color-popover: #3f3b36;
+  --color-overlay: rgb(16 14 12 / 0.48);
+
+  --color-border: #36332f;
+  --color-border-strong: #46423c;
+
+  --color-fg: #ebe6dd;
+  --color-fg-muted: #bfb8ac;
+  --color-fg-subtle: #afa89c;
+  --color-fg-faint: #6f6a62;
+
+  --color-positive: #82c99c;
+  --color-warning: #e3ad5c;
+  --color-danger: #f2877a;
+  --color-info: #8ea6f4;
+
+  --color-accent: #8ea6f4;
+  --color-accent-hover: #a2b6f7;
+  --color-accent-fg: #1c1e27;
+  --color-accent-soft: #2f3345;
+  --color-accent-soft-strong: #46507a;
+  --color-accent-ring: rgb(142 166 244 / 0.22);
+  --color-accent-line: rgb(142 166 244 / 0.12);
+
+  --color-accent-2: #f48a65;
+  --color-accent-2-ink: #ffb196;
+  --color-accent-2-soft: #4a352d;
+  --color-accent-2-line: rgb(244 138 101 / 0.22);
+
+  --color-syntax-keyword: #b7a6f0;
+  --color-syntax-property: #9db2f6;
+  --color-syntax-string: #f2a585;
+  --color-syntax-number: #e3b56c;
+  --color-syntax-comment: #9d968a;
+  --color-syntax-punctuation: #8f887c;
+
+  --elevation-card:
+    inset 0 1px 0 rgb(255 246 230 / 0.07), 0 0 0 1px rgb(0 0 0 / 0.2), 0 2px 4px rgb(0 0 0 / 0.16),
+    0 18px 40px -14px rgb(0 0 0 / 0.55);
+  --elevation-raised:
+    inset 0 1px 0 rgb(255 246 230 / 0.06), 0 0 0 1px rgb(0 0 0 / 0.16), 0 1px 2px rgb(0 0 0 / 0.22),
+    0 4px 10px -4px rgb(0 0 0 / 0.3);
+  --elevation-pop:
+    inset 0 1px 0 rgb(255 246 230 / 0.06), 0 0 0 1px rgb(0 0 0 / 0.24),
+    0 24px 60px -20px rgb(0 0 0 / 0.6), 0 8px 20px -8px rgb(0 0 0 / 0.35);
+  --elevation-inset: inset 0 1px 2px rgb(0 0 0 / 0.3), inset 0 0 0 1px rgb(0 0 0 / 0.14);
+  --elevation-accent:
+    inset 0 1px 0 rgb(255 255 255 / 0.22), 0 1px 2px rgb(0 0 0 / 0.3),
+    0 4px 12px -4px rgb(0 0 0 / 0.4);
+
+  --sidebar-elevation: none;
+  --sidebar-inset: 0px;
+  /* A well, not a card: an inner shadow and a faint lip below. */
+  --workspace-elevation:
+    inset 0 0 0 1px rgb(0 0 0 / 0.22), inset 0 2px 3px rgb(0 0 0 / 0.22),
+    inset 0 14px 28px -18px rgb(0 0 0 / 0.45), 0 1px 0 rgb(255 246 230 / 0.045);
+}
+
+/* Porcelain: light; a porcelain card floating on warm paper. */
+[data-theme='porcelain'] {
+  color-scheme: light;
+
+  --color-bg: #f4f2ed;
+  --color-sidebar: transparent;
+  --color-panel: #fdfcfa;
+  --color-surface: #f8f6f2;
+  --color-surface-2: #f0ede7;
+  --color-input: #ffffff;
+  --color-raised: #ffffff;
+  --color-popover: #ffffff;
+  --color-overlay: rgb(60 50 30 / 0.18);
+
+  --color-border: #e8e4dc;
+  --color-border-strong: #d8d3c9;
+
+  --color-fg: #1d1c1a;
+  --color-fg-muted: #57534c;
+  --color-fg-subtle: #66615a;
+  --color-fg-faint: #aaa49a;
+
+  --color-positive: #18733f;
+  --color-warning: #a8620a;
+  --color-danger: #c8352f;
+  --color-info: #2f5bea;
+
+  --color-accent: #2f5bea;
+  --color-accent-hover: #2449cc;
+  --color-accent-fg: #ffffff;
+  --color-accent-soft: #e9eefd;
+  --color-accent-soft-strong: #d9e2fc;
+  --color-accent-ring: rgb(47 91 234 / 0.16);
+  --color-accent-line: rgb(47 91 234 / 0.14);
+
+  --color-accent-2: #ff6a3d;
+  --color-accent-2-ink: #b8401a;
+  --color-accent-2-soft: #ffebe3;
+  --color-accent-2-line: rgb(255 106 61 / 0.28);
+
+  --color-syntax-keyword: #6a4fd6;
+  --color-syntax-property: #2f5bea;
+  --color-syntax-string: #b8401a;
+  --color-syntax-number: #a8620a;
+  --color-syntax-comment: #7d776d;
+  --color-syntax-punctuation: #8a8478;
+
+  --elevation-card:
+    0 0 0 1px rgb(60 45 20 / 0.05), 0 1px 2px rgb(60 45 20 / 0.04),
+    0 12px 32px -12px rgb(60 45 20 / 0.12);
+  --elevation-raised:
+    0 0 0 1px rgb(60 45 20 / 0.06), 0 1px 2px rgb(60 45 20 / 0.06),
+    0 4px 10px -4px rgb(60 45 20 / 0.08);
+  --elevation-pop:
+    0 0 0 1px rgb(60 45 20 / 0.06), 0 24px 60px -20px rgb(60 45 20 / 0.22),
+    0 8px 20px -8px rgb(60 45 20 / 0.12);
+  --elevation-inset: inset 0 1px 2px rgb(60 45 20 / 0.06);
+  --elevation-accent: 0 1px 2px rgb(31 55 160 / 0.25), 0 4px 12px -4px rgb(47 91 234 / 0.45);
+
+  --sidebar-elevation: none;
+  --sidebar-inset: 0px;
+  --workspace-elevation: var(--elevation-card);
+}
+
+/* Derived tokens, resolved against whichever theme the element is in. */
+[data-theme] {
+  --color-hover: color-mix(in oklab, var(--color-fg) 5%, transparent);
+  --color-control-hover: color-mix(in oklab, var(--color-fg) 9%, transparent);
+  --color-active: color-mix(in oklab, var(--color-fg) 12%, transparent);
+
+  --color-positive-soft: color-mix(in oklab, var(--color-positive) 14%, var(--color-panel));
+  --color-warning-soft: color-mix(in oklab, var(--color-warning) 14%, var(--color-panel));
+  --color-danger-soft: color-mix(in oklab, var(--color-danger) 14%, var(--color-panel));
+  --color-info-soft: var(--color-accent-soft);
+
+  --focus-ring: 0 0 0 3px var(--color-accent-ring);
+  --elevation-focus: 0 0 0 4px var(--color-accent-ring), 0 12px 30px -14px rgb(0 0 0 / 0.35);
+
+  color: var(--color-fg);
+}

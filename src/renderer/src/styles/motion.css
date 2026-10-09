@@ -1,0 +1,217 @@
+/*
+ * Motion. Every element that appears, disappears or moves uses one of these presets so
+ * timing and easing stay consistent:
+ *
+ *   fade      overlays, scrims, crossfading views
+ *   pop       dialogs and other centered surfaces (scale + rise)
+ *   drop      popovers and menus, opening from their trigger
+ *   rise      toasts, floating pills and in-flow content that appears in place
+ *   collapse  in-flow content whose arrival or removal should move its neighbours smoothly
+ *
+ * Elements opt in with data-motion="<preset>" and data-state="open|closed"; <Presence> and
+ * usePresence (lib/motion.tsx) set both and keep an element mounted while it animates out.
+ * Entrances use --duration-base and --ease-out; exits are quicker (--duration-exit, --ease-in).
+ */
+
+@keyframes tm-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tm-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes tm-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@keyframes tm-pop-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+}
+@keyframes tm-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@keyframes tm-drop-out {
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.985);
+  }
+}
+@keyframes tm-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes tm-rise-out {
+  to {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes tm-collapse-in {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+}
+@keyframes tm-collapse-out {
+  to {
+    height: 0;
+    opacity: 0;
+    margin-block: 0;
+    padding-block: 0;
+  }
+}
+@keyframes tm-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+@keyframes tm-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes tm-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes tm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* An expanding ring around a live dot. */
+@keyframes tm-ring {
+  from {
+    transform: scale(0.6);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@layer components {
+  [data-motion='fade'][data-state='open'] {
+    animation: tm-fade-in var(--duration-base) var(--ease-out) both;
+  }
+  [data-motion='fade'][data-state='closed'] {
+    animation: tm-fade-out var(--duration-exit) var(--ease-in) both;
+  }
+  [data-motion='pop'][data-state='open'] {
+    animation: tm-pop-in var(--duration-slow) var(--ease-out) both;
+  }
+  [data-motion='pop'][data-state='closed'] {
+    animation: tm-pop-out var(--duration-exit) var(--ease-in) both;
+  }
+  [data-motion='drop'][data-state='open'] {
+    animation: tm-drop-in var(--duration-base) var(--ease-out) both;
+    transform-origin: top center;
+  }
+  [data-motion='drop'][data-state='closed'] {
+    animation: tm-drop-out var(--duration-exit) var(--ease-in) both;
+    transform-origin: top center;
+  }
+  [data-motion='rise'][data-state='open'] {
+    animation: tm-rise-in var(--duration-base) var(--ease-out) both;
+  }
+  [data-motion='rise'][data-state='closed'] {
+    animation: tm-rise-out var(--duration-exit) var(--ease-in) both;
+  }
+  [data-motion='collapse'] {
+    overflow: clip;
+  }
+  [data-motion='collapse'][data-state='open'] {
+    animation: tm-collapse-in var(--duration-base) var(--ease-out) both;
+  }
+  [data-motion='collapse'][data-state='closed'] {
+    animation: tm-collapse-out var(--duration-exit) var(--ease-in) both;
+  }
+  /* Closed elements are on their way out: they must not catch clicks or focus. */
+  [data-motion][data-state='closed'] {
+    pointer-events: none;
+  }
+
+  /* Entrance-only presets for content that is replaced rather than removed (keyed views). */
+  .tm-fade-in {
+    animation: tm-fade-in var(--duration-base) var(--ease-out) both;
+  }
+  .tm-rise-in {
+    animation: tm-rise-in var(--duration-base) var(--ease-out) both;
+  }
+  .tm-pop-in {
+    animation: tm-pop-in var(--duration-slow) var(--ease-out) both;
+  }
+  .tm-slide-in {
+    animation: tm-slide-in var(--duration-base) var(--ease-out) both;
+  }
+
+  /* Live indicators. */
+  .tm-pulse-dot {
+    animation: tm-pulse 1.6s ease-in-out infinite;
+  }
+  .tm-blink {
+    animation: tm-blink 1.2s ease-in-out infinite;
+  }
+  .tm-spin {
+    animation: tm-spin 1s linear infinite;
+  }
+  /* A dot with a ring that keeps expanding from it; color comes from currentColor. */
+  .tm-live-dot {
+    position: relative;
+    display: inline-block;
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: currentColor;
+  }
+  .tm-live-dot::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border: 1.5px solid currentColor;
+    border-radius: inherit;
+    animation: tm-ring 1.6s var(--ease-out) infinite;
+  }
+}
+
+/* Theme switches crossfade the whole window (see lib/theme.ts). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-in-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

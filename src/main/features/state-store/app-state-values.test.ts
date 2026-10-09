@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PersistedProjectTask, PersistedRepository } from '../../../shared/app-types'
 import {
+  normalizePersistedSettings,
   createGeneralProject,
   ensureGeneralProject,
   normalizePersistedRepository,
@@ -200,6 +201,18 @@ describe('generated thread titles', () => {
     )
     expect(normalizePersistedThread({ ...base, generatedTitle: 5 as never })).not.toHaveProperty(
       'generatedTitle'
+    )
+  })
+})
+
+describe('theme persistence', () => {
+  const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: 'bug' }
+
+  it('keeps a known theme and drops unknown ones', () => {
+    const settings = { ...base, theme: 'mist' as const }
+    expect(normalizePersistedSettings(settings)).toBe(settings)
+    expect(normalizePersistedSettings({ ...base, theme: 'neon' as never })).not.toHaveProperty(
+      'theme'
     )
   })
 })

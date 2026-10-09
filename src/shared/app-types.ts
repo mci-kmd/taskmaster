@@ -1,3 +1,5 @@
+import type { ThemeId } from './themes'
+
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
 export type TerminalKind = 'shell'
 export type ProjectTaskTag = string
@@ -88,6 +90,8 @@ export interface PersistedSettings {
   favoriteCopilotModels?: string[]
   /** Model ids tucked under a Legacy row in their family in the model picker. */
   legacyCopilotModels?: string[]
+  /** Absent means the default theme. */
+  theme?: ThemeId
 }
 
 export type CopilotModelSelection = {
@@ -774,6 +778,8 @@ export interface UpdateSettingsInput {
   taskTagsInput: string
   /** Left unchanged when omitted. */
   legacyCopilotModels?: string[]
+  /** Left unchanged when omitted. */
+  theme?: ThemeId
 }
 
 export interface UpdateRepositoryInput {

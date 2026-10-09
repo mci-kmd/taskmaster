@@ -8,6 +8,7 @@ import EditThreadDialog from './components/dialogs/EditThreadDialog'
 import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
 import ResizeHandle from './components/ResizeHandle'
+import Presence from './components/ui/Presence'
 import type { SessionMap } from './components/TerminalSessions'
 import { getRendererApi } from './shared/api/client'
 import { useAppSnapshot } from './shared/hooks/use-app-snapshot'
@@ -28,6 +29,8 @@ import {
   type UpdateRepositoryTaskInput
 } from '../../shared/app-types'
 import { isGeneralProject } from '../../shared/general-project'
+import { DEFAULT_THEME } from '../../shared/themes'
+import { setTheme } from './lib/theme'
 
 type DialogKey = 'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | null
 
@@ -702,6 +705,15 @@ export default function App(): React.JSX.Element {
     }
   }, [selectedThread])
 
+  // Follow the saved theme; the first sync only confirms what main.tsx applied at startup.
+  const savedTheme = snapshot ? (snapshot.settings.theme ?? DEFAULT_THEME) : null
+  const themeSynced = useRef(false)
+  useEffect(() => {
+    if (!savedTheme) return
+    setTheme(savedTheme, { animate: themeSynced.current })
+    themeSynced.current = true
+  }, [savedTheme])
+
   // Refresh repo state (current branch, primary branch, etc.) every time the
   // New Thread dialog opens — git state can change externally between opens.
   useEffect(() => {
@@ -728,18 +740,18 @@ export default function App(): React.JSX.Element {
 
   if (!snapshot) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[var(--color-bg)] text-[var(--color-fg-muted)]">
-        <span className="font-mono text-[12px] uppercase tracking-[0.2em] text-[var(--color-fg-subtle)]">
+      <div className="tm-app items-center justify-center">
+        <span className="tm-fade-in flex items-center gap-2 text-[12px] font-medium text-fg-subtle">
+          <span className="tm-live-dot text-accent" />
           Loading
-          <span className="tm-pulse-dot ml-1 inline-block size-1 rounded-full bg-[var(--color-fg)] align-middle" />
         </span>
       </div>
     )
   }
 
   return (
-    <div className="flex h-screen bg-[var(--color-bg)] text-[var(--color-fg)]">
-      <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
+    <div className="tm-app">
+      <div className="tm-app-sidebar" style={{ width: sidebarWidth }}>
         <Sidebar
           busyAddRepository={busyAction === 'add-repository'}
           closingThread={busyAction === 'close-thread'}
@@ -782,56 +794,58 @@ export default function App(): React.JSX.Element {
         />
       </div>
 
-      <div className="relative flex min-h-0 min-w-0 flex-1">
-        <div className="flex min-h-0 min-w-0 flex-1" inert={performanceOpen}>
-          <Workspace
-            hasRepositories={snapshot.repositories.length > 0}
-            onAddRepository={() => void handleAddRepository()}
-            onCompleteRepositoryTask={handleCompleteRepositoryTask}
-            onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
-            onReopenRepositoryTask={handleReopenRepositoryTask}
-            onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
-            onReorderRepositoryTasks={handleReorderRepositoryTasks}
-            onNewThread={() => handleOpenNewThreadDialog()}
-            onStartRunCommand={() => void handleStartRunCommand()}
-            onStopRunCommand={() => void handleStopRunCommand()}
-            onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
-            onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
-            onOpenSolutionInVisualStudio={() => void handleOpenSolutionInVisualStudio()}
-            onRefresh={refreshSnapshot}
-            onSessionsChange={handleSessionsChange}
-            repositoryTaskBusy={
-              busyAction === 'create-task' ||
-              busyAction === 'complete-task' ||
-              busyAction === 'reopen-task' ||
-              busyAction === 'update-task'
-            }
-            runCommandBusy={busyAction === 'run-command'}
-            selectedRepository={
-              selectedThread
-                ? (snapshot.repositories.find(
-                    (repository) => repository.id === selectedThread.repositoryId
-                  ) ?? null)
-                : selectedRepository
-            }
-            showRepositoryTasks={repositoryViewId !== null}
-            selectedThread={selectedThread}
-            settings={snapshot.settings}
-            threads={allThreads}
-          />
-        </div>
-        {performanceOpen ? (
-          <div className="absolute inset-0 z-10 flex min-h-0 min-w-0">
-            <ModelPerformanceView
-              samples={performanceSamples}
-              loading={performanceLoading}
-              error={performanceError}
-              usdDkkRate={usdDkkRate}
-              onRetry={() => setPerformanceRetry((value) => value + 1)}
-              onClose={() => setPerformanceOpen(false)}
+      <div className="tm-app-main">
+        <div className="tm-workspace-card">
+          <div className="flex min-h-0 min-w-0 flex-1" inert={performanceOpen}>
+            <Workspace
+              hasRepositories={snapshot.repositories.length > 0}
+              onAddRepository={() => void handleAddRepository()}
+              onCompleteRepositoryTask={handleCompleteRepositoryTask}
+              onCreateRepositoryTask={(input) => handleCreateRepositoryTask(input)}
+              onReopenRepositoryTask={handleReopenRepositoryTask}
+              onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
+              onReorderRepositoryTasks={handleReorderRepositoryTasks}
+              onNewThread={() => handleOpenNewThreadDialog()}
+              onStartRunCommand={() => void handleStartRunCommand()}
+              onStopRunCommand={() => void handleStopRunCommand()}
+              onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
+              onOpenWorkingDirectoryInVscode={() => void handleOpenWorkingDirectoryInVscode()}
+              onOpenSolutionInVisualStudio={() => void handleOpenSolutionInVisualStudio()}
+              onRefresh={refreshSnapshot}
+              onSessionsChange={handleSessionsChange}
+              repositoryTaskBusy={
+                busyAction === 'create-task' ||
+                busyAction === 'complete-task' ||
+                busyAction === 'reopen-task' ||
+                busyAction === 'update-task'
+              }
+              runCommandBusy={busyAction === 'run-command'}
+              selectedRepository={
+                selectedThread
+                  ? (snapshot.repositories.find(
+                      (repository) => repository.id === selectedThread.repositoryId
+                    ) ?? null)
+                  : selectedRepository
+              }
+              showRepositoryTasks={repositoryViewId !== null}
+              selectedThread={selectedThread}
+              settings={snapshot.settings}
+              threads={allThreads}
             />
           </div>
-        ) : null}
+          <Presence motion="fade" show={performanceOpen}>
+            <div className="absolute inset-0 z-10 flex min-h-0 min-w-0 bg-panel">
+              <ModelPerformanceView
+                samples={performanceSamples}
+                loading={performanceLoading}
+                error={performanceError}
+                usdDkkRate={usdDkkRate}
+                onRetry={() => setPerformanceRetry((value) => value + 1)}
+                onClose={() => setPerformanceOpen(false)}
+              />
+            </div>
+          </Presence>
+        </div>
       </div>
 
       <NewThreadDialog
@@ -871,7 +885,7 @@ export default function App(): React.JSX.Element {
         thread={editingThread}
       />
 
-      {toastError ? <Toast message={toastError} onDismiss={() => setToastError(null)} /> : null}
+      <Toast message={toastError} onDismiss={() => setToastError(null)} />
     </div>
   )
 }

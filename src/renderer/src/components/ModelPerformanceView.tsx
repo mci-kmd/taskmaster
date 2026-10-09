@@ -8,7 +8,6 @@ import {
 import type { ModelPerformanceSample, UsdDkkRate } from '../../../shared/app-types'
 import { formatCostAmount } from './copilot/prompt-cost'
 import SegmentedControl from './ui/SegmentedControl'
-import '../assets/model-performance.css'
 
 type Props = {
   samples: ModelPerformanceSample[]

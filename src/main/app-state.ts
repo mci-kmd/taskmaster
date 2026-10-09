@@ -32,6 +32,7 @@ import type {
 } from '../shared/app-types'
 import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from '../shared/app-types'
 import { parseTaskTagsInput } from '../shared/task-tags'
+import { DEFAULT_THEME, type ThemeId } from '../shared/themes'
 import { isHttpUrl } from '../shared/preview'
 import { normalizeCopilotTitle, threadDisplayName } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
@@ -162,7 +163,8 @@ const settingsService = createSettingsService({
   saveState,
   successResult,
   normalizeTerminalFontFamilyInput,
-  clampSidebarWidth
+  clampSidebarWidth,
+  onThemeChange: (theme) => themeChangeListener?.(theme)
 })
 const repositoryService = createRepositoryService({
   ensureState,
@@ -464,6 +466,16 @@ export function markCopilotSessionStarted(threadId: string, sessionId: string): 
     sessionId,
     source: thread?.resumeSessionId ? 'resume' : 'new'
   })
+}
+
+let themeChangeListener: ((theme: ThemeId) => void) | null = null
+
+export function getThemeSetting(): ThemeId {
+  return ensureState().settings.theme ?? DEFAULT_THEME
+}
+
+export function setThemeChangeListener(listener: (theme: ThemeId) => void): void {
+  themeChangeListener = listener
 }
 
 export function getCopilotModelDefaults(): CopilotModelSelection | null {

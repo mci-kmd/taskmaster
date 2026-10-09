@@ -1,0 +1,69 @@
+/* Segmented control (ui/SegmentedControl.tsx): a recessed track with a raised thumb that
+   slides to the active option. */
+@layer components {
+  .tm-segmented {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    width: 100%;
+    padding: 3px;
+    gap: 2px;
+    border-radius: var(--radius-lg);
+    background: var(--color-surface-2);
+    box-shadow: var(--elevation-inset);
+  }
+
+  .tm-segmented__thumb {
+    position: absolute;
+    z-index: -1;
+    top: 3px;
+    bottom: 3px;
+    left: 0;
+    width: var(--tm-thumb-width, 0);
+    transform: translateX(var(--tm-thumb-x, 0));
+    border-radius: var(--radius-sm);
+    background: var(--color-raised);
+    box-shadow: var(--elevation-raised);
+    transition:
+      transform var(--duration-slow) var(--ease-out),
+      width var(--duration-slow) var(--ease-out);
+  }
+  /* Placed without sliding on first render and on resizes. */
+  .tm-segmented__thumb[data-instant] {
+    transition: none;
+  }
+
+  .tm-segmented__option {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 0;
+    height: 26px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 520;
+    color: var(--color-fg-muted);
+    white-space: nowrap;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: color var(--duration-fast) ease;
+  }
+  .tm-segmented__option:hover:not([data-active='true']):not([aria-disabled='true']) {
+    color: var(--color-fg);
+  }
+  .tm-segmented__option[aria-disabled='true'] {
+    color: var(--color-fg-faint);
+    cursor: not-allowed;
+  }
+  .tm-segmented__option[data-active='true'] {
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+  .tm-segmented__option:focus-visible {
+    outline-offset: -1px;
+  }
+}

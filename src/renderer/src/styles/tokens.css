@@ -1,0 +1,113 @@
+/*
+ * Design tokens.
+ *
+ * Colors and elevations are theme-dependent: their values live in themes.css, keyed by
+ * [data-theme]. They are registered here so Tailwind generates utilities for them
+ * (bg-panel, text-fg-muted, border-border-strong, bg-accent/20, …). `inline reference`
+ * makes those utilities read the live variable without Tailwind emitting a value, so a theme
+ * can be scoped to any element (the theme picker previews each theme in place).
+ *
+ * Use semantic tokens in components; never raw hex values or Tailwind's palette colors.
+ */
+@theme inline reference {
+  /* Surfaces, from back to front. */
+  --color-bg: var(--color-bg); /* window backdrop */
+  --color-sidebar: var(--color-sidebar); /* sidebar plane (transparent where it sits on bg) */
+  --color-panel: var(--color-panel); /* workspace card, dialogs */
+  --color-surface: var(--color-surface); /* quiet tiles inside a panel: tool rows, code, cards */
+  --color-surface-2: var(--color-surface-2); /* recessed: segmented tracks, inline code */
+  --color-input: var(--color-input); /* text fields, pickers, the composer */
+  --color-raised: var(--color-raised); /* raised controls: selected row, active segment */
+  --color-popover: var(--color-popover); /* menus, listboxes, tooltips */
+  --color-hover: var(--color-hover); /* translucent; works on every surface */
+  --color-control-hover: var(--color-control-hover);
+  --color-active: var(--color-active);
+  --color-overlay: var(--color-overlay); /* modal scrim */
+
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+
+  --color-fg: var(--color-fg);
+  --color-fg-muted: var(--color-fg-muted);
+  --color-fg-subtle: var(--color-fg-subtle);
+  --color-fg-faint: var(--color-fg-faint); /* decorative only: separators, chevrons */
+
+  --color-positive: var(--color-positive);
+  --color-positive-soft: var(--color-positive-soft);
+  --color-warning: var(--color-warning);
+  --color-warning-soft: var(--color-warning-soft);
+  --color-danger: var(--color-danger);
+  --color-danger-soft: var(--color-danger-soft);
+  --color-info: var(--color-info);
+  --color-info-soft: var(--color-info-soft);
+
+  /* Cobalt: selection, focus, primary actions and live work. */
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-fg: var(--color-accent-fg); /* text on an accent fill */
+  --color-accent-soft: var(--color-accent-soft); /* tinted surfaces: your messages, badges */
+  --color-accent-soft-strong: var(--color-accent-soft-strong);
+  --color-accent-ring: var(--color-accent-ring); /* focus halos */
+  --color-accent-line: var(--color-accent-line); /* hairlines on tinted surfaces */
+
+  /* Coral: a sparing splash for the logo, things that need you, and skills. */
+  --color-accent-2: var(--color-accent-2);
+  --color-accent-2-ink: var(--color-accent-2-ink); /* coral text on coral-soft */
+  --color-accent-2-soft: var(--color-accent-2-soft);
+  --color-accent-2-line: var(--color-accent-2-line);
+
+  --color-syntax-keyword: var(--color-syntax-keyword);
+  --color-syntax-property: var(--color-syntax-property);
+  --color-syntax-string: var(--color-syntax-string);
+  --color-syntax-number: var(--color-syntax-number);
+  --color-syntax-comment: var(--color-syntax-comment);
+  --color-syntax-punctuation: var(--color-syntax-punctuation);
+}
+
+@theme {
+  --font-sans:
+    'Geist Variable', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  --font-mono: 'Geist Mono Variable', 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  /* One radius scale for everything; Porcelain's softness comes from these. */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-2xl: 18px;
+
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+:root {
+  /* Motion. Keep in sync with lib/motion.ts, which times unmounting after exit animations. */
+  --duration-fast: 120ms; /* hovers, color changes */
+  --duration-base: 180ms; /* entering elements, small movements */
+  --duration-slow: 260ms; /* panels, larger movements */
+  --duration-exit: 140ms; /* leaving elements: exits are quicker than entrances */
+
+  /* Shell layout. */
+  --layout-gutter: 8px;
+  --workspace-radius: var(--radius-xl);
+}
+
+/* Elevation utilities; values come from the theme. */
+@utility elevation-card {
+  box-shadow: var(--elevation-card);
+}
+@utility elevation-raised {
+  box-shadow: var(--elevation-raised);
+}
+@utility elevation-pop {
+  box-shadow: var(--elevation-pop);
+}
+@utility elevation-inset {
+  box-shadow: var(--elevation-inset);
+}
+@utility elevation-accent {
+  box-shadow: var(--elevation-accent);
+}

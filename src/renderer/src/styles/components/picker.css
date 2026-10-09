@@ -1,0 +1,245 @@
+/* Shared pickers, menus and listboxes; popups are portalled so panels never clip them. */
+@layer components {
+  .tm-picker {
+    position: relative;
+    min-width: 0;
+  }
+  .tm-picker-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-input);
+    color: var(--color-fg);
+    padding: 7px 10px;
+    font-size: 13px;
+    text-align: left;
+    line-height: 1.45;
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
+  }
+  .tm-picker-trigger:hover:not(:disabled) {
+    border-color: var(--color-border-strong);
+  }
+  .tm-picker-trigger[aria-expanded='true'] {
+    border-color: var(--color-accent);
+    box-shadow: var(--focus-ring);
+  }
+  .tm-picker-trigger:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .tm-picker-trigger[aria-invalid='true'] {
+    border-color: var(--color-danger);
+  }
+  .tm-picker--compact .tm-picker-trigger {
+    padding: 4px 7px;
+    font-size: 12px;
+    border-radius: var(--radius-md);
+  }
+  .tm-picker-label {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tm-picker-trigger > .tm-picker-label {
+    flex: 1;
+  }
+  .tm-picker-icon,
+  .tm-picker-chevron {
+    display: flex;
+    flex-shrink: 0;
+  }
+  .tm-picker-chevron {
+    margin-left: auto;
+    color: var(--color-fg-subtle);
+    transition: transform var(--duration-base) var(--ease-out);
+  }
+  .tm-picker-trigger[aria-expanded='true'] .tm-picker-chevron {
+    transform: rotate(180deg);
+  }
+  /* Every floating surface: listboxes, menus, the model picker, skill completions. Opened and
+     closed with <Popover> (ui/Popover.tsx), which applies the drop motion. */
+  .tm-picker-popup {
+    z-index: 100;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--radius-lg);
+    padding: 4px;
+    background: var(--color-popover);
+    color: var(--color-fg);
+    box-shadow: var(--elevation-pop);
+  }
+  .tm-picker-option {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border-radius: var(--radius-sm);
+    padding: 7px 9px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background-color var(--duration-fast) ease;
+  }
+  .tm-picker-option[data-highlighted='true'] {
+    background: var(--color-control-hover);
+  }
+  .tm-picker-option[aria-selected='true'] {
+    color: var(--color-fg);
+    font-weight: 540;
+  }
+  .tm-picker-option[aria-disabled='true'] {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .tm-picker-option-text {
+    min-width: 0;
+    flex: 1;
+  }
+  .tm-picker-description {
+    display: block;
+    margin-top: 3px;
+    color: var(--color-fg-subtle);
+    font-size: 11px;
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tm-picker-check {
+    width: 12px;
+    flex-shrink: 0;
+    color: var(--color-accent);
+  }
+  .tm-picker-star {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    margin: -3px -5px -3px -4px;
+    border-radius: var(--radius-xs);
+    color: var(--color-fg-subtle);
+    opacity: 0;
+    transition:
+      opacity var(--duration-fast) ease,
+      color var(--duration-fast) ease;
+  }
+  .tm-picker-option:hover .tm-picker-star,
+  .tm-picker-option[data-highlighted='true'] .tm-picker-star,
+  .tm-picker-star[aria-pressed='true'] {
+    opacity: 1;
+  }
+  .tm-picker-star[aria-pressed='true'] {
+    color: var(--color-warning);
+  }
+  .tm-picker-star:hover {
+    background: var(--color-hover);
+    color: var(--color-fg);
+  }
+  .tm-picker-star[aria-pressed='true']:hover {
+    color: var(--color-warning);
+  }
+  .tm-picker-legacy {
+    margin-top: 3px;
+    border-top: 1px solid var(--color-border);
+    border-radius: 0 0 5px 5px;
+    color: var(--color-fg-muted);
+  }
+  .tm-picker-legacy-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--color-fg-subtle);
+    font-variant-numeric: tabular-nums;
+  }
+  .tm-picker-legacy-chevron {
+    flex-shrink: 0;
+    transition: transform var(--duration-fast) ease;
+  }
+  .tm-picker-legacy-chevron[data-expanded='true'] {
+    transform: rotate(90deg);
+  }
+  .tm-picker-option--legacy {
+    padding-left: 20px;
+    color: var(--color-fg-muted);
+  }
+  .tm-picker-favorites {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--color-border);
+  }
+  .tm-picker-favorites .tm-picker-group-label {
+    padding-top: 5px;
+  }
+  .tm-picker-empty {
+    padding: 9px;
+    font-size: 12px;
+    color: var(--color-fg-subtle);
+  }
+  .tm-picker-editable {
+    position: relative;
+  }
+  .tm-picker-editable .tm-picker-trigger {
+    padding-right: 30px;
+  }
+  .tm-picker-toggle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    color: var(--color-fg-subtle);
+  }
+  .tm-picker-validation {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .tm-picker-error {
+    display: block;
+    margin-top: 4px;
+    color: var(--color-danger);
+    font-size: 11px;
+  }
+
+  .tm-action-menu-item {
+    display: block;
+    width: 100%;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    text-align: left;
+    font-size: 12.5px;
+    color: var(--color-fg);
+    outline: none;
+  }
+  .tm-action-menu-item:disabled {
+    color: var(--color-fg-faint);
+  }
+  .tm-action-menu-item:not(:disabled):hover,
+  .tm-action-menu-item:not(:disabled):focus-visible {
+    background: var(--color-control-hover);
+  }
+
+  .tm-picker-group + .tm-picker-group {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid var(--color-border);
+  }
+  .tm-picker-group-label {
+    padding: 7px 9px 5px;
+    color: var(--color-fg-subtle);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+}

@@ -24,7 +24,6 @@ import {
   RefreshIcon
 } from '../Icons'
 import { attachToDraft } from '../copilot/session-drafts'
-import '../../assets/preview.css'
 
 const api = getRendererApi()
 

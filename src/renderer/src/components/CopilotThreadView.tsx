@@ -35,7 +35,6 @@ import {
   withUniqueNames
 } from './copilot/attachment-markers'
 import { stepReasoningEffort } from '../../../shared/reasoning-effort'
-import '../assets/copilot-session.css'
 
 const api = getRendererApi()
 type Props = {

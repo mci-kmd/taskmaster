@@ -26,6 +26,7 @@ import {
   normalizeTerminalFontFamilyInput,
   DEFAULT_TASK_TAGS_INPUT
 } from '../settings/settings-values'
+import { isThemeId } from '../../../shared/themes'
 import { normalizeRepositorySolutionFilePath } from '../repositories/repository-solution-file-service'
 import {
   normalizeRepositoryPreviewUrl,
@@ -258,21 +259,30 @@ export function normalizePersistedSettings(
       : normalizeTaskTagsInput(currentTaskTagsInput)
   const favoriteCopilotModels = normalizeModelIds(settings.favoriteCopilotModels)
   const legacyCopilotModels = normalizeModelIds(settings.legacyCopilotModels)
+  const theme = isThemeId(settings.theme) ? settings.theme : undefined
 
-  return yoloEnabled === settings.yoloEnabled &&
+  if (
+    yoloEnabled === settings.yoloEnabled &&
     terminalFontFamilyInput === settings.terminalFontFamilyInput &&
     taskTagsInput === currentTaskTagsInput &&
     favoriteCopilotModels === settings.favoriteCopilotModels &&
-    legacyCopilotModels === settings.legacyCopilotModels
-    ? settings
-    : {
-        ...settings,
-        yoloEnabled,
-        terminalFontFamilyInput,
-        taskTagsInput,
-        ...(favoriteCopilotModels ? { favoriteCopilotModels } : {}),
-        ...(legacyCopilotModels ? { legacyCopilotModels } : {})
-      }
+    legacyCopilotModels === settings.legacyCopilotModels &&
+    theme === settings.theme
+  ) {
+    return settings
+  }
+
+  const normalized: PersistedAppState['settings'] = {
+    ...settings,
+    yoloEnabled,
+    terminalFontFamilyInput,
+    taskTagsInput,
+    ...(favoriteCopilotModels ? { favoriteCopilotModels } : {}),
+    ...(legacyCopilotModels ? { legacyCopilotModels } : {})
+  }
+  if (theme) normalized.theme = theme
+  else delete normalized.theme
+  return normalized
 }
 
 export function normalizeModelIds(value: unknown): string[] | undefined {

@@ -1,0 +1,104 @@
+/* Form controls: text fields (ui/Field.tsx) and checkboxes (ui/Checkbox.tsx). */
+@layer components {
+  .tm-input {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-input);
+    color: var(--color-fg);
+    padding: 7px 10px;
+    font-size: 13px;
+    line-height: 20px;
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
+  }
+  .tm-input::placeholder {
+    color: var(--color-fg-faint);
+  }
+  .tm-input:hover:not(:focus):not(:disabled) {
+    border-color: var(--color-border-strong);
+  }
+  .tm-input:focus {
+    border-color: var(--color-accent);
+    box-shadow: var(--focus-ring);
+  }
+  .tm-input:focus-visible {
+    outline: none;
+  }
+  .tm-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .tm-input[aria-invalid='true'] {
+    border-color: color-mix(in oklab, var(--color-danger) 65%, transparent);
+  }
+  .tm-input[aria-invalid='true']:focus {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 18%, transparent);
+  }
+  .tm-input--mono {
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+
+  .tm-checkbox {
+    position: relative;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tm-checkbox__input {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    opacity: 0;
+    cursor: inherit;
+  }
+  .tm-checkbox[data-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+  .tm-checkbox__box {
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    width: 15px;
+    height: 15px;
+    margin-top: 1px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-input);
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
+  }
+  .tm-checkbox:hover:not([data-disabled='true']) .tm-checkbox__box {
+    border-color: var(--color-fg-subtle);
+  }
+  .tm-checkbox__input:focus-visible + .tm-checkbox__box {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  .tm-checkbox[data-checked='true'] .tm-checkbox__box {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    box-shadow: var(--elevation-accent);
+  }
+  .tm-checkbox__check {
+    width: 10px;
+    height: 10px;
+    color: var(--color-accent-fg);
+    animation: tm-pop-in var(--duration-base) var(--ease-out) both;
+  }
+  .tm-checkbox__label {
+    font-size: 12.5px;
+    color: var(--color-fg);
+    line-height: 1.45;
+  }
+  .tm-checkbox[data-disabled='true'] .tm-checkbox__label {
+    color: var(--color-fg-muted);
+  }
+}

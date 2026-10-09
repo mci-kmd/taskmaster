@@ -1,0 +1,105 @@
+/* Sidebar thread inbox. */
+@layer components {
+  .tm-inbox-row {
+    transition: background-color 120ms ease;
+  }
+  .tm-status-badge {
+    --tm-badge-color: var(--color-positive);
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0 6px 0 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--tm-badge-color) 20%, transparent);
+    color: var(--tm-badge-color);
+    font-weight: 600;
+    line-height: 16px;
+  }
+  .tm-status-badge[data-status='input'] {
+    --tm-badge-color: #c4a7ff;
+  }
+  .tm-status-badge[data-status='committing'] {
+    --tm-badge-color: var(--color-info);
+  }
+  .tm-status-badge-pulse {
+    animation: tm-badge-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes tm-badge-pulse {
+    50% {
+      opacity: 0.35;
+    }
+  }
+  .tm-inbox-app-running {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-positive) 18%, transparent);
+    color: var(--color-positive);
+  }
+  .tm-done-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px 1px 6px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--color-positive) 45%, transparent);
+    background: color-mix(in srgb, var(--color-positive) 16%, transparent);
+    color: var(--color-positive);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 16px;
+    white-space: nowrap;
+  }
+  .tm-done-pill:hover {
+    background: color-mix(in srgb, var(--color-positive) 26%, transparent);
+  }
+  .tm-inbox-actions {
+    transition: opacity 120ms ease;
+  }
+  .tm-inbox-settled-body {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    max-height: 0;
+    opacity: 0;
+    transition:
+      max-height 180ms ease,
+      opacity 140ms ease;
+  }
+  .tm-inbox-settled-body[data-expanded='true'] {
+    max-height: min(35vh, 320px);
+    opacity: 1;
+  }
+  .tm-inbox-shelf-chevron {
+    transition: transform 160ms ease;
+  }
+  .tm-inbox-shelf-chevron[data-expanded='true'] {
+    transform: rotate(90deg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tm-picker *,
+    .tm-picker-popup,
+    .tm-inbox *,
+    .tm-inbox-row {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+
+  .tm-inbox-action {
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
+  }
+  .tm-inbox-action:hover,
+  .tm-inbox-action:focus-visible,
+  .tm-inbox-action[aria-expanded='true'] {
+    background: var(--color-control-hover);
+    color: var(--color-fg);
+  }
+  .tm-inbox-actions:has([aria-expanded='true']) {
+    opacity: 1;
+  }
+}

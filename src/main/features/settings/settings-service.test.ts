@@ -63,6 +63,42 @@ describe('settings service', () => {
     expect(state.settings).not.toHaveProperty('legacyCopilotModels')
   })
 
+  it('stores the theme when given and reports only actual changes', () => {
+    const settings: PersistedSettings = {
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: ''
+    }
+    const state = { settings, ui: { selectedRepositoryId: null, selectedThreadId: null } }
+    const onThemeChange = vi.fn()
+    const service = createSettingsService({
+      ensureState: () => state,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      normalizeTerminalFontFamilyInput: (value) => value,
+      clampSidebarWidth: (value) => value,
+      onThemeChange
+    })
+    const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+
+    service.updateSettings({ ...base, theme: 'slate' })
+    expect(state.settings.theme).toBe('slate')
+    expect(onThemeChange).toHaveBeenLastCalledWith('slate')
+
+    service.updateSettings(base)
+    service.updateSettings({ ...base, theme: 'slate' })
+    expect(state.settings.theme).toBe('slate')
+    expect(onThemeChange).toHaveBeenCalledTimes(1)
+
+    service.updateSettings({ ...base, theme: 'graphite' })
+    expect(state.settings).not.toHaveProperty('theme')
+    expect(onThemeChange).toHaveBeenLastCalledWith('graphite')
+
+    service.updateSettings({ ...base, theme: 'neon' as never })
+    expect(state.settings).not.toHaveProperty('theme')
+    expect(onThemeChange).toHaveBeenCalledTimes(2)
+  })
+
   it('clamps sidebar width on UI updates', () => {
     const saveState = vi.fn()
     const state = {

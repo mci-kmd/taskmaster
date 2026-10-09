@@ -1,0 +1,27 @@
+/*
+ * Stylesheet entry. Layers, lowest to highest precedence: theme, base (element defaults),
+ * components (the tm-* classes below), utilities (Tailwind). Overrides of third-party
+ * stylesheets stay unlayered so they beat those libraries' own unlayered rules.
+ */
+@import 'tailwindcss';
+@import '@fontsource-variable/geist/index.css';
+@import '@fontsource-variable/geist-mono/index.css';
+
+@import './tokens.css';
+@import './themes.css';
+@import './base.css';
+@import './motion.css';
+
+@import './components/layout.css';
+@import './components/button.css';
+@import './components/field.css';
+@import './components/segmented.css';
+@import './components/picker.css';
+@import './components/settings.css';
+@import './components/inbox.css';
+@import './components/tasks.css';
+@import './components/session.css';
+@import './components/preview.css';
+@import './components/performance.css';
+@import './components/terminal.css';
+@import './components/diff.css';

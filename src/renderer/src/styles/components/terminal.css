@@ -1,0 +1,27 @@
+/* Thread terminals (xterm). Unlayered: these override xterm.css, which is unlayered too. */
+.xterm .xterm-viewport {
+  scrollbar-width: none;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: #303030;
+  background-clip: padding-box;
+}
+
+.xterm,
+.xterm .xterm-helper-textarea,
+.xterm .composition-view,
+.xterm .xterm-accessibility,
+.xterm .xterm-accessibility-tree,
+.xterm-char-measure-element {
+  letter-spacing: 0;
+  font-feature-settings: normal;
+  font-variation-settings: normal;
+  font-variant-ligatures: none;
+  text-rendering: auto;
+}

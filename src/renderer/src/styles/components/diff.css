@@ -1,0 +1,138 @@
+/* Diff view, line jumps and the embedded Monaco editor. Unlayered: these override react-diff-view and Monaco styles, which are unlayered too. */
+.tm-diff-view {
+  --diff-background-color: transparent;
+  --diff-text-color: var(--color-fg);
+  --diff-font-family: var(--font-mono);
+  --diff-selection-background-color: rgba(255, 255, 255, 0.12);
+  --diff-selection-text-color: var(--color-fg);
+  --diff-gutter-insert-background-color: rgba(110, 231, 168, 0.1);
+  --diff-gutter-insert-text-color: var(--color-positive);
+  --diff-gutter-delete-background-color: rgba(240, 140, 140, 0.1);
+  --diff-gutter-delete-text-color: var(--color-danger);
+  --diff-gutter-selected-background-color: rgba(255, 255, 255, 0.08);
+  --diff-gutter-selected-text-color: var(--color-fg);
+  --diff-code-insert-background-color: rgba(110, 231, 168, 0.08);
+  --diff-code-insert-text-color: var(--color-fg);
+  --diff-code-delete-background-color: rgba(240, 140, 140, 0.08);
+  --diff-code-delete-text-color: var(--color-fg);
+  --diff-code-insert-edit-background-color: rgba(110, 231, 168, 0.18);
+  --diff-code-insert-edit-text-color: var(--color-fg);
+  --diff-code-delete-edit-background-color: rgba(240, 140, 140, 0.18);
+  --diff-code-delete-edit-text-color: var(--color-fg);
+  --diff-code-selected-background-color: rgba(255, 255, 255, 0.08);
+  --diff-code-selected-text-color: var(--color-fg);
+  --diff-omit-gutter-line-color: var(--color-border-strong);
+}
+
+.tm-diff-view .diff {
+  min-width: 100%;
+}
+
+.tm-diff-view--split .diff {
+  min-width: 1100px;
+}
+
+.tm-diff-view .diff td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.tm-diff-view .diff-gutter {
+  min-width: 0;
+  padding: 0 0.45ch 0 0.2ch;
+  color: var(--color-fg-subtle);
+}
+
+.tm-diff-view .diff-gutter-col {
+  width: 4.5ch;
+}
+
+.tm-diff-view .diff-gutter-omit:before {
+  margin-left: calc(100% - 2px);
+}
+
+.tm-diff-view .diff-code,
+.tm-diff-view .diff-line,
+.tm-diff-view .diff-decoration-content {
+  font-size: 12.5px;
+}
+
+.tm-diff-view .diff-code {
+  position: relative;
+  padding-right: 2.6rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.tm-diff-gap-cell {
+  padding: 0 !important;
+}
+
+.tm-diff-gap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  color: var(--color-fg-muted);
+}
+
+.tm-diff-gap__line {
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tm-diff-gap__label {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.tm-diff-line-jump {
+  position: absolute;
+  top: 50%;
+  right: 0.55rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  transform: translateY(-50%);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: rgba(22, 22, 24, 0.92);
+  color: var(--color-fg-muted);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+
+.tm-diff-line-jump:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-fg);
+}
+
+.tm-diff-line-jump:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.tm-monaco-editor {
+  height: 100%;
+  min-height: 0;
+}
+
+.tm-monaco-editor .monaco-editor,
+.tm-monaco-editor .monaco-editor-background,
+.tm-monaco-editor .margin {
+  background: var(--color-panel) !important;
+}

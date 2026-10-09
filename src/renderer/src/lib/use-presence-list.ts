@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { MOTION, canAnimate } from './motion'
 
 export type PresenceEntry<T> = {
   key: string
@@ -13,18 +14,11 @@ type PresenceState<T> = {
   entries: PresenceEntry<T>[]
 }
 
-const ENTER_MS = 160
-const MOVE_MS = 200
-const EXIT_MS = 160
+const ENTER_MS = MOTION.baseMs
+const MOVE_MS = MOTION.slowMs
+const EXIT_MS = MOTION.exitMs
 
 let nextExitToken = 1
-
-export function canAnimateLists(): boolean {
-  if (typeof window === 'undefined' || typeof Element.prototype.animate !== 'function') {
-    return false
-  }
-  return !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-}
 
 function toEntries<T>(items: readonly T[], getKey: (item: T) => string): PresenceEntry<T>[] {
   return items.map((item) => ({ key: getKey(item), item, exitToken: null }))
@@ -86,7 +80,7 @@ export function usePresenceList<T>(
       items,
       resetKey,
       entries:
-        state.resetKey === resetKey && canAnimateLists()
+        state.resetKey === resetKey && canAnimate()
           ? mergePresenceEntries(state.entries, items, getKey)
           : toEntries(items, getKey)
     }
@@ -129,7 +123,7 @@ export function useAnimatedListMotion<E extends HTMLElement>(
     const children = Array.from(list.current?.children ?? []).filter(
       (child): child is HTMLElement => child instanceof HTMLElement && !!child.dataset.motionKey
     )
-    const animate = canAnimateLists()
+    const animate = canAnimate()
     const reset = previous.current.resetKey !== resetKey
     const oldTops = reset ? new Map<string, number>() : previous.current.tops
     const order = children
@@ -157,7 +151,7 @@ export function useAnimatedListMotion<E extends HTMLElement>(
               },
               { opacity: 0, height: '0px', paddingBottom: '0px', transform: 'scale(0.98)' }
             ],
-            { duration: EXIT_MS, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' }
+            { duration: EXIT_MS, easing: MOTION.easeIn, fill: 'forwards' }
           )
         }
         continue
@@ -181,13 +175,13 @@ export function useAnimatedListMotion<E extends HTMLElement>(
             { opacity: 0, transform: 'translateY(6px)' },
             { opacity: 1, transform: 'translateY(0)' }
           ],
-          { duration: ENTER_MS, easing: 'ease-out' }
+          { duration: ENTER_MS, easing: MOTION.easeOut }
         )
       } else if (oldTop !== top) {
         child.getAnimations().forEach((animation) => animation.cancel())
         child.animate(
           [{ transform: `translateY(${oldTop - top}px)` }, { transform: 'translateY(0)' }],
-          { duration: MOVE_MS, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' }
+          { duration: MOVE_MS, easing: MOTION.easeOut }
         )
       }
     }

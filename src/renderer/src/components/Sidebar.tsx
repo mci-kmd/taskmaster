@@ -110,7 +110,7 @@ export default function Sidebar({
   }, [])
 
   return (
-    <aside className="flex min-h-0 w-full min-w-0 flex-col border-r border-[var(--color-border)] bg-[var(--color-panel)]">
+    <aside className="flex min-h-0 w-full min-w-0 flex-col">
       <div className="flex h-12 shrink-0 items-center justify-between gap-1 border-b border-[var(--color-border)] px-3">
         <div className="flex min-w-0 items-center gap-2 text-[var(--color-fg)]">
           <LogoMark className="text-[var(--color-fg)]" />

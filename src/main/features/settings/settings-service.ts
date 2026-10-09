@@ -5,6 +5,7 @@ import type {
   UpdateUiInput
 } from '../../../shared/app-types'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
+import { DEFAULT_THEME, isThemeId, type ThemeId } from '../../../shared/themes'
 import { normalizeModelIds } from '../state-store/app-state-values'
 
 type SettingsServiceDependencies = {
@@ -13,6 +14,8 @@ type SettingsServiceDependencies = {
   successResult: () => MutationResult
   normalizeTerminalFontFamilyInput: (input: string) => string
   clampSidebarWidth: (value: number) => number
+  /** Applies a changed theme to the native window chrome. */
+  onThemeChange?: (theme: ThemeId) => void
 }
 
 export function createSettingsService(dependencies: SettingsServiceDependencies): {
@@ -32,7 +35,16 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
         if (legacy.length) state.settings.legacyCopilotModels = legacy
         else delete state.settings.legacyCopilotModels
       }
+      const themeChanged =
+        input.theme !== undefined &&
+        isThemeId(input.theme) &&
+        input.theme !== (state.settings.theme ?? DEFAULT_THEME)
+      if (input.theme !== undefined && isThemeId(input.theme)) {
+        if (input.theme === DEFAULT_THEME) delete state.settings.theme
+        else state.settings.theme = input.theme
+      }
       dependencies.saveState()
+      if (themeChanged && input.theme) dependencies.onThemeChange?.(input.theme)
       return dependencies.successResult()
     },
 

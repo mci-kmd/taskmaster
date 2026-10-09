@@ -28,5 +28,10 @@ export default defineConfig(
       ...eslintPluginReactRefresh.configs.vite.rules
     }
   },
+  {
+    // Gallery sections export a descriptor object, not a component.
+    files: ['src/renderer/src/gallery/sections/**/*.tsx'],
+    rules: { 'react-refresh/only-export-components': 'off' }
+  },
   eslintConfigPrettier
 )

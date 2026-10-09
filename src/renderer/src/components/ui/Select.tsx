@@ -11,6 +11,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDownIcon, StarIcon } from '../Icons'
+import { usePresence } from '../../lib/motion'
 
 export type SelectOption = {
   value: string
@@ -97,6 +98,7 @@ export default function Select(props: SelectProps): React.JSX.Element {
     (option) => option.value === activeValue && !option.disabled
   )
   const expanded = open && !disabled
+  const popupPresence = usePresence(expanded)
   const label = selected.length
     ? selected.map((option) => option.label).join(', ')
     : values.filter(Boolean).join(', ') || placeholder
@@ -412,9 +414,15 @@ export default function Select(props: SelectProps): React.JSX.Element {
           Choose an option.
         </span>
       ) : null}
-      {expanded
+      {popupPresence.mounted
         ? createPortal(
-            <div ref={popup} className="tm-picker-popup" style={position}>
+            <div
+              ref={popup}
+              className="tm-picker-popup"
+              data-motion="drop"
+              data-state={popupPresence.state}
+              style={position}
+            >
               <div
                 id={listId}
                 role="listbox"
