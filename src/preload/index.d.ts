@@ -33,6 +33,7 @@ import type {
   TerminalApi,
   UpdateThreadLastUserMessageInput,
   UpdateThreadResumeSessionInput,
+  SetRepositoryFavoriteInput,
   UpdateRepositoryInput,
   UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
@@ -48,6 +49,7 @@ declare global {
     addRepository: () => Promise<MutationResult>
     updateRepository: (input: UpdateRepositoryInput) => Promise<MutationResult>
     removeRepository: (repositoryId: string) => Promise<MutationResult>
+    setRepositoryFavorite: (input: SetRepositoryFavoriteInput) => Promise<MutationResult>
     createRepositoryTask: (input: CreateRepositoryTaskInput) => Promise<MutationResult>
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) => Promise<MutationResult>
     reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => Promise<MutationResult>

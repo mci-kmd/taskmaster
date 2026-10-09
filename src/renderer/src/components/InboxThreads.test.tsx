@@ -90,6 +90,39 @@ const callbacks = (): Record<
 afterEach(cleanup)
 
 describe('inbox', () => {
+  it('lists favorite projects first and toggles favorites from the project picker', () => {
+    const onToggleRepositoryFavorite = vi.fn()
+    const projects = [
+      repository('Alpha', []),
+      { ...repository('Beta', []), favorite: true },
+      repository('Gamma', [])
+    ]
+    render(
+      <InboxThreads
+        repositories={projects}
+        selectedRepository={projects[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...callbacks()}
+        onToggleRepositoryFavorite={onToggleRepositoryFavorite}
+      />
+    )
+    const picker = screen.getByRole('combobox', { name: 'Project for new thread' })
+    fireEvent.click(picker)
+    expect(
+      screen.getAllByRole('option').map((option) => option.getAttribute('aria-label'))
+    ).toEqual(['Beta', 'Alpha', 'Gamma'])
+    expect(screen.getByRole('group', { name: 'Favorites' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add Gamma to favorites' }))
+    expect(onToggleRepositoryFavorite).toHaveBeenLastCalledWith('Gamma', true)
+    // Alpha is selected, so the highlight starts there.
+    fireEvent.keyDown(picker, { key: 'ArrowUp' })
+    fireEvent.keyDown(picker, { key: '*' })
+    expect(onToggleRepositoryFavorite).toHaveBeenLastCalledWith('Beta', false)
+  })
+
   it('shows when a thread is committing or running its app', () => {
     const busy = repository('Busy', [
       { ...thread('Committing', '2026-02-01'), commitPhase: 'hook' },

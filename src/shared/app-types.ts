@@ -118,6 +118,8 @@ export interface PersistedRepository {
   commitMessageModel?: CopilotModelSelection
   /** Push to the remote after an AI commit. Absent means off. */
   autoPushAfterCommit?: boolean
+  /** Listed first in project pickers. Absent means not a favorite. */
+  favorite?: boolean
   addedAt: string
   tasks: PersistedProjectTask[]
   /** Completed tasks, most recently completed first. Absent until a task is completed. */
@@ -776,6 +778,11 @@ export interface UpdateRepositoryInput {
   /** Null restores the default commit message model. */
   commitMessageModel?: CopilotModelSelection | null
   autoPushAfterCommit?: boolean
+}
+
+export interface SetRepositoryFavoriteInput {
+  repositoryId: string
+  favorite: boolean
 }
 
 export type ThreadCommitPhase = 'generating' | 'hook' | 'committing' | 'pushing'

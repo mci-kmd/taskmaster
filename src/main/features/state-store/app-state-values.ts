@@ -174,6 +174,8 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
       : (normalizedCommitMessageModel ?? undefined)
   const rawAutoPush = (repository as { autoPushAfterCommit?: unknown }).autoPushAfterCommit
   const autoPushAfterCommit = rawAutoPush === true ? true : undefined
+  const rawFavorite = (repository as { favorite?: unknown }).favorite
+  const favorite = rawFavorite === true ? true : undefined
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const rawCompletedTasks = (repository as { completedTasks?: unknown }).completedTasks
   const { tasks, completedTasks } = assignTaskNumbers(
@@ -191,6 +193,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     previewUrl === rawPreviewUrl &&
     commitMessageModel === rawCommitMessageModel &&
     autoPushAfterCommit === rawAutoPush &&
+    favorite === rawFavorite &&
     completedTasks === rawCompletedTasks &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
@@ -204,6 +207,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     previewUrl: _previewUrl,
     commitMessageModel: _commitMessageModel,
     autoPushAfterCommit: _autoPushAfterCommit,
+    favorite: _favorite,
     completedTasks: _completedTasks,
     ...rest
   } = repository
@@ -211,6 +215,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   void _previewUrl
   void _commitMessageModel
   void _autoPushAfterCommit
+  void _favorite
   void _completedTasks
   return {
     ...rest,
@@ -223,6 +228,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     ...(taskTagsInput === undefined ? {} : { taskTagsInput }),
     ...(commitMessageModel === undefined ? {} : { commitMessageModel }),
     ...(autoPushAfterCommit === undefined ? {} : { autoPushAfterCommit }),
+    ...(favorite === undefined ? {} : { favorite }),
     tasks,
     ...(completedTasks === undefined ? {} : { completedTasks })
   }

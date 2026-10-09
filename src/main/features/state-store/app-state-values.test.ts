@@ -166,3 +166,13 @@ describe('commit settings persistence', () => {
     ).not.toHaveProperty('autoPushAfterCommit')
   })
 })
+
+describe('favorite project persistence', () => {
+  it('keeps favorites and drops invalid values', () => {
+    const favorite: PersistedRepository = { ...repository('alpha'), favorite: true }
+    expect(normalizePersistedRepository(favorite)).toBe(favorite)
+    expect(
+      normalizePersistedRepository({ ...repository('alpha'), favorite: 'yes' as never })
+    ).not.toHaveProperty('favorite')
+  })
+})

@@ -38,7 +38,8 @@ export default function InboxThreads({
   onConvertThreadToWorktree,
   convertingThread,
   closingThread,
-  onContextMenu
+  onContextMenu,
+  onToggleRepositoryFavorite
 }: {
   repositories: RepositorySnapshot[]
   selectedRepository: RepositorySnapshot | null
@@ -56,12 +57,14 @@ export default function InboxThreads({
   convertingThread: boolean
   closingThread: boolean
   onContextMenu: (thread: ThreadSnapshot, x: number, y: number) => void
+  onToggleRepositoryFavorite?: (id: string, favorite: boolean) => void
 }): React.JSX.Element {
   const [settledExpanded, setSettledExpanded] = useState(false)
   const activeList = useListMotion()
   const settledList = useListMotion()
   const now = useNow(30_000)
   const { active, settled } = getInboxThreads(repositories)
+  const hasFavorites = repositories.some((repository) => repository.favorite)
   const row = ({ thread, repository }: (typeof active)[number]): React.JSX.Element => {
     const session = sessions.get(thread.id)
     const title = composeThreadTitle(thread, session?.runtimeTitle)
@@ -182,11 +185,14 @@ export default function InboxThreads({
             className="min-w-0 flex-1"
             value={selectedRepository?.id ?? repositories[0]?.id ?? ''}
             onChange={onSelectRepository}
-            options={repositories.map((repository) => ({
+            onToggleFavorite={onToggleRepositoryFavorite}
+            options={projectOptions(repositories).map((repository) => ({
               value: repository.id,
               label: repository.name,
               description: repository.path,
-              icon: <ProjectIcon repository={repository} />
+              icon: <ProjectIcon repository={repository} />,
+              favorite: repository.favorite === true,
+              group: hasFavorites ? (repository.favorite ? 'Favorites' : 'Projects') : undefined
             }))}
           />
           <button
@@ -273,4 +279,12 @@ export default function InboxThreads({
       </div>
     </div>
   )
+}
+
+/** Favorite projects first, otherwise in snapshot order. */
+function projectOptions(repositories: RepositorySnapshot[]): RepositorySnapshot[] {
+  return [
+    ...repositories.filter((repository) => repository.favorite),
+    ...repositories.filter((repository) => !repository.favorite)
+  ]
 }

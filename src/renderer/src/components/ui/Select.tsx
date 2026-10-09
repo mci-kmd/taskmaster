@@ -10,7 +10,7 @@ import {
   type ReactNode
 } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronDownIcon } from '../Icons'
+import { ChevronDownIcon, StarIcon } from '../Icons'
 
 export type SelectOption = {
   value: string
@@ -19,6 +19,8 @@ export type SelectOption = {
   description?: string
   icon?: ReactNode
   disabled?: boolean
+  /** Shown with a filled star when the picker supports favorites. */
+  favorite?: boolean
 }
 
 type SelectProps = {
@@ -32,6 +34,8 @@ type SelectProps = {
   required?: boolean
   placeholder?: string
   compact?: boolean
+  /** Adds a star to each option, also toggled with `*` on the highlighted option. */
+  onToggleFavorite?: (value: string, favorite: boolean) => void
 } & (
   | {
       value: string
@@ -57,7 +61,8 @@ export default function Select(props: SelectProps): React.JSX.Element {
     compact,
     className = '',
     id,
-    title
+    title,
+    onToggleFavorite
   } = props
   const generatedId = useId()
   const listId = `${generatedId}-options`
@@ -122,8 +127,17 @@ export default function Select(props: SelectProps): React.JSX.Element {
     trigger.current?.focus()
   }
 
+  function toggleFavorite(option: SelectOption): void {
+    if (!option.disabled) onToggleFavorite?.(option.value, !option.favorite)
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLElement>): void {
     if (event.nativeEvent.isComposing || disabled) return
+    if (event.key === '*' && expanded && onToggleFavorite && !props.editable) {
+      event.preventDefault()
+      if (activeIndex >= 0) toggleFavorite(visibleOptions[activeIndex])
+      return
+    }
     if (event.key === 'Escape' && expanded) {
       event.preventDefault()
       event.stopPropagation()
@@ -271,6 +285,27 @@ export default function Select(props: SelectProps): React.JSX.Element {
             <span className="tm-picker-description">{option.description}</span>
           ) : null}
         </span>
+        {onToggleFavorite && !option.disabled ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            className="tm-picker-star"
+            aria-pressed={Boolean(option.favorite)}
+            aria-label={
+              option.favorite
+                ? `Remove ${option.label} from favorites`
+                : `Add ${option.label} to favorites`
+            }
+            title={option.favorite ? 'Remove from favorites (*)' : 'Add to favorites (*)'}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation()
+              toggleFavorite(option)
+            }}
+          >
+            <StarIcon filled={option.favorite} width={13} height={13} />
+          </button>
+        ) : null}
         <span className="tm-picker-check" aria-hidden="true">
           {values.includes(option.value) ? '✓' : ''}
         </span>

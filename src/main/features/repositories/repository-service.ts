@@ -6,6 +6,7 @@ import type {
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
   RepositoryBackend,
+  SetRepositoryFavoriteInput,
   UpdateRepositoryInput
 } from '../../../shared/app-types'
 import { isGeneralProject, normalizeGeneralProjectName } from '../../../shared/general-project'
@@ -79,6 +80,7 @@ type RepositoryServiceDependencies = {
 export function createRepositoryService(dependencies: RepositoryServiceDependencies): {
   addRepository: () => Promise<MutationResult>
   updateRepository: (input: UpdateRepositoryInput) => MutationResult
+  setRepositoryFavorite: (input: SetRepositoryFavoriteInput) => MutationResult
   pickRepositoryFavicon: (repositoryId: string) => Promise<PickRepositoryFaviconResult>
   pickRepositorySolutionFile: (repositoryId: string) => Promise<PickRepositorySolutionFileResult>
 } {
@@ -149,6 +151,19 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         null
       )
       dependencies.saveState()
+      return dependencies.successResult()
+    },
+
+    setRepositoryFavorite: ({ repositoryId, favorite }: SetRepositoryFavoriteInput) => {
+      const repository = dependencies.findRepository(repositoryId)
+      if (!repository) {
+        return dependencies.failureResult('Repository not found.')
+      }
+      if ((repository.favorite === true) !== favorite) {
+        if (favorite) repository.favorite = true
+        else delete repository.favorite
+        dependencies.saveState()
+      }
       return dependencies.successResult()
     },
 

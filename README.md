@@ -6,6 +6,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 
 - View all threads across projects in activity order, with manual settle/unsettle and a collapsed Settled threads section
 - Choose a project from the sidebar to manage tasks, edit its configuration, or create a thread
+- Star projects in the sidebar's project picker (click the star or press `*`) to list them as favorites at the top
 - Drag project tasks by their handle (or focus it and use ↑/↓) to order them by priority; tasks may be added without any title or description
 - Search tasks by `#number`, title or description (debounced, with highlighted matches), filter by one or more labels, and clear both at once; reordering still works while filtered
 - Every task has a per-project number shown as `#N` (existing tasks are numbered oldest first on upgrade)

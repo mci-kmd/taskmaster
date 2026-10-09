@@ -54,6 +54,20 @@ function createTestRepositoryService(
 }
 
 describe('repository service', () => {
+  it('favorites and unfavorites a project, saving only on change', () => {
+    const saveState = vi.fn()
+    const repository = createTestRepository()
+    const service = createTestRepositoryService({ findRepository: () => repository, saveState })
+
+    expect(service.setRepositoryFavorite({ repositoryId: 'repo-1', favorite: true }).ok).toBe(true)
+    expect(repository.favorite).toBe(true)
+    service.setRepositoryFavorite({ repositoryId: 'repo-1', favorite: true })
+    expect(saveState).toHaveBeenCalledTimes(1)
+    service.setRepositoryFavorite({ repositoryId: 'repo-1', favorite: false })
+    expect(repository).not.toHaveProperty('favorite')
+    expect(saveState).toHaveBeenCalledTimes(2)
+  })
+
   it('limits general project edits to title, icon, and color', async () => {
     const saveState = vi.fn()
     const general = createTestRepository({

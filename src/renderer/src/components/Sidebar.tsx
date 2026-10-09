@@ -35,6 +35,7 @@ type SidebarProps = {
   onSettleThread: (id: string, settled: boolean) => void
   onConvertThreadToWorktree: (id: string) => void
   onCloseThread: (id: string) => void
+  onToggleRepositoryFavorite: (id: string, favorite: boolean) => void
   convertingThread: boolean
   closingThread: boolean
 }
@@ -58,6 +59,7 @@ export default function Sidebar({
   onSettleThread,
   onConvertThreadToWorktree,
   onCloseThread,
+  onToggleRepositoryFavorite,
   convertingThread,
   closingThread
 }: SidebarProps): React.JSX.Element {
@@ -190,6 +192,7 @@ export default function Sidebar({
           onSettleThread={onSettleThread}
           onCloseThread={onCloseThread}
           onConvertThreadToWorktree={onConvertThreadToWorktree}
+          onToggleRepositoryFavorite={onToggleRepositoryFavorite}
           convertingThread={convertingThread}
           closingThread={closingThread}
           onContextMenu={(thread, x, y) =>

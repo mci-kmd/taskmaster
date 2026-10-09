@@ -50,6 +50,7 @@ import type {
   TerminalDataEvent,
   TerminalExitEvent,
   TerminalLaunchResult,
+  SetRepositoryFavoriteInput,
   UpdateRepositoryInput,
   UpdateRepositoryTaskInput,
   UpdateSettingsInput,
@@ -68,6 +69,7 @@ export const IPC_CHANNELS = {
     addRepository: 'app-state:add-repository',
     updateRepository: 'app-state:update-repository',
     removeRepository: 'app-state:remove-repository',
+    setRepositoryFavorite: 'app-state:set-repository-favorite',
     createRepositoryTask: 'app-state:create-repository-task',
     completeRepositoryTask: 'app-state:complete-repository-task',
     reopenRepositoryTask: 'app-state:reopen-repository-task',
@@ -148,6 +150,10 @@ export type IpcInvokeDefinitions = {
   'app-state:add-repository': { request: []; response: MutationResult }
   'app-state:update-repository': { request: [UpdateRepositoryInput]; response: MutationResult }
   'app-state:remove-repository': { request: [string]; response: MutationResult }
+  'app-state:set-repository-favorite': {
+    request: [SetRepositoryFavoriteInput]
+    response: MutationResult
+  }
   'app-state:create-repository-task': {
     request: [CreateRepositoryTaskInput]
     response: MutationResult

@@ -49,6 +49,7 @@ it('shows only the unified thread view without a mode switch', () => {
       onSettleThread={vi.fn()}
       onConvertThreadToWorktree={vi.fn()}
       onCloseThread={vi.fn()}
+      onToggleRepositoryFavorite={vi.fn()}
     />
   )
   expect(screen.getByText('Threads')).toBeTruthy()

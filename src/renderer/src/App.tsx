@@ -726,6 +726,9 @@ export default function App(): React.JSX.Element {
           onAddRepository={() => void handleAddRepository()}
           onCloseThread={(id) => void handleCloseThread(id)}
           onConvertThreadToWorktree={(id) => void handleConvertThreadToWorktree(id)}
+          onToggleRepositoryFavorite={(repositoryId, favorite) =>
+            void applyMutation(api.appState.setRepositoryFavorite({ repositoryId, favorite }))
+          }
           onEditRepository={handleOpenRepositoryEditor}
           onOpenRepositoryTasks={(id) => {
             setRepositoryViewId(id)

@@ -11,6 +11,7 @@ import type {
   MutationResult,
   PickRepositoryFaviconResult,
   ReorderRepositoryTasksInput,
+  SetRepositoryFavoriteInput,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -341,6 +342,8 @@ export function registerAppStateIpc(): void {
     updateRepository: (input: UpdateRepositoryInput) => repositoryService.updateRepository(input),
     removeRepository: (repositoryId: string) =>
       repositoryRemoveService.removeRepository(repositoryId),
+    setRepositoryFavorite: (input: SetRepositoryFavoriteInput) =>
+      repositoryService.setRepositoryFavorite(input),
     startThreadRun: (threadId: string) => threadRunService.startThreadRun(threadId),
     stopThreadRun: (threadId: string) => threadRunService.stopThreadRun(threadId),
     updateThread: (input: UpdateThreadInput) => threadStateService.updateThread(input),
