@@ -1,5 +1,5 @@
 import Select from './ui/Select'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   BranchStatusSnapshot,
   CopilotAttachment,
@@ -20,6 +20,8 @@ import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimeline from './copilot/SessionTimeline'
+import PromptRail from './copilot/PromptRail'
+import type { RailPrompt } from './copilot/prompt-rail'
 import SessionPromptInput from './copilot/SessionPromptInput'
 import SendButton from './copilot/SendButton'
 import CommitButton from './copilot/CommitButton'
@@ -230,6 +232,17 @@ function SessionView({
       .setModelFavorite({ model, favorite })
       .then(setFavoriteModels)
       .catch((cause) => setError(message(cause)))
+  }, [])
+
+  const prompts = useMemo(
+    () =>
+      (session?.timeline ?? []).filter(
+        (item): item is typeof item & RailPrompt => item.type === 'user'
+      ),
+    [session?.timeline]
+  )
+  const stopFollowing = useCallback(() => {
+    followOutput.current = false
   }, [])
 
   const jumpToLatest = useCallback(() => {
@@ -530,7 +543,11 @@ function SessionView({
       </span>
       <div className="relative min-h-0 flex-1">
         <div
-          className="tm-session-scroll"
+          className={
+            prompts.length >= 2
+              ? 'tm-session-scroll tm-session-scroll--with-rail'
+              : 'tm-session-scroll'
+          }
           ref={timelineRef}
           role="region"
           aria-label="Conversation"
@@ -580,6 +597,7 @@ function SessionView({
             ) : null}
           </div>
         </div>
+        <PromptRail prompts={prompts} scrollRef={timelineRef} onNavigate={stopFollowing} />
         {!atBottom ? (
           <button type="button" className="tm-session-jump" onClick={jumpToLatest}>
             ↓ Jump to latest

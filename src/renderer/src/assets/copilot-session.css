@@ -461,6 +461,127 @@
   font-size: 11.5px;
   box-shadow: 0 4px 12px #0004;
 }
+
+/* Prompt rail: one bar per user prompt at the transcript's left edge. Hovering
+   magnifies bars near the pointer, dock-style, and previews their prompts in
+   labels that float over the transcript without reflowing it. */
+.tm-session-scroll--with-rail {
+  padding-left: 36px;
+}
+.tm-prompt-rail {
+  --tm-rail-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: absolute;
+  inset: 16px 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+.tm-prompt-rail-list {
+  display: flex;
+  flex-direction: column;
+  width: 26px;
+  max-height: 100%;
+  padding: 4px 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  pointer-events: auto;
+  transition: width 160ms var(--tm-rail-ease);
+}
+.tm-prompt-rail[data-expanded] .tm-prompt-rail-list {
+  width: 48px;
+}
+/* Bars share the height and compress towards 5px before the rail scrolls. */
+.tm-prompt-rail-bar {
+  display: flex;
+  flex: 0 1 12px;
+  align-items: center;
+  min-height: 5px;
+  width: 100%;
+  padding: 0 0 0 8px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.tm-prompt-rail-bar::before {
+  content: '';
+  flex: none;
+  width: calc(6px + 8px * var(--tm-rail-length, 0) + 24px * var(--tm-rail-weight, 0));
+  height: 2px;
+  border-radius: 1px;
+  background: var(--color-fg-faint);
+  transition:
+    width 140ms var(--tm-rail-ease),
+    background-color 140ms ease;
+}
+.tm-prompt-rail-bar[data-nearest]::before {
+  background: var(--color-fg-muted);
+}
+.tm-prompt-rail-bar[aria-current]::before {
+  background: var(--color-fg);
+}
+.tm-prompt-rail .tm-prompt-rail-bar:focus-visible {
+  outline: none;
+}
+.tm-prompt-rail .tm-prompt-rail-bar:focus-visible::before {
+  height: 3px;
+  background: var(--color-info);
+}
+.tm-prompt-rail-labels {
+  position: absolute;
+  inset: 0 24px 0 52px;
+  pointer-events: none;
+}
+.tm-prompt-rail-label {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: min(100%, 440px);
+  padding: 3px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  box-shadow: var(--shadow-pop);
+  color: var(--color-fg-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease;
+  animation: tm-prompt-rail-label-in 140ms var(--tm-rail-ease);
+}
+.tm-prompt-rail-label[data-nearest] {
+  z-index: 1;
+  color: var(--color-fg);
+}
+.tm-prompt-rail-label-number {
+  flex: none;
+  color: var(--color-fg-subtle);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.tm-prompt-rail-label-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes tm-prompt-rail-label-in {
+  from {
+    opacity: 0;
+    transform: translate(-6px, -50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tm-prompt-rail *,
+  .tm-prompt-rail *::before {
+    animation: none !important;
+    transition: none !important;
+  }
+}
 .tm-session-interaction {
   max-height: min(44vh, 420px);
   overflow: auto;
@@ -760,6 +881,9 @@
 @media (max-width: 700px) {
   .tm-session-scroll {
     padding: 12px;
+  }
+  .tm-session-scroll--with-rail {
+    padding-left: 32px;
   }
   .tm-session-bottom {
     padding: 0 10px 8px;

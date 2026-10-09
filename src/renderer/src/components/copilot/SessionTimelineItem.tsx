@@ -106,6 +106,7 @@ export default memo(function SessionTimelineItem({
     <article
       className={user ? 'tm-session-message tm-session-message--user' : 'tm-session-message'}
       aria-label={user ? 'Your message' : 'Copilot message'}
+      data-prompt-id={user ? item.id : undefined}
     >
       {user ? (
         <div className="whitespace-pre-wrap break-words">
