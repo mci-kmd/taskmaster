@@ -20,11 +20,10 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    height: 42px;
+    height: 44px;
     flex-shrink: 0;
-    padding: 0 8px;
+    padding: 0 10px;
     border-bottom: 1px solid var(--color-border);
-    background: var(--color-bg);
   }
 
   .tm-preview-address {
@@ -41,15 +40,20 @@
     height: 28px;
     padding: 0 10px 0 24px;
     border: 1px solid var(--color-border);
-    border-radius: 7px;
+    border-radius: var(--radius-md);
     background: var(--color-input);
     color: var(--color-fg-muted);
     font: 400 12px/1 var(--font-mono);
     outline: none;
+    transition:
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease,
+      color var(--duration-fast) ease;
   }
 
   .tm-preview-address input:focus {
-    border-color: #527ca6;
+    border-color: var(--color-accent);
+    box-shadow: var(--focus-ring);
     color: var(--color-fg);
   }
 
@@ -61,43 +65,50 @@
     border-radius: 999px;
     background: var(--color-positive);
     pointer-events: none;
+    transition: background-color var(--duration-base) ease;
   }
 
   .tm-preview-address-dot[data-state='loading'] {
     background: var(--color-info);
-    animation: tm-preview-pulse 1s ease-in-out infinite;
   }
 
   .tm-preview-address-dot[data-state='waiting'] {
     background: var(--color-warning);
-    animation: tm-preview-pulse 1s ease-in-out infinite;
   }
 
   .tm-preview-address-dot[data-state='error'] {
     background: var(--color-danger);
   }
 
-  @keyframes tm-preview-pulse {
-    50% {
-      opacity: 0.3;
-    }
-  }
-
   .tm-preview-inspect[aria-pressed='true'] {
-    border-color: #4c9aff80;
-    background: #4c9aff26;
-    color: var(--color-info);
+    background: var(--color-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--color-accent-line);
+    color: var(--color-accent);
   }
 
   .tm-preview-inspect[aria-pressed='true']:hover:not(:disabled) {
-    background: #4c9aff33;
+    background: var(--color-accent-soft-strong);
   }
 
+  /* The stage hosts a web page, so it is the page's own (light) canvas in every theme, not a
+     themed surface: pages that don't paint a background expect white. */
   .tm-preview-stage {
     position: relative;
     min-height: 0;
     flex: 1;
-    background: #fff;
+    color-scheme: light;
+    background: Canvas;
+  }
+
+  .tm-preview-stage::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    box-shadow: inset 0 0 0 2px var(--color-accent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-base) var(--ease-out);
   }
 
   .tm-preview-stage webview {
@@ -107,8 +118,8 @@
     height: 100%;
   }
 
-  .tm-preview-stage[data-inspecting='true'] {
-    box-shadow: inset 0 0 0 2px #4c9aff;
+  .tm-preview-stage[data-inspecting='true']::after {
+    opacity: 1;
   }
 
   /* Resizing drags across the guest page, which would otherwise swallow the mouse events. */
@@ -116,21 +127,37 @@
     pointer-events: none;
   }
 
-  .tm-preview-hint {
+  /* Centered without a transform, so the rise preset can animate it. */
+  .tm-preview-hint-slot {
     position: absolute;
-    left: 50%;
+    right: 0;
     bottom: 14px;
+    left: 0;
     z-index: 2;
-    transform: translateX(-50%);
-    padding: 6px 12px;
-    border: 1px solid #4c9aff66;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .tm-preview-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px 6px 10px;
     border-radius: 999px;
-    background: #0f1b2de6;
-    color: #dbe9ff;
+    background: var(--color-popover);
+    box-shadow: var(--elevation-pop);
+    color: var(--color-fg);
     font-size: 11.5px;
     white-space: nowrap;
-    pointer-events: none;
-    box-shadow: 0 6px 18px #0006;
+  }
+
+  .tm-preview-hint::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-accent);
   }
 
   .tm-preview-cover {
@@ -165,9 +192,9 @@
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
-    padding: 6px 12px;
+    padding: 4px 6px 4px 14px;
     border-bottom: 1px solid var(--color-border);
-    background: #f08c8c14;
+    background: var(--color-danger-soft);
     color: var(--color-danger);
     font-size: 12px;
   }
@@ -193,6 +220,10 @@
 
   .tm-preview-conversation .tm-session-scroll {
     padding: 16px 16px 24px;
+  }
+  /* Leave room for the prompt rail at the left edge. */
+  .tm-preview-conversation .tm-session-scroll--with-rail {
+    padding-left: 40px;
   }
 
   .tm-preview-conversation .tm-session-bottom {

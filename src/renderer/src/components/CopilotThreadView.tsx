@@ -15,7 +15,10 @@ import type {
 import { getRendererApi } from '../shared/api/client'
 import type { ThreadSessionState } from './TerminalSessions'
 import Button from './ui/Button'
+import Presence from './ui/Presence'
 import { PaperclipIcon } from './Icons'
+import { canAnimate, usePresence } from '../lib/motion'
+import { usePresenceList } from '../lib/use-presence-list'
 import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
@@ -26,9 +29,10 @@ import SessionPromptInput from './copilot/SessionPromptInput'
 import SendButton from './copilot/SendButton'
 import CommitButton from './copilot/CommitButton'
 import PendingMessages from './copilot/PendingMessages'
+import AttachmentChips from './copilot/AttachmentChips'
+import { EmptyConversation, WorkingIndicator } from './copilot/ConversationStates'
 import { registerComposer, useSessionDraft } from './copilot/session-drafts'
 import {
-  attachmentPreview,
   hasAttachmentMarker,
   insertAttachmentMarkers,
   removeAttachmentMarkers,
@@ -47,6 +51,11 @@ type Props = {
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const WORKING_TREE_POLL_MS = 15_000
+const NONE: never[] = []
+/** `instant` lands at once; `follow` glides over short distances; `jump` always glides. */
+type ScrollMode = 'instant' | 'follow' | 'jump'
+/** Share of the remaining distance the transcript moves per frame while following output. */
+const FOLLOW_STEP = 0.25
 const hasChanges = (status: BranchStatusSnapshot | null): boolean =>
   Boolean(
     status &&
@@ -237,6 +246,17 @@ function SessionView({
       .catch((cause) => setError(message(cause)))
   }, [])
 
+  const hasTimeline = Boolean(session?.timeline.length)
+  // Whether this conversation started out empty, so its first items animate in.
+  const [startedEmpty, setStartedEmpty] = useState(false)
+  if (session && !hasTimeline && !startedEmpty) setStartedEmpty(true)
+  const emptyState = usePresence(!hasTimeline)
+  const mcpNotices = usePresenceList(
+    session?.mcpServersNeedingAuth ?? NONE,
+    (serverName: string) => serverName,
+    thread.id
+  )
+
   const prompts = useMemo(
     () =>
       (session?.timeline ?? []).filter(
@@ -244,19 +264,76 @@ function SessionView({
       ),
     [session?.timeline]
   )
+  // The rail's gutter eases open when a conversation reaches its second prompt, but not when a
+  // thread opens with several (that would shift the whole history sideways).
+  const [railAtLoad, setRailAtLoad] = useState<boolean | null>(null)
+  if (session && railAtLoad === null) setRailAtLoad(prompts.length >= 2)
   const stopFollowing = useCallback(() => {
     followOutput.current = false
   }, [])
 
-  const jumpToLatest = useCallback(() => {
-    followOutput.current = true
-    setAtBottom(true)
+  // Following output glides towards the end a frame at a time; scroll events at the positions
+  // it sets are its own, so they don't count as the user scrolling away.
+  const followFrame = useRef<number | null>(null)
+  const ownScrollTop = useRef<number | null>(null)
+  const scrollToLatest = useCallback((mode: ScrollMode) => {
     const element = timelineRef.current
-    if (element) element.scrollTop = element.scrollHeight
+    if (!element) return
+    const distance = element.scrollHeight - element.clientHeight - element.scrollTop
+    // Large catch-ups (opening a thread, a burst of output) land instantly.
+    const glide =
+      mode !== 'instant' &&
+      canAnimate() &&
+      distance > 1 &&
+      (mode === 'jump' || distance <= element.clientHeight)
+    if (!glide) {
+      if (followFrame.current !== null) cancelAnimationFrame(followFrame.current)
+      followFrame.current = null
+      element.scrollTop = element.scrollHeight
+      ownScrollTop.current = element.scrollTop
+      return
+    }
+    if (followFrame.current !== null) return
+    const step = (): void => {
+      const current = timelineRef.current
+      if (!current || !followOutput.current) {
+        followFrame.current = null
+        return
+      }
+      const remaining = current.scrollHeight - current.clientHeight - current.scrollTop
+      if (remaining <= 1) {
+        current.scrollTop = current.scrollHeight
+        ownScrollTop.current = current.scrollTop
+        followFrame.current = null
+        return
+      }
+      current.scrollTop += Math.max(1, Math.round(remaining * FOLLOW_STEP))
+      ownScrollTop.current = current.scrollTop
+      followFrame.current = requestAnimationFrame(step)
+    }
+    followFrame.current = requestAnimationFrame(step)
   }, [])
+  useEffect(
+    () => () => {
+      if (followFrame.current !== null) cancelAnimationFrame(followFrame.current)
+    },
+    []
+  )
+  const jumpToLatest = useCallback(
+    (mode: ScrollMode = 'follow') => {
+      followOutput.current = true
+      setAtBottom(true)
+      scrollToLatest(mode)
+    },
+    [scrollToLatest]
+  )
+  // The first snapshot lands at the end at once; later output glides there.
+  const timelineLoaded = useRef(false)
+  const sessionLoaded = session !== null
   useLayoutEffect(() => {
-    if (followOutput.current) jumpToLatest()
-  }, [session?.timeline, session?.phase, session?.pendingInteraction, jumpToLatest])
+    if (followOutput.current) jumpToLatest(timelineLoaded.current ? 'follow' : 'instant')
+    if (sessionLoaded) timelineLoaded.current = true
+  }, [sessionLoaded, session?.timeline, session?.phase, session?.pendingInteraction, jumpToLatest])
   useEffect(() => {
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(() => {
@@ -573,6 +650,7 @@ function SessionView({
               ? 'tm-session-scroll tm-session-scroll--with-rail'
               : 'tm-session-scroll'
           }
+          data-rail-motion={railAtLoad === false || undefined}
           ref={timelineRef}
           role="region"
           aria-label="Conversation"
@@ -580,58 +658,47 @@ function SessionView({
           onScroll={() => {
             const element = timelineRef.current
             if (!element) return
+            if (
+              ownScrollTop.current !== null &&
+              Math.abs(element.scrollTop - ownScrollTop.current) < 1
+            )
+              return
+            ownScrollTop.current = null
             const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 64
             followOutput.current = bottom
             setAtBottom(bottom)
           }}
         >
           <div className="tm-session-transcript" ref={contentRef}>
-            {session?.timeline.length ? (
-              <SessionTimeline items={session.timeline} />
-            ) : (
-              <div className="tm-session-empty">
-                <span className="tm-session-empty-icon" aria-hidden="true">
-                  ✧
-                </span>
-                <h2>What would you like to work on?</h2>
-                <p>Ask a question, plan a change, or build something together.</p>
-                <div className="flex flex-wrap justify-center gap-2 mt-5">
-                  {['Explain this project', 'Find and fix a bug', 'Plan a change'].map(
-                    (suggestion) => (
-                      <Button
-                        key={suggestion}
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          updateDraft((current) => ({ ...current, prompt: suggestion }))
-                          promptRef.current?.focus()
-                        }}
-                      >
-                        {suggestion}
-                      </Button>
-                    )
-                  )}
-                </div>
-              </div>
-            )}
-            {running ? (
-              <div className="tm-session-working">
-                <span className="tm-pulse-dot">✧</span>
-                {session?.pendingInteraction ? 'Waiting for your response' : 'Copilot is working…'}
-              </div>
+            {/* Fades out over the first message; a thread that opens with history skips it. */}
+            {emptyState.mounted && (!hasTimeline || startedEmpty) ? (
+              <EmptyConversation
+                data-motion="fade"
+                data-state={emptyState.state}
+                onSuggest={(suggestion) => {
+                  updateDraft((current) => ({ ...current, prompt: suggestion }))
+                  promptRef.current?.focus()
+                }}
+              />
             ) : null}
+            {session && hasTimeline ? (
+              <SessionTimeline items={session.timeline} animateInitial={startedEmpty} />
+            ) : null}
+            <Presence show={running} motion="collapse">
+              <WorkingIndicator waiting={Boolean(session?.pendingInteraction)} />
+            </Presence>
           </div>
         </div>
         <PromptRail prompts={prompts} scrollRef={timelineRef} onNavigate={stopFollowing} />
-        {!atBottom ? (
-          <button type="button" className="tm-session-jump" onClick={jumpToLatest}>
+        <Presence show={!atBottom} motion="rise">
+          <Button size="sm" className="tm-session-jump" onClick={() => jumpToLatest('jump')}>
             ↓ Jump to latest
-          </button>
-        ) : null}
+          </Button>
+        </Presence>
       </div>
       <div className="tm-session-bottom">
-        {sdk?.updateAvailable ? (
-          <div className="mb-3 flex justify-end">
+        <Presence show={Boolean(sdk?.updateAvailable)} motion="collapse">
+          <div className="tm-session-slot flex justify-end">
             <Button
               disabled={
                 Boolean(busy) ||
@@ -639,9 +706,9 @@ function SessionView({
                 stopping ||
                 Boolean(session?.pendingInteraction) ||
                 session?.phase === 'connecting' ||
-                sdk.updateState === 'installing'
+                sdk?.updateState === 'installing'
               }
-              title={`Update Copilot to ${sdk.latestVersion ?? 'the latest version'}`}
+              title={`Update Copilot to ${sdk?.latestVersion ?? 'the latest version'}`}
               size="sm"
               variant="ghost"
               onClick={() =>
@@ -657,116 +724,117 @@ function SessionView({
                 })
               }
             >
-              {sdk.updateState === 'installing' ? 'Updating…' : 'Update available'}
+              {sdk?.updateState === 'installing' ? 'Updating…' : 'Update available'}
             </Button>
           </div>
-        ) : null}
-        {error || session?.error ? (
-          <div className="tm-session-error" role="alert">
-            <span>{error ?? session?.error}</span>
-            {error && error !== session?.error && error !== sdk?.updateError ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => setError(null)}
-                aria-label="Dismiss error"
+        </Presence>
+        <Presence show={Boolean(error || session?.error)} motion="collapse">
+          <div className="tm-session-slot">
+            <div className="tm-session-error" role="alert">
+              <span>{error ?? session?.error}</span>
+              <Presence
+                show={Boolean(error && error !== session?.error && error !== sdk?.updateError)}
+                motion="fade"
               >
-                Dismiss
-              </Button>
-            ) : null}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setError(null)}
+                  aria-label="Dismiss error"
+                >
+                  Dismiss
+                </Button>
+              </Presence>
+            </div>
           </div>
-        ) : null}
-        {session?.phase === 'error' || session?.phase === 'disconnected' || (!session && error) ? (
-          <div className="mb-3 flex justify-end">
+        </Presence>
+        <Presence
+          show={
+            session?.phase === 'error' || session?.phase === 'disconnected' || (!session && !!error)
+          }
+          motion="collapse"
+        >
+          <div className="tm-session-slot flex justify-end">
             <Button size="sm" disabled={Boolean(busy)} onClick={start}>
               {busy === 'start' ? 'Reconnecting…' : 'Reconnect'}
             </Button>
           </div>
-        ) : null}
-        {session?.mcpServersNeedingAuth.map((serverName) => {
-          const started = session.mcpServersSigningIn.includes(serverName)
+        </Presence>
+        {mcpNotices.map(({ key: serverName, exitToken }) => {
+          const started = session?.mcpServersSigningIn.includes(serverName) ?? false
           return (
-            <div className="tm-session-notice mb-3" key={serverName} role="status">
-              <span>
-                {started
-                  ? `Finish signing in to ${serverName} in your browser.`
-                  : `${serverName} needs you to sign in before Copilot can use it.`}
-              </span>
-              <Button
-                size="sm"
-                variant={started ? 'ghost' : 'primary'}
-                disabled={Boolean(busy)}
-                onClick={() => signInToMcpServer(serverName)}
-              >
-                {busy === `mcp-auth:${serverName}`
-                  ? 'Opening…'
-                  : started
-                    ? 'Open sign-in again'
-                    : `Sign in to ${serverName}`}
-              </Button>
+            <div
+              className="tm-session-slot"
+              key={serverName}
+              data-motion="collapse"
+              data-state={exitToken === null ? 'open' : 'closed'}
+            >
+              <div className="tm-session-notice" role="status">
+                <span>
+                  {started
+                    ? `Finish signing in to ${serverName} in your browser.`
+                    : `${serverName} needs you to sign in before Copilot can use it.`}
+                </span>
+                <Button
+                  size="sm"
+                  variant={started ? 'ghost' : 'primary'}
+                  disabled={Boolean(busy)}
+                  onClick={() => signInToMcpServer(serverName)}
+                >
+                  {busy === `mcp-auth:${serverName}`
+                    ? 'Opening…'
+                    : started
+                      ? 'Open sign-in again'
+                      : `Sign in to ${serverName}`}
+                </Button>
+              </div>
             </div>
           )
         })}
-        {sdk?.updateError ? (
-          <div className="tm-session-notice tm-session-notice--warning mb-3" role="status">
-            Copilot update: {sdk.updateError}
-          </div>
-        ) : null}
-        <div className="tm-session-composer">
-          {session?.pendingInteraction ? (
-            <div
-              className="tm-session-interaction"
-              role="region"
-              aria-label={session.pendingInteraction.title}
-            >
-              <InteractionPanel
-                interaction={session.pendingInteraction}
-                key={session.pendingInteraction.id}
-                threadId={thread.id}
-                onRespond={respond}
-                busy={Boolean(busy) || stopping}
-              />
+        <Presence show={Boolean(sdk?.updateError)} motion="collapse">
+          <div className="tm-session-slot">
+            <div className="tm-session-notice tm-session-notice--warning" role="status">
+              Copilot update: {sdk?.updateError}
             </div>
-          ) : null}
+          </div>
+        </Presence>
+        <div className="tm-session-composer">
+          <Presence show={Boolean(session?.pendingInteraction)} motion="collapse">
+            <div>
+              {session?.pendingInteraction ? (
+                <div
+                  className="tm-session-request"
+                  role="region"
+                  aria-label={session.pendingInteraction.title}
+                >
+                  <div className="tm-fade-in" key={session.pendingInteraction.id}>
+                    <InteractionPanel
+                      interaction={session.pendingInteraction}
+                      threadId={thread.id}
+                      onRespond={respond}
+                      busy={Boolean(busy) || stopping}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </Presence>
           <PendingMessages
-            steering={session?.steeringMessages ?? []}
-            queued={session?.queuedMessages ?? []}
+            steering={session?.steeringMessages ?? NONE}
+            queued={session?.queuedMessages ?? NONE}
             cancelling={cancelling}
             onCancel={cancelQueued}
           />
-          {attachments.length ? (
-            <div className="tm-session-attachments">
-              {attachments.map((attachment) => {
-                const preview = attachmentPreview(attachment)
-                return (
-                  <button
-                    type="button"
-                    className="tm-session-attachment tm-session-attachment--removable"
-                    key={attachment.id}
-                    aria-label={`Remove ${attachment.displayName}`}
-                    title={`Remove ${attachment.displayName}`}
-                    onClick={() =>
-                      updateDraft((current) => ({
-                        ...current,
-                        prompt: removeAttachmentMarkers(current.prompt, attachment.displayName),
-                        attachments: current.attachments.filter((item) => item.id !== attachment.id)
-                      }))
-                    }
-                  >
-                    {preview ? (
-                      <img className="tm-session-attachment-thumb" src={preview} alt="" />
-                    ) : (
-                      <PaperclipIcon className="tm-session-attachment-icon" aria-hidden="true" />
-                    )}
-                    <span className="tm-session-attachment-name">{attachment.displayName}</span>
-                    <span className="tm-session-attachment-remove" aria-hidden="true">
-                      ×
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
+          <AttachmentChips
+            attachments={attachments}
+            onRemove={(attachment) =>
+              updateDraft((current) => ({
+                ...current,
+                prompt: removeAttachmentMarkers(current.prompt, attachment.displayName),
+                attachments: current.attachments.filter((item) => item.id !== attachment.id)
+              }))
+            }
+          />
           <SessionPromptInput
             threadId={thread.id}
             sessionId={session?.sessionId ?? null}
@@ -845,8 +913,11 @@ function SessionView({
               onChange={changeModel}
               onToggleFavorite={toggleFavoriteModel}
             />
-            <div className="ml-auto flex items-center gap-2">
-              {running || session?.pendingInteraction || stopping ? (
+            <div className="tm-session-actions">
+              <Presence
+                show={running || Boolean(session?.pendingInteraction) || stopping}
+                motion="pop"
+              >
                 <Button
                   size="sm"
                   variant="secondary"
@@ -860,15 +931,15 @@ function SessionView({
                 >
                   {stopping ? 'Stopping…' : 'Stop'}
                 </Button>
-              ) : null}
-              {showCommit ? (
+              </Presence>
+              <Presence show={showCommit} motion="pop">
                 <CommitButton
                   phase={commitPhase}
                   autoPush={thread.commitAutoPush}
                   disabledReason={commitDisabledReason}
                   onCommit={commit}
                 />
-              ) : null}
+              </Presence>
               <SendButton
                 running={running}
                 replying={replying}
@@ -889,7 +960,12 @@ function SessionView({
           </div>
         </div>
       </div>
-      {dragging ? <div className="tm-session-drop">Drop files to attach</div> : null}
+      <Presence show={dragging} motion="fade">
+        <div className="tm-session-drop">
+          <PaperclipIcon aria-hidden="true" />
+          Drop files to attach
+        </div>
+      </Presence>
     </section>
   )
 }

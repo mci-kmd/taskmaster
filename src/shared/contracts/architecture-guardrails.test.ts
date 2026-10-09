@@ -5,6 +5,8 @@ import { describe, expect, it } from 'vitest'
 const SOURCE_ROOT = resolve(process.cwd(), 'src')
 const CONTRACTS_ROOT = resolve(SOURCE_ROOT, 'shared', 'contracts')
 const RENDERER_API_CLIENT = resolve(SOURCE_ROOT, 'renderer', 'src', 'shared', 'api', 'client.ts')
+// The dev-only UI gallery stands in for the preload API in a plain browser.
+const GALLERY_API_STUB = resolve(SOURCE_ROOT, 'renderer', 'src', 'gallery', 'api-stub.ts')
 const MAIN_FEATURES_ROOT = resolve(SOURCE_ROOT, 'main', 'features')
 
 function listSourceFiles(root: string): string[] {
@@ -26,7 +28,7 @@ function relativeSourcePath(path: string): string {
 describe('architecture guardrails', () => {
   it('keeps renderer Electron API access behind the shared client', () => {
     const offenders = listSourceFiles(resolve(SOURCE_ROOT, 'renderer', 'src')).filter((path) => {
-      if (path === RENDERER_API_CLIENT) {
+      if (path === RENDERER_API_CLIENT || path === GALLERY_API_STUB) {
         return false
       }
       return readFileSync(path, 'utf8').includes('window.api')

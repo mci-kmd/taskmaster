@@ -1,12 +1,23 @@
 import { memo, useId, useMemo, useState } from 'react'
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
-import SessionTimelineItem from './SessionTimelineItem'
+import { ChevronRightIcon } from '../Icons'
+import Presence from '../ui/Presence'
+import SessionTimelineItem, { ToolStatusDot } from './SessionTimelineItem'
+import { TOOL_STATUS_LABELS } from './tool-status'
 
 type ToolItem = Extract<CopilotTimelineItem, { type: 'tool' }>
 type TimelineRow =
   { type: 'item'; item: CopilotTimelineItem } | { type: 'tools'; id: string; items: ToolItem[] }
 
-const ToolGroup = memo(function ToolGroup({ items }: { items: ToolItem[] }): React.JSX.Element {
+const rowKey = (row: TimelineRow): string => (row.type === 'tools' ? row.id : row.item.id)
+
+const ToolGroup = memo(function ToolGroup({
+  items,
+  enter
+}: {
+  items: ToolItem[]
+  enter: boolean
+}): React.JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const detailId = useId()
   const running = items.filter((item) => item.status === 'running')
@@ -25,58 +36,57 @@ const ToolGroup = memo(function ToolGroup({ items }: { items: ToolItem[] }): Rea
       stopped ? `${stopped} stopped` : ''
     ]
       .filter(Boolean)
-      .join(' · ') || 'Done'
+      .join(' · ') || TOOL_STATUS_LABELS.complete
 
   return (
-    <div className="tm-session-tool-group">
+    <div className={enter ? 'tm-session-tool-group tm-rise-in' : 'tm-session-tool-group'}>
       <button
         type="button"
         className="tm-session-tool-group-toggle"
+        data-status={status}
         aria-expanded={expanded}
         aria-controls={expanded ? detailId : undefined}
         onClick={() => setExpanded((value) => !value)}
       >
-        <span className="tm-session-tool-group-chevron" aria-hidden="true">
-          ›
-        </span>
-        <span className={`tm-session-dot tm-session-dot--${status}`} aria-hidden="true" />
+        <ToolStatusDot status={status} />
         <span className="tm-session-tool-group-count">
           {items.length} tool {items.length === 1 ? 'call' : 'calls'}
         </span>
         <span className="tm-session-tool-group-summary" title={summary}>
           {summary}
         </span>
-        <span
-          className={
-            failed
-              ? 'tm-session-tool-group-status tm-session-tool-group-status--failed'
-              : 'tm-session-tool-group-status'
-          }
-        >
-          {statusLabel}
-        </span>
+        <span className="tm-session-tool-group-status">{statusLabel}</span>
+        <ChevronRightIcon className="tm-session-chevron" aria-hidden="true" />
       </button>
-      {expanded ? (
-        <div
-          className="tm-session-tool-group-items"
-          id={detailId}
-          role="region"
-          aria-label="Tool calls"
-          tabIndex={0}
-        >
-          {items.map((item) => (
-            <SessionTimelineItem item={item} key={item.id} />
-          ))}
+      <Presence show={expanded} motion="collapse">
+        <div className="tm-session-tool-group-body">
+          <div
+            className="tm-session-tool-group-items"
+            id={detailId}
+            role="region"
+            aria-label="Tool calls"
+            tabIndex={0}
+          >
+            {items.map((item) => (
+              <SessionTimelineItem item={item} key={item.id} />
+            ))}
+          </div>
         </div>
-      ) : null}
+      </Presence>
     </div>
   )
 })
 
 export default function SessionTimeline({
-  items
+  items,
+  animateInitial = false
 }: {
   items: CopilotTimelineItem[]
+  /**
+   * Whether the items present on mount rise in too. Off when opening a conversation, so its
+   * history appears at once; only items that arrive afterwards animate.
+   */
+  animateInitial?: boolean
 }): React.JSX.Element {
   const rows = useMemo(() => {
     const result: TimelineRow[] = []
@@ -95,16 +105,21 @@ export default function SessionTimeline({
     }
     return result
   }, [items])
+  const [initialKeys] = useState(
+    () => new Set(animateInitial ? [] : rows.map((row) => rowKey(row)))
+  )
 
   return (
     <>
-      {rows.map((row) =>
-        row.type === 'tools' ? (
-          <ToolGroup key={row.id} items={row.items} />
+      {rows.map((row) => {
+        const key = rowKey(row)
+        const enter = !initialKeys.has(key)
+        return row.type === 'tools' ? (
+          <ToolGroup key={key} items={row.items} enter={enter} />
         ) : (
-          <SessionTimelineItem key={row.item.id} item={row.item} />
+          <SessionTimelineItem key={key} item={row.item} enter={enter} />
         )
-      )}
+      })}
     </>
   )
 }

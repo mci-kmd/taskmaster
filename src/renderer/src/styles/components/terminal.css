@@ -1,4 +1,41 @@
-/* Thread terminals (xterm). Unlayered: these override xterm.css, which is unlayered too. */
+/* Thread terminals. */
+@layer components {
+  /* Terminals fill the card and share its surface (the xterm theme reads the same tokens). */
+  .tm-terminal {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    background: var(--color-panel);
+  }
+  .tm-terminal__screen {
+    position: absolute;
+    inset: 14px 12px 10px 20px;
+  }
+
+  .tm-terminal-launch {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    padding: 0 24px;
+    text-align: center;
+  }
+  .tm-terminal-launch__eyebrow {
+    display: inline-flex;
+    margin-bottom: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: var(--color-surface-2);
+    box-shadow: var(--elevation-inset);
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+/* xterm overrides. Unlayered: these override xterm.css, which is unlayered too. */
 .xterm .xterm-viewport {
   scrollbar-width: none;
 }
@@ -6,11 +43,6 @@
 .xterm .xterm-viewport::-webkit-scrollbar {
   width: 0;
   height: 0;
-}
-
-.xterm-viewport::-webkit-scrollbar-thumb {
-  background: #303030;
-  background-clip: padding-box;
 }
 
 .xterm,

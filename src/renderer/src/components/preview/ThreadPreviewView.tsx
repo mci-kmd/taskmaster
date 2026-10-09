@@ -15,6 +15,8 @@ import CopilotThreadView from '../CopilotThreadView'
 import ResizeHandle from '../ResizeHandle'
 import type { ThreadSessionState } from '../TerminalSessions'
 import Button from '../ui/Button'
+import Presence from '../ui/Presence'
+import { useLastValue } from '../../lib/motion'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -324,6 +326,8 @@ function PreviewPane({
   }
 
   const blocked = waiting || Boolean(loadError)
+  // The error bar keeps its message while it collapses away.
+  const lastError = useLastValue(error)
   const addressState = loadError ? 'error' : waiting ? 'waiting' : loading ? 'loading' : 'ready'
 
   return (
@@ -376,7 +380,13 @@ function PreviewPane({
               ;(event.currentTarget.elements.namedItem('address') as HTMLInputElement)?.blur()
             }}
           >
-            <span className="tm-preview-address-dot" data-state={addressState} aria-hidden />
+            <span
+              aria-hidden
+              className={`tm-preview-address-dot${
+                addressState === 'loading' || addressState === 'waiting' ? ' tm-blink' : ''
+              }`}
+              data-state={addressState}
+            />
             <input
               aria-label="Preview address"
               name="address"
@@ -420,9 +430,9 @@ function PreviewPane({
             <ExternalLinkIcon width={13} height={13} />
           </Button>
         </div>
-        {error ? (
+        <Presence motion="collapse" show={Boolean(error)}>
           <div className="tm-preview-error" role="alert">
-            <span>{error}</span>
+            <span>{lastError}</span>
             <Button
               aria-label="Dismiss error"
               iconOnly
@@ -434,7 +444,7 @@ function PreviewPane({
               <CloseIcon width={12} height={12} />
             </Button>
           </div>
-        ) : null}
+        </Presence>
         <div className="tm-preview-stage" data-inspecting={inspecting}>
           <webview
             // eslint-disable-next-line react/no-unknown-property -- Electron <webview> attribute.
@@ -444,27 +454,31 @@ function PreviewPane({
             }}
             src={initialUrl}
           />
-          {inspecting ? (
-            <div className="tm-preview-hint" role="status">
-              Click an element to add it to your message · Esc to cancel
-            </div>
-          ) : null}
-          {waiting ? (
-            <div className="tm-preview-cover" role="status">
-              <strong>Waiting for the app…</strong>
-              <span>
-                Retrying <code>{failedUrl ?? currentUrl}</code> until the run command starts serving
-                it.
-              </span>
-            </div>
-          ) : loadError ? (
-            <div className="tm-preview-cover" role="alert">
-              <strong>Could not load the preview</strong>
-              <span>
-                <code>{failedUrl ?? currentUrl}</code>: {loadError}
-              </span>
-            </div>
-          ) : null}
+          <div className="tm-preview-hint-slot">
+            <Presence motion="rise" show={inspecting}>
+              <div className="tm-preview-hint" role="status">
+                Click an element to add it to your message · Esc to cancel
+              </div>
+            </Presence>
+          </div>
+          <Presence motion="fade" show={blocked}>
+            {waiting ? (
+              <div className="tm-preview-cover" key="waiting" role="status">
+                <strong>Waiting for the app…</strong>
+                <span>
+                  Retrying <code>{failedUrl ?? currentUrl}</code> until the run command starts
+                  serving it.
+                </span>
+              </div>
+            ) : loadError ? (
+              <div className="tm-preview-cover" key="error" role="alert">
+                <strong>Could not load the preview</strong>
+                <span>
+                  <code>{failedUrl ?? currentUrl}</code>: {loadError}
+                </span>
+              </div>
+            ) : null}
+          </Presence>
         </div>
       </section>
       <aside className="tm-preview-conversation" style={{ width }}>

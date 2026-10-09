@@ -1,3 +1,5 @@
+// Dev-only: stubs the preload API for the UI gallery before any component module reads it.
+import './gallery/api-stub'
 import './styles/index.css'
 
 import { lazy, StrictMode, Suspense } from 'react'

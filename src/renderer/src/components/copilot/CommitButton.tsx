@@ -14,19 +14,24 @@ export default function CommitButton({
   phase,
   autoPush,
   disabledReason,
-  onCommit
+  onCommit,
+  ...rest
 }: {
   phase: ThreadCommitPhase | null
   autoPush: boolean
   disabledReason: string | null
   onCommit: () => void
+  /** Motion attributes from <Presence>. */
+  'data-motion'?: string
+  'data-state'?: string
 }): React.JSX.Element {
   const unavailable = Boolean(phase) || Boolean(disabledReason)
   const title = phase ? COMMIT_PHASE_LABELS[phase] : (disabledReason ?? commitButtonTitle(autoPush))
   return (
     <Button
+      {...rest}
       size="sm"
-      variant="ghost"
+      variant="secondary"
       iconOnly
       className="tm-commit"
       data-phase={phase ?? undefined}

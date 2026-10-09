@@ -58,7 +58,7 @@ it('shows only active models and calculates weighted end-to-end TPS and recorded
     sample('3', 'Alpha', 4, 0, 0, 400),
     sample('4', 'Older', 1500, 500, 1000, 100)
   ])
-  expect(screen.getByRole('button', { name: '1h' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByRole('radio', { name: '1h' }).getAttribute('aria-checked')).toBe('true')
   const model = screen.getByRole('region', { name: 'Alpha performance' })
   expect(within(model).getByText('50')).toBeTruthy()
   expect(within(model).getByText('300')).toBeTruthy()
@@ -77,7 +77,7 @@ it('shows only active models and calculates weighted end-to-end TPS and recorded
   expect(within(model).getByText('TPS 0–50 tok/s')).toBeTruthy()
   expect(within(model).getByText('TTFT 0–300 ms')).toBeTruthy()
 
-  fireEvent.click(screen.getByRole('button', { name: '1w' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1w' }))
   expect(screen.getByRole('region', { name: 'Older performance' })).toBeTruthy()
 })
 
@@ -87,7 +87,7 @@ it('names each used model and shows bucket metrics and time on hover and keyboar
     sample('alpha-2', 'Alpha', 1, 80, 2000, 120),
     sample('beta', 'Beta', 10, 30, 1000, null)
   ])
-  fireEvent.click(screen.getByRole('button', { name: '1d' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1d' }))
   const models = screen.getByRole('group', { name: 'Models in this period' })
   expect(within(models).getByText('Alpha')).toBeTruthy()
   expect(within(models).getByText('Beta')).toBeTruthy()
@@ -130,7 +130,7 @@ it('keeps one tab stop per chart and moves between intervals with arrow keys', (
     sample('mid', 'Alpha', 10 * 60, 20, 1000, 100),
     sample('late', 'Alpha', 1, 30, 1000, 100)
   ])
-  fireEvent.click(screen.getByRole('button', { name: '1d' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1d' }))
   const graph = screen
     .getByRole('region', { name: 'Alpha performance' })
     .querySelector('.tm-performance__metric') as HTMLElement
@@ -178,17 +178,17 @@ it('includes boundary samples and hides models older than each selected period',
       .sort()
   }
 
-  fireEvent.click(screen.getByRole('button', { name: '1h' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1h' }))
   expect(visibleModels()).toEqual(['Hour edge performance'])
 
-  fireEvent.click(screen.getByRole('button', { name: '1d' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1d' }))
   expect(visibleModels()).toEqual([
     'Day edge performance',
     'Hour edge performance',
     'Past hour performance'
   ])
 
-  fireEvent.click(screen.getByRole('button', { name: '1w' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1w' }))
   expect(visibleModels()).toEqual([
     'Day edge performance',
     'Hour edge performance',
@@ -197,7 +197,7 @@ it('includes boundary samples and hides models older than each selected period',
     'Week edge performance'
   ])
 
-  fireEvent.click(screen.getByRole('button', { name: '1m' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1m' }))
   expect(visibleModels()).toEqual([
     'Day edge performance',
     'Hour edge performance',
@@ -235,7 +235,7 @@ it('keeps completed intervals and their positions stable as samples and the cloc
     sample('late', 'Alpha', 14, 30, 1000, 200)
   ]
   const { rerender } = view(history)
-  fireEvent.click(screen.getByRole('button', { name: '1h' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1h' }))
   const graph = screen
     .getByRole('region', { name: 'Alpha performance' })
     .querySelector('.tm-performance__metric') as HTMLElement
@@ -306,7 +306,7 @@ it('labels a changed vertical scale without changing recorded interval metrics',
   vi.setSystemTime(new Date(now.getTime() + 60_000))
   const initial = sample('old', 'Alpha', 10, 50, 1000, 200)
   const { rerender } = view([initial])
-  fireEvent.click(screen.getByRole('button', { name: '1h' }))
+  fireEvent.click(screen.getByRole('radio', { name: '1h' }))
   const graph = screen
     .getByRole('region', { name: 'Alpha performance' })
     .querySelector('.tm-performance__metric') as HTMLElement

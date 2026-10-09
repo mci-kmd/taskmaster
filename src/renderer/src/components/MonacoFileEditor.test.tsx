@@ -61,7 +61,8 @@ const monacoMock = vi.hoisted(() => {
 })
 
 vi.mock('../lib/monaco', () => ({
-  TASKMASTER_MONACO_THEME: 'taskmaster-dark',
+  TASKMASTER_MONACO_THEME: 'taskmaster',
+  applyMonacoTheme: vi.fn(),
   monaco: {
     Uri: {
       from: vi.fn((value) => value)

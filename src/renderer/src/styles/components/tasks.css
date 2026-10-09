@@ -1,48 +1,182 @@
-/* Project tasks: search, label chips. */
+/* Project tasks (ProjectTaskManager, TaskFilterBar): task cards, label chips, search. */
 @layer components {
-  .tm-task-search {
-    border: 1px solid var(--color-border);
-    background: var(--color-input);
-    color: var(--color-fg);
-    font-size: 13px;
-    line-height: 20px;
-    transition:
-      background-color 150ms ease,
-      border-color 150ms ease;
-  }
-  .tm-task-search:focus {
-    border-color: var(--color-border-strong);
-    background: #1c1c1c;
-  }
+  /* The search field is a TextInput; the browser's clear button duplicates our Clear action. */
   .tm-task-search::-webkit-search-cancel-button {
     display: none;
   }
 
-  .tm-label-chip {
+  /* A task tile on the tasks panel. */
+  .tm-task-card {
+    position: relative;
+    padding: 12px 14px 12px 10px;
+    border-radius: var(--radius-lg);
     border: 1px solid var(--color-border);
-    color: var(--color-fg-subtle);
-    font-size: 10.5px;
-    font-weight: 500;
-    line-height: 16px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    background: var(--color-surface);
     transition:
-      background-color 150ms ease,
-      color 150ms ease,
-      border-color 150ms ease;
+      border-color var(--duration-fast) ease,
+      opacity var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
   }
-  .tm-label-chip:hover:not([aria-pressed='true']),
-  .tm-label-chip:focus-visible:not([aria-pressed='true']) {
+  .tm-task-card:hover {
     border-color: var(--color-border-strong);
+  }
+  .tm-task-card[data-dragging='true'] {
+    opacity: 0.5;
+  }
+  .tm-task-card[data-editing='true'] {
+    border-color: var(--color-border-strong);
+    background: var(--color-panel);
+    box-shadow: var(--elevation-raised);
+  }
+
+  .tm-task-handle {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 22px;
+    border-radius: var(--radius-xs);
+    color: var(--color-fg-faint);
+    cursor: grab;
+    transition:
+      background-color var(--duration-fast) ease,
+      color var(--duration-fast) ease;
+  }
+  .tm-task-handle:hover,
+  .tm-task-handle:focus-visible {
+    background: var(--color-control-hover);
     color: var(--color-fg-muted);
   }
-  .tm-label-chip[aria-pressed='true'] {
-    border-color: var(--tm-chip-border);
+  .tm-task-handle:active {
+    cursor: grabbing;
+  }
+
+  /* Where a dragged task will land. */
+  .tm-task-drop-line {
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 3px var(--color-accent-ring);
+    pointer-events: none;
+  }
+  .tm-task-drop-line[data-edge='top'] {
+    top: -8px;
+  }
+  .tm-task-drop-line[data-edge='bottom'] {
+    bottom: -8px;
+  }
+
+  .tm-task-issue {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-accent);
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease;
+  }
+  .tm-task-issue:hover {
+    border-color: var(--color-accent-line);
+    background: var(--color-accent-soft);
+  }
+
+  /* The tag checklist in the task forms. */
+  .tm-task-tag-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+  }
+
+  .tm-task-empty {
+    padding: 32px 16px;
+    border-radius: var(--radius-lg);
+    border: 1px dashed var(--color-border-strong);
+    text-align: center;
+    font-size: 13px;
+    line-height: 24px;
+    color: var(--color-fg-muted);
+  }
+
+  /*
+   * Task labels. Static chips always show their tone; filter chips (buttons with aria-pressed)
+   * stay neutral until pressed. Tones come from lib/task-tag-tone.ts.
+   */
+  .tm-label-chip {
+    --tm-chip-fg: var(--color-fg-muted);
+    --tm-chip-bg: var(--color-surface-2);
+    --tm-chip-border: var(--color-border-strong);
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid var(--tm-chip-border);
     background: var(--tm-chip-bg);
     color: var(--tm-chip-fg);
+    font-size: 10.5px;
+    font-weight: 560;
+    line-height: 16px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    transition:
+      background-color var(--duration-fast) ease,
+      color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease;
   }
-  .tm-label-chip:focus-visible {
-    outline: 1px solid var(--color-fg);
+  .tm-label-chip[data-tone='danger'] {
+    --tm-chip-fg: var(--color-danger);
+    --tm-chip-bg: var(--color-danger-soft);
+    --tm-chip-border: color-mix(in oklab, var(--color-danger) 32%, transparent);
+  }
+  .tm-label-chip[data-tone='accent'] {
+    --tm-chip-fg: var(--color-accent);
+    --tm-chip-bg: var(--color-accent-soft);
+    --tm-chip-border: color-mix(in oklab, var(--color-accent) 32%, transparent);
+  }
+  .tm-label-chip[data-tone='accent-2'] {
+    --tm-chip-fg: var(--color-accent-2-ink);
+    --tm-chip-bg: var(--color-accent-2-soft);
+    --tm-chip-border: var(--color-accent-2-line);
+  }
+  button.tm-label-chip {
+    cursor: pointer;
+  }
+  button.tm-label-chip[aria-pressed='false'] {
+    border-color: var(--color-border);
+    background: transparent;
+    color: var(--color-fg-subtle);
+  }
+  button.tm-label-chip[aria-pressed='false']:hover,
+  button.tm-label-chip[aria-pressed='false']:focus-visible {
+    border-color: var(--color-border-strong);
+    background: var(--color-hover);
+    color: var(--color-fg-muted);
+  }
+  button.tm-label-chip:focus-visible {
+    outline: 2px solid var(--color-accent);
     outline-offset: 2px;
+  }
+
+  /* Search matches in task titles and descriptions. */
+  .tm-highlight {
+    border-radius: 3px;
+    padding: 0 1px;
+    background: color-mix(in oklab, var(--color-warning) 28%, transparent);
+    color: var(--color-fg);
   }
 }

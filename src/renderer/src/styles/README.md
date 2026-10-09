@@ -70,6 +70,7 @@ Everything that appears, disappears or moves animates, using the presets in `sty
 - Things that manage their own mounting (popovers, dialogs): `usePresence(open)` gives `mounted`
   and `state`; render while `mounted` with `data-motion` and `data-state={state}`.
 - Lists: `usePresenceList` + `useAnimatedListMotion` animate insertions, moves and removals.
+- Two icons sharing one slot (run/stop, branch/worktree): `tm-icon-swap` with `data-active` on each.
 - Keyed replacements that don't need an exit: the entrance classes `tm-fade-in`, `tm-rise-in`,
   `tm-pop-in`, `tm-slide-in`.
 - State changes (hover, selection, color) transition with `--duration-fast`; movement uses

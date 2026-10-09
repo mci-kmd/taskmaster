@@ -1,8 +1,10 @@
 import { useRef, type KeyboardEvent } from 'react'
 import type { ProjectTaskTag } from '../../../shared/app-types'
-import { getTaskTagChipStyle } from '../lib/task-tag-tone'
+import { getTaskTagTone } from '../lib/task-tag-tone'
 import { CloseIcon, SearchIcon } from './Icons'
 import Button from './ui/Button'
+import { TextInput } from './ui/Field'
+import Presence from './ui/Presence'
 
 type TaskFilterBarProps = {
   query: string
@@ -43,14 +45,14 @@ export default function TaskFilterBar({
       <div className="relative min-w-[220px] flex-1">
         <SearchIcon
           aria-hidden="true"
-          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-fg-subtle)]"
+          className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-subtle"
           height={14}
           width={14}
         />
-        <input
+        <TextInput
           ref={input}
           aria-label="Search tasks"
-          className="tm-task-search block w-full rounded-md py-1.5 pl-8 pr-3 placeholder:text-[var(--color-fg-faint)]"
+          className="tm-task-search py-1.5 pl-8"
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Search #number, title or description"
@@ -60,7 +62,7 @@ export default function TaskFilterBar({
         />
       </div>
 
-      {labels.length > 0 ? (
+      <Presence motion="fade" show={labels.length > 0}>
         <div
           aria-label="Filter by label"
           className="flex flex-wrap items-center gap-1.5"
@@ -72,9 +74,9 @@ export default function TaskFilterBar({
               <button
                 key={label}
                 aria-pressed={selected}
-                className="tm-label-chip rounded-full px-2 py-0.5"
+                className="tm-label-chip"
+                data-tone={getTaskTagTone(label)}
                 onClick={() => onToggleLabel(label)}
-                style={getTaskTagChipStyle(label)}
                 title={selected ? `Stop filtering by ${label}` : `Show tasks labeled ${label}`}
                 type="button"
               >
@@ -83,11 +85,10 @@ export default function TaskFilterBar({
             )
           })}
         </div>
-      ) : null}
+      </Presence>
 
-      {active ? (
+      <Presence motion="fade" show={active}>
         <Button
-          className="tm-fade-in"
           onClick={handleClear}
           size="sm"
           title="Clear search and label filters"
@@ -96,7 +97,7 @@ export default function TaskFilterBar({
           <CloseIcon height={12} width={12} />
           Clear
         </Button>
-      ) : null}
+      </Presence>
     </div>
   )
 }

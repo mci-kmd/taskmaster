@@ -35,16 +35,17 @@
     transform: translateY(4px) scale(0.985);
   }
 }
+/* Popovers open from their trigger: downwards by default, upwards with data-placement="top". */
 @keyframes tm-drop-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+    transform: translateY(var(--tm-drop-offset, -4px)) scale(0.98);
   }
 }
 @keyframes tm-drop-out {
   to {
     opacity: 0;
-    transform: translateY(-2px) scale(0.985);
+    transform: translateY(calc(var(--tm-drop-offset, -4px) / 2)) scale(0.985);
   }
 }
 @keyframes tm-rise-in {
@@ -63,6 +64,8 @@
   from {
     height: 0;
     opacity: 0;
+    margin-block: 0;
+    padding-block: 0;
   }
 }
 @keyframes tm-collapse-out {
@@ -131,6 +134,10 @@
     animation: tm-drop-out var(--duration-exit) var(--ease-in) both;
     transform-origin: top center;
   }
+  [data-motion='drop'][data-placement='top'] {
+    --tm-drop-offset: 4px;
+    transform-origin: bottom center;
+  }
   [data-motion='rise'][data-state='open'] {
     animation: tm-rise-in var(--duration-base) var(--ease-out) both;
   }
@@ -163,6 +170,23 @@
   }
   .tm-slide-in {
     animation: tm-slide-in var(--duration-base) var(--ease-out) both;
+  }
+
+  /* Two icons in one slot: the active one turns in while the other turns out. */
+  .tm-icon-swap {
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+  }
+  .tm-icon-swap > * {
+    grid-area: 1 / 1;
+    transition:
+      opacity var(--duration-base) var(--ease-out),
+      transform var(--duration-base) var(--ease-out);
+  }
+  .tm-icon-swap > [data-active='false'] {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.6);
   }
 
   /* Live indicators. */

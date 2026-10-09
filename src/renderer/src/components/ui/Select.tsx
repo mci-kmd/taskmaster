@@ -420,6 +420,7 @@ export default function Select(props: SelectProps): React.JSX.Element {
               ref={popup}
               className="tm-picker-popup"
               data-motion="drop"
+              data-placement={position.bottom !== undefined ? 'top' : 'bottom'}
               data-state={popupPresence.state}
               style={position}
             >

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { promptPreview, type RailPrompt } from './prompt-rail'
+import { useLastValue, usePresence } from '../../lib/motion'
 
 /** Distance in px over which magnification falls off around the pointer. */
 const SPREAD = 40
@@ -52,6 +53,10 @@ export default function PromptRail({
   const previews = useMemo(() => prompts.map(promptPreview), [prompts])
   const ids = prompts.map((prompt) => prompt.id).join('\n')
   const visible = prompts.length >= 2
+  const rail = usePresence(visible)
+  const labels = usePresence(magnified !== null)
+  // Labels keep their last positions while they fade out after the pointer leaves.
+  const shownLabels = useLastValue(magnified)
 
   const promptElements = useCallback((): Map<string, HTMLElement> => {
     const elements = new Map<string, HTMLElement>()
@@ -146,11 +151,17 @@ export default function PromptRail({
     bars.current[Math.max(0, Math.min(prompts.length - 1, target))]?.focus()
   }
 
-  if (!visible) return null
+  if (!rail.mounted) return null
   const current = magnified?.nearest ?? active
 
   return (
-    <div className="tm-prompt-rail" ref={railRef} data-expanded={magnified ? '' : undefined}>
+    <div
+      className="tm-prompt-rail"
+      ref={railRef}
+      data-expanded={magnified ? '' : undefined}
+      data-motion="fade"
+      data-state={rail.state}
+    >
       <nav
         className="tm-prompt-rail-list"
         aria-label="Prompts in this thread"
@@ -203,19 +214,26 @@ export default function PromptRail({
           />
         ))}
       </nav>
-      <div className="tm-prompt-rail-labels" aria-hidden="true">
-        {magnified?.labels.map(({ index, top, weight }) => (
-          <div
-            key={prompts[index].id}
-            className="tm-prompt-rail-label"
-            data-nearest={index === magnified.nearest ? '' : undefined}
-            style={{ top, opacity: weight }}
-          >
-            <span className="tm-prompt-rail-label-number">{index + 1}</span>
-            <span className="tm-prompt-rail-label-text">{previews[index] || 'Empty prompt'}</span>
-          </div>
-        ))}
-      </div>
+      {labels.mounted && shownLabels ? (
+        <div
+          className="tm-prompt-rail-labels"
+          aria-hidden="true"
+          data-motion="fade"
+          data-state={labels.state}
+        >
+          {shownLabels.labels.map(({ index, top, weight }) => (
+            <div
+              key={prompts[index]?.id ?? index}
+              className="tm-prompt-rail-label"
+              data-nearest={index === shownLabels.nearest ? '' : undefined}
+              style={{ top, opacity: weight }}
+            >
+              <span className="tm-prompt-rail-label-number">{index + 1}</span>
+              <span className="tm-prompt-rail-label-text">{previews[index] || 'Empty prompt'}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   )
 }

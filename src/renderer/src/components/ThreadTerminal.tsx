@@ -1,13 +1,23 @@
 import '@xterm/xterm/css/xterm.css'
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
+import { Terminal, type ITheme } from '@xterm/xterm'
 import type {
   AppSettingsSnapshot,
   CopilotSessionSnapshot,
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { getRendererApi } from '../shared/api/client'
+import {
+  canResolveColors,
+  mixColors,
+  readThemeRgba,
+  toHex,
+  withAlpha,
+  type Rgba
+} from '../lib/canvas-colors'
+import { usePresence } from '../lib/motion'
+import { useTheme } from '../lib/theme'
 
 const api = getRendererApi()
 
@@ -54,28 +64,58 @@ type XtermCore = {
   }
 }
 
-const TERMINAL_THEME = {
-  background: '#141414',
-  foreground: '#c9d1d9',
-  cursor: '#f3f3f3',
-  cursorAccent: '#141414',
-  selectionBackground: '#2e2e2e',
-  black: '#6e7681',
-  red: '#ffa198',
-  green: '#7ee787',
-  yellow: '#d29922',
-  blue: '#58a6ff',
-  magenta: '#d2a8ff',
-  cyan: '#79c0ff',
-  white: '#e6edf3',
-  brightBlack: '#8b949e',
-  brightRed: '#ffb1af',
-  brightGreen: '#56d364',
-  brightYellow: '#e3b341',
-  brightBlue: '#79c0ff',
-  brightMagenta: '#e2c5ff',
-  brightCyan: '#a5d6ff',
-  brightWhite: '#f0f6fc'
+/**
+ * The terminal follows the active theme: it sits on the panel, writes in the text color and
+ * selects with the accent. ANSI colors come from the status and syntax tokens, so they keep
+ * enough contrast on Porcelain as well as on the dark themes. Null when colors can't be
+ * resolved (tests), which leaves xterm's defaults.
+ */
+function buildTerminalTheme(element: Element, appearance: 'dark' | 'light'): ITheme | null {
+  if (!canResolveColors()) return null
+  const token = (name: string): Rgba => readThemeRgba(`--color-${name}`, element)
+  const panel = token('panel')
+  const fg = token('fg')
+  const accent = token('accent')
+  const red = token('danger')
+  const green = token('positive')
+  const yellow = token('warning')
+  const blue = token('accent')
+  const magenta = token('syntax-keyword')
+  const cyan = mixColors(green, blue, 0.5)
+  // Bright variants lean towards the text color: lighter on dark themes, deeper on Porcelain.
+  const bright = (color: Rgba): string => toHex(mixColors(fg, color, 0.3))
+  const [black, white, brightBlack, brightWhite] =
+    appearance === 'dark'
+      ? [token('fg-faint'), token('fg-muted'), token('fg-subtle'), fg]
+      : [fg, token('fg-subtle'), token('fg-muted'), token('fg-faint')]
+  return {
+    background: toHex(panel),
+    foreground: toHex(fg),
+    cursor: toHex(accent),
+    cursorAccent: toHex(panel),
+    selectionBackground: toHex(withAlpha(accent, appearance === 'dark' ? 0.32 : 0.22)),
+    selectionInactiveBackground: toHex(withAlpha(accent, 0.16)),
+    black: toHex(black),
+    red: toHex(red),
+    green: toHex(green),
+    yellow: toHex(yellow),
+    blue: toHex(blue),
+    magenta: toHex(magenta),
+    cyan: toHex(cyan),
+    white: toHex(white),
+    brightBlack: toHex(brightBlack),
+    brightRed: bright(red),
+    brightGreen: bright(green),
+    brightYellow: bright(yellow),
+    brightBlue: bright(blue),
+    brightMagenta: bright(magenta),
+    brightCyan: bright(cyan),
+    brightWhite: toHex(brightWhite)
+  }
+}
+
+function withTheme(theme: ITheme | null): { theme?: ITheme } {
+  return theme ? { theme } : {}
 }
 
 const MINIMUM_TERMINAL_COLS = 2
@@ -148,6 +188,10 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     const [exitCode, setExitCode] = useState<number | null>(null)
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [runtimeTitle, setRuntimeTitle] = useState<string | null>(null)
+    const theme = useTheme()
+    const appearanceRef = useRef(theme.appearance)
+    // Hidden terminals stay mounted (display: none); switching fades them in and out.
+    const presence = usePresence(visible)
 
     useEffect(() => {
       threadRef.current = thread
@@ -288,7 +332,7 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         minimumContrastRatio: 1,
         rescaleOverlappingGlyphs: true,
         scrollback: 5000,
-        theme: TERMINAL_THEME
+        ...withTheme(buildTerminalTheme(container, appearanceRef.current))
       })
       term.open(container)
       fitTerminal(term, container)
@@ -424,6 +468,15 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
     }, [launchKey, phase, start])
 
     useEffect(() => {
+      appearanceRef.current = theme.appearance
+      const term = terminalRef.current
+      const container = containerRef.current
+      if (!term || !container) return
+      const next = buildTerminalTheme(container, theme.appearance)
+      if (next) term.options.theme = next
+    }, [theme.appearance, theme.id])
+
+    useEffect(() => {
       if (!visible) return
       const term = terminalRef.current
       const container = containerRef.current
@@ -440,10 +493,12 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
 
     return (
       <div
-        className="absolute inset-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[#141414]"
-        style={{ display: visible ? 'block' : 'none' }}
+        className="tm-terminal"
+        data-motion="fade"
+        data-state={presence.state}
+        style={{ display: presence.mounted ? 'block' : 'none' }}
       >
-        <div className="absolute inset-3" ref={containerRef} />
+        <div className="tm-terminal__screen" ref={containerRef} />
       </div>
     )
   }

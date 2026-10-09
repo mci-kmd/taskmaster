@@ -333,3 +333,32 @@ export function AgentIcon(props: IconProps): React.JSX.Element {
     </svg>
   )
 }
+
+export function AlertIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M8 4.8v3.8" />
+      <circle cx="8" cy="11.2" r="0.4" fill="currentColor" />
+    </svg>
+  )
+}
+
+export function UndoIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M5.5 3 2.5 6l3 3" />
+      <path d="M2.5 6h6.75a4 4 0 0 1 0 8H7" />
+    </svg>
+  )
+}
+
+export function MoreIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} fill="currentColor" stroke="none" {...props}>
+      <circle cx="3.5" cy="8" r="1.2" />
+      <circle cx="8" cy="8" r="1.2" />
+      <circle cx="12.5" cy="8" r="1.2" />
+    </svg>
+  )
+}

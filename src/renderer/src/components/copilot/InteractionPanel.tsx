@@ -2,6 +2,9 @@ import { useState } from 'react'
 import type { CopilotInteraction, CopilotInteractionResponse } from '../../../../shared/app-types'
 import Button from '../ui/Button'
 import Checkbox from '../ui/Checkbox'
+import { TextInput } from '../ui/Field'
+import Presence from '../ui/Presence'
+import { QuestionIcon } from '../Icons'
 import ChoiceList from './ChoiceList'
 import SessionMarkdown from './SessionMarkdown'
 import { safeExternalUrl } from './safe-external-url'
@@ -30,13 +33,9 @@ export default function InteractionPanel({
 
   if (interaction.kind === 'permission') {
     return (
-      <fieldset disabled={busy} className="min-w-0 p-4">
-        <div className="text-[12.5px] font-medium text-[var(--color-warning)]">
-          {interaction.title}
-        </div>
-        <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words font-mono text-[11.5px] leading-5 text-[var(--color-fg-muted)]">
-          {interaction.description}
-        </pre>
+      <fieldset disabled={busy} className="tm-session-request-body">
+        <RequestTitle>{interaction.title}</RequestTitle>
+        <pre className="tm-session-request-command">{interaction.description}</pre>
         <div className="mt-3 flex justify-end gap-2">
           <Button
             onClick={() =>
@@ -51,7 +50,7 @@ export default function InteractionPanel({
           >
             Reject
           </Button>
-          {interaction.allowSessionApproval ? (
+          <Presence show={interaction.allowSessionApproval} motion="fade">
             <Button
               onClick={() =>
                 onRespond({
@@ -65,7 +64,7 @@ export default function InteractionPanel({
             >
               Allow for session
             </Button>
-          ) : null}
+          </Presence>
           <Button
             onClick={() =>
               onRespond({
@@ -86,8 +85,8 @@ export default function InteractionPanel({
 
   if (interaction.kind === 'user-input') {
     return (
-      <fieldset disabled={busy} className="min-w-0 p-4">
-        <div className="mb-2 text-[12.5px] font-medium">{interaction.title}</div>
+      <fieldset disabled={busy} className="tm-session-request-body">
+        <RequestTitle>{interaction.title}</RequestTitle>
         <SessionMarkdown>{interaction.description}</SessionMarkdown>
         <div className="mt-3 flex flex-wrap gap-2">
           {interaction.choices.map((choice) => (
@@ -109,9 +108,9 @@ export default function InteractionPanel({
             </Button>
           ))}
         </div>
-        {interaction.allowFreeform ? (
+        <Presence show={interaction.allowFreeform} motion="collapse">
           <form
-            className="mt-3 flex gap-2"
+            className="flex gap-2 pt-3"
             onSubmit={(event) => {
               event.preventDefault()
               if (!value.trim()) return
@@ -124,19 +123,19 @@ export default function InteractionPanel({
               })
             }}
           >
-            <input
+            <TextInput
               aria-label="Your answer"
               autoFocus
-              className="min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
+              className="min-w-0 flex-1"
               onChange={(event) => setValue(event.target.value)}
               placeholder="Type an answer"
               value={value}
             />
-            <Button disabled={!value.trim()} size="sm" type="submit" variant="primary">
+            <Button disabled={!value.trim()} size="md" type="submit" variant="primary">
               Answer
             </Button>
           </form>
-        ) : null}
+        </Presence>
         <Button
           className="mt-3"
           size="sm"
@@ -159,7 +158,7 @@ export default function InteractionPanel({
     })
   return (
     <form
-      className="border-t border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3"
+      className="tm-session-request-body"
       onSubmit={(event) => {
         event.preventDefault()
         onRespond({
@@ -171,7 +170,7 @@ export default function InteractionPanel({
       }}
     >
       <fieldset disabled={busy} className="min-w-0">
-        <div className="mb-2 text-[12.5px] font-medium">{interaction.title}</div>
+        <RequestTitle>{interaction.title}</RequestTitle>
         <SessionMarkdown>{interaction.description}</SessionMarkdown>
         {interaction.mode === 'url' && interaction.url ? (
           <Button
@@ -195,11 +194,9 @@ export default function InteractionPanel({
                     label={
                       <span className="flex flex-col gap-0.5">
                         <span>{field.title ?? name}</span>
-                        {field.description ? (
-                          <span className="text-[11.5px] text-[var(--color-fg-subtle)]">
-                            {field.description}
-                          </span>
-                        ) : null}
+                        <Presence show={Boolean(field.description)} motion="fade">
+                          <span className="tm-session-request-hint">{field.description}</span>
+                        </Presence>
                       </span>
                     }
                     onChange={(checked) =>
@@ -209,9 +206,7 @@ export default function InteractionPanel({
                 </div>
               ) : field.options ? (
                 <div className="grid gap-1.5" key={name}>
-                  <span className="text-[11.5px] text-[var(--color-fg-muted)]">
-                    {field.title ?? name}
-                  </span>
+                  <span className="tm-session-request-label">{field.title ?? name}</span>
                   {field.type === 'array' ? (
                     <ChoiceList
                       multiple
@@ -232,20 +227,15 @@ export default function InteractionPanel({
                       value={String(values[name] ?? '')}
                     />
                   )}
-                  {field.description ? (
-                    <span className="text-[10.5px] text-[var(--color-fg-subtle)]">
-                      {field.description}
-                    </span>
-                  ) : null}
+                  <Presence show={Boolean(field.description)} motion="fade">
+                    <span className="tm-session-request-hint">{field.description}</span>
+                  </Presence>
                 </div>
               ) : (
                 <label className="grid gap-1.5" key={name}>
-                  <span className="text-[11.5px] text-[var(--color-fg-muted)]">
-                    {field.title ?? name}
-                  </span>
+                  <span className="tm-session-request-label">{field.title ?? name}</span>
                   {
-                    <input
-                      className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
+                    <TextInput
                       defaultValue={String(field.default ?? '')}
                       onChange={(event) =>
                         setValues((current) => {
@@ -264,11 +254,9 @@ export default function InteractionPanel({
                       type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
                     />
                   }
-                  {field.description ? (
-                    <span className="text-[10.5px] text-[var(--color-fg-subtle)]">
-                      {field.description}
-                    </span>
-                  ) : null}
+                  <Presence show={Boolean(field.description)} motion="fade">
+                    <span className="tm-session-request-hint">{field.description}</span>
+                  </Presence>
                 </label>
               )
             )}
@@ -295,5 +283,15 @@ export default function InteractionPanel({
         </div>
       </fieldset>
     </form>
+  )
+}
+
+/** A request's title, in the coral "needs you" color shared with the sidebar's badge. */
+function RequestTitle({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="tm-session-request-title">
+      <QuestionIcon aria-hidden="true" />
+      <span>{children}</span>
+    </div>
   )
 }

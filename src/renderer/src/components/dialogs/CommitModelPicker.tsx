@@ -6,6 +6,7 @@ import type {
 } from '../../../../shared/app-types'
 import { getRendererApi } from '../../shared/api/client'
 import ModelPicker from '../copilot/ModelPicker'
+import Presence from '../ui/Presence'
 import Select from '../ui/Select'
 
 const api = getRendererApi()
@@ -101,11 +102,11 @@ export default function CommitModelPicker({
           ]}
         />
       </div>
-      {catalog?.error ? (
-        <p className="text-[12px] leading-5 text-[var(--color-warning)]" role="status">
-          Could not load Copilot models: {catalog.error}
+      <Presence motion="collapse" show={Boolean(catalog?.error)}>
+        <p className="text-[12px] leading-5 text-warning" role="status">
+          Could not load Copilot models: {catalog?.error}
         </p>
-      ) : null}
+      </Presence>
     </div>
   )
 }

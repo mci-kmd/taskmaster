@@ -5,6 +5,8 @@ import { composeThreadTitle } from '../../lib/title'
 import Modal from '../Modal'
 import Button from '../ui/Button'
 import { Field, TextInput } from '../ui/Field'
+import Presence from '../ui/Presence'
+import { useDialogSession } from './use-dialog-session'
 
 type EditThreadDialogProps = {
   open: boolean
@@ -23,6 +25,8 @@ export default function EditThreadDialog({
   onClose,
   onSubmit
 }: EditThreadDialogProps): React.JSX.Element {
+  // Each opening gets a fresh form, even when the dialog reopens while animating out.
+  const session = useDialogSession(open)
   return (
     <Modal
       description={
@@ -38,7 +42,7 @@ export default function EditThreadDialog({
       {thread ? (
         <EditThreadForm
           busy={busy}
-          key={`${thread.id}:${thread.customTitle ?? ''}`}
+          key={`${thread.id}:${thread.customTitle ?? ''}:${session.key}`}
           onCancel={onClose}
           onSubmit={async (input) => {
             const ok = await onSubmit(input)
@@ -51,9 +55,7 @@ export default function EditThreadDialog({
         />
       ) : (
         <div className="space-y-5">
-          <p className="text-[13px] text-[var(--color-fg-muted)]">
-            Select a thread, then reopen the editor.
-          </p>
+          <p className="text-[13px] text-fg-muted">Select a thread, then reopen the editor.</p>
           <div className="flex justify-end">
             <Button onClick={onClose} title="Close dialog" variant="secondary">
               Close
@@ -127,16 +129,15 @@ function EditThreadForm({
         />
       </Field>
 
-      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-        Preview: <span className="text-[var(--color-fg)]">{previewTitle}</span>
+      <div className="tm-dialog-note">
+        Preview: <span className="text-fg">{previewTitle}</span>
       </div>
 
-      {thread.projectKind === 'general' ? null : (
-        <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-          Branch:{' '}
-          <span className="font-mono text-[var(--color-fg)]">{thread.displayBranchName}</span>
+      <Presence motion="collapse" show={thread.projectKind !== 'general'}>
+        <div className="tm-dialog-note">
+          Branch: <span className="font-mono text-fg">{thread.displayBranchName}</span>
         </div>
-      )}
+      </Presence>
 
       <div className="flex items-center justify-between gap-2">
         <Button

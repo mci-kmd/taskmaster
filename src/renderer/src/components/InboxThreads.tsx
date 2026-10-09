@@ -1,19 +1,29 @@
+import { useMemo, useState } from 'react'
 import Select from './ui/Select'
 import ActionMenu from './ui/ActionMenu'
-import { useListMotion } from '../lib/use-list-motion'
-import { useState } from 'react'
+import Button from './ui/Button'
+import Presence from './ui/Presence'
+import {
+  useAnimatedListMotion,
+  usePresenceList,
+  type PresenceEntry
+} from '../lib/use-presence-list'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
+import type { CopilotThreadStatus } from './ThreadTerminal'
 import ProjectIcon from './ProjectIcon'
 import {
+  AlertIcon,
   ChevronRightIcon,
   CheckIcon,
   GitCommitIcon,
   PencilIcon,
   GearIcon,
+  MoreIcon,
   PlayIcon,
   QuestionIcon,
-  TasksIcon
+  TasksIcon,
+  UndoIcon
 } from './Icons'
 import { COMMIT_PHASE_LABELS } from '../../../shared/commit'
 import { composeThreadTitle } from '../lib/title'
@@ -21,6 +31,10 @@ import { formatRelativeTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
 import { getInboxThreads } from '../lib/inbox-threads'
 import { threadMenuOptions, threadMenuActions } from '../../../shared/sidebar-thread-actions'
+
+type InboxEntry = ReturnType<typeof getInboxThreads>['active'][number]
+
+const entryKey = (entry: InboxEntry): string => entry.thread.id
 
 export default function InboxThreads({
   repositories,
@@ -64,212 +78,215 @@ export default function InboxThreads({
   regeneratingTitleIds?: ReadonlySet<string>
 }): React.JSX.Element {
   const [settledExpanded, setSettledExpanded] = useState(false)
-  const activeList = useListMotion()
-  const settledList = useListMotion()
   const now = useNow(30_000)
-  const { active, settled } = getInboxThreads(repositories)
+  const { active, settled } = useMemo(() => getInboxThreads(repositories), [repositories])
+  // Rows that leave a list (settled, restored, closed) stay mounted while they animate out.
+  const activeEntries = usePresenceList(active, entryKey, 'inbox')
+  const settledEntries = usePresenceList(settled, entryKey, 'inbox')
+  const activeList = useAnimatedListMotion<HTMLUListElement>('inbox')
+  const settledList = useAnimatedListMotion<HTMLUListElement>('inbox')
   const hasFavorites = repositories.some((repository) => repository.favorite)
-  const row = ({ thread, repository }: (typeof active)[number]): React.JSX.Element => {
+
+  const row = ({ key, item, exitToken }: PresenceEntry<InboxEntry>): React.JSX.Element => {
+    const { thread, repository } = item
+    const exiting = exitToken !== null
     const session = sessions.get(thread.id)
     const title = composeThreadTitle(thread, session?.runtimeTitle)
-    const status = session?.copilotStatus ?? 'idle'
     const subtitle =
       thread.projectKind === 'general'
         ? repository.name
         : `${repository.name} · ${thread.displayBranchName}`
     return (
       <li
-        key={thread.id}
+        key={key}
+        className="tm-inbox-item"
+        data-motion-key={key}
         data-thread-id={thread.id}
-        className={`tm-inbox-row group flex items-center rounded-md ${selectedThread?.id === thread.id ? 'bg-[var(--color-active)]' : 'hover:bg-[var(--color-hover)]'}`}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          onContextMenu(thread, event.clientX, event.clientY)
-        }}
+        data-exiting={exiting ? '' : undefined}
+        inert={exiting}
       >
-        <button
-          type="button"
-          onClick={() => onSelectThread(thread.id)}
-          className="flex min-w-0 flex-1 items-start gap-2.5 px-2 py-2.5 text-left"
-          title={`${title}\n${subtitle}\n${thread.cwd}`}
+        <div
+          className="tm-inbox-row group"
+          data-selected={selectedThread?.id === thread.id || undefined}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onContextMenu(thread, event.clientX, event.clientY)
+          }}
         >
-          <span className="mt-0.5">
-            <ProjectIcon repository={repository} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[12.5px] font-medium">{title}</span>
-            <span className="mt-1 block truncate text-[11px] text-[var(--color-fg-subtle)]">
-              {subtitle}
-            </span>
-            <span className="mt-1 flex items-center gap-1.5 text-[10.5px] text-[var(--color-fg-subtle)]">
-              {thread.commitPhase ? (
-                <span
-                  className="tm-status-badge"
-                  data-status="committing"
-                  title={COMMIT_PHASE_LABELS[thread.commitPhase]}
-                >
-                  <GitCommitIcon className="tm-status-badge-pulse" width={10} height={10} />
-                  {thread.commitPhase === 'pushing' ? 'Pushing' : 'Committing'}
-                </span>
-              ) : status === 'done' || status === 'input' ? (
-                <span className="tm-status-badge" data-status={status}>
-                  {status === 'done' ? (
-                    <CheckIcon width={10} height={10} />
-                  ) : (
-                    <QuestionIcon width={10} height={10} />
-                  )}
-                  {status === 'done' ? 'Done' : 'Needs input'}
-                </span>
-              ) : (
-                <span
-                  className={
-                    status === 'working' || status === 'connecting'
-                      ? 'text-[var(--color-info)]'
-                      : status === 'error'
-                        ? 'text-[var(--color-danger)]'
-                        : ''
-                  }
-                >
-                  {status}
-                </span>
-              )}
-              <span>·</span>
-              <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
-              {thread.isRunCommandRunning ? (
-                <span
-                  className="tm-inbox-app-running ml-auto"
-                  role="img"
-                  aria-label="App running"
-                  title="App running"
-                >
-                  <PlayIcon width={10} height={10} />
-                </span>
-              ) : null}
-            </span>
-          </span>
-        </button>
-        <div className="tm-inbox-actions mr-1 flex shrink-0 flex-col opacity-0 focus-within:opacity-100 group-hover:opacity-100">
           <button
             type="button"
-            className="tm-inbox-action grid size-6 place-items-center rounded text-[var(--color-fg-muted)]"
-            onClick={() => onSettleThread(thread.id, !thread.settledAt)}
-            aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
-            title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
+            onClick={() => onSelectThread(thread.id)}
+            className="tm-inbox-row-main"
+            title={`${title}\n${subtitle}\n${thread.cwd}`}
           >
-            {thread.settledAt ? '↶' : '✓'}
+            <span className="mt-px">
+              <ProjectIcon repository={repository} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="tm-inbox-row-title">{title}</span>
+              <span className="tm-inbox-row-subtitle">{subtitle}</span>
+              <span className="tm-inbox-row-meta">
+                <ThreadStatus
+                  commitPhase={thread.commitPhase}
+                  status={session?.copilotStatus ?? 'idle'}
+                />
+                <span className="text-fg-faint">·</span>
+                <span className="tabular-nums">
+                  {formatRelativeTime(thread.lastActivityAt, now)}
+                </span>
+                <Presence show={thread.isRunCommandRunning} motion="fade">
+                  <span
+                    className="tm-inbox-app-running"
+                    role="img"
+                    aria-label="App running"
+                    title="App running"
+                  >
+                    <PlayIcon width={9} height={9} />
+                  </span>
+                </Presence>
+              </span>
+            </span>
           </button>
-          <ActionMenu
-            label={`Thread actions for ${title}`}
-            items={threadMenuActions(
-              threadMenuOptions(
-                thread,
-                convertingThread,
-                closingThread,
-                regeneratingTitleIds?.has(thread.id)
-              )
-            ).map(({ action, label, enabled }) => ({
-              label,
-              disabled: !enabled,
-              onSelect: () => {
-                if (action === 'edit') onEditThread(thread.id)
-                else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
-                else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
-                else if (action === 'settle-thread' || action === 'unsettle-thread')
-                  onSettleThread(thread.id, action === 'settle-thread')
-                else if (action === 'close-thread') onCloseThread(thread.id)
-              }
-            }))}
-          >
-            ···
-          </ActionMenu>
+          <div className="tm-inbox-actions">
+            <Button
+              className="tm-inbox-action"
+              data-action={thread.settledAt ? 'unsettle' : 'settle'}
+              iconOnly
+              size="xs"
+              variant="ghost"
+              onClick={() => onSettleThread(thread.id, !thread.settledAt)}
+              aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
+              title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
+            >
+              {thread.settledAt ? (
+                <UndoIcon width={12} height={12} strokeWidth={1.7} />
+              ) : (
+                <CheckIcon width={13} height={13} strokeWidth={1.8} />
+              )}
+            </Button>
+            <ActionMenu
+              label={`Thread actions for ${title}`}
+              triggerClassName="tm-inbox-action"
+              items={threadMenuActions(
+                threadMenuOptions(
+                  thread,
+                  convertingThread,
+                  closingThread,
+                  regeneratingTitleIds?.has(thread.id)
+                )
+              ).map(({ action, label, enabled }) => ({
+                label,
+                disabled: !enabled,
+                onSelect: () => {
+                  if (action === 'edit') onEditThread(thread.id)
+                  else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
+                  else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
+                  else if (action === 'settle-thread' || action === 'unsettle-thread')
+                    onSettleThread(thread.id, action === 'settle-thread')
+                  else if (action === 'close-thread') onCloseThread(thread.id)
+                }
+              }))}
+            >
+              <MoreIcon width={13} height={13} />
+            </ActionMenu>
+          </div>
         </div>
       </li>
     )
   }
+
   return (
     <div className="tm-inbox flex min-h-0 flex-1 flex-col">
-      {repositories.length > 0 ? (
-        <div className="mb-3 flex shrink-0 items-center gap-1 px-1">
-          <Select
-            aria-label="Project for new thread"
-            className="min-w-0 flex-1"
-            value={selectedRepository?.id ?? repositories[0]?.id ?? ''}
-            onChange={onSelectRepository}
-            onToggleFavorite={onToggleRepositoryFavorite}
-            options={projectOptions(repositories).map((repository) => ({
-              value: repository.id,
-              label: repository.name,
-              description: repository.path,
-              icon: <ProjectIcon repository={repository} />,
-              favorite: repository.favorite === true,
-              group: hasFavorites ? (repository.favorite ? 'Favorites' : 'Projects') : undefined
-            }))}
-          />
-          <button
-            type="button"
-            className="grid size-7 shrink-0 place-items-center rounded hover:bg-[var(--color-control-hover)]"
-            title="Project tasks"
-            aria-label="Project tasks"
-            onClick={() => {
-              if (selectedRepository) onOpenRepositoryTasks(selectedRepository.id)
-            }}
-          >
-            <TasksIcon width={14} height={14} />
-          </button>
-          <button
-            type="button"
-            className="grid size-7 shrink-0 place-items-center rounded hover:bg-[var(--color-hover)]"
-            title="Edit project"
-            aria-label="Edit project"
-            onClick={() => {
-              if (selectedRepository) onEditRepository(selectedRepository.id)
-            }}
-          >
-            <GearIcon width={13} height={13} />
-          </button>
-          <button
-            type="button"
-            className="grid size-7 shrink-0 place-items-center rounded hover:bg-[var(--color-hover)]"
-            title="New thread (Ctrl+N)"
-            aria-label="New thread"
-            onClick={() => {
-              if (selectedRepository) onNewThread(selectedRepository.id)
-            }}
-          >
-            <PencilIcon width={14} height={14} />
-          </button>
+      <Presence show={repositories.length > 0} motion="collapse">
+        <div className="shrink-0">
+          <div className="flex items-center gap-0.5 pt-0.5 pb-2">
+            <Select
+              aria-label="Project for new thread"
+              className="mr-1 min-w-0 flex-1"
+              value={selectedRepository?.id ?? repositories[0]?.id ?? ''}
+              onChange={onSelectRepository}
+              onToggleFavorite={onToggleRepositoryFavorite}
+              options={projectOptions(repositories).map((repository) => ({
+                value: repository.id,
+                label: repository.name,
+                description: repository.path,
+                icon: <ProjectIcon repository={repository} />,
+                favorite: repository.favorite === true,
+                group: hasFavorites ? (repository.favorite ? 'Favorites' : 'Projects') : undefined
+              }))}
+            />
+            <Button
+              iconOnly
+              size="sm"
+              variant="ghost"
+              title="Project tasks"
+              aria-label="Project tasks"
+              onClick={() => {
+                if (selectedRepository) onOpenRepositoryTasks(selectedRepository.id)
+              }}
+            >
+              <TasksIcon width={14} height={14} />
+            </Button>
+            <Button
+              iconOnly
+              size="sm"
+              variant="ghost"
+              title="Edit project"
+              aria-label="Edit project"
+              onClick={() => {
+                if (selectedRepository) onEditRepository(selectedRepository.id)
+              }}
+            >
+              <GearIcon width={14} height={14} />
+            </Button>
+            <Button
+              iconOnly
+              size="sm"
+              variant="ghost"
+              title="New thread (Ctrl+N)"
+              aria-label="New thread"
+              onClick={() => {
+                if (selectedRepository) onNewThread(selectedRepository.id)
+              }}
+            >
+              <PencilIcon width={14} height={14} />
+            </Button>
+          </div>
         </div>
-      ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <ul ref={activeList} className="relative space-y-0.5" aria-label="Active threads">
-          {active.map(row)}
+      </Presence>
+      <div className="tm-inbox-scroll min-h-0 flex-1">
+        <ul ref={activeList} className="relative" aria-label="Active threads">
+          {activeEntries.map(row)}
         </ul>
-        {active.length === 0 ? (
-          <p className="px-2 py-5 text-[12px] text-[var(--color-fg-subtle)]">
+        <Presence show={active.length === 0} motion="fade">
+          <p className="px-2 py-5 text-[12px] leading-5 text-fg-subtle">
             {repositories.length === 0
               ? 'Add a repository to start a thread.'
               : settled.length > 0
                 ? 'All caught up. Start a new thread or revisit a settled one.'
                 : 'Create a thread to start your inbox.'}
           </p>
-        ) : null}
+        </Presence>
       </div>
-      <div className="mt-2 shrink-0 border-t border-[var(--color-border)]">
+      <div className="tm-inbox-shelf">
         <button
           type="button"
           aria-expanded={settledExpanded}
           aria-controls="settled-threads"
           onClick={() => setSettledExpanded(!settledExpanded)}
-          className="flex w-full items-center gap-2 rounded px-2 pt-3 pb-2 text-left text-[12px] text-[var(--color-fg-subtle)] transition-colors hover:text-[var(--color-fg)]"
+          className="tm-inbox-shelf-toggle"
         >
           <ChevronRightIcon
             className="tm-inbox-shelf-chevron"
             data-expanded={settledExpanded}
             width={12}
             height={12}
+            strokeWidth={1.8}
           />
           Settled threads{' '}
-          <span className="ml-auto text-[var(--color-fg-faint)]">{settled.length}</span>
+          <span key={settled.length} className="tm-inbox-shelf-count tm-fade-in">
+            {settled.length}
+          </span>
         </button>
         <div
           className="tm-inbox-settled-body"
@@ -281,14 +298,75 @@ export default function InboxThreads({
             ref={settledList}
             id="settled-threads"
             aria-label="Settled threads"
-            className="relative space-y-0.5"
+            className="relative pb-1"
           >
-            {settled.map(row)}
+            {settledEntries.map(row)}
           </ul>
         </div>
       </div>
     </div>
   )
+}
+
+/**
+ * A thread's status in its meta line. Each status is keyed, so a change (working → done)
+ * swaps in the new badge with an entrance instead of an instant replacement.
+ */
+function ThreadStatus({
+  commitPhase,
+  status
+}: {
+  commitPhase: ThreadSnapshot['commitPhase']
+  status: CopilotThreadStatus
+}): React.JSX.Element {
+  if (commitPhase) {
+    const label = commitPhase === 'pushing' ? 'Pushing' : 'Committing'
+    return (
+      <span
+        key={label}
+        className="tm-status-badge tm-fade-in"
+        data-status="committing"
+        title={COMMIT_PHASE_LABELS[commitPhase]}
+      >
+        <GitCommitIcon className="tm-blink" width={11} height={11} strokeWidth={1.7} />
+        {label}
+      </span>
+    )
+  }
+  if (status === 'done' || status === 'input') {
+    return (
+      <span key={status} className="tm-status-badge tm-fade-in" data-status={status}>
+        {status === 'done' ? (
+          <CheckIcon width={11} height={11} strokeWidth={2} />
+        ) : (
+          <QuestionIcon width={11} height={11} strokeWidth={1.8} />
+        )}
+        {status === 'done' ? 'Done' : 'Needs input'}
+      </span>
+    )
+  }
+  return (
+    <span key={status} className="tm-thread-status tm-fade-in" data-status={status}>
+      {status === 'working' || status === 'connecting' ? (
+        <span className="tm-live-dot" aria-hidden="true" />
+      ) : status === 'error' ? (
+        <AlertIcon width={11} height={11} strokeWidth={1.8} aria-hidden="true" />
+      ) : (
+        <span className="tm-thread-status-ring" aria-hidden="true" />
+      )}
+      {STATUS_LABELS[status]}
+    </span>
+  )
+}
+
+const STATUS_LABELS: Record<CopilotThreadStatus, string> = {
+  idle: 'Idle',
+  working: 'Working',
+  connecting: 'Connecting',
+  input: 'Needs input',
+  done: 'Done',
+  error: 'Error',
+  disconnected: 'Disconnected'
 }
 
 /** Favorite projects first, otherwise in snapshot order. */

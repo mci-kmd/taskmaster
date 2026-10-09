@@ -10,13 +10,11 @@ type FieldShellProps = {
 export function Field({ label, hint, children, htmlFor }: FieldShellProps): React.JSX.Element {
   const content = (
     <>
-      <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
+      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-fg-subtle">
         {label}
       </div>
       {children}
-      {hint ? (
-        <p className="mt-1.5 text-[12px] leading-5 text-[var(--color-fg-subtle)]">{hint}</p>
-      ) : null}
+      {hint ? <p className="mt-1.5 text-[12px] leading-5 text-fg-subtle">{hint}</p> : null}
     </>
   )
 
@@ -31,10 +29,12 @@ export function Field({ label, hint, children, htmlFor }: FieldShellProps): Reac
   return <div className="block">{content}</div>
 }
 
-// Styled by .tm-input: utilities lose to the unlayered input/textarea reset in main.css.
+// Styled by .tm-input (styles/components/field.css).
 const inputClass = 'tm-input block w-full'
 
-export function TextInput(props: InputHTMLAttributes<HTMLInputElement>): React.JSX.Element {
+export function TextInput(
+  props: InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }
+): React.JSX.Element {
   const { className = '', ...rest } = props
   return <input className={`${inputClass} ${className}`} {...rest} />
 }

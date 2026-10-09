@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from 'react'
+import Presence from '../ui/Presence'
 
 type ChoiceListProps = {
   label: string
@@ -153,11 +154,11 @@ export default function ChoiceList(props: ChoiceListProps): React.JSX.Element {
           value={props.value.length ? 'selected' : ''}
         />
       ) : null}
-      {invalid ? (
+      <Presence show={invalid} motion="collapse">
         <span className="tm-picker-error" role="alert">
           Choose at least one option.
         </span>
-      ) : null}
+      </Presence>
     </div>
   )
 }

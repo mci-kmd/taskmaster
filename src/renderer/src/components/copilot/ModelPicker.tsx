@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { CopilotModelOption } from '../../../../shared/app-types'
 import { ChevronDownIcon, ChevronRightIcon, StarIcon } from '../Icons'
 import { modelFamily } from './model-families'
+import { useLastValue, usePresence } from '../../lib/motion'
 
 type ModelChoice = CopilotModelOption & { disabled?: boolean }
 type TopItem =
@@ -94,7 +95,13 @@ export default function ModelPicker({
   const highlighted = topItems.find((item) => item.key === highlight) ?? null
   const legacySet = new Set(legacyModels)
   const isLegacy = (model: ModelChoice): boolean => legacySet.has(model.id)
-  const familyModels = expandedFamily ? (groups.get(expandedFamily) ?? []) : []
+  const visible = open && !disabled
+  const presence = usePresence(visible)
+  const submenuPresence = usePresence(visible && expandedFamily !== null)
+  // A collapsing submenu keeps showing its family while it animates out.
+  const lastFamily = useLastValue(expandedFamily)
+  const shownFamily = submenuPresence.mounted ? lastFamily : null
+  const familyModels = shownFamily ? (groups.get(shownFamily) ?? []) : []
   const legacyChoices = familyModels.filter(isLegacy)
   const subItems: SubItem[] = [
     ...familyModels
@@ -110,7 +117,6 @@ export default function ModelPicker({
   const navigable = subItems
     .filter((item) => item.kind === 'legacy' || !item.model.disabled)
     .map(subKey)
-  const visible = open && !disabled
   const topId = (key: string): string =>
     `${id}-top-${topItems.findIndex((item) => item.key === key)}`
   const modelId = (key: string): string =>
@@ -262,7 +268,9 @@ export default function ModelPicker({
       root.style.maxHeight = `${Math.min(360, window.innerHeight - 16)}px`
       const height = root.offsetHeight
       root.style.left = `${Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8))}px`
-      root.style.top = `${Math.max(8, Math.min(bounds.bottom + 4 + height > window.innerHeight - 8 ? bounds.top - height - 4 : bounds.bottom + 4, window.innerHeight - height - 8))}px`
+      const upwards = bounds.bottom + 4 + height > window.innerHeight - 8
+      root.style.top = `${Math.max(8, Math.min(upwards ? bounds.top - height - 4 : bounds.bottom + 4, window.innerHeight - height - 8))}px`
+      root.dataset.placement = upwards ? 'top' : 'bottom'
       root.style.visibility = 'visible'
       const sub = submenu.current
       const row = root.querySelector<HTMLElement>('[aria-expanded="true"]')
@@ -369,7 +377,7 @@ export default function ModelPicker({
         <span className="tm-picker-label">{selected?.name ?? (value || placeholder)}</span>
         <ChevronDownIcon className="tm-picker-chevron" width={12} height={12} />
       </button>
-      {visible &&
+      {presence.mounted &&
         createPortal(
           <>
             <div
@@ -378,6 +386,8 @@ export default function ModelPicker({
               role="tree"
               aria-label="Model families"
               className="tm-picker-popup"
+              data-motion="drop"
+              data-state={presence.state}
               style={{ position: 'fixed', visibility: 'hidden' }}
             >
               {families.map((name) => (
@@ -442,13 +452,17 @@ export default function ModelPicker({
                 </div>
               )}
             </div>
-            {expandedFamily && (
+            {shownFamily && (
               <div
+                // Re-keyed per family so switching families replays the entrance.
+                key={shownFamily}
                 ref={submenu}
                 id={`${id}-children`}
                 role="group"
-                aria-label={`${expandedFamily} models`}
+                aria-label={`${shownFamily} models`}
                 className="tm-picker-popup"
+                data-motion="drop"
+                data-state={submenuPresence.state}
                 style={{ position: 'fixed', visibility: 'hidden' }}
               >
                 {subItems.map((item) => {

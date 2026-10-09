@@ -1,7 +1,18 @@
-import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode
+} from 'react'
+import { getTaskTagTone } from '../../lib/task-tag-tone'
+import { MOTION, canAnimate, useLastValue } from '../../lib/motion'
 import { CheckIcon } from '../Icons'
 import Checkbox from '../ui/Checkbox'
 import { TextArea, TextInput } from '../ui/Field'
+import Presence from '../ui/Presence'
 import type { AutoSaveField, AutoSaveFieldStatus, AutoSaveStatus } from './use-auto-save'
 
 export type SettingsSection = {
@@ -31,9 +42,29 @@ export function SettingsLayout({
 }: SettingsLayoutProps): React.JSX.Element {
   const idPrefix = useId()
   const tabs = useRef(new Map<string, HTMLButtonElement>())
+  const indicator = useRef<HTMLSpanElement>(null)
+  const placed = useRef(false)
   const active = sections.find((section) => section.id === activeId) ?? sections[0]
   const tabId = (id: string): string => `${idPrefix}-tab-${id}`
   const panelId = `${idPrefix}-panel`
+  // The first section appears with the dialog; later switches slide the new one in.
+  const [shownId, setShownId] = useState(active.id)
+  const [switched, setSwitched] = useState(false)
+  if (shownId !== active.id) {
+    setShownId(active.id)
+    setSwitched(true)
+  }
+
+  // The raised selection slides to the active tab; it jumps into place on first render.
+  useLayoutEffect(() => {
+    const tab = tabs.current.get(active.id)
+    const element = indicator.current
+    if (!tab || !element) return
+    element.toggleAttribute('data-instant', !placed.current)
+    element.style.transform = `translateY(${tab.offsetTop}px)`
+    element.style.height = `${tab.offsetHeight}px`
+    placed.current = true
+  }, [active.id, sections.length])
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     const index = sections.findIndex((section) => section.id === active.id)
@@ -59,10 +90,16 @@ export function SettingsLayout({
       <div
         aria-label={label}
         aria-orientation="vertical"
-        className="flex w-[184px] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2"
+        className="tm-settings-nav"
         onKeyDown={handleKeyDown}
         role="tablist"
       >
+        <span
+          aria-hidden="true"
+          className="tm-settings-nav__indicator"
+          data-tone={active.tone}
+          ref={indicator}
+        />
         {sections.map((section) => {
           const selected = section.id === active.id
           return (
@@ -84,20 +121,20 @@ export function SettingsLayout({
               type="button"
             >
               <span className="min-w-0 flex-1 truncate">{section.label}</span>
-              {section.hasError ? (
+              <Presence motion="fade" show={Boolean(section.hasError)}>
                 <span
                   aria-label="Has unsaved changes"
-                  className="size-1.5 shrink-0 rounded-full bg-[var(--color-danger)]"
+                  className="tm-settings-nav-item__dot"
                   role="img"
                 />
-              ) : null}
+              </Presence>
             </button>
           )
         })}
       </div>
       <div
         aria-labelledby={tabId(active.id)}
-        className="min-w-0 flex-1 overflow-y-auto px-6 pb-6 pt-5"
+        className={`min-w-0 flex-1 overflow-y-auto px-6 pb-6 pt-5 ${switched ? 'tm-rise-in' : ''}`}
         id={panelId}
         key={active.id}
         role="tabpanel"
@@ -120,22 +157,35 @@ export function SettingsSectionBody({
     <>
       {showHeading ? (
         <header className="mb-1">
-          <h3 className="text-[14px] font-medium tracking-tight text-[var(--color-fg)]">
-            {section.label}
-          </h3>
+          <h3 className="text-[14px] font-semibold tracking-tight text-fg">{section.label}</h3>
           {section.description ? (
-            <p className="mt-0.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-              {section.description}
-            </p>
+            <p className="mt-0.5 text-[12.5px] leading-5 text-fg-muted">{section.description}</p>
           ) : null}
         </header>
       ) : null}
-      <div className="divide-y divide-[var(--color-border)]">{section.content}</div>
+      <div className="divide-y divide-border">{section.content}</div>
     </>
   )
 }
 
-/** Global auto-save status, announced politely to assistive technology. */
+function saveStatusLabel(status: AutoSaveStatus, errorCount: number): ReactNode {
+  return status === 'saving' ? (
+    'Saving…'
+  ) : status === 'saved' ? (
+    <>
+      <CheckIcon aria-hidden height={12} width={12} />
+      Saved
+    </>
+  ) : status === 'error' ? (
+    `${errorCount} ${errorCount === 1 ? 'change' : 'changes'} not saved`
+  ) : (
+    'Changes save automatically'
+  )
+}
+
+type ShownStatus = { key: string; status: AutoSaveStatus; errorCount: number }
+
+/** Global auto-save status, announced politely to assistive technology. Changes crossfade. */
 export function SaveStatus({
   status,
   errorCount
@@ -143,47 +193,70 @@ export function SaveStatus({
   status: AutoSaveStatus
   errorCount: number
 }): React.JSX.Element {
+  const key = status === 'error' ? `error-${errorCount}` : status
+  const [shown, setShown] = useState<ShownStatus>({ key, status, errorCount })
+  // The previous text fades out underneath the new one.
+  const [leaving, setLeaving] = useState<ShownStatus | null>(null)
+  if (shown.key !== key) {
+    setShown({ key, status, errorCount })
+    setLeaving(canAnimate() ? shown : null)
+  }
+
+  useEffect(() => {
+    if (!leaving) return
+    const timer = window.setTimeout(() => setLeaving(null), MOTION.exitMs + 20)
+    return () => window.clearTimeout(timer)
+  }, [leaving])
+
   return (
-    <span
-      aria-live="polite"
-      className="tm-save-status"
-      data-status={status}
-      role="status"
-      title="Changes are saved automatically"
-    >
-      {status === 'saving' ? (
-        'Saving…'
-      ) : status === 'saved' ? (
-        <>
-          <CheckIcon aria-hidden height={12} width={12} />
-          Saved
-        </>
-      ) : status === 'error' ? (
-        `${errorCount} ${errorCount === 1 ? 'change' : 'changes'} not saved`
-      ) : (
-        'Changes save automatically'
-      )}
+    <span className="tm-save-status-stack">
+      {leaving ? (
+        <span
+          aria-hidden="true"
+          className="tm-save-status"
+          data-motion="fade"
+          data-state="closed"
+          data-status={leaving.status}
+          key={`leaving-${leaving.key}`}
+        >
+          {saveStatusLabel(leaving.status, leaving.errorCount)}
+        </span>
+      ) : null}
+      <span
+        aria-live="polite"
+        className="tm-save-status"
+        data-status={status}
+        role="status"
+        title="Changes are saved automatically"
+      >
+        <span className="tm-save-status__text tm-fade-in" key={key}>
+          {saveStatusLabel(status, errorCount)}
+        </span>
+      </span>
     </span>
   )
 }
 
+/** "Saving…" and "Saved" beside a field's label; fades in and out, crossfading between them. */
 function FieldStatusBadge({ status }: { status: AutoSaveFieldStatus }): React.JSX.Element | null {
-  if (status.state === 'saving') {
-    return (
-      <span aria-hidden className="tm-field-status">
-        Saving…
+  const visible = status.state === 'saving' || status.state === 'saved'
+  const shown = useLastValue(visible ? status.state : null)
+  return (
+    <Presence motion="fade" show={visible}>
+      <span aria-hidden className="tm-field-status" data-status={shown ?? undefined}>
+        <span className="tm-field-status__text tm-fade-in" key={shown}>
+          {shown === 'saved' ? (
+            <>
+              <CheckIcon height={11} width={11} />
+              Saved
+            </>
+          ) : (
+            'Saving…'
+          )}
+        </span>
       </span>
-    )
-  }
-  if (status.state === 'saved') {
-    return (
-      <span aria-hidden className="tm-field-status" data-state="saved">
-        <CheckIcon height={11} width={11} />
-        Saved
-      </span>
-    )
-  }
-  return null
+    </Presence>
+  )
 }
 
 type SettingRowProps = {
@@ -234,7 +307,7 @@ export function SettingRow({
   stacked = false,
   children
 }: SettingRowProps): React.JSX.Element {
-  const labelClass = 'text-[13px] font-medium text-[var(--color-fg)]'
+  const labelClass = 'text-[13px] font-medium text-fg'
   return (
     <div className="tm-setting-row" data-stacked={stacked || undefined}>
       <div className="tm-setting-row__meta">
@@ -252,7 +325,7 @@ export function SettingRow({
         </div>
         {hint ? (
           <p
-            className="mt-0.5 text-[12px] leading-[18px] text-[var(--color-fg-subtle)]"
+            className="mt-0.5 text-[12px] leading-[18px] text-fg-subtle"
             id={controlId ? hintId(controlId) : undefined}
           >
             {hint}
@@ -261,14 +334,14 @@ export function SettingRow({
       </div>
       <div className="min-w-0">
         {children}
-        {status?.state === 'error' ? (
+        <Presence motion="collapse" show={status?.state === 'error'}>
           <p
-            className="mt-1.5 text-[12px] leading-[18px] text-[var(--color-danger)]"
+            className="pt-1.5 text-[12px] leading-[18px] text-danger"
             id={controlId ? errorId(controlId) : undefined}
           >
-            {status.error}
+            {status?.error}
           </p>
-        ) : null}
+        </Presence>
       </div>
     </div>
   )
@@ -414,15 +487,12 @@ export function TagPreview({
   empty?: string
 }): React.JSX.Element | null {
   if (!tags.length) {
-    return empty ? <p className="mt-2 text-[12px] text-[var(--color-fg-subtle)]">{empty}</p> : null
+    return empty ? <p className="mt-2 text-[12px] text-fg-subtle">{empty}</p> : null
   }
   return (
     <ul aria-label="Tag preview" className="mt-2 flex flex-wrap gap-1.5">
       {tags.map((tag) => (
-        <li
-          className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-0.5 text-[11.5px] text-[var(--color-fg)]"
-          key={tag}
-        >
+        <li className="tm-label-chip tm-fade-in" data-tone={getTaskTagTone(tag)} key={tag}>
           {tag}
         </li>
       ))}
@@ -433,7 +503,7 @@ export function TagPreview({
 /** Inline code token for hints, e.g. a run command placeholder. */
 export function Token({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    <code className="rounded bg-[var(--color-input)] px-1 py-px font-mono text-[11px] text-[var(--color-fg-muted)]">
+    <code className="rounded-xs bg-surface-2 px-1 py-px font-mono text-[11px] text-fg-muted">
       {children}
     </code>
   )

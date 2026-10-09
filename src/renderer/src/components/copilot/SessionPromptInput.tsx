@@ -17,6 +17,8 @@ import {
   splitAttachmentMarkers
 } from './attachment-markers'
 import type { SendMode } from './SendButton'
+import Button from '../ui/Button'
+import Presence from '../ui/Presence'
 
 const api = getRendererApi()
 const PLACEHOLDERS: Record<SendMode, string> = {
@@ -137,6 +139,7 @@ export default function SessionPromptInput({
       element.style.maxHeight = `${height}px`
       element.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`
       element.style.top = `${placeAbove ? Math.max(8, rect.top - Math.min(element.scrollHeight, height) - 6) : rect.bottom + 6}px`
+      element.dataset.placement = placeAbove ? 'top' : 'bottom'
       element.style.visibility = 'visible'
     }
     position()
@@ -369,8 +372,9 @@ export default function SessionPromptInput({
         Up and Down recall sent prompts from an empty message. Type / or $ for skills, use arrows to
         browse, Tab or Enter to insert, and Escape to dismiss.
       </span>
-      {open &&
-        createPortal(
+      {createPortal(
+        // Presence keeps the menu as it was while it fades out, e.g. after a skill is chosen.
+        <Presence show={open} motion="drop">
           <div
             ref={popup}
             className="tm-picker-popup tm-skill-menu"
@@ -420,8 +424,9 @@ export default function SessionPromptInput({
                 {result?.error && (
                   <>
                     <span>{result.error}</span>
-                    <button
-                      type="button"
+                    <Button
+                      size="xs"
+                      variant="secondary"
                       onPointerDown={(event) => event.preventDefault()}
                       onClick={() => {
                         setCatalog(null)
@@ -429,14 +434,15 @@ export default function SessionPromptInput({
                       }}
                     >
                       Retry
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>
             )}
-          </div>,
-          document.body
-        )}
+          </div>
+        </Presence>,
+        document.body
+      )}
     </>
   )
 }

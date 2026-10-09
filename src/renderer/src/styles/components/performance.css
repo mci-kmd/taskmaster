@@ -1,9 +1,11 @@
 /* Model performance view and charts. */
 @layer components {
+  /* Series colors come from tokens so they hold up in every theme: cobalt for speed, amber for
+     first-token latency (also dashed, with hollow points) and violet for cost. */
   .tm-performance {
-    --tm-tps: #79d4d9;
-    --tm-ttft: #e6b976;
-    --tm-cost: #b7a3f0;
+    --tm-tps: var(--color-accent);
+    --tm-ttft: var(--color-syntax-number);
+    --tm-cost: var(--color-syntax-keyword);
     flex: 1 1 auto;
     width: 100%;
     height: 100%;
@@ -11,7 +13,6 @@
     min-width: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    background: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-sans);
   }
@@ -19,7 +20,7 @@
   .tm-performance__inner {
     max-width: 1140px;
     margin: 0 auto;
-    padding: clamp(24px, 4vw, 56px) clamp(20px, 4vw, 56px) 36px;
+    padding: clamp(24px, 4vw, 48px) clamp(20px, 4vw, 48px) 36px;
   }
 
   .tm-performance__header {
@@ -27,7 +28,7 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 24px;
-    padding-bottom: 30px;
+    padding-bottom: 24px;
   }
 
   .tm-performance__eyebrow,
@@ -41,19 +42,20 @@
   }
 
   .tm-performance__eyebrow {
-    margin: 0 0 14px;
+    margin: 0 0 10px;
     color: var(--color-fg-subtle);
     font-family: var(--font-mono);
-    letter-spacing: 0.06em;
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
   .tm-performance h1 {
     margin: 0;
-    font-size: clamp(25px, 3vw, 34px);
-    font-weight: 570;
-    letter-spacing: -0.055em;
-    line-height: 1.15;
+    font-size: clamp(22px, 2.6vw, 28px);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
   }
 
   .tm-performance__intro {
@@ -63,49 +65,14 @@
     line-height: 1.5;
   }
 
-  .tm-performance__close,
-  .tm-performance__retry,
-  .tm-performance__period {
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
-    color: var(--color-fg-muted);
-  }
-
-  .tm-performance__close {
-    display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    padding: 7px 10px;
-    border-radius: 5px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
-  .tm-performance__close span {
-    font-size: 18px;
-    line-height: 10px;
-  }
-
-  .tm-performance__close:hover,
-  .tm-performance__retry:hover,
-  .tm-performance__period:hover {
-    background: var(--color-hover);
-    color: var(--color-fg);
-  }
-
-  .tm-performance button:focus-visible {
-    outline: 2px solid var(--color-info);
-    outline-offset: 2px;
-  }
-
   .tm-performance__toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 14px;
-    padding: 13px 0;
-    border-top: 1px solid var(--color-border-strong);
+    padding: 12px 0;
+    border-top: 1px solid var(--color-border);
     border-bottom: 1px solid var(--color-border);
   }
 
@@ -122,23 +89,12 @@
   }
 
   .tm-performance__periods {
-    display: flex;
-    gap: 3px;
+    width: 196px;
   }
-
-  .tm-performance__period {
-    min-width: 44px;
-    padding: 6px 10px;
-    border-radius: 4px;
+  .tm-performance__periods .tm-segmented__option {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: 11.5px;
     font-variant-numeric: tabular-nums;
-  }
-
-  .tm-performance__period[aria-pressed='true'] {
-    border-color: var(--color-border-strong);
-    background: var(--color-active);
-    color: var(--color-fg);
   }
 
   .tm-performance__scope {
@@ -164,11 +120,16 @@
     text-transform: uppercase;
   }
 
+  .tm-performance__model-index strong:not([data-motion]) {
+    animation: tm-fade-in var(--duration-base) var(--ease-out) both;
+  }
+
   .tm-performance__model-index strong {
     max-width: 100%;
-    padding: 5px 9px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--color-surface-2);
+    box-shadow: var(--elevation-inset);
     color: var(--color-fg);
     font-family: var(--font-mono);
     font-size: 11px;
@@ -182,7 +143,7 @@
 
   .tm-performance__model {
     padding: 22px 0 26px;
-    border-bottom: 1px solid var(--color-border-strong);
+    border-bottom: 1px solid var(--color-border);
   }
 
   .tm-performance__model-head {
@@ -381,8 +342,9 @@
 
   .tm-performance__point {
     fill: currentColor;
-    stroke: var(--color-bg);
+    stroke: var(--color-panel);
     stroke-width: 1;
+    transition: r var(--duration-fast) var(--ease-out);
   }
 
   /* TTFT is dashed with hollow points so the two series never rely on color alone. */
@@ -391,7 +353,7 @@
   }
 
   .tm-performance__series--ttft .tm-performance__point {
-    fill: var(--color-bg);
+    fill: var(--color-panel);
     stroke: currentColor;
     stroke-width: 1.5;
   }
@@ -402,6 +364,7 @@
     stroke-dasharray: 3 3;
     opacity: 0.55;
     vector-effect: non-scaling-stroke;
+    transition: transform var(--duration-base) var(--ease-out);
   }
 
   .tm-performance__chart-hit {
@@ -412,11 +375,12 @@
     border: 0;
     background: transparent;
     cursor: crosshair;
+    transition: background-color var(--duration-fast) ease;
   }
 
   .tm-performance__chart-hit:hover,
   .tm-performance__chart-hit:focus-visible {
-    background: color-mix(in srgb, var(--tm-ink) 9%, transparent);
+    background: color-mix(in oklab, var(--tm-ink) 9%, transparent);
   }
 
   .tm-performance__tooltip {
@@ -432,11 +396,11 @@
     gap: 5px;
     width: min(240px, 100%);
     padding: 12px 14px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 6px;
-    background: var(--color-surface-2);
-    box-shadow: var(--shadow-pop);
+    border-radius: var(--radius-lg);
+    background: var(--color-popover);
+    box-shadow: var(--elevation-pop);
     color: var(--color-fg);
+    transition: left var(--duration-base) var(--ease-out);
     font-family: var(--font-mono);
     font-size: 11px;
     pointer-events: none;
@@ -474,7 +438,7 @@
     gap: 8px;
     min-height: 210px;
     justify-content: center;
-    border-bottom: 1px solid var(--color-border-strong);
+    border-bottom: 1px solid var(--color-border);
   }
 
   .tm-performance__state strong {
@@ -487,13 +451,6 @@
     color: var(--color-fg-muted);
     font-size: 13px;
     line-height: 1.5;
-  }
-
-  .tm-performance__retry {
-    margin-top: 10px;
-    padding: 7px 13px;
-    border-radius: 5px;
-    font-size: 12px;
   }
 
   .tm-performance__footer {
@@ -518,15 +475,6 @@
 
     .tm-performance__chart-wrap {
       height: 66px;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .tm-performance *,
-    .tm-performance *::before,
-    .tm-performance *::after {
-      animation: none !important;
-      transition: none !important;
     }
   }
 }

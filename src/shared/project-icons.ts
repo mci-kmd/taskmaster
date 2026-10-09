@@ -95,13 +95,31 @@ export const PROJECT_ICONS = [
   { id: 'chart', label: 'Chart', path: 'M2 1v13h13M5 11V8m4 3V5m4 6V2' }
 ] as const
 
+/**
+ * Project glyph colors. `value` is what gets persisted (the original hex ids stay valid, so
+ * stored projects keep their color); `css` is how it renders: theme tokens, so each color is
+ * tuned for every theme and stays legible on dark and light surfaces alike.
+ */
 export const PROJECT_ICON_COLORS = [
-  { label: 'Default', value: 'default' },
-  { label: 'Blue', value: '#7aa2f7' },
-  { label: 'Purple', value: '#bb9af7' },
-  { label: 'Pink', value: '#f7768e' },
-  { label: 'Orange', value: '#ff9e64' },
-  { label: 'Yellow', value: '#e0af68' },
-  { label: 'Green', value: '#9ece6a' },
-  { label: 'Teal', value: '#73daca' }
+  { label: 'Default', value: 'default', css: 'var(--color-fg-subtle)' },
+  { label: 'Blue', value: '#7aa2f7', css: 'var(--color-accent)' },
+  { label: 'Purple', value: '#bb9af7', css: 'var(--color-syntax-keyword)' },
+  {
+    label: 'Pink',
+    value: '#f7768e',
+    css: 'color-mix(in oklab, var(--color-danger) 62%, var(--color-syntax-keyword))'
+  },
+  { label: 'Orange', value: '#ff9e64', css: 'var(--color-accent-2)' },
+  { label: 'Yellow', value: '#e0af68', css: 'var(--color-warning)' },
+  { label: 'Green', value: '#9ece6a', css: 'var(--color-positive)' },
+  {
+    label: 'Teal',
+    value: '#73daca',
+    css: 'color-mix(in oklab, var(--color-positive) 55%, var(--color-info))'
+  }
 ] as const
+
+/** The CSS color a stored project icon color renders with (unknown values use the default). */
+export function projectIconColorCss(value: string | null | undefined): string {
+  return (PROJECT_ICON_COLORS.find((item) => item.value === value) ?? PROJECT_ICON_COLORS[0]).css
+}

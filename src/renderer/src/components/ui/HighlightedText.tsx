@@ -11,10 +11,7 @@ export default function HighlightedText({
     <>
       {splitHighlightSegments(text, query).map((segment, index) =>
         segment.match ? (
-          <mark
-            key={index}
-            className="rounded-[3px] bg-[rgba(245,201,122,0.22)] px-[1px] text-[var(--color-fg)]"
-          >
+          <mark key={index} className="tm-highlight">
             {segment.text}
           </mark>
         ) : (

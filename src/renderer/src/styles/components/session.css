@@ -1,4 +1,32 @@
 /* Copilot conversation: transcript, activity, composer, send and commit controls. */
+
+/* Notices in the composer area grow in from nothing, margin included, so the composer glides. */
+@keyframes tm-session-slot-in {
+  from {
+    height: 0;
+    opacity: 0;
+    margin-bottom: 0;
+  }
+}
+/* The working indicator's spark breathes while Copilot works. */
+@keyframes tm-session-spark {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.78) rotate(45deg);
+  }
+}
+@keyframes tm-prompt-rail-label-in {
+  from {
+    opacity: 0;
+    transform: translate(-6px, -50%);
+  }
+}
+
 @layer components {
   .tm-session {
     position: relative;
@@ -9,6 +37,9 @@
     overflow: hidden;
     background: var(--color-panel);
   }
+
+  /* ---------------------------------------------------------------- transcript */
+
   .tm-session-scroll {
     height: 100%;
     overflow-y: auto;
@@ -16,47 +47,418 @@
     overscroll-behavior: contain;
     padding: 20px 24px 32px;
   }
+  .tm-session-scroll[data-rail-motion] {
+    transition: padding-left var(--duration-slow) var(--ease-out);
+  }
+  .tm-session-scroll--with-rail {
+    padding-left: 40px;
+  }
   .tm-session-transcript {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 14px;
     max-width: 780px;
     margin: 0 auto;
   }
+
+  /* Messages. */
   .tm-session-message {
     min-width: 0;
     font-size: 13px;
-    line-height: 1.8;
-    padding: 8px 0;
+    line-height: 1.65;
+    color: var(--color-fg);
   }
   .tm-session-message--user {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
     align-self: flex-end;
     max-width: 88%;
-    padding: 12px 16px 8px;
-    border-radius: 16px 16px 4px 16px;
-    background: var(--color-surface-2);
-    margin: 12px 0;
+    margin: 6px 0;
+  }
+  .tm-session-bubble {
+    max-width: 100%;
+    padding: 10px 14px 11px;
+    border-radius: var(--radius-xl) var(--radius-xl) var(--radius-xs) var(--radius-xl);
+    background: var(--color-accent-soft);
+    box-shadow: inset 0 0 0 1px var(--color-accent-line);
+    line-height: 20px;
   }
   .tm-session-message-footer {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-top: 8px;
-    font-size: 10.5px;
+    gap: 6px;
+    min-height: 24px;
+    margin-top: 4px;
+    padding: 0 2px 0 4px;
+    font-size: 11px;
     color: var(--color-fg-subtle);
   }
-  .tm-session-copy {
-    font-size: 10.5px;
-    color: var(--color-fg-muted);
-    border-radius: 4px;
-    padding: 2px 5px;
+  .tm-session-message:not(.tm-session-message--user) .tm-session-message-footer {
+    padding-left: 0;
   }
+
+  /* Copy actions; the icon version swaps between copy, copied and failed (.tm-icon-swap). */
+  .tm-session-copy {
+    font-weight: 500;
+  }
+  .tm-session-copy svg {
+    width: 13px;
+    height: 13px;
+  }
+  /* Reasoning: a quiet heading over indented, hairlined text. */
+  .tm-session-reasoning {
+    min-width: 0;
+  }
+  .tm-session-reasoning-heading {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-fg-muted);
+  }
+  .tm-session-reasoning-heading svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    color: var(--color-fg-subtle);
+  }
+  .tm-session-reasoning[data-streaming] .tm-session-reasoning-heading svg {
+    color: var(--color-accent);
+  }
+  .tm-session-reasoning-detail {
+    margin: 4px 0 0 20px;
+    padding-left: 12px;
+    border-left: 1px solid var(--color-border-strong);
+    color: var(--color-fg-muted);
+  }
+  .tm-session-reasoning-detail .tm-session-markdown {
+    font-size: 12.5px;
+    line-height: 18px;
+    color: inherit;
+  }
+
+  /* Status dots for tool calls; running ones carry a live ring (.tm-live-dot). */
+  .tm-session-dot {
+    display: inline-block;
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--color-positive);
+  }
+  .tm-session-dot--running {
+    color: var(--color-accent);
+    background: currentColor;
+  }
+  .tm-session-dot--failed {
+    background: var(--color-danger);
+  }
+  .tm-session-dot--cancelled {
+    background: var(--color-fg-faint);
+  }
+
+  .tm-session-chevron {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--color-fg-faint);
+    transition:
+      transform var(--duration-base) var(--ease-out),
+      color var(--duration-fast) ease;
+  }
+
+  /* Tool calls: rounded tiles; the running one glows in the accent. */
+  .tm-session-activity,
+  .tm-session-tool-group-toggle {
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    font-size: 12.5px;
+    transition:
+      background-color var(--duration-fast) ease,
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-base) ease;
+  }
+  .tm-session-activity[data-status='running'],
+  .tm-session-tool-group-toggle[data-status='running'] {
+    border-color: var(--color-accent-soft-strong);
+    background: var(--color-panel);
+    box-shadow: 0 0 0 3px var(--color-accent-soft);
+  }
+  .tm-session-activity summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 30px;
+    padding: 4px 12px;
+    border-radius: inherit;
+    cursor: pointer;
+    list-style: none;
+  }
+  .tm-session-activity summary::-webkit-details-marker {
+    display: none;
+  }
+  .tm-session-activity summary:hover .tm-session-chevron,
+  .tm-session-tool-group-toggle:hover .tm-session-chevron {
+    color: var(--color-fg-subtle);
+  }
+  .tm-session-activity[open] > summary .tm-session-chevron,
+  .tm-session-tool-group-toggle[aria-expanded='true'] .tm-session-chevron {
+    transform: rotate(90deg);
+  }
+  .tm-session-activity-title {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-fg);
+    font-weight: 500;
+  }
+  .tm-session-activity-status,
+  .tm-session-tool-group-status {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: 11.5px;
+    color: var(--color-fg-subtle);
+  }
+  [data-status='running'] > summary > .tm-session-activity-status,
+  [data-status='running'] > .tm-session-tool-group-status {
+    color: var(--color-accent);
+    font-weight: 560;
+  }
+  [data-status='failed'] > summary > .tm-session-activity-status,
+  [data-status='failed'] > .tm-session-tool-group-status {
+    color: var(--color-danger);
+  }
+  /* Details open and close by animating their content's height. */
+  .tm-session-activity::details-content {
+    block-size: 0;
+    overflow-y: clip;
+    transition:
+      block-size var(--duration-exit) var(--ease-in),
+      content-visibility var(--duration-exit) allow-discrete;
+  }
+  .tm-session-activity[open]::details-content {
+    block-size: auto;
+    transition-duration: var(--duration-base);
+    transition-timing-function: var(--ease-out);
+  }
+  .tm-session-activity-detail {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    max-height: 320px;
+    overflow: auto;
+    padding: 6px 12px 10px;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-fg-muted);
+  }
+  .tm-session-activity-detail > .tm-session-copy {
+    margin-left: -8px;
+  }
+  .tm-session-activity-detail > pre {
+    align-self: stretch;
+    font: 11.5px/1.7 var(--font-mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* Consecutive tool calls fold into one tile that expands into their list. */
+  .tm-session-tool-group {
+    min-width: 0;
+  }
+  .tm-session-tool-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 30px;
+    padding: 4px 12px;
+    text-align: left;
+    color: var(--color-fg);
+    cursor: pointer;
+  }
+  .tm-session-tool-group-toggle:hover:not([data-status='running']) {
+    border-color: var(--color-border-strong);
+  }
+  .tm-session-tool-group-count {
+    flex-shrink: 0;
+    font-weight: 500;
+  }
+  .tm-session-tool-group-summary {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-fg-muted);
+  }
+  .tm-session-tool-group-status {
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tm-session-tool-group-items {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    max-height: 360px;
+    overflow: auto;
+    overscroll-behavior: contain;
+    margin: 5px 0 0 15px;
+    padding: 3px 3px 3px 12px;
+    border-left: 1px solid var(--color-border);
+  }
+
+  /* A skill loaded into the conversation: coral spark and a mono name chip. */
+  .tm-session-skill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    margin-left: 2px;
+    font-size: 12px;
+    color: var(--color-fg-subtle);
+  }
+  .tm-session-skill-icon {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    color: var(--color-accent-2);
+  }
+  .tm-session-skill-label {
+    flex-shrink: 0;
+  }
+  .tm-session-skill-name {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--radius-xs);
+    background: var(--color-surface-2);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--color-fg);
+  }
+  .tm-session-skill-description {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-fg-muted);
+  }
+
+  /* A request Copilot made, with how it was answered. */
+  .tm-session-interaction {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--color-accent-2-line);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    font-size: 12px;
+  }
+  .tm-session-interaction-heading {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 12px 0;
+    color: var(--color-accent-2-ink);
+    font-weight: 600;
+  }
+  .tm-session-interaction-heading svg {
+    flex-shrink: 0;
+    width: 13px;
+    height: 13px;
+    color: var(--color-accent-2);
+  }
+  .tm-session-interaction-prompt {
+    max-height: 220px;
+    overflow-y: auto;
+    padding: 2px 12px 8px;
+    color: var(--color-fg-muted);
+  }
+  .tm-session-interaction-prompt .tm-session-markdown {
+    font-size: 12.5px;
+    color: inherit;
+  }
+  .tm-session-interaction-answer {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 9px 12px;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-surface-2);
+  }
+  .tm-session-interaction-label {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--color-fg-subtle);
+  }
+  .tm-session-interaction-value {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .tm-session-interaction-answer[data-outcome='declined'] .tm-session-interaction-value {
+    color: var(--color-fg-muted);
+  }
+
+  /* Notices in the transcript and above the composer. */
+  .tm-session-notice,
+  .tm-session-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-width: 0;
+    padding: 8px 8px 8px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+    color: var(--color-fg-muted);
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .tm-session-transcript > .tm-session-notice {
+    padding-block: 9px;
+  }
+  .tm-session-notice--info {
+    border-color: var(--color-accent-line);
+    background: var(--color-info-soft);
+    color: var(--color-fg);
+  }
+  .tm-session-notice--warning {
+    border-color: color-mix(in oklab, var(--color-warning) 30%, transparent);
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+  }
+  .tm-session-error,
+  .tm-session-notice--error {
+    border-color: color-mix(in oklab, var(--color-danger) 30%, transparent);
+    background: var(--color-danger-soft);
+    color: var(--color-danger);
+  }
+  .tm-session-error {
+    max-height: 150px;
+    overflow: auto;
+  }
+
+  /* The end of a prompt: how long it ran and what it cost. */
   .tm-session-summary {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: -10px;
-    font-size: 10.5px;
+    margin-top: -6px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
     color: var(--color-fg-subtle);
   }
@@ -65,14 +467,20 @@
     align-items: center;
     gap: 6px;
   }
+  .tm-session-summary-separator {
+    color: var(--color-fg-faint);
+  }
   .tm-session-subagents {
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    border-radius: 4px;
-    padding: 1px 3px;
-    margin: -1px -3px;
+    margin: -1px -4px;
+    padding: 1px 4px;
+    border-radius: var(--radius-xs);
     cursor: default;
+    transition:
+      background-color var(--duration-fast) ease,
+      color var(--duration-fast) ease;
   }
   .tm-session-subagents:hover,
   .tm-session-subagents:focus-visible {
@@ -87,29 +495,29 @@
     position: fixed;
     top: 0;
     left: 0;
-    visibility: hidden;
     z-index: 50;
     display: grid;
     gap: 8px;
     max-width: calc(100vw - 16px);
     padding: 10px 12px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 6px;
-    background: var(--color-surface-2);
-    box-shadow: var(--shadow-pop);
+    border-radius: var(--radius-lg);
+    background: var(--color-popover);
+    box-shadow: var(--elevation-pop);
     color: var(--color-fg);
     font-family: var(--font-mono);
     font-size: 11px;
     white-space: nowrap;
+    visibility: hidden;
     pointer-events: none;
   }
   .tm-session-subagents-tooltip strong {
+    font-family: var(--font-sans);
     font-size: 12px;
-    font-weight: 550;
+    font-weight: 600;
   }
   .tm-session-subagents-tooltip small {
-    color: var(--color-fg-muted);
-    font-size: 10px;
+    color: var(--color-fg-subtle);
+    font-size: 10.5px;
   }
   .tm-session-subagents-tooltip table {
     border-collapse: collapse;
@@ -126,352 +534,242 @@
     text-align: right;
   }
   .tm-session-subagents-tooltip thead th {
-    border-bottom: 1px solid var(--color-border);
     padding-bottom: 4px;
-    color: var(--color-fg-muted);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-fg-subtle);
     font-weight: 400;
   }
   .tm-session-subagents-tooltip tbody tr:first-child td {
     padding-top: 5px;
   }
   .tm-session-subagents-tooltip tfoot :is(th, td) {
-    border-top: 1px solid var(--color-border);
     padding-top: 5px;
-    font-weight: 550;
-  }
-  .tm-session-copy:hover {
-    background: var(--color-hover);
-    color: var(--color-fg);
-  }
-  .tm-session-copy--icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    padding: 0;
-    cursor: pointer;
-  }
-  .tm-session-activity {
-    min-width: 0;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    color: var(--color-fg-muted);
-    font-size: 12px;
-  }
-  .tm-session-activity summary,
-  .tm-session-activity-heading {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 12px;
-  }
-  .tm-session-activity summary {
-    cursor: pointer;
-    list-style: none;
-  }
-  .tm-session-activity summary::before {
-    content: '›';
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-activity[open] summary::before {
-    transform: rotate(90deg);
-  }
-  .tm-session-activity-detail {
-    max-height: 320px;
-    overflow: auto;
-    padding: 10px 14px;
     border-top: 1px solid var(--color-border);
+    font-weight: 600;
   }
-  .tm-session-activity--reasoning .tm-session-activity-detail {
-    max-height: none;
-    overflow: visible;
-  }
-  .tm-session-activity.tm-session-activity--reasoning {
-    border: 0;
-    border-radius: 0;
-  }
-  .tm-session-activity--reasoning .tm-session-activity-heading {
-    gap: 6px;
-    padding: 0 0 4px;
-    color: var(--color-fg-subtle);
-    font-size: 11px;
-  }
-  .tm-session-activity--reasoning .tm-session-activity-detail {
-    padding: 0 0 0 12px;
-    border-top: 0;
-    border-left: 2px solid var(--color-border);
-    color: var(--color-fg-muted);
-  }
-  .tm-session-activity--reasoning .tm-session-markdown {
-    font-size: 12.5px;
-    line-height: 1.65;
-  }
-  .tm-session-activity-detail > pre {
-    font: 11.5px/1.7 var(--font-mono);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    margin-top: 8px;
-  }
-  .tm-session-tool-group {
-    min-width: 0;
-  }
-  .tm-session-tool-group-toggle {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    width: 100%;
-    min-width: 0;
-    padding: 8px 4px;
-    border-radius: 6px;
-    text-align: left;
-    color: var(--color-fg-muted);
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .tm-session-tool-group-toggle:hover {
-    background: var(--color-hover);
-  }
-  .tm-session-tool-group-chevron {
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-tool-group-toggle[aria-expanded='true'] .tm-session-tool-group-chevron {
-    transform: rotate(90deg);
-  }
-  .tm-session-tool-group-count {
-    flex-shrink: 0;
-  }
-  .tm-session-tool-group-summary {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-tool-group-status {
-    flex-shrink: 0;
-    max-width: 45%;
-    font-size: 11px;
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-tool-group-status--failed {
-    color: var(--color-danger);
-  }
-  .tm-session-tool-group-items {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    max-height: 360px;
-    overflow: auto;
-    overscroll-behavior: contain;
-    margin-top: 4px;
-    padding: 2px 4px 2px 14px;
-    border-left: 1px solid var(--color-border);
-  }
+
+  /* The live row while Copilot works; coral while it waits on you. */
   .tm-session-working {
     display: flex;
-    gap: 10px;
     align-items: center;
-    font-size: 12px;
+    gap: 7px;
+    padding: 2px 0 6px;
+    font-size: 12.5px;
+    font-weight: 500;
     color: var(--color-fg-muted);
-    padding: 10px 0;
   }
+  .tm-session-working-spark {
+    flex: none;
+    width: 15px;
+    height: 15px;
+    color: var(--color-accent);
+    animation: tm-session-spark 1.6s ease-in-out infinite;
+  }
+  .tm-session-working[data-waiting] .tm-session-working-spark {
+    color: var(--color-accent-2);
+  }
+
+  /* Before the first message. */
   .tm-session-empty {
+    max-width: 500px;
     margin: 9vh auto 5vh;
     text-align: center;
-    max-width: 500px;
+  }
+  /* Leaving, it fades out in place over the first message instead of pushing it down. */
+  .tm-session-empty[data-state='closed'] {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
   }
   .tm-session-empty-icon {
     display: block;
-    font-size: 32px;
-    color: var(--color-info);
-    margin-bottom: 18px;
+    width: 30px;
+    height: 30px;
+    margin: 0 auto 16px;
+    color: var(--color-accent);
   }
   .tm-session-empty h2 {
-    font-size: 22px;
-    font-weight: 500;
-    letter-spacing: -0.025em;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
   }
   .tm-session-empty p {
-    margin-top: 8px;
+    margin-top: 6px;
     color: var(--color-fg-muted);
     font-size: 13px;
-    line-height: 1.8;
-  }
-  .tm-session-bottom {
-    flex-shrink: 0;
-    width: 100%;
-    max-width: 828px;
-    margin: 0 auto;
-    padding: 0 24px 10px;
-  }
-  .tm-session-composer {
-    border: 1px solid var(--color-border-strong);
-    background: var(--color-input);
-    border-radius: 16px;
-    box-shadow: 0 8px 24px #0002;
-    overflow: hidden;
-  }
-  .tm-session-composer:focus-within {
-    border-color: #527ca6;
-  }
-  .tm-session-prompt {
-    position: relative;
-  }
-  .tm-session-composer textarea,
-  .tm-session-prompt-mirror {
-    padding: 16px 16px 8px;
-    font-size: 13px;
-    line-height: 22px;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    scrollbar-gutter: stable;
-  }
-  .tm-session-composer textarea {
-    position: relative;
-    display: block;
-    width: 100%;
-    min-height: 76px;
-    max-height: 192px;
-    resize: none;
-  }
-  /* Markers are drawn by the mirror behind the transparent text so they read as chips. */
-  .tm-session-prompt-mirror {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    color: var(--color-fg);
-  }
-  .tm-session-prompt[data-markers] textarea {
-    color: transparent;
-    caret-color: var(--color-fg);
-  }
-  .tm-session-prompt-marker {
-    color: var(--color-info);
-    background: #9ec5ff1f;
-    border-radius: 4px;
-    box-shadow: 0 0 0 2px #9ec5ff1f;
-    box-decoration-break: clone;
-    -webkit-box-decoration-break: clone;
-  }
-  /* Brackets stay in the text for Copilot but render as the chip's padding. */
-  .tm-session-prompt-bracket {
-    color: transparent;
-  }
-  .tm-session-composer textarea::placeholder {
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-controls {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 8px 10px;
-  }
-  .tm-session-controls .tm-picker {
-    max-width: 220px;
-  }
-  .tm-session-controls .tm-picker-trigger {
-    border-color: transparent;
-    background: transparent;
-  }
-  .tm-session-controls .tm-picker-trigger:hover:not(:disabled) {
-    background: var(--color-control-hover);
+    line-height: 1.7;
   }
 
-  .tm-session-attachments {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 12px 14px 0;
-  }
-  .tm-session-attachment {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    min-width: 0;
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--color-info);
-    background: #9ec5ff0a;
-    border: 1px solid #9ec5ff30;
-    border-radius: 6px;
-    padding: 4px 8px;
-  }
-  .tm-session-attachment:has(.tm-session-attachment-thumb) {
-    padding: 3px 8px 3px 3px;
-  }
-  .tm-session-attachment-thumb {
-    flex: none;
-    width: 36px;
-    height: 36px;
-    object-fit: cover;
-    border-radius: 4px;
-    background: var(--color-surface-2);
-  }
-  .tm-session-attachment-icon {
-    flex: none;
-    width: 12px;
-    height: 12px;
-    opacity: 0.8;
-  }
-  .tm-session-attachment-name {
-    min-width: 0;
-    overflow-wrap: anywhere;
-    text-align: left;
-  }
-  .tm-session-attachment-remove {
-    flex: none;
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-attachment--removable:hover {
-    border-color: #9ec5ff60;
-  }
-  .tm-session-attachment--removable:hover .tm-session-attachment-remove {
-    color: var(--color-fg);
-  }
-  .tm-session-inline-attachment {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    max-width: 100%;
-    vertical-align: bottom;
-    padding: 0 5px;
-    border-radius: 4px;
-    font-size: 0.92em;
-    color: var(--color-info);
-    background: #9ec5ff14;
-    overflow-wrap: anywhere;
-  }
-  .tm-session-inline-attachment svg {
-    flex: none;
-    width: 11px;
-    height: 11px;
-  }
   .tm-session-jump {
     position: absolute;
     bottom: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 7px 14px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 20px;
-    background: var(--color-surface);
-    font-size: 11.5px;
-    box-shadow: 0 4px 12px #0004;
+    left: 0;
+    right: 0;
+    z-index: 6;
+    width: fit-content;
+    margin-inline: auto;
+    border-radius: 999px;
+    background: var(--color-popover);
+    box-shadow: var(--elevation-pop);
+    color: var(--color-fg-muted);
+    font-size: 12px;
   }
 
-  /* Prompt rail: one bar per user prompt at the transcript's left edge. Hovering
-     magnifies bars near the pointer, dock-style, and previews their prompts in
-     labels that float over the transcript without reflowing it. */
-  .tm-session-scroll--with-rail {
-    padding-left: 36px;
+  /* -------------------------------------------------------------------- markdown */
+
+  .tm-session-markdown {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--color-fg);
   }
+  .tm-session-markdown > :first-child {
+    margin-top: 0;
+  }
+  .tm-session-markdown > :last-child {
+    margin-bottom: 0;
+  }
+  .tm-session-markdown :is(p, ul, ol, blockquote, .tm-session-code, .tm-session-table) {
+    margin: 10px 0;
+  }
+  .tm-session-markdown :is(h1, h2, h3, h4, h5, h6) {
+    margin: 18px 0 6px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+  }
+  .tm-session-markdown h1 {
+    font-size: 18px;
+  }
+  .tm-session-markdown h2 {
+    font-size: 16px;
+  }
+  .tm-session-markdown h3 {
+    font-size: 14px;
+  }
+  .tm-session-markdown :is(h4, h5, h6) {
+    font-size: 13px;
+  }
+  .tm-session-markdown ul {
+    list-style: disc;
+    padding-left: 20px;
+  }
+  .tm-session-markdown ol {
+    list-style: decimal;
+    padding-left: 22px;
+  }
+  .tm-session-markdown li {
+    margin: 3px 0;
+    padding-left: 2px;
+  }
+  .tm-session-markdown li::marker {
+    color: var(--color-accent);
+  }
+  .tm-session-markdown li > p {
+    margin: 3px 0;
+  }
+  .tm-session-markdown blockquote {
+    padding-left: 12px;
+    border-left: 2px solid var(--color-border-strong);
+    color: var(--color-fg-muted);
+  }
+  .tm-session-markdown a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--color-accent) 40%, transparent);
+    text-underline-offset: 3px;
+    transition: text-decoration-color var(--duration-fast) ease;
+  }
+  .tm-session-markdown a:hover {
+    text-decoration-color: currentColor;
+  }
+  .tm-session-markdown code {
+    padding: 0 5px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xs);
+    background: var(--color-surface-2);
+    color: var(--color-fg);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+  }
+  .tm-session-code {
+    overflow: hidden;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+  .tm-session-code-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 4px 0 14px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-fg-subtle);
+  }
+  .tm-session-markdown .tm-session-code pre {
+    overflow-x: auto;
+    padding: 2px 14px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 18px;
+  }
+  .tm-session-markdown .tm-session-code pre code {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-size: inherit;
+  }
+  .tm-syntax-keyword {
+    color: var(--color-syntax-keyword);
+  }
+  .tm-syntax-property {
+    color: var(--color-syntax-property);
+  }
+  .tm-syntax-string {
+    color: var(--color-syntax-string);
+  }
+  .tm-syntax-number {
+    color: var(--color-syntax-number);
+  }
+  .tm-syntax-comment {
+    color: var(--color-syntax-comment);
+    font-style: italic;
+  }
+  .tm-syntax-punctuation {
+    color: var(--color-syntax-punctuation);
+  }
+  .tm-session-table {
+    overflow-x: auto;
+  }
+  .tm-session-markdown table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  .tm-session-markdown :is(th, td) {
+    padding: 6px 10px;
+    border: 1px solid var(--color-border);
+    text-align: left;
+  }
+  .tm-session-markdown th {
+    background: var(--color-surface);
+    font-weight: 600;
+  }
+  .tm-session-markdown hr {
+    margin: 16px 0;
+    border-color: var(--color-border);
+  }
+
+  /* ------------------------------------------------------------------- prompt rail */
+
+  /* One bar per user prompt at the transcript's left edge. Hovering magnifies bars near the
+     pointer, dock-style, and previews their prompts in labels that float over the transcript
+     without reflowing it. */
   .tm-prompt-rail {
-    --tm-rail-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     position: absolute;
     inset: 16px 0;
     z-index: 5;
@@ -482,7 +780,7 @@
   .tm-prompt-rail-list {
     display: flex;
     flex-direction: column;
-    width: 26px;
+    width: 30px;
     max-height: 100%;
     padding: 4px 0;
     overflow-x: hidden;
@@ -490,19 +788,19 @@
     overscroll-behavior: contain;
     scrollbar-width: none;
     pointer-events: auto;
-    transition: width 160ms var(--tm-rail-ease);
+    transition: width var(--duration-base) var(--ease-out);
   }
   .tm-prompt-rail[data-expanded] .tm-prompt-rail-list {
-    width: 48px;
+    width: 52px;
   }
   /* Bars share the height and compress towards 5px before the rail scrolls. */
   .tm-prompt-rail-bar {
     display: flex;
     flex: 0 1 12px;
     align-items: center;
-    min-height: 5px;
     width: 100%;
-    padding: 0 0 0 8px;
+    min-height: 5px;
+    padding: 0 0 0 12px;
     border: 0;
     background: none;
     cursor: pointer;
@@ -512,28 +810,31 @@
     flex: none;
     width: calc(6px + 8px * var(--tm-rail-length, 0) + 24px * var(--tm-rail-weight, 0));
     height: 2px;
-    border-radius: 1px;
-    background: var(--color-fg-faint);
+    border-radius: 2px;
+    background: var(--color-border-strong);
     transition:
-      width 140ms var(--tm-rail-ease),
-      background-color 140ms ease;
+      width var(--duration-fast) var(--ease-out),
+      background-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
   }
   .tm-prompt-rail-bar[data-nearest]::before {
-    background: var(--color-fg-muted);
+    background: var(--color-fg-subtle);
   }
   .tm-prompt-rail-bar[aria-current]::before {
-    background: var(--color-fg);
+    background: var(--color-accent);
+    box-shadow: 0 0 0 2px var(--color-accent-ring);
   }
   .tm-prompt-rail .tm-prompt-rail-bar:focus-visible {
     outline: none;
   }
   .tm-prompt-rail .tm-prompt-rail-bar:focus-visible::before {
     height: 3px;
-    background: var(--color-info);
+    background: var(--color-accent);
+    box-shadow: var(--focus-ring);
   }
   .tm-prompt-rail-labels {
     position: absolute;
-    inset: 0 24px 0 52px;
+    inset: 0 24px 0 56px;
     pointer-events: none;
   }
   .tm-prompt-rail-label {
@@ -544,17 +845,16 @@
     gap: 8px;
     max-width: min(100%, 440px);
     padding: 3px 10px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: 6px;
-    background: var(--color-surface-2);
-    box-shadow: var(--shadow-pop);
+    border-radius: var(--radius-sm);
+    background: var(--color-popover);
+    box-shadow: var(--elevation-pop);
     color: var(--color-fg-muted);
     font-size: 11.5px;
     line-height: 1.5;
     white-space: nowrap;
     transform: translateY(-50%);
-    transition: opacity 120ms ease;
-    animation: tm-prompt-rail-label-in 140ms var(--tm-rail-ease);
+    transition: opacity var(--duration-fast) ease;
+    animation: tm-prompt-rail-label-in var(--duration-base) var(--ease-out);
   }
   .tm-prompt-rail-label[data-nearest] {
     z-index: 1;
@@ -571,61 +871,367 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  @keyframes tm-prompt-rail-label-in {
-    from {
-      opacity: 0;
-      transform: translate(-6px, -50%);
-    }
+
+  /* --------------------------------------------------------------------- composer */
+
+  .tm-session-bottom {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+    width: 100%;
+    max-width: 828px;
+    margin: 0 auto;
+    padding: 6px 24px 14px;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .tm-prompt-rail *,
-    .tm-prompt-rail *::before {
-      animation: none !important;
-      transition: none !important;
-    }
+  /* The transcript fades into the composer rather than ending on a hard line. */
+  .tm-session-bottom::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: -12px;
+    height: 12px;
+    background: linear-gradient(to bottom, transparent, var(--color-panel));
+    pointer-events: none;
   }
-  .tm-session-skill {
+  /* Notices above the composer; they collapse in and out (data-motion="collapse"). */
+  .tm-session-slot {
+    flex: none;
+    margin-bottom: 10px;
+  }
+  .tm-session-slot[data-motion='collapse'][data-state='open'] {
+    animation-name: tm-session-slot-in;
+  }
+
+  .tm-session-composer {
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 16px;
+    background: var(--color-input);
+    box-shadow: var(--elevation-raised);
+    transition:
+      border-color var(--duration-fast) ease,
+      box-shadow var(--duration-base) ease;
+  }
+  .tm-session-composer:focus-within {
+    border-color: var(--color-accent);
+    box-shadow: var(--elevation-focus);
+  }
+
+  /* A pending request at the top of the composer, in the coral "needs you" color. */
+  .tm-session-request {
+    max-height: min(44vh, 420px);
+    overflow: auto;
+    border-bottom: 1px solid var(--color-accent-2-line);
+    background: color-mix(in oklab, var(--color-accent-2-soft) 45%, var(--color-input));
+  }
+  .tm-session-request-body {
+    min-width: 0;
+    padding: 14px 16px;
+    font-size: 12.5px;
+  }
+  .tm-session-request-body .tm-session-markdown {
+    font-size: 12.5px;
+  }
+  .tm-session-request-body [data-motion='collapse'] {
+    overflow-clip-margin: 4px;
+  }
+  .tm-session-request-title {
     display: flex;
     align-items: center;
     gap: 7px;
-    min-width: 0;
-    align-self: flex-start;
-    max-width: 100%;
-    padding: 5px 11px 5px 9px;
-    border: 1px solid color-mix(in srgb, var(--color-warning) 30%, var(--color-border));
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--color-warning) 7%, transparent);
-    font-size: 12px;
+    margin-bottom: 8px;
+    color: var(--color-accent-2-ink);
+    font-size: 12.5px;
+    font-weight: 600;
   }
-  .tm-session-skill-icon {
-    width: 13px;
-    height: 13px;
-    flex-shrink: 0;
-    color: var(--color-warning);
+  .tm-session-request-title svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    color: var(--color-accent-2);
   }
-  .tm-session-skill-label {
-    flex-shrink: 0;
+  .tm-session-request-command {
+    max-height: 9rem;
+    overflow: auto;
+    padding: 8px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-2);
+    color: var(--color-fg-muted);
+    font: 11.5px/1.6 var(--font-mono);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .tm-session-request-label {
+    color: var(--color-fg-muted);
+    font-size: 11.5px;
+  }
+  .tm-session-request-hint {
+    display: block;
+    color: var(--color-fg-subtle);
+    font-size: 11px;
+  }
+
+  /* The message box. Attachment markers are drawn by a mirror behind the transparent text
+     so they read as chips. */
+  .tm-session-prompt {
+    position: relative;
+  }
+  .tm-session-composer textarea,
+  .tm-session-prompt-mirror {
+    padding: 14px 16px 6px;
+    font-size: 13.5px;
+    line-height: 21px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    scrollbar-gutter: stable;
+  }
+  .tm-session-composer textarea {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-height: 64px;
+    max-height: 192px;
+    resize: none;
+  }
+  /* The composer's focus halo stands in for the field's own outline. */
+  .tm-session-composer textarea:focus-visible {
+    outline: none;
+  }
+  .tm-session-composer textarea::placeholder {
     color: var(--color-fg-subtle);
   }
-  .tm-session-skill-name {
-    flex-shrink: 0;
+  .tm-session-prompt-mirror {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    color: var(--color-fg);
+    pointer-events: none;
+  }
+  .tm-session-prompt[data-markers] textarea {
+    color: transparent;
+    caret-color: var(--color-fg);
+  }
+  .tm-session-prompt-marker {
+    border-radius: var(--radius-xs);
+    background: var(--color-accent-soft);
+    box-shadow: 0 0 0 2px var(--color-accent-soft);
+    color: var(--color-accent);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  /* Brackets stay in the text for Copilot but render as the chip's padding. */
+  .tm-session-prompt-bracket {
+    color: transparent;
+  }
+
+  /* Attachment chips, in the composer and under sent messages. */
+  .tm-session-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px 14px 0;
+  }
+  .tm-session-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 24px;
+    padding: 2px 8px 2px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--color-raised);
+    box-shadow: var(--elevation-raised);
+    color: var(--color-fg-muted);
     font-family: var(--font-mono);
-    font-weight: 600;
+    font-size: 11.5px;
+    line-height: 1.5;
+    transition:
+      color var(--duration-fast) ease,
+      background-color var(--duration-fast) ease;
+  }
+  .tm-session-attachment:has(.tm-session-attachment-thumb) {
+    padding: 3px 8px 3px 3px;
+  }
+  .tm-session-attachment-thumb {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-xs);
+    background: var(--color-surface-2);
+    object-fit: cover;
+  }
+  .tm-session-attachment-icon {
+    flex: none;
+    width: 13px;
+    height: 13px;
+    color: var(--color-accent);
+  }
+  .tm-session-attachment-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  .tm-session-attachment-remove {
+    flex: none;
+    color: var(--color-fg-subtle);
+    transition: color var(--duration-fast) ease;
+  }
+  .tm-session-attachment--removable:hover {
     color: var(--color-fg);
   }
-  .tm-session-skill-description {
+  .tm-session-attachment--removable:hover .tm-session-attachment-remove {
+    color: var(--color-danger);
+  }
+  .tm-session-inline-attachment {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 100%;
+    padding: 0 5px;
+    border-radius: var(--radius-xs);
+    background: var(--color-accent-soft-strong);
+    color: var(--color-fg);
+    font-size: 0.92em;
+    vertical-align: bottom;
+    overflow-wrap: anywhere;
+  }
+  .tm-session-inline-attachment svg {
+    flex: none;
+    width: 11px;
+    height: 11px;
+    color: var(--color-accent);
+  }
+
+  /* Controls under the message box: compact, borderless pickers with a quiet label. */
+  .tm-session-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px 10px;
+  }
+  .tm-session-setting {
+    display: flex;
+    align-items: center;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    max-width: 100%;
+    padding-left: 8px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: background-color var(--duration-fast) ease;
+  }
+  .tm-session-setting:hover:not(:has(:disabled)),
+  .tm-session-setting:has([aria-expanded='true']) {
+    background: var(--color-control-hover);
+  }
+  .tm-session-setting > span {
+    color: var(--color-fg-subtle);
+    font-size: 12px;
+    font-weight: 450;
+  }
+  .tm-session-setting .tm-picker {
+    max-width: 220px;
+  }
+  .tm-session-setting .tm-picker-trigger {
+    gap: 6px;
+    padding: 4px 7px 4px 6px;
+    border-color: transparent;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 520;
+  }
+  .tm-session-setting .tm-picker-trigger:hover:not(:disabled),
+  .tm-session-setting .tm-picker-trigger[aria-expanded='true'] {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .tm-session-control-status {
+    padding: 0 4px;
+    color: var(--color-fg-subtle);
+    font-size: 11px;
+  }
+  .tm-session-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+  }
+
+  /* Skill completions. */
+  .tm-skill-menu {
+    padding: 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .tm-skill-menu-heading {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 6px 8px 9px;
     color: var(--color-fg-muted);
+    font-size: 12px;
+    font-weight: 600;
   }
-  .tm-session-interaction {
-    max-height: min(44vh, 420px);
-    overflow: auto;
-    border-bottom: 1px solid var(--color-border-strong);
-    background: var(--color-surface);
+  .tm-skill-menu-heading > span {
+    color: var(--color-fg-subtle);
+    font-size: 10.5px;
+    font-weight: 400;
   }
+  .tm-skill-option {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    text-align: left;
+    transition: background-color var(--duration-fast) ease;
+  }
+  .tm-skill-option[data-highlighted='true'] {
+    background: var(--color-control-hover);
+  }
+  .tm-skill-option-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .tm-skill-option-title > span {
+    margin-left: 8px;
+    color: var(--color-fg-subtle);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 400;
+  }
+  .tm-skill-option-description {
+    color: var(--color-fg-muted);
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+  }
+  .tm-skill-option-source {
+    color: var(--color-fg-subtle);
+    font-size: 10.5px;
+  }
+  .tm-skill-menu-empty {
+    padding: 14px 10px;
+    color: var(--color-fg-muted);
+    font-size: 12px;
+  }
+  .tm-skill-menu-empty > span {
+    display: block;
+    margin-top: 5px;
+    color: var(--color-fg-subtle);
+    overflow-wrap: anywhere;
+  }
+  .tm-skill-menu-empty > .tm-btn {
+    margin-top: 8px;
+  }
+
+  /* Choices in a request: every option visible at once. */
   .tm-choices {
     position: relative;
     display: grid;
@@ -636,27 +1242,27 @@
     align-items: center;
     gap: 10px;
     min-width: 0;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: var(--color-input);
     padding: 7px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-input);
     font-size: 12.5px;
     line-height: 1.4;
     cursor: pointer;
     transition:
-      border-color 120ms ease,
-      background-color 120ms ease;
+      border-color var(--duration-fast) ease,
+      background-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
   }
   .tm-choice:hover {
-    background: var(--color-hover);
+    border-color: var(--color-border-strong);
   }
   .tm-choice[data-selected] {
-    border-color: color-mix(in srgb, var(--color-info) 65%, var(--color-border));
-    background: color-mix(in srgb, var(--color-info) 9%, var(--color-input));
+    border-color: var(--color-accent);
+    background: color-mix(in oklab, var(--color-accent-soft) 60%, var(--color-input));
   }
   .tm-choice:has(.tm-choice__input:focus-visible) {
-    outline: 2px solid var(--color-info);
-    outline-offset: 1px;
+    box-shadow: var(--focus-ring);
   }
   .tm-choice__input {
     position: absolute;
@@ -673,15 +1279,19 @@
     height: 14px;
     border: 1.5px solid var(--color-border-strong);
     border-radius: 999px;
-    color: var(--color-surface);
+    color: var(--color-accent-fg);
+    transition:
+      border-color var(--duration-fast) ease,
+      background-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease;
   }
   .tm-choices[data-multiple] .tm-choice__mark {
-    border-radius: 4px;
+    border-radius: var(--radius-xs);
   }
   .tm-choice[data-selected] > .tm-choice__mark,
   .tm-choice[data-selected] .tm-choice__other-label > .tm-choice__mark {
-    border-color: var(--color-info);
-    background: var(--color-info);
+    border-color: var(--color-accent);
+    background: var(--color-accent);
     box-shadow: inset 0 0 0 2.5px var(--color-input);
   }
   .tm-choices[data-multiple] .tm-choice[data-selected] .tm-choice__mark {
@@ -696,8 +1306,8 @@
     overflow-wrap: anywhere;
   }
   .tm-choice--other {
-    cursor: default;
     padding-block: 4px;
+    cursor: default;
   }
   .tm-choice__other-label {
     display: flex;
@@ -709,10 +1319,10 @@
   .tm-choice__text {
     flex: 1;
     min-width: 0;
+    padding: 3px 0 3px 10px;
     border: 0;
     border-left: 1px solid var(--color-border);
     background: transparent;
-    padding: 3px 0 3px 10px;
     color: var(--color-fg);
     font-size: 12.5px;
     outline: none;
@@ -720,336 +1330,29 @@
   .tm-choice__text::placeholder {
     color: var(--color-fg-subtle);
   }
-  .tm-session-error,
-  .tm-session-interaction {
-    min-width: 0;
-    border: 1px solid color-mix(in srgb, #c4a7ff 28%, var(--color-border));
-    border-radius: 8px;
-    font-size: 12px;
-    overflow: hidden;
-  }
-  .tm-session-interaction-heading {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 12px 0;
-    color: #c4a7ff;
-    font-weight: 600;
-  }
-  .tm-session-interaction-heading svg {
-    width: 13px;
-    height: 13px;
-    flex-shrink: 0;
-  }
-  .tm-session-interaction-prompt {
-    max-height: 220px;
-    overflow-y: auto;
-    padding: 2px 12px 6px;
-    color: var(--color-fg-muted);
-  }
-  .tm-session-interaction-answer {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-    padding: 9px 12px;
-    border-top: 1px solid var(--color-border);
-    background: var(--color-surface-2);
-  }
-  .tm-session-interaction-label {
-    flex-shrink: 0;
-    font-size: 10.5px;
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-interaction-value {
-    min-width: 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .tm-session-interaction-answer[data-outcome='declined'] .tm-session-interaction-value {
-    color: var(--color-fg-muted);
-  }
-  .tm-session-notice {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    border: 1px solid var(--color-border);
-    padding: 10px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    line-height: 1.7;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  .tm-session-error {
-    margin-bottom: 10px;
-    max-height: 150px;
-    overflow: auto;
-  }
-  .tm-session-error,
-  .tm-session-notice--error {
-    color: var(--color-danger);
-    background: #f08c8c08;
-    border-color: #f08c8c30;
-  }
-  .tm-session-notice--warning {
-    color: var(--color-warning);
-  }
-  .tm-session-drop {
-    position: absolute;
-    inset: 8px;
-    display: grid;
-    place-items: center;
-    background: #141414ed;
-    color: var(--color-info);
-    border: 2px dashed var(--color-info);
-    border-radius: 12px;
-    pointer-events: none;
-    z-index: 10;
-  }
-  .tm-session :is(button, summary, select, input, a):focus-visible {
-    outline: 2px solid var(--color-info);
-    outline-offset: 2px;
-  }
-  .tm-session-markdown {
-    min-width: 0;
-    overflow-wrap: anywhere;
-    font-size: 13px;
-    line-height: 1.8;
-  }
-  .tm-session-markdown > :first-child {
-    margin-top: 0;
-  }
-  .tm-session-markdown > :last-child {
-    margin-bottom: 0;
-  }
-  .tm-session-markdown :is(p, ul, ol, blockquote, .tm-session-code, .tm-session-table) {
-    margin: 12px 0;
-  }
-  .tm-session-markdown :is(h1, h2, h3, h4, h5, h6) {
-    font-weight: 600;
-    line-height: 1.4;
-    margin: 22px 0 10px;
-  }
-  .tm-session-markdown h1 {
-    font-size: 20px;
-  }
-  .tm-session-markdown h2 {
-    font-size: 17px;
-  }
-  .tm-session-markdown h3 {
-    font-size: 15px;
-  }
-  .tm-session-markdown ul {
-    list-style: disc;
-    padding-left: 24px;
-  }
-  .tm-session-markdown ol {
-    list-style: decimal;
-    padding-left: 24px;
-  }
-  .tm-session-markdown li {
-    margin: 4px 0;
-  }
-  .tm-session-markdown li > p {
-    margin: 4px 0;
-  }
-  .tm-session-markdown blockquote {
-    border-left: 2px solid var(--color-border-strong);
-    padding-left: 14px;
-    color: var(--color-fg-muted);
-  }
-  .tm-session-markdown a {
-    color: var(--color-info);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-  }
-  .tm-session-markdown code {
-    font-family: var(--font-mono);
-    font-size: 11.5px;
-    background: var(--color-surface-2);
-    padding: 2px 5px;
-    border-radius: 4px;
-  }
-  .tm-session-code {
-    overflow: hidden;
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-    background: #101010;
-  }
-  .tm-session-code-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 5px 12px;
-    border-bottom: 1px solid var(--color-border);
-    font-size: 10.5px;
-    color: var(--color-fg-subtle);
-  }
-  .tm-session-code pre {
-    overflow-x: auto;
-    padding: 14px;
-    line-height: 1.7;
-  }
-  .tm-session-code pre code {
-    padding: 0;
-    background: none;
-    border-radius: 0;
-  }
-  .tm-session-table {
-    overflow-x: auto;
-  }
-  .tm-session-markdown table {
-    border-collapse: collapse;
-    width: 100%;
-    font-size: 12px;
-  }
-  .tm-session-markdown :is(th, td) {
-    border: 1px solid var(--color-border-strong);
-    padding: 7px 10px;
-    text-align: left;
-  }
-  .tm-session-markdown th {
-    background: var(--color-surface);
-  }
-  .tm-session-markdown hr {
-    border-color: var(--color-border);
-    margin: 18px 0;
-  }
-  @media (max-width: 700px) {
-    .tm-session-scroll {
-      padding: 12px;
-    }
-    .tm-session-scroll--with-rail {
-      padding-left: 32px;
-    }
-    .tm-session-bottom {
-      padding: 0 10px 8px;
-    }
-    .tm-session-controls .tm-picker {
-      max-width: 160px;
-    }
-    .tm-session-empty {
-      margin-top: 4vh;
-    }
-  }
-  .tm-session-setting {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    min-width: 0;
-    max-width: 100%;
-    border-radius: 6px;
-    background: var(--color-surface);
-    padding-left: 7px;
-  }
-  .tm-session-setting > span {
-    color: var(--color-fg-subtle);
-    font-size: 10px;
-  }
-  .tm-session-control-status {
-    color: var(--color-fg-muted);
-    font-size: 11px;
-  }
 
-  .tm-skill-menu {
-    padding: 6px;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-  .tm-skill-menu-heading {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 6px 8px 9px;
-    color: var(--color-fg-muted);
-    font-size: 12px;
-  }
-  .tm-skill-menu-heading > span {
-    font-size: 10px;
-    color: var(--color-fg-subtle);
-  }
-  .tm-skill-option {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    width: 100%;
-    padding: 9px 10px;
-    border-radius: 6px;
-    text-align: left;
-    transition: background-color 120ms ease;
-  }
-  .tm-skill-option[data-highlighted='true'] {
-    background: var(--color-control-hover);
-  }
-  .tm-skill-option-title {
-    font-size: 12.5px;
-    font-weight: 500;
-    overflow-wrap: anywhere;
-  }
-  .tm-skill-option-title > span {
-    margin-left: 8px;
-    color: var(--color-fg-subtle);
-    font-weight: 400;
-    font-size: 11px;
-  }
-  .tm-skill-option-description {
-    color: var(--color-fg-muted);
-    font-size: 11.5px;
-    overflow-wrap: anywhere;
-  }
-  .tm-skill-option-source {
-    color: var(--color-fg-subtle);
-    font-size: 10px;
-  }
-  .tm-skill-menu-empty {
-    padding: 14px 10px;
-    color: var(--color-fg-muted);
-    font-size: 12px;
-  }
-  .tm-skill-menu-empty > span {
-    display: block;
-    margin-top: 5px;
-    overflow-wrap: anywhere;
-    color: var(--color-fg-subtle);
-  }
-  .tm-skill-menu-empty > button {
-    margin-top: 8px;
-    padding: 4px 8px;
-    border-radius: 4px;
-    background: var(--color-control-hover);
-    color: var(--color-fg);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .tm-skill-option {
-      transition: none;
-    }
-  }
-
-  /* Send becomes a split button while Copilot works: the main segment steers or
-     queues, and the dropdown segment slides out to switch between them. */
+  /* Send: a cobalt split button. While Copilot works the dropdown segment slides out to
+     switch between steering and queueing. */
   .tm-send {
-    --tm-send-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
     display: inline-grid;
     grid-template-columns: auto 0px;
-    height: 28px;
-    border-radius: 6px;
-    background: var(--color-fg);
-    color: #0a0a0a;
+    height: 30px;
+    border-radius: var(--radius-md);
+    background: var(--color-accent);
+    box-shadow: var(--elevation-accent);
+    color: var(--color-accent-fg);
     transition:
-      grid-template-columns 280ms var(--tm-send-ease),
-      background-color 220ms ease,
-      color 220ms ease;
+      grid-template-columns var(--duration-slow) var(--ease-out),
+      background-color var(--duration-fast) ease,
+      box-shadow var(--duration-fast) ease,
+      color var(--duration-fast) ease;
   }
   .tm-send[data-split='true'] {
-    grid-template-columns: auto 24px;
-  }
-  .tm-send[data-mode='steer'],
-  .tm-send[data-mode='reply'] {
-    background: var(--color-info);
+    grid-template-columns: auto 26px;
   }
   .tm-send[data-disabled] {
-    background: var(--color-active);
+    background: var(--color-surface-2);
+    box-shadow: inset 0 0 0 1px var(--color-border);
     color: var(--color-fg-subtle);
   }
   .tm-send > button {
@@ -1061,31 +1364,31 @@
     color: inherit;
     cursor: pointer;
     transition:
-      background-color 150ms ease,
-      border-radius 280ms var(--tm-send-ease);
+      background-color var(--duration-fast) ease,
+      border-radius var(--duration-slow) var(--ease-out);
   }
   .tm-send > button:disabled {
     cursor: not-allowed;
   }
   .tm-send > button:hover:not(:disabled),
   .tm-send-toggle[aria-expanded='true'] {
-    background: #ffffff4d;
+    background: var(--color-accent-hover);
   }
   .tm-send[data-disabled] > button:hover:not(:disabled),
   .tm-send[data-disabled] .tm-send-toggle[aria-expanded='true'] {
     background: var(--color-control-hover);
   }
   .tm-send-main {
-    gap: 6px;
-    padding: 0 10px 0 11px;
-    border-radius: 6px;
+    gap: 7px;
+    padding: 0 12px 0 13px;
+    border-radius: var(--radius-md);
     font-size: 12.5px;
-    font-weight: 500;
+    font-weight: 600;
     letter-spacing: -0.005em;
     white-space: nowrap;
   }
   .tm-send[data-split='true'] .tm-send-main {
-    border-radius: 6px 0 0 6px;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
   }
   /* Labels share one grid cell, so the button stays the width of the longest one. */
   .tm-send-labels {
@@ -1095,9 +1398,9 @@
     grid-area: 1 / 1;
     text-align: center;
     transition:
-      opacity 180ms ease,
-      transform 280ms var(--tm-send-ease),
-      filter 180ms ease;
+      opacity var(--duration-base) ease,
+      transform var(--duration-slow) var(--ease-out),
+      filter var(--duration-base) ease;
   }
   .tm-send-labels > span[data-active='false'] {
     opacity: 0;
@@ -1107,7 +1410,7 @@
   /* Up to send, veer to steer, point ahead to queue for later, and turn back to reply. */
   .tm-send-arrow {
     flex: none;
-    transition: transform 320ms var(--tm-send-ease);
+    transition: transform var(--duration-slow) var(--ease-out);
   }
   .tm-send[data-mode='steer'] .tm-send-arrow {
     transform: rotate(45deg);
@@ -1120,22 +1423,22 @@
   }
   .tm-send-toggle {
     overflow: hidden;
-    border-radius: 0 6px 6px 0;
-    box-shadow: inset 1px 0 0 #0000002e;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    box-shadow: inset 1px 0 0 color-mix(in oklab, var(--color-accent-fg) 22%, transparent);
     opacity: 0;
     transition:
-      opacity 200ms ease,
-      background-color 150ms ease;
+      opacity var(--duration-base) ease,
+      background-color var(--duration-fast) ease;
   }
   .tm-send[data-disabled] .tm-send-toggle {
-    box-shadow: inset 1px 0 0 #ffffff12;
+    box-shadow: inset 1px 0 0 var(--color-border);
   }
   .tm-send[data-split='true'] .tm-send-toggle {
     opacity: 1;
   }
   .tm-send-toggle svg {
     flex: none;
-    transition: transform 200ms ease;
+    transition: transform var(--duration-base) var(--ease-out);
   }
   .tm-send-toggle[aria-expanded='true'] svg {
     transform: rotate(180deg);
@@ -1145,10 +1448,11 @@
     gap: 8px;
     width: 100%;
     padding: 8px 9px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     text-align: left;
     outline: none;
     cursor: pointer;
+    transition: background-color var(--duration-fast) ease;
   }
   .tm-send-menu-item:hover,
   .tm-send-menu-item:focus-visible {
@@ -1157,7 +1461,7 @@
   .tm-send-menu-check {
     flex: none;
     width: 12px;
-    color: var(--color-fg-muted);
+    color: var(--color-accent);
     font-size: 11px;
     line-height: 18px;
   }
@@ -1165,6 +1469,7 @@
     display: block;
     color: var(--color-fg);
     font-size: 12.5px;
+    font-weight: 540;
     line-height: 18px;
   }
   .tm-send-menu-description {
@@ -1175,11 +1480,16 @@
     line-height: 1.45;
   }
 
-  /* AI commit: a spinning ring while Copilot writes the message, an amber
-     pulse while a pre-commit hook runs, then a quiet ring to finish up. */
+  /* AI commit: a round raised button. A spinning ring while Copilot writes the message, an
+     amber pulse while a pre-commit hook runs, then a quiet ring to finish up. */
   .tm-commit {
     position: relative;
-    animation: tm-pop-in 200ms ease-out both;
+    margin: 0 2px;
+    border-radius: 999px;
+    color: var(--color-fg-muted);
+  }
+  .tm-commit:hover:not([aria-disabled='true']) {
+    color: var(--color-fg);
   }
   .tm-commit[aria-disabled='true'] {
     cursor: not-allowed;
@@ -1191,15 +1501,12 @@
     cursor: progress;
   }
   .tm-btn.tm-commit[aria-disabled='true']:hover {
-    background: transparent;
-  }
-  .tm-btn.tm-commit[aria-disabled='true']:not([data-phase]):hover {
-    color: var(--color-fg-muted);
+    background: var(--color-raised);
   }
   .tm-commit-icon {
     transition:
-      color 200ms ease,
-      transform 200ms ease;
+      color var(--duration-base) ease,
+      transform var(--duration-base) var(--ease-out);
   }
   .tm-commit-ring {
     position: absolute;
@@ -1208,7 +1515,7 @@
     border-radius: 999px;
     opacity: 0;
     pointer-events: none;
-    transition: opacity 160ms ease;
+    transition: opacity var(--duration-base) ease;
   }
   .tm-commit[data-phase] .tm-commit-icon {
     transform: scale(0.78);
@@ -1219,11 +1526,11 @@
     animation: tm-spin 0.9s linear infinite;
   }
   .tm-btn.tm-commit[data-phase='generating'] {
-    color: var(--color-info);
+    color: var(--color-accent);
   }
   .tm-commit[data-phase='generating'] .tm-commit-ring {
-    border-color: rgb(158 197 255 / 0.2);
-    border-top-color: var(--color-info);
+    border-color: var(--color-accent-ring);
+    border-top-color: var(--color-accent);
   }
   .tm-btn.tm-commit[data-phase='hook'] {
     color: var(--color-warning);
@@ -1232,7 +1539,7 @@
     animation: tm-pulse 1.1s ease-in-out infinite;
   }
   .tm-commit[data-phase='hook'] .tm-commit-ring {
-    border-color: rgb(245 201 122 / 0.25);
+    border-color: color-mix(in oklab, var(--color-warning) 25%, transparent);
     border-top-color: var(--color-warning);
     border-right-color: var(--color-warning);
     animation-duration: 1.4s;
@@ -1242,10 +1549,11 @@
     color: var(--color-fg);
   }
 
+  /* Messages waiting for Copilot: steering it is about to pick up, and the queue. */
   .tm-session-pending {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
     max-height: 136px;
     margin: 0;
     padding: 8px 8px 0;
@@ -1259,60 +1567,71 @@
     gap: 10px;
     min-width: 0;
     min-height: 32px;
-    padding: 4px 5px 4px 10px;
-    border-radius: 8px;
+    padding: 3px 4px 3px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
     background: var(--color-surface);
     font-size: 12px;
-    animation: tm-pop-in 200ms ease-out both;
   }
   .tm-session-pending-kind {
     flex: none;
-    min-width: 50px;
+    min-width: 52px;
     color: var(--color-fg-subtle);
-    font-size: 10.5px;
+    font-size: 11px;
+    font-weight: 500;
   }
   .tm-session-pending-item[data-kind='steer'] .tm-session-pending-kind {
-    color: var(--color-info);
+    color: var(--color-accent);
     animation: tm-pulse 1.6s ease-in-out infinite;
   }
   .tm-session-pending-text {
-    min-width: 0;
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--color-fg-muted);
   }
-  .tm-session-pending-cancel {
-    flex: none;
-    display: grid;
-    place-items: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 5px;
-    color: var(--color-fg-subtle);
-    cursor: pointer;
-    transition:
-      background-color 120ms ease,
-      color 120ms ease;
+
+  /* Dropping files anywhere in the session. */
+  .tm-session-drop {
+    position: absolute;
+    inset: 8px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1.5px dashed var(--color-accent);
+    border-radius: var(--radius-xl);
+    background: color-mix(in oklab, var(--color-panel) 90%, transparent);
+    backdrop-filter: blur(2px);
+    color: var(--color-accent);
+    font-size: 13px;
+    font-weight: 500;
+    pointer-events: none;
   }
-  .tm-session-pending-cancel:hover:not(:disabled) {
-    background: var(--color-control-hover);
-    color: var(--color-fg);
+  .tm-session-drop svg {
+    width: 22px;
+    height: 22px;
   }
-  .tm-session-pending-cancel:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .tm-send,
-    .tm-send *,
-    .tm-commit,
-    .tm-commit *,
-    .tm-session-pending-item,
-    .tm-session-pending-item * {
-      animation: none !important;
-      transition: none !important;
+
+  @media (max-width: 700px) {
+    .tm-session-scroll {
+      padding: 12px;
+    }
+    .tm-session-scroll--with-rail {
+      padding-left: 34px;
+    }
+    .tm-session-bottom {
+      padding: 4px 10px 8px;
+    }
+    .tm-session-setting .tm-picker {
+      max-width: 160px;
+    }
+    .tm-session-empty {
+      margin-top: 4vh;
     }
   }
 }

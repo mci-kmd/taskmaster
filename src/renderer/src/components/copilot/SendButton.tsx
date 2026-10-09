@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CopilotSendDelivery } from '../../../../shared/app-types'
 import { ChevronDownIcon } from '../Icons'
+import { usePresence } from '../../lib/motion'
 
 export type SendMode = 'send' | CopilotSendDelivery | 'reply'
 
@@ -55,6 +56,7 @@ export default function SendButton({
   const toggle = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const menuOpen = open && split
+  const menuPresence = usePresence(menuOpen)
 
   const close = (restoreFocus: boolean): void => {
     setOpen(false)
@@ -73,6 +75,8 @@ export default function SendButton({
     const above = bounds.top - height - 6
     element.style.left = `${Math.max(8, Math.min(bounds.right - width, window.innerWidth - width - 8))}px`
     element.style.top = `${above >= 8 ? above : Math.min(bounds.bottom + 6, window.innerHeight - height - 8)}px`
+    // Opening upwards, the menu's motion rises from the button instead of dropping.
+    element.dataset.placement = above >= 8 ? 'top' : 'bottom'
     element.style.visibility = 'visible'
   }
 
@@ -169,7 +173,7 @@ export default function SendButton({
       >
         <ChevronDownIcon width={12} height={12} aria-hidden="true" />
       </button>
-      {menuOpen
+      {menuPresence.mounted
         ? createPortal(
             <div
               ref={menu}
@@ -177,6 +181,8 @@ export default function SendButton({
               role="menu"
               aria-label="Send while Copilot works"
               className="tm-picker-popup tm-send-menu"
+              data-motion="drop"
+              data-state={menuPresence.state}
               style={{ position: 'fixed', visibility: 'hidden' }}
               onKeyDown={(event) => {
                 if (event.key === 'Escape') {

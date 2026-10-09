@@ -1,4 +1,13 @@
-import { useEffect, useState, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode
+} from 'react'
 import {
   type CompletedProjectTaskSnapshot,
   type CreateRepositoryTaskInput,
@@ -13,6 +22,7 @@ import {
   parseGitHubIssueReference
 } from '../../../shared/github-issue'
 import { mergeTaskTags, sortTaskTags } from '../../../shared/task-tags'
+import { MOTION, canAnimate } from '../lib/motion'
 import { isTaskFilterActive, matchesTaskFilter, type TaskFilter } from '../lib/task-filter'
 import { getTaskTagTone } from '../lib/task-tag-tone'
 import { formatRelativeTime } from '../lib/time'
@@ -24,6 +34,7 @@ import Button from './ui/Button'
 import Checkbox from './ui/Checkbox'
 import { Field, TextArea, TextInput } from './ui/Field'
 import HighlightedText from './ui/HighlightedText'
+import Presence from './ui/Presence'
 import { ArrowLeftIcon, CheckIcon, GitHubIssueIcon, GripIcon, PlusIcon } from './Icons'
 
 type ProjectTaskManagerProps = {
@@ -98,6 +109,42 @@ function isInvalidGitHubIssue(value: string): boolean {
   return value.trim().length > 0 && parseGitHubIssueReference(value) === null
 }
 
+/**
+ * Crossfades between keyed content and animates the height difference, so neighbours glide
+ * instead of jumping (e.g. a task card switching to its edit form).
+ */
+function HeightSwap({ swapKey, children }: { swapKey: string; children: ReactNode }): ReactNode {
+  const box = useRef<HTMLDivElement>(null)
+  const last = useRef<{ key: string; height: number } | null>(null)
+
+  useLayoutEffect(() => {
+    const element = box.current
+    if (!element) return
+    const height = element.offsetHeight
+    const previous = last.current
+    last.current = { key: swapKey, height }
+    if (!previous || previous.key === swapKey || previous.height === height || !canAnimate()) {
+      return
+    }
+    element.style.overflow = 'clip'
+    const animation = element.animate(
+      [{ height: `${previous.height}px` }, { height: `${height}px` }],
+      { duration: MOTION.slowMs, easing: MOTION.easeOut }
+    )
+    animation.onfinish = animation.oncancel = () => {
+      element.style.overflow = ''
+    }
+  })
+
+  return (
+    <div ref={box}>
+      <div className="tm-fade-in" key={swapKey}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export default function ProjectTaskManager({
   repository,
   taskTags,
@@ -156,7 +203,8 @@ export default function ProjectTaskManager({
   const visibleCompletedTasks = matchingCompletedTasks.slice(0, completedLimit)
   const listItems: ProjectTaskSnapshot[] = view === 'open' ? visibleTasks : visibleCompletedTasks
   const entries = usePresenceList(listItems, getTaskKey, view)
-  const listRef = useAnimatedListMotion<HTMLUListElement>(view)
+  // Switching views crossfades the whole list (keyed below) rather than each task.
+  const listRef = useAnimatedListMotion<HTMLUListElement>(view, { enterOnReset: false })
   const visibleIndexById = new Map(visibleTasks.map((task, index) => [task.id, index]))
   const labelOptions = sortTaskTags(
     mergeTaskTags(taskTags, [
@@ -390,10 +438,7 @@ export default function ProjectTaskManager({
   ): React.JSX.Element => {
     const invalid = isInvalidGitHubIssue(value)
     return (
-      <Field
-        hint={invalid ? undefined : 'Optional. Paste an issue URL or owner/repo#123.'}
-        label="GitHub issue"
-      >
+      <Field label="GitHub issue">
         <div className="flex items-center gap-2">
           <TextInput
             aria-describedby={invalid ? `${id}-error` : undefined}
@@ -404,7 +449,7 @@ export default function ProjectTaskManager({
             placeholder="https://github.com/owner/repo/issues/123"
             value={value}
           />
-          {value ? (
+          <Presence motion="fade" show={value.length > 0}>
             <Button
               disabled={busy}
               onClick={() => onChange('')}
@@ -414,13 +459,16 @@ export default function ProjectTaskManager({
             >
               Clear
             </Button>
-          ) : null}
+          </Presence>
         </div>
-        {invalid ? (
-          <p className="mt-1.5 text-[12px] leading-5 text-[var(--color-danger)]" id={`${id}-error`}>
-            {GITHUB_ISSUE_INPUT_HINT}
-          </p>
-        ) : null}
+        {/* The hint and the validation error crossfade in the same place. */}
+        <p
+          className={`tm-fade-in mt-1.5 text-[12px] leading-5 ${invalid ? 'text-danger' : 'text-fg-subtle'}`}
+          id={invalid ? `${id}-error` : undefined}
+          key={invalid ? 'error' : 'hint'}
+        >
+          {invalid ? GITHUB_ISSUE_INPUT_HINT : 'Optional. Paste an issue URL or owner/repo#123.'}
+        </p>
       </Field>
     )
   }
@@ -435,7 +483,7 @@ export default function ProjectTaskManager({
     return (
       <a
         aria-label={`Linked GitHub issue ${label}`}
-        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 font-mono text-[11.5px] text-[var(--color-info)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-hover)]"
+        className="tm-task-issue"
         href={issue.url}
         rel="noreferrer"
         target="_blank"
@@ -451,38 +499,57 @@ export default function ProjectTaskManager({
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-2">
         {task.number ? (
-          <span
-            className="font-mono text-[12px] text-[var(--color-fg-subtle)]"
-            title={`Task #${task.number}`}
-          >
+          <span className="font-mono text-[12px] text-fg-subtle" title={`Task #${task.number}`}>
             #{task.number}
           </span>
         ) : null}
         {task.title ? (
-          <h4 className="text-[14px] font-medium text-[var(--color-fg)]">
+          <h4 className="text-[14px] font-medium text-fg">
             <HighlightedText query={query} text={task.title} />
           </h4>
         ) : (
-          <h4 className="text-[14px] font-medium italic text-[var(--color-fg-subtle)]">
-            Untitled task
-          </h4>
+          <h4 className="text-[14px] font-medium italic text-fg-subtle">Untitled task</h4>
         )}
         {sortTaskTags(task.tags, taskTags).map((tag) => (
-          <span
-            key={tag}
-            className={`rounded-full border px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-[0.14em] ${getTaskTagTone(tag)}`}
-          >
+          <span className="tm-label-chip" data-tone={getTaskTagTone(tag)} key={tag}>
             {tag}
           </span>
         ))}
         {renderGitHubIssueLink(task)}
       </div>
       {task.description ? (
-        <p className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[var(--color-fg-muted)]">
+        <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-6 text-fg-muted">
           <HighlightedText query={query} text={task.description} />
         </p>
       ) : null}
-      <p className="mt-3 text-[11.5px] text-[var(--color-fg-subtle)]">{meta}</p>
+      <p className="mt-2 text-[11.5px] text-fg-subtle">{meta}</p>
+    </div>
+  )
+
+  const renderTagChecklist = (
+    options: readonly ProjectTaskTag[],
+    selected: readonly ProjectTaskTag[],
+    onToggle: (tag: ProjectTaskTag, checked: boolean) => void
+  ): React.JSX.Element => (
+    <div className="tm-task-tag-list">
+      <div className="tm-fade-in flex flex-col gap-2" key={options.length > 0 ? 'tags' : 'no-tags'}>
+        {options.length > 0 ? (
+          options.map((tag) => (
+            <Checkbox
+              key={tag}
+              checked={selected.includes(tag)}
+              disabled={busy}
+              label={tag}
+              onChange={(checked) => onToggle(tag, checked)}
+              title={`Assign ${tag} tag`}
+            />
+          ))
+        ) : (
+          <p className="text-[12.5px] text-fg-subtle">
+            No task tags configured in Settings or project settings.
+          </p>
+        )}
+      </div>
     </div>
   )
 
@@ -505,24 +572,7 @@ export default function ProjectTaskManager({
       </Field>
 
       <Field label="Tags">
-        <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-3 py-3">
-          {editTagOptions.length > 0 ? (
-            editTagOptions.map((tag) => (
-              <Checkbox
-                key={tag}
-                checked={editingTags.includes(tag)}
-                disabled={busy}
-                label={tag}
-                onChange={(checked) => handleToggleEditingTag(tag, checked)}
-                title={`Assign ${tag} tag`}
-              />
-            ))
-          ) : (
-            <p className="text-[12.5px] text-[var(--color-fg-subtle)]">
-              No task tags configured in Settings or project settings.
-            </p>
-          )}
-        </div>
+        {renderTagChecklist(editTagOptions, editingTags, handleToggleEditingTag)}
       </Field>
 
       {renderGitHubIssueField(
@@ -532,7 +582,7 @@ export default function ProjectTaskManager({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[11.5px] text-[var(--color-fg-subtle)]">
+        <p className="text-[11.5px] text-fg-subtle">
           Added {formatRelativeTime(task.createdAt, now)}
         </p>
 
@@ -569,83 +619,85 @@ export default function ProjectTaskManager({
     </form>
   )
 
-  const renderOpenTask = (task: ProjectTaskSnapshot, index: number): React.JSX.Element => (
-    <article
-      className={`relative rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3 transition-opacity ${dragState?.taskId === task.id ? 'opacity-50' : ''}`}
-      data-testid="project-task"
-      onDragOver={index >= 0 ? (event) => handleDragOverTask(event, index) : undefined}
-    >
-      {index >= 0 && activeDropIndex === index ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 -top-[7px] h-0.5 rounded-full bg-[var(--color-info)]"
-        />
-      ) : null}
-      {index >= 0 && activeDropIndex === index + 1 && index === visibleTasks.length - 1 ? (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 -bottom-[7px] h-0.5 rounded-full bg-[var(--color-info)]"
-        />
-      ) : null}
-      {editingTaskId === task.id ? (
-        renderEditForm(task)
-      ) : (
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <button
-            aria-label={`Reorder task ${task.title || 'Untitled task'}`}
-            className="-ml-2 mt-0.5 cursor-grab rounded p-0.5 text-[var(--color-fg-faint)] transition-colors hover:bg-[var(--color-hover)] hover:text-[var(--color-fg-muted)] active:cursor-grabbing"
-            draggable
-            onDragEnd={() => setDragState(null)}
-            onDragStart={(event) => handleDragStart(event, task.id)}
-            onKeyDown={(event) => handleHandleKeyDown(event, index)}
-            title="Drag to reorder (or focus and use ↑/↓)"
-            type="button"
-          >
-            <GripIcon width={14} height={14} />
-          </button>
-          {renderTaskSummary(task, `Added ${formatRelativeTime(task.createdAt, now)}`)}
+  const renderOpenTask = (task: ProjectTaskSnapshot, index: number): React.JSX.Element => {
+    const editing = editingTaskId === task.id
+    return (
+      <article
+        className="tm-task-card"
+        data-dragging={dragState?.taskId === task.id || undefined}
+        data-editing={editing || undefined}
+        data-testid="project-task"
+        onDragOver={index >= 0 ? (event) => handleDragOverTask(event, index) : undefined}
+      >
+        <Presence motion="fade" show={index >= 0 && activeDropIndex === index}>
+          <div aria-hidden="true" className="tm-task-drop-line" data-edge="top" />
+        </Presence>
+        <Presence
+          motion="fade"
+          show={index >= 0 && activeDropIndex === index + 1 && index === visibleTasks.length - 1}
+        >
+          <div aria-hidden="true" className="tm-task-drop-line" data-edge="bottom" />
+        </Presence>
+        <HeightSwap swapKey={editing ? 'edit' : 'view'}>
+          {editing ? (
+            <div className="pl-1">{renderEditForm(task)}</div>
+          ) : (
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-start gap-2">
+                <button
+                  aria-label={`Reorder task ${task.title || 'Untitled task'}`}
+                  className="tm-task-handle"
+                  draggable
+                  onDragEnd={() => setDragState(null)}
+                  onDragStart={(event) => handleDragStart(event, task.id)}
+                  onKeyDown={(event) => handleHandleKeyDown(event, index)}
+                  title="Drag to reorder (or focus and use ↑/↓)"
+                  type="button"
+                >
+                  <GripIcon width={14} height={14} />
+                </button>
+                {renderTaskSummary(task, `Added ${formatRelativeTime(task.createdAt, now)}`)}
+              </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              disabled={busy}
-              onClick={() => handleStartEditing(task)}
-              size="sm"
-              title="Edit task"
-              variant="ghost"
-            >
-              Edit
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={() => void onCompleteTask(task.id)}
-              size="sm"
-              title="Complete task"
-              variant="secondary"
-            >
-              Complete
-            </Button>
-          </div>
-        </div>
-      )}
-    </article>
-  )
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  disabled={busy}
+                  onClick={() => handleStartEditing(task)}
+                  size="sm"
+                  title="Edit task"
+                  variant="ghost"
+                >
+                  Edit
+                </Button>
+                <Button
+                  disabled={busy}
+                  onClick={() => void onCompleteTask(task.id)}
+                  size="sm"
+                  title="Complete task"
+                  variant="secondary"
+                >
+                  Complete
+                </Button>
+              </div>
+            </div>
+          )}
+        </HeightSwap>
+      </article>
+    )
+  }
 
   const renderCompletedTask = (task: CompletedProjectTaskSnapshot): React.JSX.Element => (
-    <article
-      className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-3"
-      data-testid="completed-task"
-    >
+    <article className="tm-task-card" data-testid="completed-task">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <CheckIcon
-          aria-hidden="true"
-          className="-ml-1.5 mt-1 shrink-0 text-[var(--color-positive)] opacity-70"
-          height={14}
-          width={14}
-        />
-        {renderTaskSummary(
-          task,
-          `Completed ${formatRelativeTime(task.completedAt, now)} · Added ${formatRelativeTime(task.createdAt, now)}`
-        )}
+        <div className="flex min-w-0 flex-1 items-start gap-2">
+          <span className="grid h-[22px] w-5 shrink-0 place-items-center text-positive">
+            <CheckIcon aria-hidden="true" height={14} width={14} />
+          </span>
+          {renderTaskSummary(
+            task,
+            `Completed ${formatRelativeTime(task.completedAt, now)} · Added ${formatRelativeTime(task.createdAt, now)}`
+          )}
+        </div>
         <Button
           disabled={busy}
           onClick={() => void onReopenTask(task.id)}
@@ -675,13 +727,16 @@ export default function ProjectTaskManager({
     <div className="h-full overflow-y-auto p-5">
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5">
         <div className="min-h-0 flex-1">
-          <section className="rounded-xl border border-[var(--color-border)] bg-[var(--color-panel)] p-5">
-            <div key={view} className="tm-fade-in flex items-center justify-between gap-3">
+          <section>
+            <div
+              key={`header-${view}`}
+              className="tm-fade-in flex items-center justify-between gap-3"
+            >
               <div>
-                <h3 className="text-[14px] font-medium tracking-tight text-[var(--color-fg)]">
+                <h3 className="text-[15px] font-semibold tracking-tight text-fg">
                   {view === 'open' ? 'Open tasks' : 'Completed tasks'}
                 </h3>
-                <p className="mt-1 text-[12.5px] text-[var(--color-fg-subtle)]">{summary}</p>
+                <p className="mt-0.5 text-[12.5px] text-fg-subtle">{summary}</p>
               </div>
               {view === 'open' ? (
                 <Button
@@ -722,7 +777,8 @@ export default function ProjectTaskManager({
               <ul
                 ref={listRef}
                 aria-label={view === 'open' ? 'Open tasks' : 'Completed tasks'}
-                className="relative mt-4"
+                className="tm-fade-in relative mt-4"
+                key={`list-${view}`}
                 onDragOver={view === 'open' ? handleDragOverList : undefined}
                 onDrop={view === 'open' ? handleDrop : undefined}
               >
@@ -732,7 +788,7 @@ export default function ProjectTaskManager({
                     <li
                       key={entry.key}
                       aria-hidden={exiting || undefined}
-                      className={`pb-3 last:pb-0 ${exiting ? 'pointer-events-none' : ''}`}
+                      className={`pb-2.5 last:pb-0 ${exiting ? 'pointer-events-none' : ''}`}
                       data-exiting={exiting ? '' : undefined}
                       data-motion-key={entry.key}
                       inert={exiting}
@@ -750,7 +806,7 @@ export default function ProjectTaskManager({
             ) : (
               <div
                 key={`${view}-${totalCount > 0 ? 'filtered' : 'empty'}`}
-                className="tm-fade-in mt-4 rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-bg)] px-4 py-8 text-center text-[13px] leading-6 text-[var(--color-fg-muted)]"
+                className="tm-task-empty tm-fade-in mt-4"
               >
                 {totalCount === 0 ? (
                   view === 'open' ? (
@@ -776,7 +832,7 @@ export default function ProjectTaskManager({
               </div>
             )}
 
-            {view === 'completed' && remainingCompletedCount > 0 ? (
+            <Presence motion="fade" show={view === 'completed' && remainingCompletedCount > 0}>
               <div className="mt-4 flex justify-center">
                 <Button
                   onClick={() => setCompletedLimit((limit) => limit + COMPLETED_PAGE_SIZE)}
@@ -787,11 +843,11 @@ export default function ProjectTaskManager({
                   Show {Math.min(COMPLETED_PAGE_SIZE, remainingCompletedCount)} older
                 </Button>
               </div>
-            ) : null}
+            </Presence>
           </section>
 
-          {view === 'open' && completedTasks.length > 0 ? (
-            <div className="mt-3 flex justify-center">
+          <Presence motion="fade" show={view === 'open' && completedTasks.length > 0}>
+            <div className="mt-4 flex justify-center">
               <button
                 className="tm-quiet-link inline-flex items-center gap-1.5 rounded px-2 py-1"
                 onClick={() => handleChangeView('completed')}
@@ -802,7 +858,7 @@ export default function ProjectTaskManager({
                 {pluralize(completedTasks.length, 'completed task', 'completed tasks')}
               </button>
             </div>
-          ) : null}
+          </Presence>
         </div>
       </div>
 
@@ -837,26 +893,7 @@ export default function ProjectTaskManager({
             />
           </Field>
 
-          <Field label="Tags">
-            <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-3">
-              {createTagOptions.length > 0 ? (
-                createTagOptions.map((tag) => (
-                  <Checkbox
-                    key={tag}
-                    checked={tags.includes(tag)}
-                    disabled={busy}
-                    label={tag}
-                    onChange={(checked) => handleToggleTag(tag, checked)}
-                    title={`Assign ${tag} tag`}
-                  />
-                ))
-              ) : (
-                <p className="text-[12.5px] text-[var(--color-fg-subtle)]">
-                  No task tags configured in Settings or project settings.
-                </p>
-              )}
-            </div>
-          </Field>
+          <Field label="Tags">{renderTagChecklist(createTagOptions, tags, handleToggleTag)}</Field>
 
           {renderGitHubIssueField('project-task-github-issue', githubIssue, setGithubIssue)}
 

@@ -10,6 +10,8 @@
 /* Graphite: soft warm graphite; the sidebar sits on the backdrop, the workspace floats. */
 [data-theme='graphite'] {
   color-scheme: dark;
+  /* Tint for shadows built outside the elevation tokens. */
+  --color-shadow: rgb(0 0 0);
 
   --color-bg: #232220;
   --color-sidebar: transparent;
@@ -76,6 +78,8 @@
 /* Slate: cool blue-grey; the sidebar and the workspace are two floating cards. */
 [data-theme='slate'] {
   color-scheme: dark;
+  /* Tint for shadows built outside the elevation tokens. */
+  --color-shadow: rgb(8 12 20);
 
   --color-bg: #1f232a;
   --color-sidebar: #272c34;
@@ -142,6 +146,8 @@
 /* Mist: the softest dark; mid-grey haze, near-invisible borders, depth from tone and shadow. */
 [data-theme='mist'] {
   color-scheme: dark;
+  /* Tint for shadows built outside the elevation tokens. */
+  --color-shadow: rgb(14 16 20);
 
   --color-bg: #2c2e32;
   --color-sidebar: transparent;
@@ -208,6 +214,8 @@
 /* Stone: warm greige with inverted depth; the workspace is a recessed well. */
 [data-theme='stone'] {
   color-scheme: dark;
+  /* Tint for shadows built outside the elevation tokens. */
+  --color-shadow: rgb(0 0 0);
 
   --color-bg: #312e2a;
   --color-sidebar: transparent;
@@ -277,6 +285,8 @@
 /* Porcelain: light; a porcelain card floating on warm paper. */
 [data-theme='porcelain'] {
   color-scheme: light;
+  /* Tint for shadows built outside the elevation tokens. */
+  --color-shadow: rgb(60 45 20);
 
   --color-bg: #f4f2ed;
   --color-sidebar: transparent;
@@ -350,7 +360,9 @@
   --color-info-soft: var(--color-accent-soft);
 
   --focus-ring: 0 0 0 3px var(--color-accent-ring);
-  --elevation-focus: 0 0 0 4px var(--color-accent-ring), 0 12px 30px -14px rgb(0 0 0 / 0.35);
+  --elevation-focus:
+    0 0 0 4px var(--color-accent-ring),
+    0 12px 30px -14px color-mix(in oklab, var(--color-shadow) 40%, transparent);
 
   color: var(--color-fg);
 }

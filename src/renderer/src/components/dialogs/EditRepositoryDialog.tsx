@@ -3,6 +3,7 @@ import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../../shared/project-i
 import { ProjectGlyph } from '../ProjectIcon'
 import Modal from '../Modal'
 import Button from '../ui/Button'
+import Presence from '../ui/Presence'
 import type {
   CopilotModelSelection,
   RepositorySnapshot,
@@ -35,6 +36,7 @@ import {
 } from '../settings/SettingsLayout'
 import { useAutoSave, type AutoSaveField, type AutoSaveResult } from '../settings/use-auto-save'
 import CommitModelPicker from './CommitModelPicker'
+import { useDialogSession, useOpenValue } from './use-dialog-session'
 
 type EditRepositoryDialogProps = {
   open: boolean
@@ -60,12 +62,15 @@ function workingThreadsMessage(count: number): string {
 
 export default function EditRepositoryDialog({
   open,
-  repository,
+  repository: currentRepository,
   onClose,
   ...props
 }: EditRepositoryDialogProps): React.JSX.Element | null {
-  // Settings mount only while open, so their drafts reset each time the dialog opens.
-  if (!open) {
+  // Settings stay mounted while the dialog animates out; each opening remounts them, so their
+  // drafts reset every time the dialog opens.
+  const session = useDialogSession(open)
+  const repository = useOpenValue(currentRepository, open)
+  if (!session.mounted) {
     return null
   }
 
@@ -74,13 +79,11 @@ export default function EditRepositoryDialog({
       <Modal
         description="Pick a repository in the sidebar first."
         onClose={onClose}
-        open
+        open={open}
         title="Edit project"
       >
         <div className="space-y-5">
-          <p className="text-[13px] text-[var(--color-fg-muted)]">
-            Select a repository, then reopen the editor.
-          </p>
+          <p className="text-[13px] text-fg-muted">Select a repository, then reopen the editor.</p>
           <div className="flex justify-end">
             <Button onClick={onClose} title="Close dialog" variant="secondary">
               Close
@@ -91,15 +94,23 @@ export default function EditRepositoryDialog({
     )
   }
 
+  const key = `${repository.id}:${session.key}`
   return isGeneralProject(repository) ? (
     <GeneralProjectSettings
-      key={repository.id}
+      key={key}
       onClose={onClose}
       onSave={props.onSave}
+      open={open}
       repository={repository}
     />
   ) : (
-    <RepositorySettings key={repository.id} onClose={onClose} repository={repository} {...props} />
+    <RepositorySettings
+      key={key}
+      onClose={onClose}
+      open={open}
+      repository={repository}
+      {...props}
+    />
   )
 }
 
@@ -156,11 +167,12 @@ function toUpdateInput(repositoryId: string, values: RepositoryValues): UpdateRe
   }
 }
 
-type RepositorySettingsProps = Omit<EditRepositoryDialogProps, 'open' | 'repository'> & {
+type RepositorySettingsProps = Omit<EditRepositoryDialogProps, 'repository'> & {
   repository: RepositorySnapshot
 }
 
 function RepositorySettings({
+  open,
   repository,
   removing,
   workingThreadCount,
@@ -247,7 +259,7 @@ function RepositorySettings({
             placeholder="src\MyApp.slnx"
           />
           <SettingRow label="Location">
-            <p className="break-all py-0.5 font-mono text-[12px] leading-5 text-[var(--color-fg-muted)]">
+            <p className="break-all py-0.5 font-mono text-[12px] leading-5 text-fg-muted">
               {repository.path}
             </p>
           </SettingRow>
@@ -340,7 +352,10 @@ function RepositorySettings({
               onChange={commitModel.set}
               value={commitModel.value}
             />
-            {isSameModelSelection(commitModel.value, DEFAULT_COMMIT_MESSAGE_MODEL) ? null : (
+            <Presence
+              motion="fade"
+              show={!isSameModelSelection(commitModel.value, DEFAULT_COMMIT_MESSAGE_MODEL)}
+            >
               <button
                 className="tm-quiet-link mt-1.5"
                 onClick={() => commitModel.set(DEFAULT_COMMIT_MESSAGE_MODEL)}
@@ -348,7 +363,7 @@ function RepositorySettings({
               >
                 Reset to default
               </button>
-            )}
+            </Presence>
           </SettingRow>
           <CheckboxSetting
             checkboxLabel="Push to the remote after committing"
@@ -364,13 +379,10 @@ function RepositorySettings({
       label: 'Danger zone',
       tone: 'danger',
       content: (
-        <section
-          aria-label="Remove project"
-          className="mt-4 flex items-center justify-between gap-4 rounded-md border border-[rgba(240,140,140,0.28)] px-4 py-3"
-        >
+        <section aria-label="Remove project" className="tm-danger-zone">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-[var(--color-fg)]">Remove project</p>
-            <p className="mt-0.5 text-[12px] leading-[18px] text-[var(--color-fg-muted)]">
+            <p className="text-[13px] font-medium text-fg">Remove project</p>
+            <p className="mt-0.5 text-[12px] leading-[18px] text-fg-muted">
               {workingThreadCount > 0
                 ? workingThreadsMessage(workingThreadCount)
                 : "Deletes this project's threads and tasks from Taskmaster. The repository is not touched."}
@@ -397,12 +409,29 @@ function RepositorySettings({
     }
   ]
 
-  if (confirmingRemoval) {
-    return (
+  // The editor and the confirmation are two dialogs: one pops out as the other pops in.
+  return (
+    <>
+      <Modal
+        description={`Settings for ${repository.name}.`}
+        fill
+        headerExtra={<SaveStatus errorCount={form.errorCount} status={form.status} />}
+        onClose={close}
+        open={open && !confirmingRemoval}
+        title="Edit project"
+        width="xl"
+      >
+        <SettingsLayout
+          activeId={sectionId}
+          label="Project settings sections"
+          onActiveChange={setSectionId}
+          sections={sections}
+        />
+      </Modal>
       <Modal
         description={`${repository.name} will be removed from Taskmaster. This cannot be undone.`}
         onClose={() => setConfirmingRemoval(false)}
-        open
+        open={open && confirmingRemoval}
         title="Remove project?"
       >
         <RemoveRepositoryConfirmation
@@ -416,26 +445,7 @@ function RepositorySettings({
           workingThreadCount={workingThreadCount}
         />
       </Modal>
-    )
-  }
-
-  return (
-    <Modal
-      description={`Settings for ${repository.name}.`}
-      fill
-      headerExtra={<SaveStatus errorCount={form.errorCount} status={form.status} />}
-      onClose={close}
-      open
-      title="Edit project"
-      width="xl"
-    >
-      <SettingsLayout
-        activeId={sectionId}
-        label="Project settings sections"
-        onActiveChange={setSectionId}
-        sections={sections}
-      />
-    </Modal>
+    </>
   )
 }
 
@@ -471,39 +481,34 @@ function RemoveRepositoryConfirmation({
 
   return (
     <div className="space-y-4">
-      <p className="text-[13px] leading-5 text-[var(--color-fg-muted)]">
+      <p className="text-[13px] leading-5 text-fg-muted">
         The following Taskmaster data for this project will be permanently deleted:
       </p>
       <ul
         aria-label="Data that will be lost"
-        className="divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)] bg-[var(--color-input)]"
+        className="divide-y divide-border rounded-lg border border-border bg-surface"
       >
         {losses.map((item) => (
           <li className="flex items-baseline justify-between gap-3 px-3 py-2" key={item.label}>
-            <span className="text-[13px] text-[var(--color-fg)]">
+            <span className="text-[13px] text-fg">
               {item.label}
               {item.detail ? (
-                <span className="ml-2 text-[11.5px] text-[var(--color-fg-subtle)]">
-                  {item.detail}
-                </span>
+                <span className="ml-2 text-[11.5px] text-fg-subtle">{item.detail}</span>
               ) : null}
             </span>
-            <span className="font-mono text-[13px] tabular-nums text-[var(--color-fg)]">
-              {item.count}
-            </span>
+            <span className="font-mono text-[13px] tabular-nums text-fg">{item.count}</span>
           </li>
         ))}
       </ul>
-      <p className="text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-        The repository at{' '}
-        <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>, its branches,
-        and its worktrees are left untouched.
+      <p className="text-[12.5px] leading-5 text-fg-muted">
+        The repository at <span className="font-mono text-fg">{repository.path}</span>, its
+        branches, and its worktrees are left untouched.
       </p>
-      {workingThreadCount > 0 ? (
-        <p className="text-[12.5px] leading-5 text-[var(--color-danger)]" role="status">
+      <Presence motion="collapse" show={workingThreadCount > 0}>
+        <p className="text-[12.5px] leading-5 text-danger" role="status">
           {workingThreadsMessage(workingThreadCount)}
         </p>
-      ) : null}
+      </Presence>
       <div className="flex items-center justify-end gap-2">
         <Button autoFocus onClick={onCancel} title="Keep project (Esc)" variant="ghost">
           Cancel
@@ -536,38 +541,34 @@ function ProjectIconPicker({
 }: ProjectIconPickerProps): React.JSX.Element {
   return (
     <>
-      <div className="flex flex-wrap gap-1" role="group" aria-label="Project icon">
+      <div aria-label="Project icon" className="flex flex-wrap gap-1.5" role="group">
         {PROJECT_ICONS.map((item) => (
           <button
-            type="button"
-            key={item.id}
             aria-label={item.label}
             aria-pressed={icon === item.id}
-            title={item.label}
+            className="tm-choice-tile"
+            key={item.id}
             onClick={() => onIconChange(item.id)}
-            className={`grid size-8 place-items-center rounded-md border transition-colors ${icon === item.id ? 'border-[var(--color-fg-muted)] bg-[var(--color-active)]' : 'border-[var(--color-border)] hover:bg-[var(--color-hover)]'}`}
+            title={item.label}
+            type="button"
           >
-            <ProjectGlyph icon={item.id} color={iconColor} />
+            <ProjectGlyph color={iconColor} icon={item.id} />
           </button>
         ))}
       </div>
-      <div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Project icon color">
+      <div aria-label="Project icon color" className="mt-3 flex flex-wrap gap-1.5" role="group">
         {PROJECT_ICON_COLORS.map((item) => (
           <button
-            type="button"
-            key={item.value}
             aria-label={item.label}
             aria-pressed={iconColor === item.value}
-            title={item.label}
+            className="tm-choice-tile"
+            data-shape="swatch"
+            key={item.value}
             onClick={() => onIconColorChange(item.value)}
-            className={`grid size-6 place-items-center rounded-full border ${iconColor === item.value ? 'border-[var(--color-fg)]' : 'border-transparent'}`}
+            title={item.label}
+            type="button"
           >
-            <span
-              className="size-3.5 rounded-full"
-              style={{
-                backgroundColor: item.value === 'default' ? 'var(--color-fg-subtle)' : item.value
-              }}
-            />
+            <span className="tm-choice-tile__swatch" style={{ backgroundColor: item.css }} />
           </button>
         ))}
       </div>
@@ -578,10 +579,12 @@ function ProjectIconPicker({
 type GeneralProjectValues = { name: string; icon: string; iconColor: string }
 
 function GeneralProjectSettings({
+  open,
   repository,
   onClose,
   onSave
 }: {
+  open: boolean
   repository: RepositorySnapshot
   onClose: () => void
   onSave: (input: UpdateRepositoryInput) => Promise<AutoSaveResult>
@@ -628,7 +631,7 @@ function GeneralProjectSettings({
       description="The project for general computer tasks."
       headerExtra={<SaveStatus errorCount={form.errorCount} status={form.status} />}
       onClose={close}
-      open
+      open={open}
       title="Edit project"
       width="lg"
     >
@@ -657,7 +660,7 @@ function GeneralProjectSettings({
                 />
               </SettingRow>
               <SettingRow label="Sessions run in">
-                <p className="break-all py-0.5 font-mono text-[12px] leading-5 text-[var(--color-fg-muted)]">
+                <p className="break-all py-0.5 font-mono text-[12px] leading-5 text-fg-muted">
                   {repository.path}
                 </p>
               </SettingRow>

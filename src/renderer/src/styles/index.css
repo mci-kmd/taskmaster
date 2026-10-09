@@ -13,6 +13,7 @@
 @import './motion.css';
 
 @import './components/layout.css';
+@import './components/workspace.css';
 @import './components/button.css';
 @import './components/field.css';
 @import './components/segmented.css';

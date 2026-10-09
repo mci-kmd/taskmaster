@@ -1,0 +1,88 @@
+/* Workspace header and the view layers inside the workspace card. */
+@layer components {
+  .tm-workspace-header {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 12px;
+    height: 52px;
+    padding: 0 12px 0 22px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .tm-workspace-title {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .tm-workspace-title h1 {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--color-fg);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .tm-workspace-sub {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    margin-top: 3px;
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 15px;
+  }
+
+  .tm-workspace-sub [data-ahead] {
+    color: var(--color-accent);
+  }
+
+  .tm-workspace-separator {
+    flex: none;
+    width: 1px;
+    height: 18px;
+    margin: 0 6px;
+    background: var(--color-border);
+  }
+
+  /* "Done": the thread finished while you were away. */
+  .tm-workspace-done {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    height: 20px;
+    padding: 0 8px 0 6px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--color-positive-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-positive) 28%, transparent);
+    color: var(--color-positive);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background-color var(--duration-fast) ease;
+  }
+  .tm-workspace-done:hover {
+    background: color-mix(in oklab, var(--color-positive) 22%, var(--color-panel));
+  }
+
+  /* A placeholder while a view's code loads. */
+  .tm-workspace-loading {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-fg-muted);
+    font-size: 12.5px;
+    animation: tm-fade-in var(--duration-base) var(--ease-out) both;
+  }
+}

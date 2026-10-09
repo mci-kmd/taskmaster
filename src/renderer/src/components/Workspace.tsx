@@ -16,6 +16,7 @@ import TerminalSessions, {
 import EmptyState from './EmptyState'
 import ProjectTaskManager from './ProjectTaskManager'
 import Button from './ui/Button'
+import Presence from './ui/Presence'
 import SegmentedControl from './ui/SegmentedControl'
 import {
   BranchIcon,
@@ -198,17 +199,14 @@ function TerminalLaunchPanel({
   const visual = pickTerminalVisual(thread, session)
 
   return (
-    <div className="tm-fade-in flex h-full w-full items-center justify-center rounded-lg border border-[var(--color-border)] bg-[#141414] px-6">
-      <div className="flex w-full max-w-md flex-col items-center text-center">
-        <div className="mb-3 inline-flex rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">
-          Terminal
-        </div>
-        <h2 className="text-[18px] font-medium tracking-tight text-[var(--color-fg)]">
-          {visual.title}
-        </h2>
+    <div className="tm-terminal-launch">
+      {/* Keyed by tone so each state's copy fades in rather than snapping. */}
+      <div className="tm-fade-in flex w-full max-w-md flex-col items-center" key={visual.tone}>
+        <span className="tm-terminal-launch__eyebrow">Terminal</span>
+        <h2 className="text-[17px] font-semibold tracking-[-0.012em] text-fg">{visual.title}</h2>
         <p
           className={`mt-2 max-w-sm text-[12.5px] leading-5 ${
-            visual.tone === 'error' ? 'text-[var(--color-danger)]' : 'text-[var(--color-fg-muted)]'
+            visual.tone === 'error' ? 'text-danger' : 'text-fg-muted'
           }`}
         >
           {visual.detail}
@@ -236,11 +234,47 @@ function TerminalLaunchPanel({
   )
 }
 
-function DiffLoadingPanel(): React.JSX.Element {
+function ViewLoading({ label }: { label: string }): React.JSX.Element {
   return (
-    <div className="flex h-full w-full items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
-      <div className="text-[12.5px] text-[var(--color-fg-muted)]">Loading diff…</div>
+    <div className="tm-workspace-loading" role="status">
+      {label}
     </div>
+  )
+}
+
+/** Shows one of two icons, turning between them when `showSecond` changes. */
+function IconSwap({
+  first,
+  second,
+  showSecond
+}: {
+  first: React.ReactNode
+  second: React.ReactNode
+  showSecond: boolean
+}): React.JSX.Element {
+  return (
+    <span className="tm-icon-swap">
+      <span aria-hidden={showSecond || undefined} data-active={!showSecond} className="flex">
+        {first}
+      </span>
+      <span aria-hidden={!showSecond || undefined} data-active={showSecond} className="flex">
+        {second}
+      </span>
+    </span>
+  )
+}
+
+/** Branch status tokens (`↑2 ~3`); commits ahead read in the accent. */
+function BranchStatusSummary({ summary }: { summary: string }): React.JSX.Element {
+  return (
+    <>
+      {summary.split(' ').map((token, index) => (
+        <span data-ahead={token.startsWith('↑') || undefined} key={`${index}:${token}`}>
+          {index > 0 ? ' ' : ''}
+          {token}
+        </span>
+      ))}
+    </>
   )
 }
 
@@ -294,7 +328,6 @@ export default function Workspace({
     () => buildThreadViewOptions(COPILOT_LABEL, previewAvailability, !generalProject),
     [generalProject, previewAvailability]
   )
-  const threadViewControlWidthPx = threadViewOptions.length * 88
   const hasSolutionFile = Boolean(selectedRepository?.solutionFilePath)
 
   const handleTerminalSessionsChange = useCallback((next: SessionMap): void => {
@@ -436,236 +469,236 @@ export default function Workspace({
     terminalSessionsRef.current?.start(selectedThread.id)
   }, [selectedThread])
 
+  const modeLabel = selectedThread
+    ? selectedThread.mode === 'worktree'
+      ? 'Worktree'
+      : selectedThread.mode === 'new-branch'
+        ? 'New branch'
+        : 'Active branch'
+    : null
+  const showTasks = !hasThread && Boolean(selectedRepository) && showRepositoryTasks
+  const showThreadView = (view: ThreadWorkspaceViewId): boolean =>
+    Boolean(selectedThread) && selectedView === view
+
   return (
     <main
       className="flex min-h-0 min-w-0 flex-1 flex-col"
       onKeyDownCapture={handleWorkspaceKeyDown}
       onPointerDownCapture={handleWorkspacePointerDown}
     >
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-bg)] px-5">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-[14px] font-medium tracking-tight text-[var(--color-fg)]">
-                {headerTitle}
-              </h1>
-              {selectedThread && !generalProject ? (
-                <span
-                  className="grid size-4 place-items-center rounded text-[var(--color-fg-subtle)]"
-                  title={
-                    selectedThread.mode === 'worktree'
-                      ? 'Worktree'
-                      : selectedThread.mode === 'new-branch'
-                        ? 'New branch'
-                        : 'Active branch'
-                  }
-                >
-                  {selectedThread.mode === 'worktree' ? (
-                    <WorktreeIcon width={11} height={11} />
-                  ) : (
-                    <BranchIcon width={11} height={11} />
-                  )}
+      <header className="tm-workspace-header">
+        <div className="min-w-0 flex-1">
+          <div className="tm-workspace-title">
+            <h1>{headerTitle}</h1>
+            {selectedThread && !generalProject ? (
+              <span className="flex text-fg-subtle" title={modeLabel ?? undefined}>
+                <IconSwap
+                  first={<BranchIcon width={12} height={12} />}
+                  second={<WorktreeIcon width={12} height={12} />}
+                  showSecond={selectedThread.mode === 'worktree'}
+                />
+              </span>
+            ) : null}
+            <Presence motion="rise" show={Boolean(selectedThread && selectedDone)}>
+              <button
+                type="button"
+                className="tm-workspace-done"
+                title="Thread finished — click or interact with the thread to dismiss"
+                aria-label="Dismiss done state"
+              >
+                <CheckIcon width={11} height={11} />
+                Done
+              </button>
+            </Presence>
+          </div>
+          <div className="tm-workspace-sub">
+            {headerBranch ? (
+              <span className="truncate">{headerBranch}</span>
+            ) : (
+              <span className="font-sans">No selection</span>
+            )}
+            <Presence motion="fade" show={Boolean(branchStatusSummary)}>
+              {branchStatusSummary ? (
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="text-fg-faint">·</span>
+                  {/* Keyed so a new summary fades in instead of snapping. */}
+                  <span
+                    className="tm-fade-in truncate"
+                    key={branchStatusSummary}
+                    title={branchStatusTitle ?? undefined}
+                  >
+                    <BranchStatusSummary summary={branchStatusSummary} />
+                  </span>
                 </span>
               ) : null}
-              {selectedThread && selectedDone ? (
-                <button
-                  type="button"
-                  className="tm-done-pill"
-                  title="Thread finished — click or interact with the thread to dismiss"
-                  aria-label="Dismiss done state"
-                >
-                  <CheckIcon width={11} height={11} />
-                  Done
-                </button>
-              ) : null}
-            </div>
-            <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-[var(--color-fg-subtle)]">
-              {headerBranch ? (
-                <span className="truncate font-mono">{headerBranch}</span>
-              ) : (
-                <span>No selection</span>
-              )}
-              {branchStatusSummary ? (
-                <>
-                  <span className="text-[var(--color-fg-faint)]">·</span>
-                  <span className="truncate font-mono" title={branchStatusTitle ?? undefined}>
-                    {branchStatusSummary}
-                  </span>
-                </>
-              ) : null}
-            </div>
+            </Presence>
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-1.5">
-          {selectedThread ? (
-            <>
-              {showRunCommandButton ? (
-                <Button
-                  aria-label={runCommandRunning ? 'Stop run command' : 'Run project command'}
-                  disabled={runCommandBusy}
-                  iconOnly
-                  onClick={runCommandRunning ? onStopRunCommand : onStartRunCommand}
-                  size="sm"
-                  title={runCommandRunning ? 'Stop run command' : 'Run project command'}
-                  variant="ghost"
-                >
-                  {runCommandRunning ? (
-                    <StopIcon width={13} height={13} />
-                  ) : (
-                    <PlayIcon width={13} height={13} />
-                  )}
-                </Button>
-              ) : null}
-
+        {selectedThread ? (
+          <div className="flex shrink-0 items-center gap-0.5">
+            {showRunCommandButton ? (
               <Button
-                aria-label="Open working directory"
+                aria-label={runCommandRunning ? 'Stop run command' : 'Run project command'}
+                disabled={runCommandBusy}
                 iconOnly
-                onClick={onOpenWorkingDirectory}
+                onClick={runCommandRunning ? onStopRunCommand : onStartRunCommand}
                 size="sm"
-                title="Open working directory"
+                title={runCommandRunning ? 'Stop run command' : 'Run project command'}
                 variant="ghost"
               >
-                <FolderIcon width={13} height={13} />
-              </Button>
-
-              {generalProject ? null : (
-                <Button
-                  aria-label="Open workspace in VS Code"
-                  iconOnly
-                  onClick={onOpenWorkingDirectoryInVscode}
-                  size="sm"
-                  title="Open workspace in VS Code"
-                  variant="ghost"
-                >
-                  <CodeIcon width={13} height={13} />
-                </Button>
-              )}
-
-              {hasSolutionFile && !generalProject ? (
-                <Button
-                  aria-label="Open solution in Visual Studio"
-                  iconOnly
-                  onClick={onOpenSolutionInVisualStudio}
-                  size="sm"
-                  title="Open solution in Visual Studio"
-                  variant="ghost"
-                >
-                  <VisualStudioIcon width={13} height={13} />
-                </Button>
-              ) : null}
-
-              <div style={{ width: threadViewControlWidthPx }}>
-                <SegmentedControl<ThreadWorkspaceViewId>
-                  ariaLabel="Thread view"
-                  onChange={handleSelectView}
-                  options={threadViewOptions}
-                  value={selectedView}
+                <IconSwap
+                  first={<PlayIcon width={13} height={13} />}
+                  second={<StopIcon width={13} height={13} />}
+                  showSecond={runCommandRunning}
                 />
-              </div>
-            </>
-          ) : null}
-        </div>
+              </Button>
+            ) : null}
+
+            <Button
+              aria-label="Open working directory"
+              iconOnly
+              onClick={onOpenWorkingDirectory}
+              size="sm"
+              title="Open working directory"
+              variant="ghost"
+            >
+              <FolderIcon width={14} height={14} />
+            </Button>
+
+            {generalProject ? null : (
+              <Button
+                aria-label="Open workspace in VS Code"
+                iconOnly
+                onClick={onOpenWorkingDirectoryInVscode}
+                size="sm"
+                title="Open workspace in VS Code"
+                variant="ghost"
+              >
+                <CodeIcon width={14} height={14} />
+              </Button>
+            )}
+
+            {hasSolutionFile && !generalProject ? (
+              <Button
+                aria-label="Open solution in Visual Studio"
+                iconOnly
+                onClick={onOpenSolutionInVisualStudio}
+                size="sm"
+                title="Open solution in Visual Studio"
+                variant="ghost"
+              >
+                <VisualStudioIcon width={14} height={14} />
+              </Button>
+            ) : null}
+
+            <span aria-hidden="true" className="tm-workspace-separator" />
+
+            <div className="shrink-0">
+              <SegmentedControl<ThreadWorkspaceViewId>
+                ariaLabel="Thread view"
+                onChange={handleSelectView}
+                options={threadViewOptions}
+                value={selectedView}
+              />
+            </div>
+          </div>
+        ) : null}
       </header>
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
           aria-hidden={!hasThread}
-          className={`flex h-full flex-col ${selectedView === 'copilot' || selectedView === 'preview' ? '' : 'p-5'} transition-opacity duration-200 ${
+          className={`absolute inset-0 transition-opacity duration-(--duration-base) ${
             hasThread ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         >
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <div className="relative min-h-0 flex-1">
-              <TerminalSessions
-                onRefresh={onRefresh}
-                onSessionsChange={handleTerminalSessionsChange}
-                ref={terminalSessionsRef}
-                selectedThreadId={selectedView === 'terminal' ? (selectedThread?.id ?? null) : null}
-                settings={settings}
-                threads={threads}
-              />
+          <TerminalSessions
+            onRefresh={onRefresh}
+            onSessionsChange={handleTerminalSessionsChange}
+            ref={terminalSessionsRef}
+            selectedThreadId={selectedView === 'terminal' ? (selectedThread?.id ?? null) : null}
+            settings={settings}
+            threads={threads}
+          />
 
-              {selectedThread && selectedView === 'copilot' ? (
-                <div className="absolute inset-0">
-                  <Suspense
-                    fallback={
-                      <div className="p-6 text-sm text-[var(--color-fg-muted)]" role="status">
-                        Opening thread…
-                      </div>
-                    }
-                  >
-                    <LazyCopilotThreadView
-                      legacyModels={settings.legacyCopilotModels}
-                      onSessionChange={handleCustomCopilotSessionChange}
-                      sharedCheckoutBusy={sharedCheckoutBusy}
-                      thread={selectedThread}
-                    />
-                  </Suspense>
-                </div>
-              ) : null}
-
-              {selectedThread && selectedView === 'preview' && selectedPreviewUrl ? (
-                <div className="absolute inset-0">
-                  <Suspense
-                    fallback={
-                      <div className="p-6 text-sm text-[var(--color-fg-muted)]" role="status">
-                        Opening preview…
-                      </div>
-                    }
-                  >
-                    <LazyThreadPreviewView
-                      legacyModels={settings.legacyCopilotModels}
-                      onSessionChange={handleCustomCopilotSessionChange}
-                      previewUrl={selectedPreviewUrl}
-                      sharedCheckoutBusy={sharedCheckoutBusy}
-                      thread={selectedThread}
-                    />
-                  </Suspense>
-                </div>
-              ) : null}
-
-              {selectedThread && selectedView === 'terminal' && !isRunning ? (
-                <div className="absolute inset-0">
-                  <TerminalLaunchPanel
-                    onLaunch={handleLaunchTerminal}
-                    session={selectedTerminalSession}
+          {/* Each view is a layer; switching crossfades the leaving and arriving layers. */}
+          <Presence motion="fade" show={showThreadView('copilot')}>
+            {selectedThread ? (
+              <div className="absolute inset-0">
+                <Suspense fallback={<ViewLoading label="Opening thread…" />}>
+                  <LazyCopilotThreadView
+                    legacyModels={settings.legacyCopilotModels}
+                    onSessionChange={handleCustomCopilotSessionChange}
+                    sharedCheckoutBusy={sharedCheckoutBusy}
                     thread={selectedThread}
                   />
-                </div>
-              ) : null}
+                </Suspense>
+              </div>
+            ) : null}
+          </Presence>
 
-              {selectedView === 'diff' && selectedThread ? (
-                <div className="absolute inset-0">
-                  <Suspense fallback={<DiffLoadingPanel />}>
-                    <LazyThreadDiffView key={selectedThread.id} thread={selectedThread} />
-                  </Suspense>
-                </div>
-              ) : null}
-            </div>
-          </div>
+          <Presence motion="fade" show={showThreadView('preview') && Boolean(selectedPreviewUrl)}>
+            {selectedThread && selectedPreviewUrl ? (
+              <div className="absolute inset-0">
+                <Suspense fallback={<ViewLoading label="Opening preview…" />}>
+                  <LazyThreadPreviewView
+                    legacyModels={settings.legacyCopilotModels}
+                    onSessionChange={handleCustomCopilotSessionChange}
+                    previewUrl={selectedPreviewUrl}
+                    sharedCheckoutBusy={sharedCheckoutBusy}
+                    thread={selectedThread}
+                  />
+                </Suspense>
+              </div>
+            ) : null}
+          </Presence>
+
+          <Presence motion="fade" show={showThreadView('terminal') && !isRunning}>
+            {selectedThread ? (
+              <div className="absolute inset-0 bg-panel">
+                <TerminalLaunchPanel
+                  onLaunch={handleLaunchTerminal}
+                  session={selectedTerminalSession}
+                  thread={selectedThread}
+                />
+              </div>
+            ) : null}
+          </Presence>
+
+          <Presence motion="fade" show={showThreadView('diff')}>
+            {selectedThread ? (
+              <div className="absolute inset-0">
+                <Suspense fallback={<ViewLoading label="Loading diff…" />}>
+                  <LazyThreadDiffView key={selectedThread.id} thread={selectedThread} />
+                </Suspense>
+              </div>
+            ) : null}
+          </Presence>
         </div>
 
-        {!hasThread && selectedRepository && showRepositoryTasks ? (
-          <div className="absolute inset-0">
-            <ProjectTaskManager
-              busy={repositoryTaskBusy}
-              key={selectedRepository.id}
-              onCompleteTask={onCompleteRepositoryTask}
-              onCreateTask={onCreateRepositoryTask}
-              onReopenTask={onReopenRepositoryTask}
-              onUpdateTask={onUpdateRepositoryTask}
-              onReorderTasks={onReorderRepositoryTasks}
-              repository={selectedRepository}
-              taskTags={resolveProjectTaskTags(
-                settings.parsedTaskTags,
-                selectedRepository.taskTagsInput
-              )}
-            />
-          </div>
-        ) : null}
+        <Presence motion="fade" show={showTasks}>
+          {showTasks && selectedRepository ? (
+            <div className="absolute inset-0">
+              <ProjectTaskManager
+                busy={repositoryTaskBusy}
+                key={selectedRepository.id}
+                onCompleteTask={onCompleteRepositoryTask}
+                onCreateTask={onCreateRepositoryTask}
+                onReopenTask={onReopenRepositoryTask}
+                onUpdateTask={onUpdateRepositoryTask}
+                onReorderTasks={onReorderRepositoryTasks}
+                repository={selectedRepository}
+                taskTags={resolveProjectTaskTags(
+                  settings.parsedTaskTags,
+                  selectedRepository.taskTagsInput
+                )}
+              />
+            </div>
+          ) : null}
+        </Presence>
 
-        {!hasThread && (!selectedRepository || !showRepositoryTasks) ? (
+        <Presence motion="fade" show={!hasThread && (!selectedRepository || !showRepositoryTasks)}>
           <div className="absolute inset-0">
             <EmptyState
               hasRepositories={hasRepositories}
@@ -674,7 +707,7 @@ export default function Workspace({
               onNewThread={onNewThread}
             />
           </div>
-        ) : null}
+        </Presence>
       </div>
     </main>
   )

@@ -30,9 +30,12 @@ import MonacoFileEditor from './MonacoFileEditor'
 import ResizeHandle from './ResizeHandle'
 import Button from './ui/Button'
 import { Field } from './ui/Field'
+import Presence from './ui/Presence'
 import SegmentedControl from './ui/SegmentedControl'
 import { getRendererApi } from '../shared/api/client'
 import { getSkippedHunkInfo } from '../lib/diff-hunks'
+import { useLastValue, usePresence } from '../lib/motion'
+import { useAnimatedListMotion, usePresenceList } from '../lib/use-presence-list'
 
 const api = getRendererApi()
 
@@ -66,6 +69,12 @@ type FileGroup = {
 }
 
 type FilePaneMode = 'patch' | 'file'
+
+type FileListItem =
+  | { kind: 'group'; key: string; title: string; first: boolean }
+  | { kind: 'file'; key: string; file: ThreadDiffFileSummary }
+
+const getFileListItemKey = (item: FileListItem): string => item.key
 
 type FileContentState = {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -132,18 +141,6 @@ const DIFF_MODE_OPTIONS: Array<{
 
 function formatStatDelta(label: '+' | '-', value: number | null): string | null {
   return typeof value === 'number' ? `${label}${value}` : null
-}
-
-function getDiffFilenameColorClass(status: ThreadDiffFileSummary['status']): string {
-  if (status === 'added' || status === 'untracked') {
-    return 'text-[var(--color-positive)]'
-  }
-
-  if (status === 'deleted') {
-    return 'text-[var(--color-danger)]'
-  }
-
-  return 'text-[var(--color-fg)]'
 }
 
 function splitPathForDisplay(path: string): {
@@ -542,6 +539,31 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
 
     return [...groups.values()]
   }, [summaryState.files, thread.cwd])
+
+  const fileListItems = useMemo<FileListItem[]>(
+    () =>
+      fileGroups.flatMap((group, index) => [
+        ...(group.title
+          ? [
+              {
+                kind: 'group' as const,
+                key: `group:${group.key}`,
+                title: group.title,
+                first: index === 0
+              }
+            ]
+          : []),
+        ...group.files.map((file) => ({
+          kind: 'file' as const,
+          key: `file:${file.previousPath ?? ''}:${file.path}`,
+          file
+        }))
+      ]),
+    [fileGroups]
+  )
+  // Files that appear or leave between refreshes slide in and out of the list.
+  const fileEntries = usePresenceList(fileListItems, getFileListItemKey, thread.id)
+  const fileListRef = useAnimatedListMotion<HTMLDivElement>(thread.id)
 
   const patchKey = selectedFile ? `${requestKey}:${selectedFile.path}` : null
   const fileContentKey = selectedFile
@@ -1009,228 +1031,217 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
   const selectedFileDeletions = selectedFile ? formatStatDelta('-', selectedFile.deletions) : null
   const selectedFileChangeLabel =
     selectedFile?.status === 'added' || selectedFile?.status === 'untracked'
-      ? { text: 'Added', className: 'text-[var(--color-positive)]' }
+      ? { text: 'Added', className: 'text-positive' }
       : selectedFile?.status === 'deleted'
-        ? { text: 'Removed', className: 'text-[var(--color-danger)]' }
+        ? { text: 'Removed', className: 'text-danger' }
         : null
+  const selectedPathDisplay = selectedFile
+    ? splitPathForDisplay(normalizeDisplayPath(selectedFile.path))
+    : null
+  const fileEditable =
+    filePaneMode === 'file' && selectedFileState?.status === 'ready' && !selectedFileReadOnly
 
   return (
-    <div className="tm-fade-in flex h-full min-h-0 flex-col gap-3">
-      <section className="shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="w-[218px]">
-            <SegmentedControl<ThreadDiffMode>
-              ariaLabel="Diff scope"
-              onChange={setMode}
-              options={DIFF_MODE_OPTIONS}
-              value={mode}
-            />
-          </div>
-
-          {mode === 'range' ? (
-            <>
-              <div className="min-w-[180px] flex-1">
-                <Field
-                  hint={
-                    rangeOptionsState.status === 'ready'
-                      ? 'Current branch commits, oldest to newest.'
-                      : undefined
-                  }
-                  htmlFor="thread-diff-base-ref"
-                  label="Base ref"
-                >
-                  <Select
-                    disabled={!rangeOptions}
-                    id="thread-diff-base-ref"
-                    aria-label="Base ref"
-                    onChange={(value) =>
-                      setSelectedRange((current) => ({ ...current, baseRef: value }))
-                    }
-                    value={selectedRange.baseRef}
-                    options={
-                      rangeOptions?.baseOptions.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                        description: option.description ?? undefined
-                      })) ?? []
-                    }
-                  />
-                </Field>
-              </div>
-
-              <div className="min-w-[180px] flex-1">
-                <Field
-                  hint={
-                    rangeOptionsState.status === 'ready'
-                      ? 'Includes Current changes on top of HEAD.'
-                      : undefined
-                  }
-                  htmlFor="thread-diff-head-ref"
-                  label="Compare ref"
-                >
-                  <Select
-                    disabled={!rangeOptions}
-                    id="thread-diff-head-ref"
-                    aria-label="Compare ref"
-                    onChange={(value) =>
-                      setSelectedRange((current) => ({ ...current, headRef: value }))
-                    }
-                    value={selectedRange.headRef}
-                    options={
-                      rangeOptions?.headOptions.map((option) => ({
-                        value: option.value,
-                        label: option.label,
-                        description: option.description ?? undefined
-                      })) ?? []
-                    }
-                  />
-                </Field>
-              </div>
-            </>
-          ) : (
-            <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-                Scope
-              </div>
-              <div className="mt-2 text-[13px] text-[var(--color-fg-muted)]">
-                Includes tracked and untracked changes in{' '}
-                <span className="font-mono">{thread.cwd}</span>.
-              </div>
-            </div>
-          )}
-
-          <div className="ml-auto flex items-center gap-2">
-            <div className="text-right">
-              <div className="text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
-                Diff set
-              </div>
-              <div className="mt-1 text-[12.5px] font-mono text-[var(--color-fg-muted)]">
-                {summaryLabel}
-              </div>
-            </div>
-            <Button onClick={handleRefresh} size="sm" title="Refresh diffs" variant="secondary">
-              <RefreshIcon width={11} height={11} />
-              Refresh
-            </Button>
-          </div>
+    <div className="tm-diff">
+      <section className="tm-diff-toolbar" aria-label="Diff scope">
+        <div className="shrink-0">
+          <SegmentedControl<ThreadDiffMode>
+            ariaLabel="Diff scope"
+            onChange={setMode}
+            options={DIFF_MODE_OPTIONS}
+            value={mode}
+          />
         </div>
 
-        {mode === 'range' && rangeOptionsState.status === 'loading' ? (
-          <div className="mt-3 text-[12.5px] text-[var(--color-fg-muted)]">
-            Loading branch commits...
-          </div>
-        ) : null}
+        {/* Keyed by mode so the range pickers and the scope note crossfade. */}
+        {mode === 'range' ? (
+          <div className="tm-fade-in flex min-w-0 flex-1 flex-wrap gap-3" key="range">
+            <div className="min-w-[180px] flex-1">
+              <Field
+                hint={
+                  rangeOptionsState.status === 'ready'
+                    ? 'Current branch commits, oldest to newest.'
+                    : undefined
+                }
+                htmlFor="thread-diff-base-ref"
+                label="Base ref"
+              >
+                <Select
+                  disabled={!rangeOptions}
+                  id="thread-diff-base-ref"
+                  aria-label="Base ref"
+                  onChange={(value) =>
+                    setSelectedRange((current) => ({ ...current, baseRef: value }))
+                  }
+                  value={selectedRange.baseRef}
+                  options={
+                    rangeOptions?.baseOptions.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                      description: option.description ?? undefined
+                    })) ?? []
+                  }
+                />
+              </Field>
+            </div>
 
-        {mode === 'range' && rangeOptionsState.status === 'error' ? (
-          <div className="mt-3 text-[12.5px] text-[var(--color-danger)]">
-            {rangeOptionsState.error}
+            <div className="min-w-[180px] flex-1">
+              <Field
+                hint={
+                  rangeOptionsState.status === 'ready'
+                    ? 'Includes Current changes on top of HEAD.'
+                    : undefined
+                }
+                htmlFor="thread-diff-head-ref"
+                label="Compare ref"
+              >
+                <Select
+                  disabled={!rangeOptions}
+                  id="thread-diff-head-ref"
+                  aria-label="Compare ref"
+                  onChange={(value) =>
+                    setSelectedRange((current) => ({ ...current, headRef: value }))
+                  }
+                  value={selectedRange.headRef}
+                  options={
+                    rangeOptions?.headOptions.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                      description: option.description ?? undefined
+                    })) ?? []
+                  }
+                />
+              </Field>
+            </div>
           </div>
-        ) : null}
+        ) : (
+          <div className="tm-fade-in min-w-0 flex-1" key="working-tree">
+            <div className="tm-diff-eyebrow">Scope</div>
+            <div className="mt-1 truncate text-[12.5px] text-fg-muted" title={thread.cwd}>
+              Includes tracked and untracked changes in{' '}
+              <span className="font-mono text-fg">{thread.cwd}</span>.
+            </div>
+          </div>
+        )}
+
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <div className="text-right">
+            <div className="tm-diff-eyebrow">Diff set</div>
+            <div className="tm-fade-in mt-1 font-mono text-[12px] text-fg-muted" key={summaryLabel}>
+              {summaryLabel}
+            </div>
+          </div>
+          <Button onClick={handleRefresh} size="sm" title="Refresh diffs" variant="secondary">
+            <RefreshIcon width={11} height={11} />
+            Refresh
+          </Button>
+        </div>
       </section>
 
+      <Presence motion="collapse" show={mode === 'range' && rangeOptionsState.status === 'loading'}>
+        <div className="tm-diff-notice">Loading branch commits...</div>
+      </Presence>
+
+      <Presence motion="collapse" show={mode === 'range' && rangeOptionsState.status === 'error'}>
+        <div className="tm-diff-notice" data-tone="danger">
+          {rangeOptionsState.error}
+        </div>
+      </Presence>
+
       {panelError ? (
-        <section className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)] px-6">
+        <section className="tm-diff-state tm-fade-in" key="error">
           <div className="max-w-md text-center">
-            <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--color-danger)]">
-              Diff load failed
-            </div>
-            <p className="mt-3 text-[13px] leading-6 text-[var(--color-fg-muted)]">{panelError}</p>
+            <div className="tm-diff-eyebrow text-danger">Diff load failed</div>
+            <p className="mt-3 text-[13px] leading-6 text-fg-muted">{panelError}</p>
           </div>
         </section>
-      ) : null}
+      ) : (
+        <div className="tm-fade-in flex min-h-0 flex-1" key="panes" ref={paneContainerRef}>
+          <div className="tm-diff-files" style={{ width: currentFileListWidth }}>
+            <div className="tm-diff-files__head">
+              <span className="tm-diff-eyebrow">Changed files</span>
+              <span className="font-mono text-[11.5px] text-fg-subtle">
+                {summaryState.files.length}
+              </span>
+              <Presence motion="fade" show={summaryLoading && summaryState.files.length > 0}>
+                <span className="ml-auto text-[11.5px] text-fg-subtle" role="status">
+                  Refreshing…
+                </span>
+              </Presence>
+            </div>
 
-      {!panelError ? (
-        <div className="flex min-h-0 flex-1" ref={paneContainerRef}>
-          <div className="relative flex shrink-0" style={{ width: currentFileListWidth }}>
-            <aside className="flex min-h-0 w-full flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
-              <div className="border-b border-[var(--color-border)] px-4 py-3">
-                <div className="text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
-                  Changed files
+            <div className="tm-diff-files__list" ref={fileListRef}>
+              {summaryLoading && summaryState.files.length === 0 ? (
+                <div className="tm-diff-files__message tm-fade-in" role="status">
+                  Loading changed files…
                 </div>
-                <div className="mt-1 text-[13px] text-[var(--color-fg-muted)]">
-                  {summaryState.files.length} file{summaryState.files.length === 1 ? '' : 's'}
-                  {summaryLoading ? ' · Refreshing…' : ''}
-                </div>
-              </div>
+              ) : null}
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-2">
-                {summaryLoading && summaryState.files.length === 0 ? (
-                  <div className="px-3 py-5 text-[12.5px] text-[var(--color-fg-muted)]">
-                    Loading changed files…
-                  </div>
-                ) : null}
+              {summaryState.status === 'ready' && summaryState.files.length === 0 ? (
+                <div className="tm-diff-files__message tm-fade-in">No diffs in this scope.</div>
+              ) : null}
 
-                {summaryState.status === 'ready' && summaryState.files.length === 0 ? (
-                  <div className="px-3 py-5 text-[12.5px] leading-6 text-[var(--color-fg-muted)]">
-                    No diffs in this scope.
-                  </div>
-                ) : null}
+              {fileEntries.map(({ key, item, exitToken }) => {
+                const exiting = exitToken !== null
+                if (item.kind === 'group') {
+                  return (
+                    <div
+                      className="tm-diff-files__group"
+                      data-exiting={exiting || undefined}
+                      data-first={item.first || undefined}
+                      data-motion-key={key}
+                      key={key}
+                    >
+                      {item.title}
+                    </div>
+                  )
+                }
 
-                {fileGroups.map((group, groupIndex) => (
-                  <div key={group.key}>
-                    {group.title ? (
-                      <div
-                        className={`px-[6px] pb-1 text-[10.5px] font-medium uppercase tracking-[0.18em] text-[var(--color-fg)] ${
-                          groupIndex === 0 ? 'pt-1' : 'pt-3'
-                        }`}
-                      >
-                        {group.title}
-                      </div>
+                const { file } = item
+                const active = !exiting && file.path === selectedPath
+                const pathDisplay = splitPathForDisplay(
+                  getProjectRelativePath(file.path, file.projectRootPath)
+                )
+                const previousPathDisplay = getPreviousPathDisplay(file, thread.cwd)
+                const tooltip =
+                  file.previousPath !== null && file.previousPath.length > 0
+                    ? `${file.path}\nfrom ${file.previousPath}`
+                    : file.path
+
+                return (
+                  <button
+                    aria-current={active || undefined}
+                    className="tm-diff-file"
+                    data-exiting={exiting || undefined}
+                    data-motion-key={key}
+                    data-selected={active || undefined}
+                    data-status={file.status}
+                    key={key}
+                    onClick={() => handleSelectPath(file.path)}
+                    tabIndex={exiting ? -1 : undefined}
+                    title={tooltip}
+                    type="button"
+                  >
+                    <span className="inline-flex min-w-0 max-w-full font-mono text-[12px]">
+                      {pathDisplay.directory ? (
+                        <span className="tm-truncate-start min-w-0 flex-1 text-fg-subtle">
+                          {pathDisplay.directory}
+                        </span>
+                      ) : null}
+                      {pathDisplay.separator ? (
+                        <span className="shrink-0 text-fg-subtle">{pathDisplay.separator}</span>
+                      ) : null}
+                      <span className="tm-diff-file__name truncate">{pathDisplay.filename}</span>
+                    </span>
+                    {previousPathDisplay ? (
+                      <span className="tm-truncate-start mt-[2px] block font-mono text-[11px] text-fg-subtle">
+                        from {previousPathDisplay}
+                      </span>
                     ) : null}
-
-                    {group.files.map((file) => {
-                      const active = file.path === selectedPath
-                      const pathDisplay = splitPathForDisplay(
-                        getProjectRelativePath(file.path, file.projectRootPath)
-                      )
-                      const filenameColorClass = getDiffFilenameColorClass(file.status)
-                      const previousPathDisplay = getPreviousPathDisplay(file, thread.cwd)
-                      const tooltip =
-                        file.previousPath !== null && file.previousPath.length > 0
-                          ? `${file.path}\nfrom ${file.previousPath}`
-                          : file.path
-
-                      return (
-                        <button
-                          className={`mb-[2px] w-full rounded-md border px-[6px] py-[5px] text-left transition-colors ${
-                            active
-                              ? 'border-[var(--color-border-strong)] bg-[var(--color-surface)]'
-                              : 'border-transparent bg-transparent hover:border-[var(--color-border)] hover:bg-[var(--color-surface)]'
-                          }`}
-                          key={`${file.previousPath ?? ''}:${file.path}`}
-                          onClick={() => handleSelectPath(file.path)}
-                          title={tooltip}
-                          type="button"
-                        >
-                          <div className="min-w-0">
-                            <div className="inline-flex min-w-0 max-w-full font-mono text-[12.5px]">
-                              {pathDisplay.directory ? (
-                                <span className="tm-truncate-start min-w-0 flex-1 text-[var(--color-fg-subtle)]">
-                                  {pathDisplay.directory}
-                                </span>
-                              ) : null}
-                              {pathDisplay.separator ? (
-                                <span className="shrink-0 text-[var(--color-fg-subtle)]">
-                                  {pathDisplay.separator}
-                                </span>
-                              ) : null}
-                              <span className={`truncate ${filenameColorClass}`}>
-                                {pathDisplay.filename}
-                              </span>
-                            </div>
-                            {previousPathDisplay ? (
-                              <div className="tm-truncate-start mt-[2px] font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
-                                from {previousPathDisplay}
-                              </div>
-                            ) : null}
-                          </div>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))}
-              </div>
-            </aside>
+                  </button>
+                )
+              })}
+            </div>
 
             <ResizeHandle
               ariaLabel="Resize diff panes"
@@ -1244,41 +1255,37 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
             />
           </div>
 
-          <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-panel)]">
-            <div className="border-b border-[var(--color-border)] px-4 py-3">
-              {selectedFile ? (
-                <div className="flex flex-wrap items-start gap-3">
+          <section className="tm-diff-main">
+            <div className="tm-diff-file-head">
+              {selectedFile && selectedPathDisplay ? (
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-mono text-[13px] text-[var(--color-fg)]">
-                      {selectedFile.path}
+                    <div className="truncate font-mono text-[12.5px]" title={selectedFile.path}>
+                      {selectedPathDisplay.directory ? (
+                        <span className="text-fg-subtle">
+                          {selectedPathDisplay.directory}
+                          {selectedPathDisplay.separator}
+                        </span>
+                      ) : null}
+                      <span className="font-medium text-fg">{selectedPathDisplay.filename}</span>
                     </div>
                     {selectedFile.previousPath ? (
-                      <div className="mt-1 truncate font-mono text-[11.5px] text-[var(--color-fg-subtle)]">
+                      <div className="mt-0.5 truncate font-mono text-[11px] text-fg-subtle">
                         from {selectedFile.previousPath}
                       </div>
                     ) : null}
                     {filePaneStatus ? (
                       <div
-                        className={`mt-2 flex flex-wrap items-center gap-1 text-[11.5px] ${
-                          filePaneStatus.tone === 'error'
-                            ? 'text-[var(--color-danger)]'
-                            : filePaneStatus.tone === 'success'
-                              ? 'text-[var(--color-positive)]'
-                              : filePaneStatus.tone === 'warning'
-                                ? 'text-[var(--color-warning)]'
-                                : 'text-[var(--color-fg-subtle)]'
-                        }`}
+                        className="tm-diff-status tm-fade-in"
+                        data-tone={filePaneStatus.tone}
+                        key={filePaneStatus.message}
                       >
                         <span>{filePaneStatus.message}</span>
                         {selectedFileAdditions ? (
-                          <span className="font-mono text-[var(--color-positive)]">
-                            {selectedFileAdditions}
-                          </span>
+                          <span className="font-mono text-positive">{selectedFileAdditions}</span>
                         ) : null}
                         {selectedFileDeletions ? (
-                          <span className="font-mono text-[var(--color-danger)]">
-                            {selectedFileDeletions}
-                          </span>
+                          <span className="font-mono text-danger">{selectedFileDeletions}</span>
                         ) : null}
                         {selectedFileChangeLabel ? (
                           <span className={`font-mono ${selectedFileChangeLabel.className}`}>
@@ -1290,7 +1297,36 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                   </div>
 
                   <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <div className="w-[160px]">
+                    <Presence motion="fade" show={fileEditable}>
+                      {selectedFileState ? (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            disabled={
+                              !selectedFileDirty || selectedFileState.saveStatus === 'saving'
+                            }
+                            onClick={handleRevertFile}
+                            size="sm"
+                            title="Discard unsaved changes"
+                            variant="ghost"
+                          >
+                            Revert
+                          </Button>
+                          <Button
+                            disabled={
+                              !selectedFileDirty || selectedFileState.saveStatus === 'saving'
+                            }
+                            onClick={handleSaveFile}
+                            size="sm"
+                            title="Save file"
+                            variant="primary"
+                          >
+                            Save
+                          </Button>
+                        </div>
+                      ) : null}
+                    </Presence>
+
+                    <div className="shrink-0">
                       <SegmentedControl<FilePaneMode>
                         ariaLabel="Selected file view"
                         onChange={setFilePaneMode}
@@ -1298,121 +1334,124 @@ export default function ThreadDiffView({ thread }: ThreadDiffViewProps): React.J
                         value={filePaneMode}
                       />
                     </div>
-
-                    {filePaneMode === 'file' &&
-                    selectedFileState?.status === 'ready' &&
-                    !selectedFileReadOnly ? (
-                      <>
-                        <Button
-                          disabled={!selectedFileDirty || selectedFileState.saveStatus === 'saving'}
-                          onClick={handleRevertFile}
-                          size="sm"
-                          title="Discard unsaved changes"
-                          variant="secondary"
-                        >
-                          Revert
-                        </Button>
-                        <Button
-                          disabled={!selectedFileDirty || selectedFileState.saveStatus === 'saving'}
-                          onClick={handleSaveFile}
-                          size="sm"
-                          title="Save file"
-                          variant="primary"
-                        >
-                          Save
-                        </Button>
-                      </>
-                    ) : null}
                   </div>
                 </div>
               ) : (
-                <div className="text-[12.5px] text-[var(--color-fg-muted)]">
+                <div className="tm-fade-in py-1 text-[12.5px] text-fg-muted">
                   Pick a changed file to inspect its diff.
                 </div>
               )}
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto" ref={diffPaneRef}>
+              {/* Each state is keyed so switching files or states fades the new content in. */}
               {!selectedFile ? null : filePaneMode === 'patch' ? (
                 activePatchState.status === 'loading' ? (
-                  <div className="px-5 py-6 text-[12.5px] text-[var(--color-fg-muted)]">
+                  <div className="tm-diff-message tm-fade-in" key="patch-loading" role="status">
                     Loading diff…
                   </div>
                 ) : activePatchState.status === 'error' ? (
-                  <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-danger)]">
+                  <div className="tm-diff-message tm-fade-in" data-tone="danger" key="patch-error">
                     {activePatchState.error}
                   </div>
                 ) : activePatchState.status === 'ready' && parsedDiffs.length > 0 ? (
                   <div
-                    className={`tm-diff-view tm-diff-view--${diffViewType} overflow-auto px-4 py-4`}
+                    className={`tm-diff-view tm-diff-view--${diffViewType} tm-fade-in`}
+                    key={`patch:${patchKey}`}
                   >
                     {parsedDiffs.map((file) => (
-                      <Diff
-                        codeClassName="text-[12.5px]"
-                        codeEvents={patchCodeEvents}
-                        diffType={file.type}
-                        gutterClassName="text-[11.5px]"
-                        gutterType="anchor"
-                        hunks={file.hunks}
+                      <div
+                        className="tm-diff-hunks"
                         key={`${file.oldPath}:${file.newPath}:${file.type}`}
-                        viewType={diffViewType}
                       >
-                        {(hunks) => renderPatchHunks(file.type, hunks)}
-                      </Diff>
+                        <Diff
+                          codeClassName="text-[12.5px]"
+                          codeEvents={patchCodeEvents}
+                          diffType={file.type}
+                          gutterClassName="text-[11.5px]"
+                          gutterType="anchor"
+                          hunks={file.hunks}
+                          viewType={diffViewType}
+                        >
+                          {(hunks) => renderPatchHunks(file.type, hunks)}
+                        </Diff>
+                      </div>
                     ))}
-                    {hoverJumpTarget?.cell.isConnected
-                      ? createPortal(
-                          <button
-                            aria-label={`Open file at line ${hoverJumpTarget.lineNumber}`}
-                            className="tm-diff-line-jump"
-                            onClick={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              handleJumpToFileLine(hoverJumpTarget.lineNumber)
-                            }}
-                            onMouseDown={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                            }}
-                            title={`Open file at line ${hoverJumpTarget.lineNumber}`}
-                            type="button"
-                          >
-                            <ArrowRightIcon height={12} width={12} />
-                          </button>,
-                          hoverJumpTarget.cell
-                        )
-                      : null}
+                    <LineJumpButton onJump={handleJumpToFileLine} target={hoverJumpTarget} />
                   </div>
                 ) : activePatchState.status === 'ready' ? (
-                  <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-fg-muted)]">
+                  <div className="tm-diff-message tm-fade-in" key="patch-empty">
                     {activePatchState.isBinary
                       ? 'Binary diff ready, but there is no text patch to render.'
                       : 'No text patch was returned for this file.'}
                   </div>
                 ) : null
               ) : selectedFileState?.status === 'loading' || !selectedFileState ? (
-                <div className="px-5 py-6 text-[12.5px] text-[var(--color-fg-muted)]">
+                <div className="tm-diff-message tm-fade-in" key="file-loading" role="status">
                   Loading file…
                 </div>
               ) : selectedFileState.status === 'error' ? (
-                <div className="px-5 py-6 text-[12.5px] leading-6 text-[var(--color-danger)]">
+                <div className="tm-diff-message tm-fade-in" data-tone="danger" key="file-error">
                   {selectedFileState.error}
                 </div>
               ) : (
-                <MonacoFileEditor
-                  key={fileContentKey}
-                  modelKey={fileContentKey ?? selectedFile.path}
-                  onChange={handleFileContentChange}
-                  path={selectedFile.path}
-                  readOnly={selectedFileReadOnly || selectedFileState.saveStatus === 'saving'}
-                  revealTarget={fileRevealTarget}
-                  value={selectedFileState.content}
-                />
+                <div className="tm-fade-in h-full" key={`file:${fileContentKey}`}>
+                  <MonacoFileEditor
+                    key={fileContentKey}
+                    modelKey={fileContentKey ?? selectedFile.path}
+                    onChange={handleFileContentChange}
+                    path={selectedFile.path}
+                    readOnly={selectedFileReadOnly || selectedFileState.saveStatus === 'saving'}
+                    revealTarget={fileRevealTarget}
+                    value={selectedFileState.content}
+                  />
+                </div>
               )}
             </div>
           </section>
         </div>
-      ) : null}
+      )}
     </div>
+  )
+}
+
+/**
+ * The "open file at this line" button, portaled into the hovered diff cell. It pops in on
+ * hover and fades out from the cell it was in when the pointer leaves.
+ */
+function LineJumpButton({
+  target,
+  onJump
+}: {
+  target: HoverJumpTarget | null
+  onJump: (lineNumber: number) => void
+}): React.ReactPortal | null {
+  const live = target?.cell.isConnected ? target : null
+  const { mounted, state } = usePresence(Boolean(live))
+  const last = useLastValue(live)
+  const shown = live ?? last
+  if (!mounted || !shown || !shown.cell.isConnected) return null
+  return createPortal(
+    <button
+      aria-label={`Open file at line ${shown.lineNumber}`}
+      className="tm-diff-line-jump"
+      data-motion="fade"
+      data-state={state}
+      key={shown.lineNumber}
+      onClick={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        onJump(shown.lineNumber)
+      }}
+      onMouseDown={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+      title={`Open file at line ${shown.lineNumber}`}
+      type="button"
+    >
+      <ArrowRightIcon height={12} width={12} />
+    </button>,
+    shown.cell
   )
 }

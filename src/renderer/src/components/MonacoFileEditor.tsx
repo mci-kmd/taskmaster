@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import { monaco, TASKMASTER_MONACO_THEME } from '../lib/monaco'
+import { applyMonacoTheme, monaco, TASKMASTER_MONACO_THEME } from '../lib/monaco'
+import { MOTION } from '../lib/motion'
+import { useTheme } from '../lib/theme'
 
 type MonacoFileEditorProps = {
   modelKey: string
@@ -12,6 +14,9 @@ type MonacoFileEditorProps = {
   value: string
   onChange: (value: string) => void
 }
+
+/** How long a revealed line stays tinted; matches the fade in .tm-monaco-reveal-line. */
+const REVEAL_HIGHLIGHT_MS = MOTION.slowMs * 6
 
 const MONACO_FONT_FAMILY =
   "'Geist Mono Variable', 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace"
@@ -34,6 +39,7 @@ export default function MonacoFileEditor({
   onChange
 }: MonacoFileEditorProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const theme = useTheme()
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const modelRef = useRef<monaco.editor.ITextModel | null>(null)
   const onChangeRef = useRef(onChange)
@@ -69,6 +75,36 @@ export default function MonacoFileEditor({
     editor.revealPositionInCenter(position, monaco.editor.ScrollType.Immediate)
   })
 
+  const highlightRef = useRef<{
+    decorations: monaco.editor.IEditorDecorationsCollection
+    timer: number
+  } | null>(null)
+
+  const clearHighlightRef = useRef((): void => {
+    const highlight = highlightRef.current
+    if (!highlight) return
+    window.clearTimeout(highlight.timer)
+    highlight.decorations.clear()
+    highlightRef.current = null
+  })
+
+  // Briefly tints the line a jump landed on so the eye finds it (see .tm-monaco-reveal-line).
+  const highlightLineRef = useRef((lineNumber: number): void => {
+    const editor = editorRef.current
+    const model = modelRef.current
+    if (!editor || !model || typeof editor.createDecorationsCollection !== 'function') return
+    clearHighlightRef.current()
+    const line = Math.max(1, Math.min(lineNumber, model.getLineCount()))
+    const decorations = editor.createDecorationsCollection([
+      {
+        range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+        options: { isWholeLine: true, className: 'tm-monaco-reveal-line' }
+      }
+    ])
+    const timer = window.setTimeout(() => clearHighlightRef.current(), REVEAL_HIGHLIGHT_MS)
+    highlightRef.current = { decorations, timer }
+  })
+
   const flushPendingRevealRef = useRef((): void => {
     const pendingRevealTarget = pendingRevealTargetRef.current
     const editor = editorRef.current
@@ -90,6 +126,7 @@ export default function MonacoFileEditor({
       const secondFrameId = requestAnimationFrame(() => {
         revealLineRef.current(pendingRevealTarget.lineNumber)
         editor.focus()
+        highlightLineRef.current(pendingRevealTarget.lineNumber)
       })
       revealFrameIdsRef.current.push(secondFrameId)
     })
@@ -104,6 +141,7 @@ export default function MonacoFileEditor({
   useEffect(() => {
     const container = containerRef.current
     const clearRevealFrames = clearRevealFramesRef.current
+    const clearHighlight = clearHighlightRef.current
     if (!container) {
       return
     }
@@ -137,6 +175,7 @@ export default function MonacoFileEditor({
 
     return () => {
       clearRevealFrames()
+      clearHighlight()
       editor.dispose()
       editorRef.current = null
       modelRef.current?.dispose()
@@ -163,6 +202,11 @@ export default function MonacoFileEditor({
   useEffect(() => {
     editorRef.current?.updateOptions({ readOnly })
   }, [readOnly])
+
+  // Monaco's theme is global; re-derive it from the tokens whenever the app theme changes.
+  useLayoutEffect(() => {
+    applyMonacoTheme(theme.appearance)
+  }, [theme.appearance, theme.id])
 
   useEffect(() => {
     const model = modelRef.current

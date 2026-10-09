@@ -111,13 +111,18 @@ export function usePresenceList<T>(
 /**
  * Animates entering, moving, and exiting children marked with `data-motion-key`.
  * Exiting children must also carry `data-exiting`.
+ *
+ * With `enterOnReset: false`, the first render and `resetKey` changes place children without
+ * entrance animations, for callers that animate the whole list in at once instead.
  */
 export function useAnimatedListMotion<E extends HTMLElement>(
-  resetKey: string
+  resetKey: string,
+  { enterOnReset = true }: { enterOnReset?: boolean } = {}
 ): React.RefObject<E | null> {
   const list = useRef<E>(null)
   const previous = useRef({ resetKey, order: '', tops: new Map<string, number>() })
   const exiting = useRef(new Set<string>())
+  const initial = useRef(true)
 
   useLayoutEffect(() => {
     const children = Array.from(list.current?.children ?? []).filter(
@@ -131,6 +136,7 @@ export function useAnimatedListMotion<E extends HTMLElement>(
       .map((child) => child.dataset.motionKey)
       .join('\n')
     const orderChanged = reset || order !== previous.current.order
+    const enter = enterOnReset || !(reset || initial.current)
     const tops = new Map<string, number>()
 
     for (const child of children) {
@@ -169,6 +175,7 @@ export function useAnimatedListMotion<E extends HTMLElement>(
 
       const oldTop = oldTops.get(key)
       if (oldTop === undefined) {
+        if (!enter) continue
         child.getAnimations().forEach((animation) => animation.cancel())
         child.animate(
           [
@@ -192,6 +199,7 @@ export function useAnimatedListMotion<E extends HTMLElement>(
       }
     }
     previous.current = { resetKey, order, tops }
+    initial.current = false
   })
 
   return list

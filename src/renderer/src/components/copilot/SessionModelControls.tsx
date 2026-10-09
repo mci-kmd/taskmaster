@@ -1,4 +1,5 @@
 import Select from '../ui/Select'
+import Presence from '../ui/Presence'
 import ModelPicker from './ModelPicker'
 import type { CopilotReasoningEffort, CopilotSessionSnapshot } from '../../../../shared/app-types'
 import { reasoningEffortLabel } from '../../../../shared/reasoning-effort'
@@ -30,6 +31,11 @@ export default function SessionModelControls({
   const effort = session?.nextModelSelection
     ? (session.nextModelSelection.reasoningEffort ?? '')
     : (session?.reasoningEffort ?? '')
+  const status = busy
+    ? 'Applying model settings…'
+    : session?.nextModelSelection
+      ? 'For next message'
+      : null
   const modelTitle = disabled
     ? disabledReason
     : `Model for your next message${selected ? `: ${selected.name}` : ''}`
@@ -62,7 +68,7 @@ export default function SessionModelControls({
           }}
         />
       </label>
-      {efforts.length ? (
+      <Presence show={efforts.length > 0} motion="fade">
         <label
           className="tm-session-setting"
           title={
@@ -94,16 +100,15 @@ export default function SessionModelControls({
             ]}
           />
         </label>
-      ) : null}
-      {busy ? (
+      </Presence>
+      <Presence show={Boolean(status)} motion="fade">
         <span className="tm-session-control-status" role="status">
-          Applying model settings…
+          {/* Keyed so a change of status fades in rather than snapping. */}
+          <span key={status} className="tm-fade-in">
+            {status}
+          </span>
         </span>
-      ) : session?.nextModelSelection ? (
-        <span className="tm-session-control-status" role="status">
-          For next message
-        </span>
-      ) : null}
+      </Presence>
     </>
   )
 }

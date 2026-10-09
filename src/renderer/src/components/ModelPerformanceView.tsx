@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   FALLBACK_DKK_PER_USD,
   nanoAiuToCredits,
@@ -7,7 +7,12 @@ import {
 } from '../../../shared/ai-credits'
 import type { ModelPerformanceSample, UsdDkkRate } from '../../../shared/app-types'
 import { formatCostAmount } from './copilot/prompt-cost'
+import { CloseIcon } from './Icons'
+import Button from './ui/Button'
+import Presence from './ui/Presence'
 import SegmentedControl from './ui/SegmentedControl'
+import { useLastValue } from '../lib/motion'
+import { useAnimatedListMotion, usePresenceList } from '../lib/use-presence-list'
 
 type Props = {
   samples: ModelPerformanceSample[]
@@ -29,11 +34,11 @@ const FALLBACK_RATE: UsdDkkRate = {
   updatedAt: null
 }
 
-const PERIODS: { key: Period; label: string; duration: number }[] = [
-  { key: '1h', label: 'Past hour', duration: 60 * 60 * 1000 },
-  { key: '1d', label: 'Past day', duration: 24 * 60 * 60 * 1000 },
-  { key: '1w', label: 'Past 7 days', duration: 7 * 24 * 60 * 60 * 1000 },
-  { key: '1m', label: 'Past 30 days', duration: 30 * 24 * 60 * 60 * 1000 }
+const PERIODS: { value: Period; label: string; description: string; duration: number }[] = [
+  { value: '1h', label: '1h', description: 'Past hour', duration: 60 * 60 * 1000 },
+  { value: '1d', label: '1d', description: 'Past day', duration: 24 * 60 * 60 * 1000 },
+  { value: '1w', label: '1w', description: 'Past 7 days', duration: 7 * 24 * 60 * 60 * 1000 },
+  { value: '1m', label: '1m', description: 'Past 30 days', duration: 30 * 24 * 60 * 60 * 1000 }
 ]
 const VIEWS: { value: View; label: string; description: string }[] = [
   { value: 'performance', label: 'Performance', description: 'Output speed and first token' },
@@ -52,6 +57,7 @@ const METRICS: Record<Metric, { name: string; label: string; unit: string; spoke
   dkk: { name: 'DKK', label: 'Estimated cost', unit: 'DKK', spoken: 'DKK' }
 }
 const BUCKET_COUNT = 12
+const modelKey = (group: ModelPerformanceSample[]): string => group[0]?.model ?? ''
 type SampleBucket = { start: number; end: number; samples: ModelPerformanceSample[] }
 type Series = { metric: Metric; values: (number | null)[]; max: number }
 type Row = { label: string; text: string; spoken: string }
@@ -221,6 +227,9 @@ function Trend({
     .filter(Boolean)
     .join(' ')
   const active = activeIndex === null || activeIndex < 0 ? null : buckets[activeIndex]
+  // While the tooltip and guide fade out they stay at the last hovered point.
+  const guideIndex = useLastValue(active ? activeIndex : null)
+  const tooltipBucket = guideIndex === null ? null : buckets[guideIndex]
   const calls = (count: number): string => `${count} ${count === 1 ? 'call' : 'calls'}`
   const details = (index: number): string =>
     `${model}, ${interval(index)}. ${rows(buckets[index].samples)
@@ -229,7 +238,7 @@ function Trend({
   const hasValues = series.some((item) => item.values.some((value) => value !== null))
 
   return (
-    <div className="tm-performance__chart-wrap">
+    <div className="tm-performance__chart-wrap tm-fade-in">
       <svg
         className="tm-performance__chart"
         viewBox="0 0 640 84"
@@ -238,9 +247,16 @@ function Trend({
         aria-label={`${model} ${title} trend. ${description || 'No recorded values in this period.'}`}
       >
         <path className="tm-performance__grid" d="M12 16H628 M12 44H628 M12 72H628" />
-        {active && activeIndex !== null && (
-          <path className="tm-performance__guide" d={`M${centers[activeIndex]} 8V76`} />
-        )}
+        {/* The guide slides between points and fades in and out with the hover. */}
+        <Presence show={active !== null} motion="fade">
+          {guideIndex !== null ? (
+            <path
+              className="tm-performance__guide"
+              d="M0 8V76"
+              style={{ transform: `translateX(${centers[guideIndex]}px)` }}
+            />
+          ) : null}
+        </Presence>
         {plotted.map((item) => (
           <g key={item.metric} className={`tm-performance__series--${item.metric}`}>
             {linePaths(item.points).map((path, index) => (
@@ -301,28 +317,30 @@ function Trend({
           />
         ) : null
       )}
-      {active && activeIndex !== null && (
-        <div
-          className="tm-performance__tooltip"
-          id={tooltipId}
-          role="tooltip"
-          style={
-            {
-              '--tm-tooltip-center': `${(centers[activeIndex] / 640) * 100}%`
-            } as React.CSSProperties
-          }
-        >
-          <strong>{model}</strong>
-          <span>{interval(activeIndex)}</span>
-          {rows(active.samples).map((row) => (
-            <div key={row.label}>
-              <span>{row.label}</span>
-              <b>{row.text}</b>
-            </div>
-          ))}
-          <small>{calls(active.samples.length)}</small>
-        </div>
-      )}
+      <Presence show={active !== null} motion="fade">
+        {guideIndex !== null && tooltipBucket ? (
+          <div
+            className="tm-performance__tooltip"
+            id={tooltipId}
+            role="tooltip"
+            style={
+              {
+                '--tm-tooltip-center': `${(centers[guideIndex] / 640) * 100}%`
+              } as React.CSSProperties
+            }
+          >
+            <strong>{model}</strong>
+            <span>{interval(guideIndex)}</span>
+            {rows(tooltipBucket.samples).map((row) => (
+              <div key={row.label}>
+                <span>{row.label}</span>
+                <b>{row.text}</b>
+              </div>
+            ))}
+            <small>{calls(tooltipBucket.samples.length)}</small>
+          </div>
+        ) : null}
+      </Presence>
     </div>
   )
 }
@@ -352,23 +370,25 @@ export default function ModelPerformanceView({
     }
   }, [samples])
   const { dkkPerUsd } = usdDkkRate
-  const selected = PERIODS.find((item) => item.key === period)!
+  const selected = PERIODS.find((item) => item.value === period)!
   const start = now - selected.duration
   const timeLabel = new Intl.DateTimeFormat(undefined, {
     ...(period === '1h' || period === '1d'
       ? { hour: 'numeric' as const, minute: '2-digit' as const }
       : { month: 'short' as const, day: 'numeric' as const })
   })
-  const byModel = new Map<string, ModelPerformanceSample[]>()
-  if (!loading && !error) {
+  const byModel = useMemo(() => {
+    const groups = new Map<string, ModelPerformanceSample[]>()
+    if (loading || error) return groups
     for (const sample of samples) {
       const timestamp = Date.parse(sample.timestamp)
       if (!Number.isFinite(timestamp) || timestamp < start || timestamp > now) continue
-      const group = byModel.get(sample.model) ?? []
+      const group = groups.get(sample.model) ?? []
       group.push(sample)
-      byModel.set(sample.model, group)
+      groups.set(sample.model, group)
     }
-  }
+    return groups
+  }, [error, loading, now, samples, start])
 
   const value = (group: ModelPerformanceSample[], metric: Metric): number | null =>
     aggregate(group, metric, dkkPerUsd)
@@ -398,6 +418,11 @@ export default function ModelPerformanceView({
       max: Math.max(0, ...values.filter((item): item is number => item !== null))
     }
   }
+  // Models entering or leaving the period (e.g. after switching it) animate in and out.
+  const modelGroups = useMemo(() => Array.from(byModel.values()), [byModel])
+  const modelEntries = usePresenceList(modelGroups, modelKey, 'models')
+  const modelListRef = useAnimatedListMotion<HTMLDivElement>('models')
+  const modelChips = usePresenceList(modelGroups, modelKey, 'models')
   const rateNote = `$1 = ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(dkkPerUsd)} DKK (${usdDkkRate.source === 'live' ? 'live rate' : 'fallback rate'})`
 
   return (
@@ -407,16 +432,20 @@ export default function ModelPerformanceView({
           <div>
             <p className="tm-performance__eyebrow">Model telemetry / local sessions</p>
             <h1 id="tm-performance-title">Model performance</h1>
-            <p className="tm-performance__intro">{INTROS[view]}</p>
+            <p className="tm-performance__intro tm-fade-in" key={view}>
+              {INTROS[view]}
+            </p>
           </div>
-          <button
-            className="tm-performance__close"
-            type="button"
-            onClick={onClose}
+          <Button
             aria-label="Close model performance"
+            onClick={onClose}
+            size="sm"
+            title="Close"
+            variant="ghost"
           >
-            Close <span aria-hidden="true">×</span>
-          </button>
+            Close
+            <CloseIcon width={12} height={12} />
+          </Button>
         </header>
 
         <div className="tm-performance__toolbar">
@@ -429,26 +458,20 @@ export default function ModelPerformanceView({
                 onChange={setView}
               />
             </div>
-            <div className="tm-performance__periods" role="group" aria-label="Time period">
-              {PERIODS.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  className="tm-performance__period"
-                  aria-pressed={period === item.key}
-                  title={item.label}
-                  onClick={() => {
-                    setNow(Date.now())
-                    setPeriod(item.key)
-                  }}
-                >
-                  {item.key}
-                </button>
-              ))}
+            <div className="tm-performance__periods">
+              <SegmentedControl<Period>
+                ariaLabel="Time period"
+                value={period}
+                options={PERIODS}
+                onChange={(next) => {
+                  setNow(Date.now())
+                  setPeriod(next)
+                }}
+              />
             </div>
           </div>
           <span className="tm-performance__scope">
-            {selected.label}
+            {selected.description}
             {!loading &&
               !error &&
               ` · ${byModel.size} ${byModel.size === 1 ? 'model' : 'models'} · ${Array.from(byModel.values()).reduce((sum, group) => sum + group.length, 0)} samples`}
@@ -462,27 +485,33 @@ export default function ModelPerformanceView({
             aria-label="Models in this period"
           >
             <span>Models in this period</span>
-            {Array.from(byModel.keys(), (model) => (
-              <strong key={model}>{model}</strong>
+            {modelChips.map(({ key, exitToken }) => (
+              <strong
+                data-motion={exitToken === null ? undefined : 'fade'}
+                data-state={exitToken === null ? undefined : 'closed'}
+                key={key}
+              >
+                {key}
+              </strong>
             ))}
           </div>
         )}
 
         {loading ? (
-          <div className="tm-performance__state" role="status">
+          <div className="tm-performance__state tm-fade-in" key="loading" role="status">
             <strong>Reading samples…</strong>
             <span>Collecting local model measurements.</span>
           </div>
         ) : error ? (
-          <div className="tm-performance__state" role="alert">
+          <div className="tm-performance__state tm-fade-in" key="error" role="alert">
             <strong>Couldn’t load model performance</strong>
             <span>{error}</span>
-            <button className="tm-performance__retry" type="button" onClick={onRetry}>
+            <Button className="mt-2.5" onClick={onRetry} size="sm" variant="secondary">
               Retry
-            </button>
+            </Button>
           </div>
         ) : byModel.size === 0 ? (
-          <div className="tm-performance__state" role="status">
+          <div className="tm-performance__state tm-fade-in" key="empty" role="status">
             <strong>No model activity in this period</strong>
             <span>
               Run a Copilot model to collect samples. Past activity isn’t available; choose a longer
@@ -490,8 +519,8 @@ export default function ModelPerformanceView({
             </span>
           </div>
         ) : (
-          <div className="tm-performance__models">
-            {Array.from(byModel, ([model, group]) => {
+          <div className="tm-performance__models" key="models" ref={modelListRef}>
+            {modelEntries.map(({ key: model, item: group, exitToken }) => {
               const buckets = bucketSamples(group, start, now)
               const tps = value(group, 'tps')
               const ttft = value(group, 'ttft')
@@ -504,6 +533,8 @@ export default function ModelPerformanceView({
               return (
                 <section
                   className="tm-performance__model"
+                  data-exiting={exitToken === null ? undefined : true}
+                  data-motion-key={model}
                   key={model}
                   aria-label={
                     view === 'performance'
@@ -522,7 +553,7 @@ export default function ModelPerformanceView({
                   </div>
                   <div className={`tm-performance__metric tm-performance__metric--${view}`}>
                     {view === 'performance' ? (
-                      <div className="tm-performance__readouts">
+                      <div className="tm-performance__readouts tm-fade-in" key="performance">
                         <div className="tm-performance__readout tm-performance__readout--tps">
                           <span className="tm-performance__metric-name">
                             <i className="tm-performance__swatch" aria-hidden="true" />
@@ -548,7 +579,7 @@ export default function ModelPerformanceView({
                         </div>
                       </div>
                     ) : (
-                      <div className="tm-performance__readouts">
+                      <div className="tm-performance__readouts tm-fade-in" key={costMetric}>
                         <div
                           className={`tm-performance__readout tm-performance__readout--${costMetric}`}
                         >
@@ -597,7 +628,10 @@ export default function ModelPerformanceView({
             })}
           </div>
         )}
-        <footer className="tm-performance__footer">
+        <footer
+          className="tm-performance__footer tm-fade-in"
+          key={view === 'performance' ? 'performance' : 'cost'}
+        >
           {view === 'performance'
             ? 'TPS = total output tokens ÷ total duration (end-to-end), in seconds. TTFT averages recorded values only. Each line uses its own labeled 0–max scale. Each point combines calls in its time interval; gaps indicate no measurement. Samples come from new Copilot calls only, not past history.'
             : `Each point sums the AI credits billed for calls in its time interval, including sub-agents; gaps indicate no recorded usage. Estimate: 1 credit = $${USD_PER_AI_CREDIT}, ${rateNote}. Calls recorded before usage tracking have no credit data.`}

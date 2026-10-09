@@ -1,10 +1,12 @@
-import Select from '../ui/Select'
 import { useState } from 'react'
 import Modal from '../Modal'
 import Button from '../ui/Button'
 import Checkbox from '../ui/Checkbox'
 import { Field, TextInput } from '../ui/Field'
+import Presence from '../ui/Presence'
 import SegmentedControl from '../ui/SegmentedControl'
+import Select from '../ui/Select'
+import { useDialogSession } from './use-dialog-session'
 import type { RepositorySnapshot, ThreadMode } from '../../../../shared/app-types'
 
 type SubmitInput = {
@@ -33,6 +35,8 @@ export default function NewThreadDialog({
   onClose,
   onSubmit
 }: NewThreadDialogProps): React.JSX.Element {
+  // Each opening gets a fresh form, even when the dialog reopens while animating out.
+  const session = useDialogSession(open)
   return (
     <Modal
       description={
@@ -47,7 +51,7 @@ export default function NewThreadDialog({
     >
       {repository ? (
         <NewThreadForm
-          key={repository.id}
+          key={`${repository.id}:${session.key}`}
           busy={busy}
           error={error}
           onCancel={onClose}
@@ -61,7 +65,7 @@ export default function NewThreadDialog({
         />
       ) : (
         <div className="space-y-5">
-          <p className="text-[13px] text-[var(--color-fg-muted)]">
+          <p className="text-[13px] text-fg-muted">
             Add or select a repository first, then create a thread.
           </p>
           <div className="flex justify-end">
@@ -191,53 +195,50 @@ function NewThreadForm({
         />
       </Field>
 
-      {mode === 'branch' && !trimmedBranchName ? (
-        <div className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-          Blank creates the thread on{' '}
-          <span className="font-mono text-[var(--color-fg)]">{defaultBranchName}</span>.
+      <Presence motion="collapse" show={mode === 'branch' && !trimmedBranchName}>
+        <div className="tm-dialog-note" data-variant="dashed">
+          Blank creates the thread on <span className="font-mono text-fg">{defaultBranchName}</span>
+          .
         </div>
-      ) : null}
+      </Presence>
 
-      {showBaseField ? (
-        <Field label="Base">
-          <div className="space-y-2 rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5">
-            <div className="flex items-center justify-between gap-2 text-[12.5px]">
-              <span className="text-[var(--color-fg-muted)]">Use when creating a new branch</span>
-              <span className="font-mono text-[var(--color-fg)]">{baseLabel}</span>
+      <Presence motion="collapse" show={showBaseField}>
+        <div>
+          <Field label="Base">
+            <div className="tm-dialog-note space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span>Use when creating a new branch</span>
+                <span className="font-mono text-fg">{baseLabel}</span>
+              </div>
+              <Checkbox
+                checked={effectiveUseCurrent}
+                disabled={checkboxDisabled}
+                label={
+                  <span>
+                    Use current branch{' '}
+                    <span className="font-mono text-fg-muted">({repository.currentBranch})</span>{' '}
+                    instead
+                  </span>
+                }
+                onChange={setUseCurrentBranch}
+                title={
+                  noPrimary
+                    ? 'Could not determine a primary branch; falling back to current.'
+                    : onPrimary
+                      ? 'Already on the primary branch.'
+                      : `Branch off ${repository.currentBranch} instead of ${repository.primaryBranch}`
+                }
+              />
             </div>
-            <Checkbox
-              checked={effectiveUseCurrent}
-              disabled={checkboxDisabled}
-              label={
-                <span>
-                  Use current branch{' '}
-                  <span className="font-mono text-[var(--color-fg-muted)]">
-                    ({repository.currentBranch})
-                  </span>{' '}
-                  instead
-                </span>
-              }
-              onChange={setUseCurrentBranch}
-              title={
-                noPrimary
-                  ? 'Could not determine a primary branch; falling back to current.'
-                  : onPrimary
-                    ? 'Already on the primary branch.'
-                    : `Branch off ${repository.currentBranch} instead of ${repository.primaryBranch}`
-              }
-            />
-          </div>
-        </Field>
-      ) : null}
+          </Field>
+        </div>
+      </Presence>
 
-      {error ? (
-        <div
-          className="rounded-md border border-[rgba(240,140,140,0.45)] bg-[rgba(240,140,140,0.08)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-danger)]"
-          role="alert"
-        >
+      <Presence motion="collapse" show={Boolean(error)}>
+        <div className="tm-dialog-note" data-tone="danger" role="alert">
           {error}
         </div>
-      ) : null}
+      </Presence>
 
       <div className="mt-2 flex items-center justify-end gap-2 pt-1">
         <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">

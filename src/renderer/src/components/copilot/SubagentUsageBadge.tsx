@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CopilotSubagentUsage } from '../../../../shared/app-types'
 import { AgentIcon } from '../Icons'
+import { usePresence } from '../../lib/motion'
 import { formatCredits, formatDkk, formatPromptDuration, PROMPT_COST_BASIS } from './prompt-cost'
 import { groupSubagentUsage, type SubagentUsageTotals } from './subagent-usage'
 
@@ -29,6 +30,7 @@ export default function SubagentUsageBadge({
   const anchorRef = useRef<HTMLSpanElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  const presence = usePresence(open)
   const label = `${agents.length} sub-${agents.length === 1 ? 'agent' : 'agents'}`
 
   // The transcript scrolls and clips overflow, so the tooltip is fixed and flips below when needed.
@@ -54,7 +56,9 @@ export default function SubagentUsageBadge({
     }
   }, [open])
 
-  const { groups, total } = open ? groupSubagentUsage(agents) : { groups: [], total: null }
+  const { groups, total } = presence.mounted
+    ? groupSubagentUsage(agents)
+    : { groups: [], total: null }
 
   return (
     <span
@@ -73,12 +77,14 @@ export default function SubagentUsageBadge({
     >
       <AgentIcon aria-hidden="true" />
       <span>{agents.length}</span>
-      {open && total ? (
+      {presence.mounted && total ? (
         <div
           ref={tooltipRef}
           id={tooltipId}
           role="tooltip"
           className="tm-session-subagents-tooltip"
+          data-motion="fade"
+          data-state={presence.state}
         >
           <strong>Sub-agents</strong>
           <table>

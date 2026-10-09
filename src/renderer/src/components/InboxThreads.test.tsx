@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import InboxThreads from './InboxThreads'
@@ -406,9 +406,94 @@ describe('inbox', () => {
     const image = container.querySelector('img')!
     expect(container.querySelector('svg')).toBeNull()
     fireEvent.error(image)
-    expect(container.querySelector('svg')?.style.color).toBe('rgb(122, 162, 247)')
+    // Stored colors render through theme tokens so they suit every theme.
+    expect(container.querySelector('svg')?.style.color).toBe('var(--color-accent)')
     rerender(<ProjectIcon repository={{ ...repositories[0], faviconUrl: 'file:///new.png' }} />)
     expect(container.querySelector('img')?.getAttribute('src')).toBe('file:///new.png')
+  })
+
+  it('labels live, error and idle statuses', () => {
+    const live = repository('Live', [
+      thread('Running', '2026-03-01'),
+      thread('Broken', '2026-02-01'),
+      thread('Quiet', '2026-01-01')
+    ])
+    const status = (copilotStatus: 'working' | 'error') =>
+      ({
+        phase: 'running',
+        exitCode: null,
+        errorMessage: null,
+        runtimeTitle: null,
+        lastUserMessage: null,
+        copilotStatus
+      }) as const
+    render(
+      <InboxThreads
+        repositories={[live]}
+        selectedRepository={live}
+        selectedThread={live.threads[0]}
+        sessions={
+          new Map([
+            ['Running', status('working')],
+            ['Broken', status('error')]
+          ])
+        }
+        convertingThread={false}
+        closingThread={false}
+        {...callbacks()}
+      />
+    )
+    const [running, broken, quiet] = within(
+      screen.getByRole('list', { name: 'Active threads' })
+    ).getAllByRole('listitem')
+    expect(within(running).getByText('Working').getAttribute('data-status')).toBe('working')
+    expect(within(broken).getByText('Error').getAttribute('data-status')).toBe('error')
+    expect(within(quiet).getByText('Idle').getAttribute('data-status')).toBe('idle')
+    expect(running.querySelector('[data-selected]')).toBeTruthy()
+    expect(broken.querySelector('[data-selected]')).toBeNull()
+  })
+
+  it('animates a settled thread out of the active list before removing it', () => {
+    vi.useFakeTimers()
+    const animate = vi.fn(() => ({ cancel: vi.fn() }))
+    const originalAnimate = Element.prototype.animate
+    const originalGetAnimations = Element.prototype.getAnimations
+    Element.prototype.animate = animate as unknown as Element['animate']
+    Element.prototype.getAnimations = () => []
+    try {
+      const props = {
+        selectedRepository: repositories[0],
+        selectedThread: null,
+        sessions: new Map(),
+        convertingThread: false,
+        closingThread: false,
+        ...callbacks()
+      }
+      const { rerender } = render(<InboxThreads repositories={repositories} {...props} />)
+      const settledNewest = [
+        repositories[0],
+        repository('Beta', [{ ...repositories[1].threads[0], settledAt: '2026-03-03' }])
+      ]
+      rerender(<InboxThreads repositories={settledNewest} {...props} />)
+      const activeList = screen.getByRole('list', { name: 'Active threads' })
+      const leaving = activeList.querySelector('[data-thread-id="Newest"]')
+      expect(leaving?.hasAttribute('data-exiting')).toBe(true)
+      expect(leaving?.hasAttribute('inert')).toBe(true)
+      expect(animate).toHaveBeenCalled()
+      act(() => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(activeList.querySelector('[data-thread-id="Newest"]')).toBeNull()
+      expect(
+        screen
+          .getByRole('list', { name: 'Settled threads', hidden: true })
+          .querySelector('[data-thread-id="Newest"]')
+      ).toBeTruthy()
+    } finally {
+      Element.prototype.animate = originalAnimate
+      Element.prototype.getAnimations = originalGetAnimations
+      vi.useRealTimers()
+    }
   })
 
   it('creates threads without an interface switch and retains branch/worktree controls', () => {

@@ -2,7 +2,11 @@ import { memo, useEffect, useRef, useState } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CheckIcon, CloseIcon, CopyIcon } from '../Icons'
+import Button from '../ui/Button'
+import { highlightCode } from './highlight-code'
 import { safeExternalUrl } from './safe-external-url'
+
+type CopyStatus = 'Copied' | 'Copy failed'
 
 export function CopyButton({
   text,
@@ -13,7 +17,7 @@ export function CopyButton({
   label?: string
   iconOnly?: boolean
 }): React.JSX.Element | null {
-  const [status, setStatus] = useState<string | null>(null)
+  const [status, setStatus] = useState<CopyStatus | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(
     () => () => {
@@ -23,9 +27,12 @@ export function CopyButton({
   )
   if (!text.trim()) return null
   return (
-    <button
-      type="button"
-      className={iconOnly ? 'tm-session-copy tm-session-copy--icon' : 'tm-session-copy'}
+    <Button
+      size="xs"
+      variant="ghost"
+      iconOnly={iconOnly}
+      className="tm-session-copy"
+      data-status={status ?? undefined}
       aria-label={label}
       title={status ?? label}
       onClick={async () => {
@@ -40,19 +47,27 @@ export function CopyButton({
       }}
     >
       {iconOnly ? (
-        status === 'Copied' ? (
-          <CheckIcon aria-hidden="true" className="text-[var(--color-positive)]" />
-        ) : status === 'Copy failed' ? (
-          <CloseIcon aria-hidden="true" className="text-[var(--color-danger)]" />
-        ) : (
-          <CopyIcon aria-hidden="true" />
-        )
+        // The three icons share one cell and crossfade as the status changes.
+        <span className="tm-icon-swap" aria-hidden="true">
+          <CopyIcon data-active={status === null} />
+          <CheckIcon data-active={status === 'Copied'} className="text-positive" />
+          <CloseIcon data-active={status === 'Copy failed'} className="text-danger" />
+        </span>
       ) : null}
       <span className={iconOnly ? 'sr-only' : undefined} aria-live="polite">
-        {status ?? label}
+        <span key={status ?? 'idle'} className={iconOnly ? undefined : 'tm-fade-in'}>
+          {status ?? label}
+        </span>
       </span>
-    </button>
+    </Button>
   )
+}
+
+function textOf(node: unknown): string {
+  if (!node || typeof node !== 'object') return ''
+  const element = node as { type?: string; value?: string; children?: unknown[] }
+  if (element.type === 'text') return element.value ?? ''
+  return (element.children ?? []).map(textOf).join('')
 }
 
 const components: Components = {
@@ -65,20 +80,35 @@ const components: Components = {
       <span>{children}</span>
     ),
   // Do not fetch arbitrary remote images embedded in agent output.
-  img: ({ alt }) => <span className="text-[var(--color-fg-muted)]">{alt || 'Image'}</span>,
+  img: ({ alt }) => <span className="text-fg-muted">{alt || 'Image'}</span>,
   pre: ({ children, node }) => {
     const code = node?.children[0]
-    const text =
-      code?.type === 'element'
-        ? code.children.map((child) => (child.type === 'text' ? child.value : '')).join('')
-        : ''
+    if (code?.type !== 'element' || code.tagName !== 'code') return <pre>{children}</pre>
+    const text = textOf(code)
+    const classes = code.properties.className
+    const language = (Array.isArray(classes) ? classes : [])
+      .map(String)
+      .find((name) => name.startsWith('language-'))
+      ?.slice('language-'.length)
     return (
       <div className="tm-session-code">
         <div className="tm-session-code-toolbar">
-          <span>Code</span>
-          <CopyButton text={text} label="Copy code" />
+          <span>{language || 'Code'}</span>
+          <CopyButton text={text} label="Copy code" iconOnly />
         </div>
-        <pre>{children}</pre>
+        <pre>
+          <code>
+            {highlightCode(text.replace(/\n$/, ''), language).map((token, index) =>
+              token.kind ? (
+                <span className={`tm-syntax-${token.kind}`} key={index}>
+                  {token.text}
+                </span>
+              ) : (
+                token.text
+              )
+            )}
+          </code>
+        </pre>
       </div>
     )
   },
