@@ -247,23 +247,26 @@ export function normalizePersistedSettings(
     currentTaskTagsInput === undefined
       ? DEFAULT_TASK_TAGS_INPUT
       : normalizeTaskTagsInput(currentTaskTagsInput)
-  const favoriteCopilotModels = normalizeFavoriteModels(settings.favoriteCopilotModels)
+  const favoriteCopilotModels = normalizeModelIds(settings.favoriteCopilotModels)
+  const legacyCopilotModels = normalizeModelIds(settings.legacyCopilotModels)
 
   return yoloEnabled === settings.yoloEnabled &&
     terminalFontFamilyInput === settings.terminalFontFamilyInput &&
     taskTagsInput === currentTaskTagsInput &&
-    favoriteCopilotModels === settings.favoriteCopilotModels
+    favoriteCopilotModels === settings.favoriteCopilotModels &&
+    legacyCopilotModels === settings.legacyCopilotModels
     ? settings
     : {
         ...settings,
         yoloEnabled,
         terminalFontFamilyInput,
         taskTagsInput,
-        ...(favoriteCopilotModels ? { favoriteCopilotModels } : {})
+        ...(favoriteCopilotModels ? { favoriteCopilotModels } : {}),
+        ...(legacyCopilotModels ? { legacyCopilotModels } : {})
       }
 }
 
-function normalizeFavoriteModels(value: unknown): string[] | undefined {
+export function normalizeModelIds(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) return []
   const models = [

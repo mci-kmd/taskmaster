@@ -9,6 +9,7 @@ type Props = {
   busy: boolean
   disabledReason: string
   favoriteModels?: string[]
+  legacyModels?: string[]
   onChange: (model: string, effort: CopilotReasoningEffort | null) => void
   onToggleFavorite?: (model: string, favorite: boolean) => void
 }
@@ -19,6 +20,7 @@ export default function SessionModelControls({
   busy,
   disabledReason,
   favoriteModels,
+  legacyModels,
   onChange,
   onToggleFavorite
 }: Props): React.JSX.Element {
@@ -40,6 +42,7 @@ export default function SessionModelControls({
           models={session?.models ?? []}
           value={model ?? ''}
           favorites={favoriteModels}
+          legacyModels={legacyModels}
           onToggleFavorite={onToggleFavorite}
           disabled={disabled || !session?.models.length}
           placeholder={

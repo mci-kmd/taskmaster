@@ -9,6 +9,10 @@ type TopItem =
   | { key: string; kind: 'family'; name: string }
   | { key: string; kind: 'favorite'; model: ModelChoice }
 
+type SubItem = { kind: 'model'; model: ModelChoice } | { kind: 'legacy' }
+
+/** Key of the row that shows or hides a family's legacy models. */
+const LEGACY_KEY = '\u0000legacy'
 const familyKey = (name: string): string => `family:${name}`
 const favoriteKey = (id: string): string => `favorite:${id}`
 const topLabel = (item: TopItem): string => (item.kind === 'family' ? item.name : item.model.name)
@@ -19,6 +23,7 @@ export default function ModelPicker({
   disabled,
   placeholder,
   favorites = [],
+  legacyModels = [],
   onChange,
   onToggleFavorite
 }: {
@@ -28,6 +33,8 @@ export default function ModelPicker({
   placeholder: string
   /** Starred model ids, in the order they appear at the bottom of the menu. */
   favorites?: string[]
+  /** Model ids listed under a collapsed Legacy row at the end of their family. */
+  legacyModels?: string[]
   onChange: (id: string) => void
   onToggleFavorite?: (id: string, favorite: boolean) => void
 }): React.JSX.Element {
@@ -38,7 +45,9 @@ export default function ModelPicker({
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState<string | null>(null)
   const [expandedFamily, setExpandedFamily] = useState<string | null>(null)
+  /** A model id, or LEGACY_KEY for the Legacy row. */
   const [activeModel, setActiveModel] = useState<string | null>(null)
+  const [legacyOpen, setLegacyOpen] = useState(false)
   const search = useRef({ text: '', time: 0 })
   // Hover must not scroll the menus; only keyboard/open navigation reveals the highlight.
   const pointerNavigation = useRef(false)
@@ -83,13 +92,29 @@ export default function ModelPicker({
     }))
   ]
   const highlighted = topItems.find((item) => item.key === highlight) ?? null
-  const choices = expandedFamily ? (groups.get(expandedFamily) ?? []) : []
+  const legacySet = new Set(legacyModels)
+  const isLegacy = (model: ModelChoice): boolean => legacySet.has(model.id)
+  const familyModels = expandedFamily ? (groups.get(expandedFamily) ?? []) : []
+  const legacyChoices = familyModels.filter(isLegacy)
+  const subItems: SubItem[] = [
+    ...familyModels
+      .filter((model) => !isLegacy(model))
+      .map((model) => ({ kind: 'model' as const, model })),
+    ...(legacyChoices.length ? [{ kind: 'legacy' as const }] : []),
+    ...(legacyOpen ? legacyChoices.map((model) => ({ kind: 'model' as const, model })) : [])
+  ]
+  const subKey = (item: SubItem): string => (item.kind === 'legacy' ? LEGACY_KEY : item.model.id)
+  // Models shown in the submenu, excluding hidden legacy ones.
+  const choices = subItems.flatMap((item) => (item.kind === 'model' ? [item.model] : []))
   const enabled = choices.filter((model) => !model.disabled)
+  const navigable = subItems
+    .filter((item) => item.kind === 'legacy' || !item.model.disabled)
+    .map(subKey)
   const visible = open && !disabled
   const topId = (key: string): string =>
     `${id}-top-${topItems.findIndex((item) => item.key === key)}`
-  const modelId = (name: string): string =>
-    `${id}-model-${choices.findIndex((model) => model.id === name)}`
+  const modelId = (key: string): string =>
+    `${id}-model-${subItems.findIndex((item) => subKey(item) === key)}`
 
   function show(): void {
     pointerNavigation.current = false
@@ -103,11 +128,13 @@ export default function ModelPicker({
     setHighlight(familyKey(name))
     setExpandedFamily(name)
     const items = groups.get(name) ?? []
+    // Reveal legacy models when the current model is one of them.
+    setLegacyOpen(items.some((item) => item.id === value && legacySet.has(item.id)))
     setActiveModel(
       keyboard
         ? (items.find((item) => item.id === value && !item.disabled)?.id ??
-            items.find((item) => !item.disabled)?.id ??
-            null)
+            items.find((item) => !item.disabled && !legacySet.has(item.id))?.id ??
+            (items.some((item) => legacySet.has(item.id)) ? LEGACY_KEY : null))
         : null
     )
   }
@@ -170,10 +197,16 @@ export default function ModelPicker({
         return
       }
       if (event.key === 'ArrowRight') {
-        if (highlighted?.kind === 'family') expand(highlighted.name, true)
+        if (activeModel === LEGACY_KEY) setLegacyOpen(true)
+        else if (highlighted?.kind === 'family' && activeModel === null)
+          expand(highlighted.name, true)
         return
       }
       if (event.key === 'Enter' || event.key === ' ') {
+        if (activeModel === LEGACY_KEY) {
+          setLegacyOpen((current) => !current)
+          return
+        }
         const model = choices.find((item) => item.id === activeModel)
         if (model) choose(model)
         else if (highlighted?.kind === 'favorite') choose(highlighted.model)
@@ -181,7 +214,7 @@ export default function ModelPicker({
         return
       }
       const inModels = activeModel !== null
-      const items = inModels ? enabled.map((model) => model.id) : topItems.map((item) => item.key)
+      const items = inModels ? navigable : topItems.map((item) => item.key)
       const current = items.indexOf(inModels ? activeModel! : (highlight ?? ''))
       const next =
         event.key === 'Home'
@@ -254,7 +287,7 @@ export default function ModelPicker({
       window.removeEventListener('resize', position)
       window.removeEventListener('scroll', position, true)
     }
-  }, [visible, expandedFamily, models.length, favoriteModels.length])
+  }, [visible, expandedFamily, models.length, favoriteModels.length, legacyOpen])
 
   useEffect(() => {
     if (!visible) return
@@ -418,33 +451,72 @@ export default function ModelPicker({
                 className="tm-picker-popup"
                 style={{ position: 'fixed', visibility: 'hidden' }}
               >
-                {choices.map((model) => (
-                  <div
-                    key={model.id}
-                    id={modelId(model.id)}
-                    role="treeitem"
-                    aria-label={model.name}
-                    aria-level={2}
-                    aria-selected={model.id === value}
-                    aria-disabled={model.disabled || undefined}
-                    className="tm-picker-option"
-                    data-highlighted={activeModel === model.id}
-                    onPointerDown={(event) => event.preventDefault()}
-                    onPointerMove={() => {
-                      pointerNavigation.current = true
-                      if (!model.disabled) setActiveModel(model.id)
-                    }}
-                    onClick={() => choose(model)}
-                  >
-                    <span className="tm-picker-option-text">
-                      <span className="tm-picker-label">{model.name}</span>
-                    </span>
-                    <span className="tm-picker-check" aria-hidden="true">
-                      {model.id === value ? '✓' : ''}
-                    </span>
-                    {star(model)}
-                  </div>
-                ))}
+                {subItems.map((item) => {
+                  if (item.kind === 'legacy')
+                    return (
+                      <div
+                        key={LEGACY_KEY}
+                        id={modelId(LEGACY_KEY)}
+                        role="treeitem"
+                        aria-label="Legacy"
+                        aria-level={2}
+                        aria-expanded={legacyOpen}
+                        className="tm-picker-option tm-picker-legacy"
+                        data-highlighted={activeModel === LEGACY_KEY}
+                        onPointerDown={(event) => event.preventDefault()}
+                        onPointerMove={() => {
+                          pointerNavigation.current = true
+                          setActiveModel(LEGACY_KEY)
+                        }}
+                        onClick={() => setLegacyOpen((current) => !current)}
+                      >
+                        <span className="tm-picker-option-text">
+                          <span className="tm-picker-label">Legacy</span>
+                        </span>
+                        <span className="tm-picker-legacy-count" aria-hidden="true">
+                          {legacyChoices.length}
+                        </span>
+                        <ChevronRightIcon
+                          className="tm-picker-legacy-chevron"
+                          data-expanded={legacyOpen}
+                          width={12}
+                          height={12}
+                        />
+                      </div>
+                    )
+                  const { model } = item
+                  return (
+                    <div
+                      key={model.id}
+                      id={modelId(model.id)}
+                      role="treeitem"
+                      aria-label={model.name}
+                      aria-level={isLegacy(model) ? 3 : 2}
+                      aria-selected={model.id === value}
+                      aria-disabled={model.disabled || undefined}
+                      className={
+                        isLegacy(model)
+                          ? 'tm-picker-option tm-picker-option--legacy'
+                          : 'tm-picker-option'
+                      }
+                      data-highlighted={activeModel === model.id}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onPointerMove={() => {
+                        pointerNavigation.current = true
+                        if (!model.disabled) setActiveModel(model.id)
+                      }}
+                      onClick={() => choose(model)}
+                    >
+                      <span className="tm-picker-option-text">
+                        <span className="tm-picker-label">{model.name}</span>
+                      </span>
+                      <span className="tm-picker-check" aria-hidden="true">
+                        {model.id === value ? '✓' : ''}
+                      </span>
+                      {star(model)}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </>,

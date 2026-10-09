@@ -86,6 +86,8 @@ export interface PersistedSettings {
   lastCopilotModelSelection?: CopilotModelSelection
   /** Model ids starred in the model picker, in the order they were starred. */
   favoriteCopilotModels?: string[]
+  /** Model ids tucked under a Legacy row in their family in the model picker. */
+  legacyCopilotModels?: string[]
 }
 
 export type CopilotModelSelection = {
@@ -760,6 +762,8 @@ export interface UpdateSettingsInput {
   yoloEnabled: boolean
   terminalFontFamilyInput: string
   taskTagsInput: string
+  /** Left unchanged when omitted. */
+  legacyCopilotModels?: string[]
 }
 
 export interface UpdateRepositoryInput {

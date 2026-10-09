@@ -43,6 +43,8 @@ type Props = {
   onSessionChange: (threadId: string, state: ThreadSessionState) => void
   // Another session is working in this thread's checkout, so committing now would race it.
   sharedCheckoutBusy?: boolean
+  /** Model ids the model picker tucks under a Legacy row. */
+  legacyModels?: string[]
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const WORKING_TREE_POLL_MS = 15_000
@@ -97,7 +99,8 @@ export default function CopilotThreadView(props: Props): React.JSX.Element {
 function SessionView({
   thread,
   onSessionChange,
-  sharedCheckoutBusy = false
+  sharedCheckoutBusy = false,
+  legacyModels
 }: Props): React.JSX.Element {
   const [session, setSession] = useState<CopilotSessionSnapshot | null>(null)
   const [sdk, setSdk] = useState<CopilotSdkStatus | null>(null)
@@ -839,6 +842,7 @@ function SessionView({
                     : 'Connect to Copilot to change models'
               }
               favoriteModels={favoriteModels}
+              legacyModels={legacyModels}
               onChange={changeModel}
               onToggleFavorite={toggleFavoriteModel}
             />

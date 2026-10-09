@@ -596,6 +596,7 @@ export default function Workspace({
                     }
                   >
                     <LazyCopilotThreadView
+                      legacyModels={settings.legacyCopilotModels}
                       onSessionChange={handleCustomCopilotSessionChange}
                       sharedCheckoutBusy={sharedCheckoutBusy}
                       thread={selectedThread}
@@ -614,6 +615,7 @@ export default function Workspace({
                     }
                   >
                     <LazyThreadPreviewView
+                      legacyModels={settings.legacyCopilotModels}
                       onSessionChange={handleCustomCopilotSessionChange}
                       previewUrl={selectedPreviewUrl}
                       sharedCheckoutBusy={sharedCheckoutBusy}

@@ -5,6 +5,7 @@ import type {
   UpdateUiInput
 } from '../../../shared/app-types'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
+import { normalizeModelIds } from '../state-store/app-state-values'
 
 type SettingsServiceDependencies = {
   ensureState: () => Pick<PersistedAppState, 'settings' | 'ui'>
@@ -26,6 +27,11 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
         input.terminalFontFamilyInput
       )
       state.settings.taskTagsInput = normalizeTaskTagsInput(input.taskTagsInput)
+      if (input.legacyCopilotModels !== undefined) {
+        const legacy = normalizeModelIds(input.legacyCopilotModels) ?? []
+        if (legacy.length) state.settings.legacyCopilotModels = legacy
+        else delete state.settings.legacyCopilotModels
+      }
       dependencies.saveState()
       return dependencies.successResult()
     },

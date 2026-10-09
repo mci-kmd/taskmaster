@@ -5,6 +5,7 @@ import Checkbox from '../ui/Checkbox'
 import { Field, TextArea, TextInput } from '../ui/Field'
 import type { AppSettingsSnapshot, UpdateSettingsInput } from '../../../../shared/app-types'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
+import LegacyModelsPicker from './LegacyModelsPicker'
 
 type SettingsDialogProps = {
   open: boolean
@@ -62,6 +63,8 @@ function SettingsForm({
     settings.terminalFontFamilyInput
   )
   const [taskTagsDraft, setTaskTagsDraft] = useState(settings.taskTagsInput)
+  const savedLegacyModels = settings.legacyCopilotModels ?? []
+  const [legacyModels, setLegacyModels] = useState(savedLegacyModels)
 
   const parsedTaskTagsPreview =
     taskTagsDraft === settings.taskTagsInput
@@ -70,7 +73,8 @@ function SettingsForm({
   const dirty =
     yoloEnabled !== settings.yoloEnabled ||
     terminalFontFamilyDraft !== settings.terminalFontFamilyInput ||
-    taskTagsDraft !== settings.taskTagsInput
+    taskTagsDraft !== settings.taskTagsInput ||
+    legacyModels.join('\n') !== savedLegacyModels.join('\n')
 
   return (
     <form
@@ -81,7 +85,8 @@ function SettingsForm({
           void onSubmit({
             yoloEnabled,
             terminalFontFamilyInput: terminalFontFamilyDraft,
-            taskTagsInput: taskTagsDraft
+            taskTagsInput: taskTagsDraft,
+            legacyCopilotModels: legacyModels
           })
         }
       }}
@@ -96,6 +101,13 @@ function SettingsForm({
           label="Approve requests automatically"
           onChange={setYoloEnabled}
         />
+      </Field>
+
+      <Field
+        hint="The model picker lists these under a collapsed Legacy row at the end of their family."
+        label="Legacy models"
+      >
+        <LegacyModelsPicker value={legacyModels} onChange={setLegacyModels} />
       </Field>
 
       <Field

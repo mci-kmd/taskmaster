@@ -300,3 +300,65 @@ describe('favorite models', () => {
     expect(onToggleFavorite).toHaveBeenLastCalledWith('new-model', true)
   })
 })
+
+describe('legacy models', () => {
+  const rows = (family: string): (string | null)[] =>
+    within(screen.getByRole('group', { name: `${family} models` }))
+      .getAllByRole('treeitem')
+      .map((row) => row.getAttribute('aria-label'))
+
+  it('tucks legacy models under a Legacy row in their family', () => {
+    const onChange = vi.fn()
+    render(
+      <SessionModelControls
+        session={session}
+        disabled={false}
+        busy={false}
+        disabledReason=""
+        legacyModels={['claude-haiku-4.5']}
+        onChange={onChange}
+      />
+    )
+    const picker = screen.getByRole('combobox', { name: 'Model' })
+    fireEvent.click(picker)
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude' }))
+    expect(rows('Claude')).toEqual(['Claude Sonnet 4.5', 'Legacy'])
+    const legacy = screen.getByRole('treeitem', { name: 'Legacy' })
+    expect(legacy.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(legacy)
+    expect(rows('Claude')).toEqual(['Claude Sonnet 4.5', 'Legacy', 'Claude Haiku 4.5'])
+    fireEvent.click(screen.getByRole('treeitem', { name: 'Claude Haiku 4.5' }))
+    expect(onChange).toHaveBeenCalledWith('claude-haiku-4.5', 'high')
+
+    // Families without legacy models have no Legacy row.
+    fireEvent.click(picker)
+    fireEvent.click(screen.getByRole('treeitem', { name: 'GPT' }))
+    expect(rows('GPT')).toEqual(['GPT-4.1', 'GPT-5 mini'])
+  })
+
+  it('opens the Legacy row for a legacy current model and reaches it by keyboard', () => {
+    render(
+      <SessionModelControls
+        session={{ ...session, model: 'gpt-4.1' }}
+        disabled={false}
+        busy={false}
+        disabledReason=""
+        legacyModels={['gpt-4.1']}
+        onChange={vi.fn()}
+      />
+    )
+    const picker = screen.getByRole('combobox', { name: 'Model' })
+    fireEvent.keyDown(picker, { key: 'ArrowDown' })
+    fireEvent.keyDown(picker, { key: 'ArrowRight' })
+    expect(rows('GPT')).toEqual(['GPT-5 mini', 'Legacy', 'GPT-4.1'])
+    expect(picker.getAttribute('aria-activedescendant')).toBe(
+      screen.getByRole('treeitem', { name: 'GPT-4.1' }).id
+    )
+    fireEvent.keyDown(picker, { key: 'ArrowUp' })
+    expect(picker.getAttribute('aria-activedescendant')).toBe(
+      screen.getByRole('treeitem', { name: 'Legacy' }).id
+    )
+    fireEvent.keyDown(picker, { key: 'Enter' })
+    expect(rows('GPT')).toEqual(['GPT-5 mini', 'Legacy'])
+  })
+})

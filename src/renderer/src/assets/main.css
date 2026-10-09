@@ -827,6 +827,29 @@ select {
 .tm-picker-star[aria-pressed='true']:hover {
   color: var(--color-warning);
 }
+.tm-picker-legacy {
+  margin-top: 3px;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 5px 5px;
+  color: var(--color-fg-muted);
+}
+.tm-picker-legacy-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--color-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+.tm-picker-legacy-chevron {
+  flex-shrink: 0;
+  transition: transform 140ms ease;
+}
+.tm-picker-legacy-chevron[data-expanded='true'] {
+  transform: rotate(90deg);
+}
+.tm-picker-option--legacy {
+  padding-left: 20px;
+  color: var(--color-fg-muted);
+}
 .tm-picker-favorites {
   margin-top: 4px;
   padding-top: 4px;
