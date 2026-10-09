@@ -11,6 +11,7 @@ import { CloseIcon } from './Icons'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
 import SegmentedControl from './ui/SegmentedControl'
+import LeaveWith from './ui/LeaveWith'
 import { useLastValue } from '../lib/motion'
 import { useAnimatedListMotion, usePresenceList } from '../lib/use-presence-list'
 
@@ -542,87 +543,89 @@ export default function ModelPerformanceView({
                       : `${model} ${view === 'credits' ? 'AI credits' : 'estimated DKK'}`
                   }
                 >
-                  <div className="tm-performance__model-head">
-                    <h2>
-                      <span>Model</span>
-                      {model}
-                    </h2>
-                    <span>
-                      {group.length} {group.length === 1 ? 'sample' : 'samples'}
-                    </span>
-                  </div>
-                  <div className={`tm-performance__metric tm-performance__metric--${view}`}>
-                    {view === 'performance' ? (
-                      <div className="tm-performance__readouts tm-fade-in" key="performance">
-                        <div className="tm-performance__readout tm-performance__readout--tps">
-                          <span className="tm-performance__metric-name">
-                            <i className="tm-performance__swatch" aria-hidden="true" />
-                            Output speed <abbr title="Tokens per second">TPS</abbr>
-                          </span>
-                          <span className="tm-performance__value">
-                            {tps === null ? '—' : formatValue(tps, 'tps')}
-                            <small>tok/s</small>
-                          </span>
+                  <LeaveWith leaving={exitToken !== null}>
+                    <div className="tm-performance__model-head">
+                      <h2>
+                        <span>Model</span>
+                        {model}
+                      </h2>
+                      <span>
+                        {group.length} {group.length === 1 ? 'sample' : 'samples'}
+                      </span>
+                    </div>
+                    <div className={`tm-performance__metric tm-performance__metric--${view}`}>
+                      {view === 'performance' ? (
+                        <div className="tm-performance__readouts tm-fade-in" key="performance">
+                          <div className="tm-performance__readout tm-performance__readout--tps">
+                            <span className="tm-performance__metric-name">
+                              <i className="tm-performance__swatch" aria-hidden="true" />
+                              Output speed <abbr title="Tokens per second">TPS</abbr>
+                            </span>
+                            <span className="tm-performance__value">
+                              {tps === null ? '—' : formatValue(tps, 'tps')}
+                              <small>tok/s</small>
+                            </span>
+                          </div>
+                          <div className="tm-performance__readout tm-performance__readout--ttft">
+                            <span className="tm-performance__metric-name">
+                              <i className="tm-performance__swatch" aria-hidden="true" />
+                              First token <abbr title="Time to first token">TTFT</abbr>
+                            </span>
+                            <span className="tm-performance__value">
+                              {ttft === null ? '—' : formatValue(ttft, 'ttft')}
+                              <small>ms avg</small>
+                            </span>
+                            <span className="tm-performance__coverage">
+                              {recordedTtft} / {group.length} recorded
+                            </span>
+                          </div>
                         </div>
-                        <div className="tm-performance__readout tm-performance__readout--ttft">
-                          <span className="tm-performance__metric-name">
-                            <i className="tm-performance__swatch" aria-hidden="true" />
-                            First token <abbr title="Time to first token">TTFT</abbr>
-                          </span>
-                          <span className="tm-performance__value">
-                            {ttft === null ? '—' : formatValue(ttft, 'ttft')}
-                            <small>ms avg</small>
-                          </span>
-                          <span className="tm-performance__coverage">
-                            {recordedTtft} / {group.length} recorded
-                          </span>
+                      ) : (
+                        <div className="tm-performance__readouts tm-fade-in" key={costMetric}>
+                          <div
+                            className={`tm-performance__readout tm-performance__readout--${costMetric}`}
+                          >
+                            <span className="tm-performance__metric-name">
+                              {view === 'credits' ? 'AI credits used' : 'Estimated cost'}
+                            </span>
+                            <span className="tm-performance__value">
+                              {cost === null
+                                ? '—'
+                                : `${view === 'dkk' && cost >= 0.01 ? '≈' : ''}${formatValue(cost, costMetric)}`}
+                              <small>{view === 'credits' ? 'credits' : 'DKK'}</small>
+                            </span>
+                            <span className="tm-performance__coverage">
+                              {billed} / {group.length} with usage
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="tm-performance__readouts tm-fade-in" key={costMetric}>
-                        <div
-                          className={`tm-performance__readout tm-performance__readout--${costMetric}`}
-                        >
-                          <span className="tm-performance__metric-name">
-                            {view === 'credits' ? 'AI credits used' : 'Estimated cost'}
-                          </span>
-                          <span className="tm-performance__value">
-                            {cost === null
-                              ? '—'
-                              : `${view === 'dkk' && cost >= 0.01 ? '≈' : ''}${formatValue(cost, costMetric)}`}
-                            <small>{view === 'credits' ? 'credits' : 'DKK'}</small>
-                          </span>
-                          <span className="tm-performance__coverage">
-                            {billed} / {group.length} with usage
-                          </span>
+                      )}
+                      <div className="tm-performance__plot">
+                        <Trend
+                          key={`${period}:${view}`}
+                          buckets={buckets}
+                          series={
+                            view === 'performance'
+                              ? [seriesFor(buckets, 'tps'), seriesFor(buckets, 'ttft')]
+                              : [seriesFor(buckets, costMetric)]
+                          }
+                          rows={view === 'performance' ? performanceRows : costRows}
+                          title={
+                            view === 'performance'
+                              ? 'output speed and first token'
+                              : METRICS[costMetric].label
+                          }
+                          start={start}
+                          end={now}
+                          model={model}
+                        />
+                        <div className="tm-performance__axis" aria-hidden="true">
+                          <span>{timeLabel.format(start)}</span>
+                          <span>{timeLabel.format(now)}</span>
                         </div>
-                      </div>
-                    )}
-                    <div className="tm-performance__plot">
-                      <Trend
-                        key={`${period}:${view}`}
-                        buckets={buckets}
-                        series={
-                          view === 'performance'
-                            ? [seriesFor(buckets, 'tps'), seriesFor(buckets, 'ttft')]
-                            : [seriesFor(buckets, costMetric)]
-                        }
-                        rows={view === 'performance' ? performanceRows : costRows}
-                        title={
-                          view === 'performance'
-                            ? 'output speed and first token'
-                            : METRICS[costMetric].label
-                        }
-                        start={start}
-                        end={now}
-                        model={model}
-                      />
-                      <div className="tm-performance__axis" aria-hidden="true">
-                        <span>{timeLabel.format(start)}</span>
-                        <span>{timeLabel.format(now)}</span>
                       </div>
                     </div>
-                  </div>
+                  </LeaveWith>
                 </section>
               )
             })}
