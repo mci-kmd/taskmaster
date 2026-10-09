@@ -1,7 +1,8 @@
-import Select from '../ui/Select'
 import { useState } from 'react'
 import type { CopilotInteraction, CopilotInteractionResponse } from '../../../../shared/app-types'
 import Button from '../ui/Button'
+import Checkbox from '../ui/Checkbox'
+import ChoiceList from './ChoiceList'
 import SessionMarkdown from './SessionMarkdown'
 import { safeExternalUrl } from './safe-external-url'
 
@@ -149,6 +150,13 @@ export default function InteractionPanel({
   }
 
   const fields = Object.entries(interaction.schema?.properties ?? {})
+  const setField = (name: string, next: string | string[] | undefined): void =>
+    setValues((current) => {
+      const updated = { ...current }
+      if (next === undefined) delete updated[name]
+      else updated[name] = next
+      return updated
+    })
   return (
     <form
       className="border-t border-[var(--color-border)] bg-[var(--color-panel)] px-4 py-3"
@@ -178,71 +186,92 @@ export default function InteractionPanel({
           </Button>
         ) : (
           <div className="mt-3 grid gap-3">
-            {fields.map(([name, field]) => (
-              <label className="grid gap-1.5" key={name}>
-                <span className="text-[11.5px] text-[var(--color-fg-muted)]">
-                  {field.title ?? name}
-                </span>
-                {field.type === 'boolean' ? (
-                  <input
+            {fields.map(([name, field]) =>
+              field.type === 'boolean' ? (
+                <div className="py-0.5" key={name}>
+                  <Checkbox
                     checked={Boolean(values[name] ?? field.default)}
-                    onChange={(event) =>
-                      setValues((current) => ({ ...current, [name]: event.target.checked }))
+                    disabled={busy}
+                    label={
+                      <span className="flex flex-col gap-0.5">
+                        <span>{field.title ?? name}</span>
+                        {field.description ? (
+                          <span className="text-[11.5px] text-[var(--color-fg-subtle)]">
+                            {field.description}
+                          </span>
+                        ) : null}
+                      </span>
                     }
-                    type="checkbox"
+                    onChange={(checked) =>
+                      setValues((current) => ({ ...current, [name]: checked }))
+                    }
                   />
-                ) : field.options ? (
-                  field.type === 'array' ? (
-                    <Select
+                </div>
+              ) : field.options ? (
+                <div className="grid gap-1.5" key={name}>
+                  <span className="text-[11.5px] text-[var(--color-fg-muted)]">
+                    {field.title ?? name}
+                  </span>
+                  {field.type === 'array' ? (
+                    <ChoiceList
                       multiple
-                      aria-label={field.title ?? name}
-                      disabled={busy}
-                      required={interaction.schema?.required.includes(name)}
-                      options={field.options.map((option) => ({ value: option, label: option }))}
+                      allowOther={Boolean(interaction.allowFreeform)}
+                      label={field.title ?? name}
+                      onChange={(next) => setField(name, next.length ? next : undefined)}
+                      options={field.options}
+                      required={Boolean(interaction.schema?.required.includes(name))}
                       value={(values[name] as string[] | undefined) ?? []}
-                      onChange={(next) => setValues((current) => ({ ...current, [name]: next }))}
                     />
                   ) : (
-                    <Select
-                      aria-label={field.title ?? name}
-                      disabled={busy}
-                      required={interaction.schema?.required.includes(name)}
-                      options={[
-                        { value: '', label: 'Select' },
-                        ...field.options.map((option) => ({ value: option, label: option }))
-                      ]}
-                      value={String(values[name] ?? field.default ?? '')}
-                      onChange={(next) => setValues((current) => ({ ...current, [name]: next }))}
+                    <ChoiceList
+                      allowOther={Boolean(interaction.allowFreeform)}
+                      label={field.title ?? name}
+                      onChange={(next) => setField(name, next || undefined)}
+                      options={field.options}
+                      required={Boolean(interaction.schema?.required.includes(name))}
+                      value={String(values[name] ?? '')}
                     />
-                  )
-                ) : (
-                  <input
-                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
-                    defaultValue={String(field.default ?? '')}
-                    onChange={(event) =>
-                      setValues((current) => {
-                        const next = { ...current }
-                        if (event.target.value === '') delete next[name]
-                        else
-                          next[name] =
-                            field.type === 'number' || field.type === 'integer'
-                              ? Number(event.target.value)
-                              : event.target.value
-                        return next
-                      })
-                    }
-                    step={field.type === 'number' ? 'any' : undefined}
-                    required={interaction.schema?.required.includes(name)}
-                    type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
-                  />
-                )}
-                {field.description ? (
-                  <span className="text-[10.5px] text-[var(--color-fg-subtle)]">
-                    {field.description}
+                  )}
+                  {field.description ? (
+                    <span className="text-[10.5px] text-[var(--color-fg-subtle)]">
+                      {field.description}
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <label className="grid gap-1.5" key={name}>
+                  <span className="text-[11.5px] text-[var(--color-fg-muted)]">
+                    {field.title ?? name}
                   </span>
-                ) : null}
-              </label>
-            ))}
+                  {
+                    <input
+                      className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[12.5px]"
+                      defaultValue={String(field.default ?? '')}
+                      onChange={(event) =>
+                        setValues((current) => {
+                          const next = { ...current }
+                          if (event.target.value === '') delete next[name]
+                          else
+                            next[name] =
+                              field.type === 'number' || field.type === 'integer'
+                                ? Number(event.target.value)
+                                : event.target.value
+                          return next
+                        })
+                      }
+                      step={field.type === 'number' ? 'any' : undefined}
+                      required={interaction.schema?.required.includes(name)}
+                      type={field.type === 'number' || field.type === 'integer' ? 'number' : 'text'}
+                    />
+                  }
+                  {field.description ? (
+                    <span className="text-[10.5px] text-[var(--color-fg-subtle)]">
+                      {field.description}
+                    </span>
+                  ) : null}
+                </label>
+              )
+            )}
           </div>
         )}
         <div className="mt-3 flex justify-end gap-2">

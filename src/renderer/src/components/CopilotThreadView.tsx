@@ -292,14 +292,17 @@ function SessionView({
   const ready = session?.phase === 'idle' && !session.pendingInteraction && !stopping
   // Messages sent while Copilot works steer the current turn or wait in the queue.
   const sendWhileRunning = running && !session?.pendingInteraction && !stopping
+  // A pending request can be skipped by replying from the composer instead.
+  const replyTo = stopping ? undefined : session?.pendingInteraction
+  const replying = Boolean(replyTo?.replyMode) && (replyTo?.replyMode === 'feedback' || running)
   const send = (): void => {
     if (
-      !(ready || sendWhileRunning) ||
+      !(ready || sendWhileRunning || replying) ||
       stoppingRef.current ||
       (!prompt.trim() && !attachments.length)
     )
       return
-    const sentDelivery = sendWhileRunning ? delivery : undefined
+    const sentDelivery = replying ? 'steer' : sendWhileRunning ? delivery : undefined
     void run('send', async () => {
       const revision = sessionRevision.current
       const result = await api.copilot.send({
@@ -307,7 +310,11 @@ function SessionView({
         prompt: prompt.trim(),
         attachments,
         agentMode,
-        ...(sentDelivery ? { delivery: sentDelivery } : {})
+        ...(replying && replyTo
+          ? { replyToInteractionId: replyTo.id }
+          : sentDelivery
+            ? { delivery: sentDelivery }
+            : {})
       })
       acceptResult(result, revision)
       if (result.ok) {
@@ -726,7 +733,8 @@ function SessionView({
             timeline={session?.timeline ?? []}
             hasAttachments={attachments.length > 0}
             hasInteraction={Boolean(session?.pendingInteraction)}
-            mode={running ? delivery : 'send'}
+            mode={replying ? 'reply' : running ? delivery : 'send'}
+            interactionKind={session?.pendingInteraction?.kind}
             onChange={(value) =>
               updateDraft((current) => ({
                 ...current,
@@ -823,6 +831,7 @@ function SessionView({
               ) : null}
               <SendButton
                 running={running}
+                replying={replying}
                 delivery={delivery}
                 onDeliveryChange={(value) => {
                   setDelivery(value)
@@ -831,7 +840,7 @@ function SessionView({
                 busy={busy === 'send'}
                 disabled={
                   Boolean(busy) ||
-                  !(ready || sendWhileRunning) ||
+                  !(ready || sendWhileRunning || replying) ||
                   (!prompt.trim() && !attachments.length)
                 }
                 onSend={send}

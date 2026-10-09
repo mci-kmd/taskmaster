@@ -1341,6 +1341,60 @@ describe('messages sent while Copilot works', () => {
     expect(harness.send).toHaveBeenCalledTimes(1)
   })
 
+  it('lets the user skip a pending request by replying in their own words', async () => {
+    const service = setup(false)
+    await service.start('thread')
+    await service.send(message('Refactor the database layer'))
+    const approval = harness.config!.onPermissionRequest!(
+      { kind: 'read', intention: 'Read file', path: '/a' },
+      { sessionId: 'session-id' }
+    )
+    const permission = service.getSession('thread')!.pendingInteraction!
+    expect(permission.replyMode).toBe('feedback')
+    const reply = (prompt: string, interactionId: string): CopilotSendInput => ({
+      ...message(prompt),
+      replyToInteractionId: interactionId
+    })
+    expect((await service.send(reply('Use the cache instead', 'stale'))).ok).toBe(false)
+    expect((await service.send(reply('Use the cache instead', permission.id))).ok).toBe(true)
+    await expect(approval).resolves.toEqual({ kind: 'reject', feedback: 'Use the cache instead' })
+    expect(service.getSession('thread')!.timeline.at(-1)).toMatchObject({
+      type: 'user',
+      content: 'Use the cache instead',
+      steered: true
+    })
+
+    const plan = harness.config!.onExitPlanModeRequest!(
+      { summary: 'Plan', actions: ['autopilot'], recommendedAction: 'autopilot' },
+      { sessionId: 'session-id' }
+    )
+    const planId = service.getSession('thread')!.pendingInteraction!.id
+    expect((await service.send(reply('Split step 2', planId))).ok).toBe(true)
+    await expect(plan).resolves.toEqual({ approved: false, feedback: 'Split step 2' })
+
+    const question = harness.config!.onElicitationRequest!({
+      sessionId: 'session-id',
+      message: 'Which approach?',
+      requestedSchema: {
+        type: 'object',
+        properties: { approach: { type: 'string', enum: ['Fast', 'Safe'] } }
+      }
+    })
+    const questionId = service.getSession('thread')!.pendingInteraction!.id
+    expect(harness.send).toHaveBeenCalledTimes(1)
+    expect((await service.send(reply('Neither, ask the team first', questionId))).ok).toBe(true)
+    expect(harness.send).toHaveBeenLastCalledWith({
+      prompt: 'Neither, ask the team first',
+      attachments: [],
+      mode: 'immediate'
+    })
+    await expect(question).resolves.toEqual({ action: 'decline' })
+    expect(service.getSession('thread')).toMatchObject({
+      phase: 'running',
+      pendingInteraction: null
+    })
+  })
+
   it('mirrors the runtime queue and cancels queued messages', async () => {
     const service = await running()
     harness.pendingItems.mockResolvedValue({

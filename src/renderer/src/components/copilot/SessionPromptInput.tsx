@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import type {
+  CopilotInteraction,
   CopilotSkill,
   CopilotSkillsResult,
   CopilotTimelineItem
@@ -21,7 +22,14 @@ const api = getRendererApi()
 const PLACEHOLDERS: Record<SendMode, string> = {
   send: 'Ask Copilot anything, / or $ for skills…',
   steer: 'Steer Copilot while it works…',
-  queue: 'Queue a follow-up for when Copilot finishes…'
+  queue: 'Queue a follow-up for when Copilot finishes…',
+  reply: 'Or skip the request above and reply in your own words…'
+}
+const INTERACTION_PLACEHOLDER = 'Answer Copilot’s request above to continue…'
+const REPLY_PLACEHOLDERS: Record<CopilotInteraction['kind'], string> = {
+  permission: 'Or deny it and tell Copilot what to do instead…',
+  'user-input': 'Or reply to Copilot in your own words instead…',
+  elicitation: 'Or skip the questions and reply in your own words…'
 }
 
 export default function SessionPromptInput({
@@ -37,7 +45,8 @@ export default function SessionPromptInput({
   onSend,
   onFiles,
   attachmentNames = [],
-  mode
+  mode,
+  interactionKind
 }: {
   threadId: string
   sessionId: string | null
@@ -52,6 +61,8 @@ export default function SessionPromptInput({
   onFiles: (files: File[]) => void
   attachmentNames?: string[]
   mode: SendMode
+  /** Kind of the pending request, used to explain what a reply does. */
+  interactionKind?: CopilotInteraction['kind']
 }): React.JSX.Element {
   const menuId = useId()
   const hintId = useId()
@@ -328,7 +339,15 @@ export default function SessionPromptInput({
               onFiles(files)
             }
           }}
-          placeholder={PLACEHOLDERS[mode]}
+          placeholder={
+            mode === 'reply'
+              ? interactionKind
+                ? REPLY_PLACEHOLDERS[interactionKind]
+                : PLACEHOLDERS.reply
+              : hasInteraction
+                ? INTERACTION_PLACEHOLDER
+                : PLACEHOLDERS[mode]
+          }
         />
       </div>
       <span id={hintId} className="sr-only">

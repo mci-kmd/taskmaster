@@ -375,11 +375,41 @@ describe('Copilot session composer', () => {
     )
     fireEvent.keyDown(input(), { key: 'Enter' })
     expect(mock.send).not.toHaveBeenCalled()
+    expect(input().placeholder).toBe('Answer Copilot’s request above to continue…')
     expect((screen.getByRole('button', { name: 'Steer' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('combobox', { name: 'Model' }) as HTMLButtonElement).disabled).toBe(
       false
     )
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
+  })
+
+  it('replies to a pending question from the composer instead of answering the form', async () => {
+    const a = thread()
+    mock.getSession.mockResolvedValue(
+      snapshot(a.id, {
+        phase: 'running',
+        pendingInteraction: {
+          id: 'question',
+          kind: 'elicitation',
+          title: 'Copilot needs more information',
+          description: 'Which approach?',
+          mode: 'form',
+          replyMode: 'steer'
+        }
+      })
+    )
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    const reply = await screen.findByRole('button', { name: 'Reply' })
+    expect(input().placeholder).toBe('Or skip the questions and reply in your own words…')
+    expect((reply as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(input(), { target: { value: 'Ask the team first' } })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: 'Ask the team first', replyToInteractionId: 'question' })
+      )
+    )
+    expect(mock.send.mock.lastCall?.[0]).not.toHaveProperty('delivery')
   })
 
   it('steers by default while Copilot works and can queue follow-ups instead', async () => {

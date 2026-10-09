@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { CopilotSendDelivery } from '../../../../shared/app-types'
 import { ChevronDownIcon } from '../Icons'
 
-export type SendMode = 'send' | CopilotSendDelivery
+export type SendMode = 'send' | CopilotSendDelivery | 'reply'
 
 const MODES: Record<SendMode, { label: string; title: string }> = {
   send: { label: 'Send', title: 'Send message (Enter)' },
@@ -11,7 +11,11 @@ const MODES: Record<SendMode, { label: string; title: string }> = {
     label: 'Steer',
     title: 'Send now so Copilot adjusts the work in progress (Enter)'
   },
-  queue: { label: 'Queue', title: 'Send when Copilot finishes the current work (Enter)' }
+  queue: { label: 'Queue', title: 'Send when Copilot finishes the current work (Enter)' },
+  reply: {
+    label: 'Reply',
+    title: 'Skip the request above and reply to Copilot in your own words (Enter)'
+  }
 }
 
 const DELIVERIES: Array<{ value: CopilotSendDelivery; description: string }> = [
@@ -26,6 +30,7 @@ const DELIVERIES: Array<{ value: CopilotSendDelivery; description: string }> = [
 export default function SendButton({
   running,
   canSteer = true,
+  replying = false,
   delivery,
   disabled,
   busy = false,
@@ -34,14 +39,16 @@ export default function SendButton({
 }: {
   running: boolean
   canSteer?: boolean
+  /** The message replies to a pending request instead of steering or queueing. */
+  replying?: boolean
   delivery: CopilotSendDelivery
   disabled: boolean
   busy?: boolean
   onDeliveryChange: (delivery: CopilotSendDelivery) => void
   onSend: () => void
 }): React.JSX.Element {
-  const mode: SendMode = !running ? 'send' : canSteer ? delivery : 'queue'
-  const split = running && canSteer
+  const mode: SendMode = replying ? 'reply' : !running ? 'send' : canSteer ? delivery : 'queue'
+  const split = running && canSteer && !replying
   const [open, setOpen] = useState(false)
   const menuId = useId()
   const group = useRef<HTMLDivElement>(null)

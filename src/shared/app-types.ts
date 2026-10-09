@@ -496,7 +496,9 @@ export interface CopilotSubagentUsage {
   nanoAiu: number | null
 }
 
-export type CopilotInteraction =
+export type CopilotInteractionReplyMode = 'feedback' | 'steer'
+
+export type CopilotInteraction = (
   | {
       id: string
       kind: 'permission'
@@ -519,6 +521,8 @@ export type CopilotInteraction =
       description: string
       mode: 'form' | 'url'
       url?: string
+      /** Choice fields are only suggestions, so the user may answer in their own words. */
+      allowFreeform?: boolean
       schema?: {
         properties: Record<
           string,
@@ -533,6 +537,14 @@ export type CopilotInteraction =
         required: string[]
       }
     }
+) & {
+  /**
+   * Set when the user may skip the form and reply from the composer instead.
+   * `feedback` declines the request with the reply as feedback; `steer` declines it and
+   * sends the reply as a steering message.
+   */
+  replyMode?: CopilotInteractionReplyMode
+}
 
 export interface CopilotSessionSnapshot {
   threadId: string
@@ -609,6 +621,8 @@ export interface CopilotSendInput {
   agentMode: CopilotAgentMode
   /** Used only while a turn is running; idle sessions always start a new turn. */
   delivery?: CopilotSendDelivery
+  /** Replies to this pending interaction instead of answering its form. */
+  replyToInteractionId?: string
 }
 
 export interface CopilotCancelQueuedInput {
@@ -634,6 +648,8 @@ export interface CopilotInteractionResponse {
   value?: string
   values?: Record<string, string | number | boolean | string[]>
   wasFreeform?: boolean
+  /** The user's own words when declining or rejecting the request. */
+  feedback?: string
 }
 
 export interface CopilotPickAttachmentsResult {

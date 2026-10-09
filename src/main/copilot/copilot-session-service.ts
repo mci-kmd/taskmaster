@@ -686,7 +686,8 @@ export function createCopilotSessionService(dependencies: {
         kind: 'permission',
         title: `Allow ${request.kind} access?`,
         description: permissionDescription(request),
-        allowSessionApproval: request.kind !== 'shell' || Boolean(request.canOfferSessionApproval)
+        allowSessionApproval: request.kind !== 'shell' || Boolean(request.canOfferSessionApproval),
+        replyMode: 'feedback'
       }
       const response = await createInteraction(active, interaction)
       clearInteraction(active, interaction.id)
@@ -694,7 +695,9 @@ export function createCopilotSessionService(dependencies: {
       if (response.action === 'approve-once') {
         return { kind: 'approve-once', approvedInteractively: true }
       }
-      return { kind: 'reject' }
+      return response.feedback
+        ? { kind: 'reject', feedback: response.feedback }
+        : { kind: 'reject' }
     }
   }
 
@@ -706,7 +709,9 @@ export function createCopilotSessionService(dependencies: {
         title: 'Copilot needs your input',
         description: request.question,
         choices: request.choices ?? [],
-        allowFreeform: request.allowFreeform ?? true
+        allowFreeform: request.allowFreeform ?? true,
+        // Freeform questions already have their own answer field.
+        ...(request.allowFreeform === false ? { replyMode: 'steer' as const } : {})
       }
       const response = await createInteraction(active, interaction)
       clearInteraction(active, interaction.id)
@@ -728,7 +733,10 @@ export function createCopilotSessionService(dependencies: {
         description: context.message,
         mode: context.mode ?? 'form',
         url: context.url,
-        schema: normalizeElicitationSchema(context)
+        // Copilot's own questions (ask_user) treat choices as suggestions; MCP servers may not.
+        allowFreeform: !context.elicitationSource,
+        schema: normalizeElicitationSchema(context),
+        replyMode: 'steer'
       }
 
       const response = await createInteraction(active, interaction)
@@ -747,13 +755,14 @@ export function createCopilotSessionService(dependencies: {
         title: 'Plan ready',
         description: request.planContent ?? request.summary,
         choices: request.actions,
-        allowFreeform: false
+        allowFreeform: false,
+        replyMode: 'feedback'
       }
       const response = await createInteraction(active, interaction)
       clearInteraction(active, interaction.id)
       return response.action === 'accept'
         ? { approved: true, selectedAction: response.value }
-        : { approved: false }
+        : { approved: false, ...(response.feedback ? { feedback: response.feedback } : {}) }
     }
   }
 
@@ -1448,6 +1457,60 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  const replyToInteraction = async (
+    active: ActiveSession,
+    input: CopilotSendInput & { replyToInteractionId: string }
+  ): Promise<CopilotStartResult> => {
+    const pending = active.pending[0]
+    const replyMode = pending?.interaction.replyMode
+    if (!pending || pending.interaction.id !== input.replyToInteractionId || !replyMode)
+      return {
+        ok: false,
+        error: 'Copilot is no longer waiting for that request.',
+        snapshot: active.snapshot
+      }
+    const reply = input.prompt.trim()
+    const decline = (feedback?: string): void => {
+      if (active.pending[0] !== pending) return
+      clearInteraction(active, pending.interaction.id)
+      pending.resolve({
+        threadId: active.snapshot.threadId,
+        interactionId: pending.interaction.id,
+        action: pending.interaction.kind === 'permission' ? 'reject' : 'decline',
+        ...(feedback ? { feedback } : {})
+      })
+    }
+    if (replyMode === 'feedback') {
+      if (!reply) return { ok: false, error: 'Enter a reply.', snapshot: active.snapshot }
+      if (input.attachments.length)
+        return {
+          ok: false,
+          error: 'Attachments can’t be sent with this reply. Remove them and try again.',
+          snapshot: active.snapshot
+        }
+      // The runtime has no user message for feedback, so show the reply in the timeline here.
+      upsertTimeline(active, {
+        id: `reply:${pending.interaction.id}`,
+        type: 'user',
+        content: reply,
+        timestamp: new Date().toISOString(),
+        steered: true
+      })
+      decline(reply)
+      return { ok: true, snapshot: active.snapshot }
+    }
+    if (active.snapshot.phase !== 'running')
+      return {
+        ok: false,
+        error: 'Copilot is not running, so this reply cannot be sent.',
+        snapshot: active.snapshot
+      }
+    // Steer first so the reply is waiting when Copilot learns the request was declined.
+    const result = await sendWhileRunning(active, { ...input, delivery: 'steer' })
+    if (result.ok) decline()
+    return { ...result, snapshot: active.snapshot }
+  }
+
   return {
     getSdkStatus: () => sdkManager.getStatus(),
     updateSdk: async () => {
@@ -1508,6 +1571,11 @@ export function createCopilotSessionService(dependencies: {
           error: 'Wait for the model settings to finish updating.',
           snapshot: active.snapshot
         }
+      if (input.replyToInteractionId)
+        return replyToInteraction(active, {
+          ...input,
+          replyToInteractionId: input.replyToInteractionId
+        })
       if (input.delivery && active.snapshot.phase === 'running' && !active.pending.length)
         return sendWhileRunning(active, { ...input, delivery: input.delivery })
       if (active.snapshot.phase !== 'idle' || active.pending.length) {
