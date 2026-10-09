@@ -398,6 +398,32 @@ describe('prompt summaries', () => {
     ])
   })
 
+  it('shows skills loaded by the user or by Copilot', async () => {
+    harness.getEvents.mockResolvedValue([
+      event('user.message', { content: '/review', messageId: 'u1' }),
+      event('skill.invoked', {
+        name: 'review',
+        description: ' Review the diff ',
+        path: '/skills/review/SKILL.md',
+        content: '...',
+        trigger: 'user-invoked'
+      })
+    ])
+    const service = setup()
+    await service.start('thread')
+    harness.listener!(
+      event('skill.invoked', { name: 'docs', path: '', content: '...', trigger: 'agent-invoked' })
+    )
+    expect(service.getSession('thread')!.timeline.filter((item) => item.type === 'skill')).toEqual([
+      expect.objectContaining({
+        name: 'review',
+        description: 'Review the diff',
+        invokedBy: 'user'
+      }),
+      expect.objectContaining({ name: 'docs', description: null, invokedBy: 'copilot' })
+    ])
+  })
+
   it('restores saved interactions and summaries after their anchor items on resume', async () => {
     harness.getEvents.mockResolvedValue([
       event('user.message', { content: 'Hi', messageId: 'u1' }),

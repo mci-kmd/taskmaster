@@ -488,6 +488,16 @@ export type CopilotTimelineItem =
     }
   | {
       id: string
+      /** A skill whose instructions were loaded into the conversation. */
+      type: 'skill'
+      timestamp: string
+      name: string
+      description: string | null
+      /** Whether the user asked for the skill (e.g. with /name) or Copilot chose it. */
+      invokedBy: 'user' | 'copilot'
+    }
+  | {
+      id: string
       /** A question, permission prompt or plan approval Copilot showed, and how it was answered. */
       type: 'interaction'
       timestamp: string

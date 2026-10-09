@@ -582,6 +582,42 @@
     transition: none !important;
   }
 }
+.tm-session-skill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 5px 11px 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning) 7%, transparent);
+  font-size: 12px;
+}
+.tm-session-skill-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--color-warning);
+}
+.tm-session-skill-label {
+  flex-shrink: 0;
+  color: var(--color-fg-subtle);
+}
+.tm-session-skill-name {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-fg);
+}
+.tm-session-skill-description {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg-muted);
+}
 .tm-session-interaction {
   max-height: min(44vh, 420px);
   overflow: auto;

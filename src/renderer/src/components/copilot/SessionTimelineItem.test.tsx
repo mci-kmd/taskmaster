@@ -79,3 +79,20 @@ it('shows a request Copilot made together with the answer', () => {
   expect(within(request).getByText('database').tagName).toBe('STRONG')
   expect(within(request).getByText('You answered').nextSibling?.textContent).toBe('Postgres')
 })
+
+it('marks skills loaded into the conversation and who asked for them', () => {
+  const skill = {
+    id: 'skill:1',
+    type: 'skill' as const,
+    timestamp: '',
+    name: 'review',
+    description: 'Review the diff'
+  }
+  render(<SessionTimelineItem item={{ ...skill, invokedBy: 'copilot' }} />)
+  expect(screen.getByRole('note', { name: 'Skill review loaded' }).textContent).toBe(
+    'Copilot loaded skillreviewReview the diff'
+  )
+  cleanup()
+  render(<SessionTimelineItem item={{ ...skill, description: null, invokedBy: 'user' }} />)
+  expect(screen.getByRole('note').textContent).toBe('Loaded skillreview')
+})

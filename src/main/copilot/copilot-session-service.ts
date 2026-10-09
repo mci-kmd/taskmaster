@@ -269,6 +269,15 @@ function timelineItemFromEvent(event: SessionEvent): CopilotTimelineItem | null 
         timestamp: event.timestamp,
         status: event.data.success ? 'complete' : 'failed'
       }
+    case 'skill.invoked':
+      return {
+        id: `skill:${event.id}`,
+        type: 'skill',
+        timestamp: event.timestamp,
+        name: event.data.name,
+        description: event.data.description?.trim() || null,
+        invokedBy: event.data.trigger === 'user-invoked' ? 'user' : 'copilot'
+      }
     case 'session.error':
       return {
         id: `error:${event.id}`,

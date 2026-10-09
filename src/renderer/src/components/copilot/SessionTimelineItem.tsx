@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
 import SessionMarkdown, { CopyButton } from './SessionMarkdown'
-import { PaperclipIcon, QuestionIcon } from '../Icons'
+import { PaperclipIcon, QuestionIcon, SparkIcon } from '../Icons'
 import { splitAttachmentMarkers } from './attachment-markers'
 import {
   PROMPT_COST_BASIS,
@@ -41,6 +41,25 @@ export default memo(function SessionTimelineItem({
   }
   if (item.type === 'notice') {
     return <div className={`tm-session-notice tm-session-notice--${item.tone}`}>{item.content}</div>
+  }
+  if (item.type === 'skill') {
+    return (
+      <div
+        className="tm-session-skill"
+        role="note"
+        aria-label={`Skill ${item.name} loaded`}
+        title={item.description ?? undefined}
+      >
+        <SparkIcon className="tm-session-skill-icon" aria-hidden="true" />
+        <span className="tm-session-skill-label">
+          {item.invokedBy === 'user' ? 'Loaded skill' : 'Copilot loaded skill'}
+        </span>
+        <span className="tm-session-skill-name">{item.name}</span>
+        {item.description ? (
+          <span className="tm-session-skill-description">{item.description}</span>
+        ) : null}
+      </div>
+    )
   }
   if (item.type === 'interaction') {
     return (

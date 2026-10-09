@@ -29,6 +29,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Browse Copilot skills with `/` at the start of a message or `$` within it; filter by name or description, select with arrows and Enter/Tab, and dismiss with Escape
 - Commit from the composer: when no session in the checkout is working and it has uncommitted changes, a commit button (Ctrl+S) appears left of Send. It stages everything and commits with a message written by a background Copilot agent (Luna 6, medium effort by default), showing separate progress while the message is written and while a pre-commit hook runs. Edit project sets the commit message model and effort, and can push to the remote after each commit (off by default)
 - Discover project and personal Copilot skills from the session configuration and expand selected skills through the SDK when sending, retaining the original prompt in history
+- Each skill loaded into the conversation appears as its own marker naming the skill, its description, and whether you or Copilot asked for it
 - Add git repositories from a folder picker
 - Remove a project from Edit project: a confirmation lists the active and settled threads and tasks that will be lost. Only Taskmaster's metadata is deleted; the repository, branches, and worktrees are untouched. Unavailable while any of the project's threads are working
 - Create persisted threads on the active branch, an existing branch, a new branch, or a worktree
