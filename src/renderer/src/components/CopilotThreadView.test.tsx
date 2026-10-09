@@ -926,6 +926,42 @@ describe('Copilot session settings and surrounding controls', () => {
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Steer' }).disabled).toBe(true)
   })
 
+  it('raises and lowers the effort with Page Up and Page Down in the message box', async () => {
+    const a = thread()
+    const idle = snapshot(a.id, { reasoningEffort: 'low' })
+    mock.getSession.mockResolvedValue(idle)
+    mock.setModel.mockImplementation(async ({ model, reasoningEffort }) => ({
+      ok: true,
+      snapshot: { ...idle, model, reasoningEffort }
+    }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await screen.findByText('Ready')
+    const input = screen.getByRole('combobox', { name: 'Message Copilot' })
+    fireEvent.keyDown(input, { key: 'PageDown' })
+    expect(mock.setModel).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'PageUp' })
+    await waitFor(() =>
+      expect(mock.setModel).toHaveBeenCalledWith({
+        threadId: a.id,
+        model: 'model',
+        reasoningEffort: 'high'
+      })
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole<HTMLButtonElement>('combobox', { name: 'Reasoning effort' }).value
+      ).toBe('high')
+    )
+    fireEvent.keyDown(input, { key: 'PageUp' })
+    fireEvent.keyDown(input, { key: 'PageDown' })
+    await waitFor(() => expect(mock.setModel).toHaveBeenCalledTimes(2))
+    expect(mock.setModel).toHaveBeenLastCalledWith({
+      threadId: a.id,
+      model: 'model',
+      reasoningEffort: 'low'
+    })
+  })
+
   it('applies a model and its default effort, shows progress, and preserves the draft', async () => {
     const a = thread()
     const initial = snapshot(a.id)

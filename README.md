@@ -17,6 +17,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Choose a predefined project icon and color as a fallback for custom favicons
 - Browse available Copilot models through nested family submenus, preserving the active model and per-model reasoning settings; star models (click the star or press `*`) to list them as favorites at the bottom of the picker
 - Change model and reasoning effort while Copilot works; the queued choice applies to the next message
+- Press Page Up/Page Down in the message box to raise or lower the selected model's reasoning effort
 - Copilot's questions list their choices visibly, with an **Other** field for answering in your own words. Instead of using a pending question, permission prompt or plan approval, you can type in the composer and press **Reply**: permission prompts and plans are declined with your reply as feedback, and questions are skipped with your reply sent as a steering message
 - The conversation keeps each question, permission prompt and plan approval Copilot showed together with your answer (or your reason for declining), including after a restart
 - Quitting while Copilot agents are still working or an AI commit is in progress asks for confirmation and lists the busy threads

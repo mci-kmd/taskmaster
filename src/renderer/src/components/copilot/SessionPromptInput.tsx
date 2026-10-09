@@ -46,7 +46,8 @@ export default function SessionPromptInput({
   onFiles,
   attachmentNames = [],
   mode,
-  interactionKind
+  interactionKind,
+  onStepEffort
 }: {
   threadId: string
   sessionId: string | null
@@ -63,6 +64,8 @@ export default function SessionPromptInput({
   mode: SendMode
   /** Kind of the pending request, used to explain what a reply does. */
   interactionKind?: CopilotInteraction['kind']
+  /** Raises (`1`) or lowers (`-1`) the reasoning effort for the next message. */
+  onStepEffort?: (direction: 1 | -1) => void
 }): React.JSX.Element {
   const menuId = useId()
   const hintId = useId()
@@ -234,6 +237,18 @@ export default function SessionPromptInput({
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing || event.keyCode === 229) return
+            if (
+              (event.key === 'PageUp' || event.key === 'PageDown') &&
+              !event.shiftKey &&
+              !event.altKey &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              onStepEffort
+            ) {
+              event.preventDefault()
+              onStepEffort(event.key === 'PageUp' ? 1 : -1)
+              return
+            }
             if (
               (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
               !event.shiftKey &&

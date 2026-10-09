@@ -34,6 +34,7 @@ import {
   removeAttachmentMarkers,
   withUniqueNames
 } from './copilot/attachment-markers'
+import { stepReasoningEffort } from '../../../shared/reasoning-effort'
 import '../assets/copilot-session.css'
 
 const api = getRendererApi()
@@ -410,6 +411,28 @@ function SessionView({
     })
   }
 
+  const modelControlsDisabled =
+    (session?.phase !== 'idle' && session?.phase !== 'running') ||
+    (session?.phase === 'idle' && Boolean(session.pendingInteraction)) ||
+    Boolean(busy) ||
+    stopping
+  const stepEffort = (direction: 1 | -1): void => {
+    if (modelControlsDisabled || !session) return
+    const selection = session.nextModelSelection ?? {
+      model: session.model,
+      reasoningEffort: session.reasoningEffort
+    }
+    const model = session.models.find((option) => option.id === selection.model)
+    if (!model) return
+    const next = stepReasoningEffort(
+      model.supportedReasoningEfforts,
+      selection.reasoningEffort,
+      model.defaultReasoningEffort,
+      direction
+    )
+    if (next) changeModel(model.id, next)
+  }
+
   const usesGit = thread.projectKind !== 'general'
   const idle = session?.phase === 'idle'
   const [workingTree, setWorkingTree] = useState<BranchStatusSnapshot | null>(null)
@@ -765,6 +788,7 @@ function SessionView({
             }
             onSend={send}
             onFiles={(files) => addFiles(files, true)}
+            onStepEffort={stepEffort}
             attachmentNames={attachments.map((item) => item.displayName)}
           />
           <div className="tm-session-controls">
@@ -805,12 +829,7 @@ function SessionView({
             </label>
             <SessionModelControls
               session={session}
-              disabled={
-                (session?.phase !== 'idle' && session?.phase !== 'running') ||
-                (session?.phase === 'idle' && Boolean(session.pendingInteraction)) ||
-                Boolean(busy) ||
-                stopping
-              }
+              disabled={modelControlsDisabled}
               busy={busy === 'model'}
               disabledReason={
                 session?.pendingInteraction && !running

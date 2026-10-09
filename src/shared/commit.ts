@@ -1,4 +1,5 @@
 import type { CopilotModelSelection, CopilotReasoningEffort, ThreadCommitPhase } from './app-types'
+import { REASONING_EFFORTS } from './reasoning-effort'
 
 export const DEFAULT_COMMIT_MESSAGE_MODEL: CopilotModelSelection = {
   model: 'gpt-6-luna',
@@ -13,14 +14,6 @@ export const COMMIT_PHASE_LABELS: Record<ThreadCommitPhase, string> = {
   committing: 'Committing…',
   pushing: 'Pushing…'
 }
-
-const REASONING_EFFORTS: readonly CopilotReasoningEffort[] = [
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max'
-]
 
 export function normalizeCommitMessageModel(value: unknown): CopilotModelSelection | null {
   if (!value || typeof value !== 'object') return null

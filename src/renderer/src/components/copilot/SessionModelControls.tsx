@@ -1,6 +1,7 @@
 import Select from '../ui/Select'
 import ModelPicker from './ModelPicker'
 import type { CopilotReasoningEffort, CopilotSessionSnapshot } from '../../../../shared/app-types'
+import { reasoningEffortLabel } from '../../../../shared/reasoning-effort'
 
 type Props = {
   session: CopilotSessionSnapshot | null
@@ -61,7 +62,11 @@ export default function SessionModelControls({
       {efforts.length ? (
         <label
           className="tm-session-setting"
-          title={disabled ? disabledReason : 'How much reasoning Copilot uses for the next message'}
+          title={
+            disabled
+              ? disabledReason
+              : 'How much reasoning Copilot uses for the next message (Page Up/Page Down in the message box)'
+          }
         >
           <span>Effort</span>
           <Select
@@ -81,12 +86,7 @@ export default function SessionModelControls({
               ...(effort && !efforts.includes(effort) ? [{ value: effort, label: effort }] : []),
               ...efforts.map((value) => ({
                 value,
-                label:
-                  value === 'xhigh'
-                    ? 'Extra high'
-                    : value === 'max'
-                      ? 'Maximum'
-                      : value[0].toUpperCase() + value.slice(1)
+                label: reasoningEffortLabel(value)
               }))
             ]}
           />
