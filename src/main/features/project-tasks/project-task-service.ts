@@ -71,6 +71,7 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
         title: validation.title,
         description: validation.description,
         tags: validation.tags,
+        ...(validation.githubIssueUrl ? { githubIssueUrl: validation.githubIssueUrl } : {}),
         createdAt: dependencies.nowIso()
       }
 
@@ -99,10 +100,13 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
       }
 
       const currentTags = normalizeTaskTags(task.tags)
+      const githubIssueUrl =
+        input.githubIssue === undefined ? task.githubIssueUrl : validation.githubIssueUrl
       if (
         task.title === validation.title &&
         task.description === validation.description &&
-        sameTaskTags(currentTags, validation.tags)
+        sameTaskTags(currentTags, validation.tags) &&
+        task.githubIssueUrl === githubIssueUrl
       ) {
         return dependencies.successResult()
       }
@@ -110,6 +114,11 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
       task.title = validation.title
       task.description = validation.description
       task.tags = validation.tags
+      if (githubIssueUrl) {
+        task.githubIssueUrl = githubIssueUrl
+      } else {
+        delete task.githubIssueUrl
+      }
       dependencies.saveState()
       return dependencies.successResult()
     },

@@ -24,6 +24,8 @@ export interface PersistedProjectTask {
   title: string
   description: string
   tags: ProjectTaskTag[]
+  /** Canonical URL of the linked GitHub issue, if any. */
+  githubIssueUrl?: string
   createdAt: string
 }
 
@@ -745,6 +747,8 @@ export interface CreateRepositoryTaskInput {
   title: string
   description: string
   tags: ProjectTaskTag[]
+  /** GitHub issue URL or `owner/repo#123`; empty or omitted for none. */
+  githubIssue?: string
 }
 
 export interface CompleteRepositoryTaskInput {
@@ -768,6 +772,8 @@ export interface UpdateRepositoryTaskInput {
   title: string
   description: string
   tags: ProjectTaskTag[]
+  /** GitHub issue URL or `owner/repo#123`; "" clears the link, omitted keeps it. */
+  githubIssue?: string
 }
 
 export interface ThreadRunStateEvent {

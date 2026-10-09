@@ -9,7 +9,8 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Drag project tasks by their handle (or focus it and use ↑/↓) to order them by priority; tasks may be added without any title or description
 - Search tasks by `#number`, title or description (debounced, with highlighted matches), filter by one or more labels, and clear both at once; reordering still works while filtered
 - Every task has a per-project number shown as `#N` (existing tasks are numbered oldest first on upgrade)
-- Copilot sessions can list/search, create, edit (including labels) and complete the project's tasks via `taskmaster_*` tools; the tools tell the agent these are the user's tasks, to be changed only when asked. Listing needs no approval; changes follow the normal permission prompts
+- Link a task to a GitHub issue (issue URL or `owner/repo#123`) when adding or editing it; the card shows a `#123` chip with an issue icon (hover for the full `owner/repo#123` and URL) that opens the issue in the browser, Clear removes the link, and search also matches linked issues
+- Copilot sessions can list/search, create, edit (including labels and the GitHub issue link) and complete the project's tasks via `taskmaster_*` tools; the tools tell the agent these are the user's tasks, to be changed only when asked. Listing needs no approval; changes follow the normal permission prompts
 - Completed tasks are kept rather than deleted: open them from the quiet "N completed tasks" link below the task list, newest first, with the same search and label filters, and reopen any of them
 - Tag tasks with global labels from Settings plus optional project-specific labels from Edit project
 - Create Copilot threads on a branch or worktree; settling preserves sessions, branches, and worktrees without cleanup, and keeps the current project selected

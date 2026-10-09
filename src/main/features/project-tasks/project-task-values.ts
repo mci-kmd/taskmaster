@@ -3,6 +3,7 @@ import type {
   PersistedProjectTask,
   ProjectTaskTag
 } from '../../../shared/app-types'
+import { GITHUB_ISSUE_INPUT_HINT, parseGitHubIssueReference } from '../../../shared/github-issue'
 import { normalizeTaskTags, normalizeTaskTagsAgainstAllowed } from '../../../shared/task-tags'
 
 export type ProjectTaskValidationResult =
@@ -11,6 +12,8 @@ export type ProjectTaskValidationResult =
       title: string
       description: string
       tags: ProjectTaskTag[]
+      /** Canonical issue URL, or undefined when no link was given. */
+      githubIssueUrl: string | undefined
     }
   | {
       ok: false
@@ -39,18 +42,30 @@ export function normalizePersistedTask(task: PersistedProjectTask): PersistedPro
   const description = normalizeTaskDescription(task.description) ?? ''
   const currentTags = Array.isArray(task.tags) ? task.tags : []
   const tags = normalizeTaskTags(currentTags)
+  const githubIssueUrl =
+    task.githubIssueUrl === undefined
+      ? undefined
+      : parseGitHubIssueReference(task.githubIssueUrl)?.url
 
-  return title === task.title &&
+  if (
+    title === task.title &&
     description === task.description &&
     Array.isArray(task.tags) &&
-    sameTaskTags(tags, currentTags)
-    ? task
-    : {
-        ...task,
-        title,
-        description,
-        tags
-      }
+    sameTaskTags(tags, currentTags) &&
+    githubIssueUrl === task.githubIssueUrl
+  ) {
+    return task
+  }
+
+  const { githubIssueUrl: _previousIssueUrl, ...rest } = task
+  void _previousIssueUrl
+  return {
+    ...rest,
+    title,
+    description,
+    tags,
+    ...(githubIssueUrl ? { githubIssueUrl } : {})
+  }
 }
 
 export function normalizePersistedCompletedTask(
@@ -136,11 +151,22 @@ export function validateRepositoryTaskValues(input: {
   description: string
   tags: ProjectTaskTag[]
   allowedTags: readonly ProjectTaskTag[]
+  githubIssue?: string
 }): ProjectTaskValidationResult {
+  let githubIssueUrl: string | undefined
+  if (input.githubIssue?.trim()) {
+    const reference = parseGitHubIssueReference(input.githubIssue)
+    if (!reference) {
+      return { ok: false, error: `Invalid GitHub issue link. ${GITHUB_ISSUE_INPUT_HINT}` }
+    }
+    githubIssueUrl = reference.url
+  }
+
   return {
     ok: true,
     title: normalizeTaskTitle(input.title) ?? '',
     description: normalizeTaskDescription(input.description) ?? '',
-    tags: normalizeTaskTagsAgainstAllowed(input.tags, input.allowedTags)
+    tags: normalizeTaskTagsAgainstAllowed(input.tags, input.allowedTags),
+    githubIssueUrl
   }
 }

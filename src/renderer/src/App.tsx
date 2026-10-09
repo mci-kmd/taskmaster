@@ -496,7 +496,8 @@ export default function App(): React.JSX.Element {
           repositoryId: selectedRepository.id,
           title: input.title,
           description: input.description,
-          tags: input.tags
+          tags: input.tags,
+          githubIssue: input.githubIssue
         })
       )
       setBusyAction(null)
@@ -570,7 +571,8 @@ export default function App(): React.JSX.Element {
           taskId: input.taskId,
           title: input.title,
           description: input.description,
-          tags: input.tags
+          tags: input.tags,
+          githubIssue: input.githubIssue
         })
       )
       setBusyAction(null)

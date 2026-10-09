@@ -63,6 +63,34 @@ describe('project task values', () => {
     ).toEqual({ ok: true, title: '', description: '', tags: [] })
   })
 
+  it('canonicalizes GitHub issue links and rejects invalid ones', () => {
+    const base = { title: 'T', description: '', tags: [], allowedTags: [] }
+    expect(validateRepositoryTaskValues({ ...base, githubIssue: 'octo/app#5' })).toMatchObject({
+      ok: true,
+      githubIssueUrl: 'https://github.com/octo/app/issues/5'
+    })
+    expect(validateRepositoryTaskValues({ ...base, githubIssue: '  ' })).toMatchObject({
+      ok: true,
+      githubIssueUrl: undefined
+    })
+    expect(validateRepositoryTaskValues({ ...base, githubIssue: 'nope' })).toMatchObject({
+      ok: false
+    })
+
+    const task = {
+      id: '1',
+      number: 1,
+      title: 'Task',
+      description: '',
+      tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z'
+    }
+    const linked = { ...task, githubIssueUrl: 'https://github.com/octo/app/issues/5' }
+    expect(normalizePersistedTask(linked)).toBe(linked)
+    expect(normalizePersistedTask({ ...task, githubIssueUrl: 'octo/app#5' })).toEqual(linked)
+    expect(normalizePersistedTask({ ...task, githubIssueUrl: 'garbage' })).toEqual(task)
+  })
+
   it('normalizes completed tasks, keeping the same array when unchanged', () => {
     const task = {
       id: '1',

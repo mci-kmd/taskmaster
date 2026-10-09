@@ -17,6 +17,14 @@ describe('task filter', () => {
     expect(matchesTaskFilter(task, { query: '#12', labels: [] })).toBe(false)
   })
 
+  it('matches the linked GitHub issue, but not for "#N" queries', () => {
+    const linked = { ...task, number: 1, githubIssueUrl: 'https://github.com/octo/app/issues/34' }
+    expect(matchesTaskFilter(linked, { query: 'Octo/App#34', labels: [] })).toBe(true)
+    expect(matchesTaskFilter(linked, { query: 'issues/34', labels: [] })).toBe(true)
+    expect(matchesTaskFilter(linked, { query: '#34', labels: [] })).toBe(false)
+    expect(matchesTaskFilter(task, { query: 'octo/app', labels: [] })).toBe(false)
+  })
+
   it('matches any selected label combined with the query', () => {
     expect(matchesTaskFilter(task, { query: '', labels: ['bug'] })).toBe(true)
     expect(matchesTaskFilter(task, { query: '', labels: ['feature', 'bug'] })).toBe(true)

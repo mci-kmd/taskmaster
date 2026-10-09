@@ -47,6 +47,8 @@ type TaskView = {
   status: TaskStatus
   createdAt: string
   completedAt?: string
+  /** URL of the linked GitHub issue. */
+  githubIssue?: string
 }
 
 type Args = Record<string, unknown>
@@ -64,7 +66,8 @@ function toTaskView(
     labels: [...task.tags],
     status,
     createdAt: task.createdAt,
-    ...('completedAt' in task ? { completedAt: task.completedAt } : {})
+    ...('completedAt' in task ? { completedAt: task.completedAt } : {}),
+    ...(task.githubIssueUrl ? { githubIssue: task.githubIssueUrl } : {})
   }
 }
 
@@ -148,6 +151,16 @@ const ID_SCHEMA = {
   description: 'The numeric task id (12 for task #12).'
 } as const
 
+const GITHUB_ISSUE_DESCRIPTION =
+  'GitHub issue to link the task to: an issue URL like https://github.com/owner/repo/issues/123 ' +
+  'or owner/repo#123.'
+
+/** `null` clears the link like "", while undefined (omitted) keeps it. */
+function optionalGitHubIssue(args: Args): string | undefined {
+  if (args.githubIssue === null) return ''
+  return optionalString(args, 'githubIssue')
+}
+
 export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies): Tool[] {
   const run =
     (handler: (args: Args, repository: PersistedRepository) => ToolResultObject) =>
@@ -173,14 +186,16 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
     description:
       `List and search the user's tasks for this project. ${OWNERSHIP_NOTE} ` +
       "Open tasks are returned in the user's priority order (highest first), completed tasks " +
-      'most recently completed first. The result also lists the labels available in this project.',
+      'most recently completed first. The result also lists the labels available in this project. ' +
+      'Tasks linked to a GitHub issue include its URL as "githubIssue".',
     parameters: {
       ...OBJECT_SCHEMA,
       properties: {
         query: {
           type: 'string',
           description:
-            'Case-insensitive text to find in the title or description, or "#12" to match a task id.'
+            'Case-insensitive text to find in the title, description or linked GitHub issue ' +
+            '(e.g. "owner/repo#34"), or "#12" to match a task id.'
         },
         labels: {
           type: 'array',
@@ -224,7 +239,13 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
       ]
       const matching = candidates.filter((task) =>
         matchesTaskFilter(
-          { number: task.id, title: task.title, description: task.description, tags: task.labels },
+          {
+            number: task.id,
+            title: task.title,
+            description: task.description,
+            tags: task.labels,
+            githubIssueUrl: task.githubIssue
+          },
           filter
         )
       )
@@ -254,7 +275,8 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
           type: 'array',
           items: { type: 'string' },
           description: 'Optional labels. Must be labels available in this project.'
-        }
+        },
+        githubIssue: { type: 'string', description: `Optional. ${GITHUB_ISSUE_DESCRIPTION}` }
       },
       required: ['title']
     },
@@ -270,7 +292,8 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
           repositoryId: repository.id,
           title,
           description: optionalString(args, 'description') ?? '',
-          tags: labels
+          tags: labels,
+          githubIssue: optionalGitHubIssue(args)
         })
       )
       if (error) return failure(error)
@@ -286,7 +309,8 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
     name: PROJECT_TASK_TOOL_NAMES.update,
     description:
       `Edit an open task in the user's task list for this project. ${OWNERSHIP_NOTE} ` +
-      'Only the fields you pass are changed; "labels" replaces all of the task\'s labels.',
+      'Only the fields you pass are changed; "labels" replaces all of the task\'s labels. ' +
+      'Use "githubIssue" to link the task to a GitHub issue, or "" to unlink it.',
     parameters: {
       ...OBJECT_SCHEMA,
       properties: {
@@ -298,6 +322,10 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
           items: { type: 'string' },
           description:
             'The complete new set of labels (pass [] to remove all). Must be labels available in this project.'
+        },
+        githubIssue: {
+          type: 'string',
+          description: `${GITHUB_ISSUE_DESCRIPTION} Pass "" to remove the link.`
         }
       },
       required: ['id']
@@ -307,8 +335,16 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
       const title = optionalString(args, 'title')
       const description = optionalString(args, 'description')
       const labels = optionalLabels(args)
-      if (title === undefined && description === undefined && labels === undefined) {
-        throw new ToolInputError('Pass at least one of "title", "description" or "labels".')
+      const githubIssue = optionalGitHubIssue(args)
+      if (
+        title === undefined &&
+        description === undefined &&
+        labels === undefined &&
+        githubIssue === undefined
+      ) {
+        throw new ToolInputError(
+          'Pass at least one of "title", "description", "labels" or "githubIssue".'
+        )
       }
       if (title !== undefined && !title.trim()) {
         throw new ToolInputError('"title" cannot be empty.')
@@ -332,7 +368,8 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
           taskId: task.id,
           title: title ?? task.title,
           description: description ?? task.description,
-          tags
+          tags,
+          githubIssue
         })
       )
       if (error) return failure(error)

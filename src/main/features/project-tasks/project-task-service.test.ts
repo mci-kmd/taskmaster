@@ -86,6 +86,60 @@ describe('project task service', () => {
     expect(saveState).toHaveBeenCalledTimes(1)
   })
 
+  it('sets, keeps and clears linked GitHub issues', () => {
+    const saveState = vi.fn()
+    const repository = {
+      id: 'repo-1',
+      tasks: [{ id: 'task-1', title: 'Task', description: '', tags: [] }] as Array<
+        Record<string, unknown>
+      >
+    }
+    const service = createProjectTaskService({
+      ensureState: () => ({
+        settings: { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+      }),
+      findRepository: () => repository as never,
+      saveState,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      nowIso: () => '2026-01-01T00:00:00.000Z',
+      createId: () => 'task-2'
+    })
+    const update = (githubIssue?: string): ReturnType<typeof service.updateRepositoryTask> =>
+      service.updateRepositoryTask({
+        repositoryId: 'repo-1',
+        taskId: 'task-1',
+        title: 'Task',
+        description: '',
+        tags: [],
+        githubIssue
+      })
+
+    expect(update('octo/app#9').ok).toBe(true)
+    expect(repository.tasks[0].githubIssueUrl).toBe('https://github.com/octo/app/issues/9')
+    expect(update(undefined).ok).toBe(true)
+    expect(update('https://github.com/octo/app/issues/9').ok).toBe(true)
+    expect(repository.tasks[0].githubIssueUrl).toBe('https://github.com/octo/app/issues/9')
+    expect(update('bad link')).toMatchObject({ ok: false })
+    expect(update('').ok).toBe(true)
+    expect(repository.tasks[0]).not.toHaveProperty('githubIssueUrl')
+    expect(saveState).toHaveBeenCalledTimes(2)
+
+    expect(
+      service.createRepositoryTask({
+        repositoryId: 'repo-1',
+        title: 'New',
+        description: '',
+        tags: [],
+        githubIssue: 'octo/app#10'
+      }).ok
+    ).toBe(true)
+    expect(repository.tasks[0]).toMatchObject({
+      id: 'task-2',
+      githubIssueUrl: 'https://github.com/octo/app/issues/10'
+    })
+  })
+
   it('allows project-level tags in addition to global tags', () => {
     const repository = {
       id: 'repo-1',

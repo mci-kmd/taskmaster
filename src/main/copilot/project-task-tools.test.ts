@@ -162,6 +162,43 @@ describe('project task tools', () => {
     )
   })
 
+  it('links, keeps and unlinks GitHub issues', () => {
+    const { call, repository, onTasksChanged } = setup()
+    const linked = parse(
+      call(PROJECT_TASK_TOOL_NAMES.update, { id: 2, githubIssue: 'octo/app#34' })
+    )
+    expect(linked.task).toMatchObject({
+      id: 2,
+      githubIssue: 'https://github.com/octo/app/issues/34'
+    })
+    expect(repository.tasks[0].githubIssueUrl).toBe('https://github.com/octo/app/issues/34')
+
+    parse(call(PROJECT_TASK_TOOL_NAMES.update, { id: 2, title: 'Renamed' }))
+    expect(repository.tasks[0].githubIssueUrl).toBe('https://github.com/octo/app/issues/34')
+
+    const listed = parse(call(PROJECT_TASK_TOOL_NAMES.list, { query: 'octo/app#34' }))
+    expect(listed.tasks).toEqual([
+      expect.objectContaining({ id: 2, githubIssue: 'https://github.com/octo/app/issues/34' })
+    ])
+
+    const invalid = call(PROJECT_TASK_TOOL_NAMES.update, { id: 2, githubIssue: 'not an issue' })
+    expect(invalid.resultType).toBe('failure')
+    expect(invalid.textResultForLlm).toContain('GitHub issue')
+
+    const cleared = parse(call(PROJECT_TASK_TOOL_NAMES.update, { id: 2, githubIssue: '' }))
+    expect(cleared.task).not.toHaveProperty('githubIssue')
+    expect(repository.tasks[0]).not.toHaveProperty('githubIssueUrl')
+    expect(onTasksChanged).toHaveBeenCalledTimes(3)
+
+    const created = parse(
+      call(PROJECT_TASK_TOOL_NAMES.create, {
+        title: 'Linked',
+        githubIssue: 'https://github.com/octo/app/issues/7#issuecomment-1'
+      })
+    )
+    expect(created.task).toMatchObject({ githubIssue: 'https://github.com/octo/app/issues/7' })
+  })
+
   it('completes open tasks by number', () => {
     const { call, repository } = setup()
     parse(call(PROJECT_TASK_TOOL_NAMES.complete, { id: 2 }))

@@ -7,6 +7,11 @@ import {
   type RepositorySnapshot,
   type UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
+import {
+  formatGitHubIssueReference,
+  GITHUB_ISSUE_INPUT_HINT,
+  parseGitHubIssueReference
+} from '../../../shared/github-issue'
 import { mergeTaskTags, sortTaskTags } from '../../../shared/task-tags'
 import { isTaskFilterActive, matchesTaskFilter, type TaskFilter } from '../lib/task-filter'
 import { getTaskTagTone } from '../lib/task-tag-tone'
@@ -19,7 +24,7 @@ import Button from './ui/Button'
 import Checkbox from './ui/Checkbox'
 import { Field, TextArea, TextInput } from './ui/Field'
 import HighlightedText from './ui/HighlightedText'
-import { ArrowLeftIcon, CheckIcon, GripIcon, PlusIcon } from './Icons'
+import { ArrowLeftIcon, CheckIcon, GitHubIssueIcon, GripIcon, PlusIcon } from './Icons'
 
 type ProjectTaskManagerProps = {
   repository: RepositorySnapshot
@@ -89,6 +94,10 @@ function pluralize(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`
 }
 
+function isInvalidGitHubIssue(value: string): boolean {
+  return value.trim().length > 0 && parseGitHubIssueReference(value) === null
+}
+
 export default function ProjectTaskManager({
   repository,
   taskTags,
@@ -109,10 +118,12 @@ export default function ProjectTaskManager({
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [tags, setTags] = useState<ProjectTaskTag[]>([])
+  const [githubIssue, setGithubIssue] = useState('')
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDescription, setEditingDescription] = useState('')
   const [editingTags, setEditingTags] = useState<ProjectTaskTag[]>([])
+  const [editingGithubIssue, setEditingGithubIssue] = useState('')
   const [optimisticOrder, setOptimisticOrder] = useState<OptimisticOrder | null>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
 
@@ -296,6 +307,7 @@ export default function ProjectTaskManager({
     setTitle('')
     setDescription('')
     setTags([])
+    setGithubIssue('')
   }
 
   const handleCloseCreateDialog = (): void => {
@@ -308,6 +320,7 @@ export default function ProjectTaskManager({
     setEditingTitle('')
     setEditingDescription('')
     setEditingTags([])
+    setEditingGithubIssue('')
   }
 
   const handleStartEditing = (task: ProjectTaskSnapshot): void => {
@@ -315,6 +328,7 @@ export default function ProjectTaskManager({
     setEditingTitle(task.title)
     setEditingDescription(task.description)
     setEditingTags(sortTaskTags(task.tags, taskTags))
+    setEditingGithubIssue(task.githubIssueUrl ?? '')
   }
 
   const handleToggleEditingTag = (tag: ProjectTaskTag, checked: boolean): void => {
@@ -329,11 +343,15 @@ export default function ProjectTaskManager({
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
+    if (isInvalidGitHubIssue(githubIssue)) {
+      return
+    }
 
     const ok = await onCreateTask({
       title,
       description,
-      tags: sortTaskTags(tags, taskTags)
+      tags: sortTaskTags(tags, taskTags),
+      githubIssue: githubIssue.trim()
     })
     if (!ok) {
       return
@@ -347,18 +365,86 @@ export default function ProjectTaskManager({
     taskId: string
   ): Promise<void> => {
     event.preventDefault()
+    if (isInvalidGitHubIssue(editingGithubIssue)) {
+      return
+    }
 
     const ok = await onUpdateTask({
       taskId,
       title: editingTitle,
       description: editingDescription,
-      tags: sortTaskTags(editingTags, taskTags)
+      tags: sortTaskTags(editingTags, taskTags),
+      githubIssue: editingGithubIssue.trim()
     })
     if (!ok) {
       return
     }
 
     resetEditing()
+  }
+
+  const renderGitHubIssueField = (
+    id: string,
+    value: string,
+    onChange: (value: string) => void
+  ): React.JSX.Element => {
+    const invalid = isInvalidGitHubIssue(value)
+    return (
+      <Field
+        hint={invalid ? undefined : 'Optional. Paste an issue URL or owner/repo#123.'}
+        label="GitHub issue"
+      >
+        <div className="flex items-center gap-2">
+          <TextInput
+            aria-describedby={invalid ? `${id}-error` : undefined}
+            aria-invalid={invalid || undefined}
+            aria-label="GitHub issue"
+            id={id}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="https://github.com/owner/repo/issues/123"
+            value={value}
+          />
+          {value ? (
+            <Button
+              disabled={busy}
+              onClick={() => onChange('')}
+              size="sm"
+              title="Remove GitHub issue link"
+              variant="ghost"
+            >
+              Clear
+            </Button>
+          ) : null}
+        </div>
+        {invalid ? (
+          <p className="mt-1.5 text-[12px] leading-5 text-[var(--color-danger)]" id={`${id}-error`}>
+            {GITHUB_ISSUE_INPUT_HINT}
+          </p>
+        ) : null}
+      </Field>
+    )
+  }
+
+  const renderGitHubIssueLink = (task: ProjectTaskSnapshot): React.JSX.Element | null => {
+    const issue = parseGitHubIssueReference(task.githubIssueUrl)
+    if (!issue) {
+      return null
+    }
+
+    const label = formatGitHubIssueReference(issue)
+    return (
+      <a
+        aria-label={`Linked GitHub issue ${label}`}
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 font-mono text-[11.5px] text-[var(--color-info)] transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-hover)]"
+        href={issue.url}
+        rel="noreferrer"
+        target="_blank"
+        title={`GitHub issue ${label}\n${issue.url}\nClick to open in the browser`}
+      >
+        <GitHubIssueIcon aria-hidden="true" className="shrink-0" height={12} width={12} />
+        <span>#{issue.number}</span>
+      </a>
+    )
   }
 
   const renderTaskSummary = (task: ProjectTaskSnapshot, meta: string): React.JSX.Element => (
@@ -389,6 +475,7 @@ export default function ProjectTaskManager({
             {tag}
           </span>
         ))}
+        {renderGitHubIssueLink(task)}
       </div>
       {task.description ? (
         <p className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-[var(--color-fg-muted)]">
@@ -438,6 +525,12 @@ export default function ProjectTaskManager({
         </div>
       </Field>
 
+      {renderGitHubIssueField(
+        `edit-task-github-issue-${task.id}`,
+        editingGithubIssue,
+        setEditingGithubIssue
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[11.5px] text-[var(--color-fg-subtle)]">
           Added {formatRelativeTime(task.createdAt, now)}
@@ -454,7 +547,7 @@ export default function ProjectTaskManager({
             Cancel
           </Button>
           <Button
-            disabled={busy}
+            disabled={busy || isInvalidGitHubIssue(editingGithubIssue)}
             size="sm"
             title="Save task changes"
             type="submit"
@@ -716,8 +809,8 @@ export default function ProjectTaskManager({
       <Modal
         description={
           createTagOptions.length > 0
-            ? 'Add an optional title, description, and tags.'
-            : 'Add an optional title and description.'
+            ? 'Add an optional title, description, tags, and GitHub issue link.'
+            : 'Add an optional title, description, and GitHub issue link.'
         }
         onClose={handleCloseCreateDialog}
         open={createDialogOpen}
@@ -765,11 +858,19 @@ export default function ProjectTaskManager({
             </div>
           </Field>
 
+          {renderGitHubIssueField('project-task-github-issue', githubIssue, setGithubIssue)}
+
           <div className="flex items-center justify-end gap-2">
             <Button onClick={handleCloseCreateDialog} title="Cancel" type="button" variant="ghost">
               Cancel
             </Button>
-            <Button disabled={busy} size="md" title="Create task" type="submit" variant="primary">
+            <Button
+              disabled={busy || isInvalidGitHubIssue(githubIssue)}
+              size="md"
+              title="Create task"
+              type="submit"
+              variant="primary"
+            >
               <PlusIcon width={12} height={12} strokeWidth={1.8} />
               Add task
             </Button>

@@ -141,7 +141,59 @@ describe('ProjectTaskManager', () => {
     fireEvent.click(screen.getByTitle('Create task'))
 
     await vi.waitFor(() =>
-      expect(props.onCreateTask).toHaveBeenCalledWith({ title: '', description: '', tags: [] })
+      expect(props.onCreateTask).toHaveBeenCalledWith({
+        title: '',
+        description: '',
+        tags: [],
+        githubIssue: ''
+      })
+    )
+  })
+
+  it('shows a linked GitHub issue that opens in the browser', () => {
+    renderManager([
+      { ...task('a', 'First'), githubIssueUrl: 'https://github.com/octo/app/issues/34' }
+    ])
+
+    const link = screen.getByRole('link', { name: 'Linked GitHub issue octo/app#34' })
+    expect(link.getAttribute('href')).toBe('https://github.com/octo/app/issues/34')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.textContent).toBe('#34')
+    expect(link.getAttribute('title')).toContain('octo/app#34')
+    expect(link.getAttribute('title')).toContain('https://github.com/octo/app/issues/34')
+  })
+
+  it('sets, validates and clears the GitHub issue link when editing', async () => {
+    const props = renderManager([task('a', 'First')])
+
+    fireEvent.click(screen.getByTitle('Edit task'))
+    const input = screen.getByRole('textbox', { name: 'GitHub issue' })
+    fireEvent.change(input, { target: { value: 'not an issue' } })
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect((screen.getByTitle('Save task changes') as HTMLButtonElement).disabled).toBe(true)
+
+    fireEvent.change(input, { target: { value: ' octo/app#5 ' } })
+    fireEvent.click(screen.getByTitle('Save task changes'))
+    await vi.waitFor(() =>
+      expect(props.onUpdateTask).toHaveBeenLastCalledWith(
+        expect.objectContaining({ taskId: 'a', githubIssue: 'octo/app#5' })
+      )
+    )
+
+    cleanup()
+    const linked = renderManager([
+      { ...task('b', 'Second'), githubIssueUrl: 'https://github.com/octo/app/issues/5' }
+    ])
+    fireEvent.click(screen.getByTitle('Edit task'))
+    expect((screen.getByRole('textbox', { name: 'GitHub issue' }) as HTMLInputElement).value).toBe(
+      'https://github.com/octo/app/issues/5'
+    )
+    fireEvent.click(screen.getByTitle('Remove GitHub issue link'))
+    fireEvent.click(screen.getByTitle('Save task changes'))
+    await vi.waitFor(() =>
+      expect(linked.onUpdateTask).toHaveBeenLastCalledWith(
+        expect.objectContaining({ taskId: 'b', githubIssue: '' })
+      )
     )
   })
 

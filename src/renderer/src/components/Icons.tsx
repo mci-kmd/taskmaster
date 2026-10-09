@@ -97,6 +97,15 @@ export function ExternalLinkIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function GitHubIssueIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <circle cx="8" cy="8" r="5.75" />
+      <circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 export function InspectIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>
