@@ -1,6 +1,6 @@
 import { app, dialog, shell, BrowserWindow, type MessageBoxOptions } from 'electron'
 import { join } from 'path'
-import { createQuitGuard } from './quit-guard'
+import { createQuitGuard, describeBusyThreads, type BusyThread } from './quit-guard'
 import { createModelPerformanceStore } from './copilot/model-performance-store'
 import { createPromptSummaryStore } from './copilot/prompt-summary-store'
 import { IPC_CHANNELS } from '../shared/contracts/ipc'
@@ -13,6 +13,7 @@ import { resolveDevUserDataPath } from './dev-user-data-path'
 import { registerTerminalIpc } from './terminal'
 import {
   createCopilotSessionTools,
+  getCommittingThreadNames,
   initializeAppState,
   getCopilotModelDefaults,
   rememberCopilotModelSelection,
@@ -37,7 +38,7 @@ if (devUserDataPath) {
   app.setPath('userData', devUserDataPath)
 }
 
-let quitGuard: ReturnType<typeof createQuitGuard> | null = null
+let quitGuard: ReturnType<typeof createQuitGuard<BusyThread>> | null = null
 
 function createWindow(): void {
   const windowIcon = process.platform === 'win32' ? iconIco : iconPng
@@ -82,17 +83,19 @@ function createWindow(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.taskmaster.app')
   let copilotSessionService: ReturnType<typeof createCopilotSessionService> | null = null
-  const guard = createQuitGuard({
-    getRunningThreads: () => copilotSessionService?.runningThreadNames() ?? [],
+  const guard = createQuitGuard<BusyThread>({
+    getRunningThreads: () => [
+      ...(copilotSessionService?.runningThreadNames() ?? []).map((name): BusyThread => ({
+        name,
+        activity: 'working'
+      })),
+      ...getCommittingThreadNames().map((name): BusyThread => ({ name, activity: 'committing' }))
+    ],
     confirmQuit: async (threads) => {
       const options: MessageBoxOptions = {
         type: 'warning',
         title: 'Quit Taskmaster?',
-        message:
-          threads.length === 1
-            ? 'Copilot is still working in 1 thread.'
-            : `Copilot is still working in ${threads.length} threads.`,
-        detail: `${threads.map((name) => `• ${name}`).join('\n')}\n\nQuitting stops this work.`,
+        ...describeBusyThreads(threads),
         buttons: ['Quit', 'Cancel'],
         defaultId: 1,
         cancelId: 1,

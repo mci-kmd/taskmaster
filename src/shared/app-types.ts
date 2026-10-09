@@ -167,6 +167,8 @@ export interface ThreadSnapshot extends PersistedThread {
   /** Fallback label when no live or persisted Copilot title is available. */
   displayTitle: string
   isRunCommandRunning: boolean
+  /** The phase of this thread's in-progress AI commit, or null when not committing. */
+  commitPhase: ThreadCommitPhase | null
   /** The project's preview URL with this thread's branch tokens applied, or null when not opted in. */
   previewUrl: string | null
   /** Whether the AI commit action also pushes to the remote. */

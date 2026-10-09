@@ -43,6 +43,7 @@ function props(
     mode: 'active-branch',
     previewUrl: null,
     isRunCommandRunning: false,
+    commitPhase: null,
     ...threadOverrides
   } as ThreadSnapshot
   return {

@@ -50,6 +50,7 @@ describe('snapshot service', () => {
     const snapshots = createSnapshotService({
       ensureState: () => state,
       getRunningRunThreadIds: () => new Set<string>(),
+      getCommitPhases: () => new Map(),
       getRepositoryGitState: () => ({
         currentBranch: 'main',
         primaryBranch: 'main',
@@ -122,6 +123,7 @@ describe('snapshot service', () => {
     const snapshots = createSnapshotService({
       ensureState: () => state,
       getRunningRunThreadIds: () => new Set<string>(),
+      getCommitPhases: () => new Map(),
       getRepositoryGitState: (_repository, refreshGit) => {
         if (refreshGit) {
           syncRefreshCount += 1
@@ -279,6 +281,7 @@ describe('snapshot service', () => {
     const snapshots = createSnapshotService({
       ensureState: () => state,
       getRunningRunThreadIds: () => new Set<string>(),
+      getCommitPhases: () => new Map(),
       getRepositoryGitState: () => ({
         currentBranch: 'Loading...',
         primaryBranch: null,

@@ -44,6 +44,7 @@ function thread(id: string, settledAt?: string): ThreadSnapshot {
     executionCwd: '/repo',
     backend: { kind: 'native' },
     isRunCommandRunning: false,
+    commitPhase: null,
     previewUrl: null,
     commitAutoPush: false,
     customTitle: id,

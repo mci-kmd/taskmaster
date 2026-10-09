@@ -1,14 +1,7 @@
 import type { ThreadCommitPhase } from '../../../../shared/app-types'
-import { COMMIT_SHORTCUT_LABEL } from '../../../../shared/commit'
+import { COMMIT_PHASE_LABELS, COMMIT_SHORTCUT_LABEL } from '../../../../shared/commit'
 import { GitCommitIcon } from '../Icons'
 import Button from '../ui/Button'
-
-const PHASE_LABELS: Record<ThreadCommitPhase, string> = {
-  generating: 'Writing commit message…',
-  hook: 'Running pre-commit hook…',
-  committing: 'Committing…',
-  pushing: 'Pushing…'
-}
 
 function commitButtonTitle(autoPush: boolean): string {
   return autoPush
@@ -29,7 +22,7 @@ export default function CommitButton({
   onCommit: () => void
 }): React.JSX.Element {
   const unavailable = Boolean(phase) || Boolean(disabledReason)
-  const title = phase ? PHASE_LABELS[phase] : (disabledReason ?? commitButtonTitle(autoPush))
+  const title = phase ? COMMIT_PHASE_LABELS[phase] : (disabledReason ?? commitButtonTitle(autoPush))
   return (
     <Button
       size="sm"
@@ -41,7 +34,7 @@ export default function CommitButton({
       aria-disabled={unavailable || undefined}
       aria-busy={Boolean(phase) || undefined}
       aria-keyshortcuts="Control+S"
-      aria-label={phase ? PHASE_LABELS[phase] : autoPush ? 'Commit and push' : 'Commit'}
+      aria-label={phase ? COMMIT_PHASE_LABELS[phase] : autoPush ? 'Commit and push' : 'Commit'}
       title={title}
       onClick={() => {
         if (!unavailable) onCommit()

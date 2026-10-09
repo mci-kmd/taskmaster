@@ -5,7 +5,17 @@ import { useState } from 'react'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
 import ProjectIcon from './ProjectIcon'
-import { ChevronRightIcon, CheckIcon, PencilIcon, GearIcon, QuestionIcon, TasksIcon } from './Icons'
+import {
+  ChevronRightIcon,
+  CheckIcon,
+  GitCommitIcon,
+  PencilIcon,
+  GearIcon,
+  PlayIcon,
+  QuestionIcon,
+  TasksIcon
+} from './Icons'
+import { COMMIT_PHASE_LABELS } from '../../../shared/commit'
 import { composeThreadTitle } from '../lib/title'
 import { formatRelativeTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
@@ -85,7 +95,16 @@ export default function InboxThreads({
               {subtitle}
             </span>
             <span className="mt-1 flex items-center gap-1.5 text-[10.5px] text-[var(--color-fg-subtle)]">
-              {status === 'done' || status === 'input' ? (
+              {thread.commitPhase ? (
+                <span
+                  className="tm-status-badge"
+                  data-status="committing"
+                  title={COMMIT_PHASE_LABELS[thread.commitPhase]}
+                >
+                  <GitCommitIcon className="tm-status-badge-pulse" width={10} height={10} />
+                  {thread.commitPhase === 'pushing' ? 'Pushing' : 'Committing'}
+                </span>
+              ) : status === 'done' || status === 'input' ? (
                 <span className="tm-status-badge" data-status={status}>
                   {status === 'done' ? (
                     <CheckIcon width={10} height={10} />
@@ -109,6 +128,16 @@ export default function InboxThreads({
               )}
               <span>·</span>
               <span>{formatRelativeTime(thread.lastActivityAt, now)}</span>
+              {thread.isRunCommandRunning ? (
+                <span
+                  className="tm-inbox-app-running ml-auto"
+                  role="img"
+                  aria-label="App running"
+                  title="App running"
+                >
+                  <PlayIcon width={10} height={10} />
+                </span>
+              ) : null}
             </span>
           </span>
         </button>

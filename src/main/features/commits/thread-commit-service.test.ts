@@ -58,13 +58,13 @@ function setup(
   service: ReturnType<typeof createThreadCommitService>
   phases: ThreadCommitPhase[]
   generateCommitMessage: Mock<(request: CommitMessageRequest) => Promise<string>>
-  onFinished: Mock<(cwd: string) => void>
+  onFinished: Mock<(threadId: string, cwd: string) => void>
 } {
   const phases: ThreadCommitPhase[] = []
   const generateCommitMessage = vi.fn<(request: CommitMessageRequest) => Promise<string>>(
     options.generate ?? (async () => 'Update readme')
   )
-  const onFinished = vi.fn<(cwd: string) => void>()
+  const onFinished = vi.fn<(threadId: string, cwd: string) => void>()
   const repository = {
     id: 'repo',
     name: 'Repo',
@@ -107,7 +107,7 @@ describe('thread commit service', () => {
       message: 'Update readme and add notes\n\nExplain why.'
     })
     expect(phases).toEqual(['generating', 'committing'])
-    expect(onFinished).toHaveBeenCalledWith(cwd)
+    expect(onFinished).toHaveBeenCalledWith('thread', cwd)
     const request = generateCommitMessage.mock.calls[0][0]
     expect(request).toMatchObject({ cwd, model: 'gpt-6-luna', reasoningEffort: 'medium' })
     expect(request.prompt).toContain('Branch: main')
@@ -116,6 +116,22 @@ describe('thread commit service', () => {
     expect(request.prompt).toContain('+hello world')
     expect(git(cwd, 'status', '--porcelain')).toBe('')
     expect(git(cwd, 'log', '-1', '--format=%B')).toBe('Update readme and add notes\n\nExplain why.')
+  })
+
+  it('reports the in-progress phase per thread until the commit finishes', async () => {
+    const cwd = createRepository()
+    writeFileSync(join(cwd, 'readme.md'), 'changed\n')
+    let release!: (message: string) => void
+    const { service } = setup(cwd, {
+      generate: () => new Promise<string>((resolve) => (release = resolve))
+    })
+
+    const pending = service.commitThreadChanges('thread')
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+    expect(service.getCommitPhases().get('thread')).toBe('generating')
+    release('Update readme')
+    expect((await pending).ok).toBe(true)
+    expect(service.getCommitPhases().size).toBe(0)
   })
 
   it('uses the project commit model', async () => {

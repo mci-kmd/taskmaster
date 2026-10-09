@@ -75,12 +75,19 @@ export function createThreadCommitService(dependencies: {
   generateCommitMessage: (request: CommitMessageRequest) => Promise<string>
   runGit: (cwd: string, args: string[], backend: RepositoryBackend) => Promise<GitCommandResult>
   onProgress: (threadId: string, phase: ThreadCommitPhase) => void
-  onFinished?: (cwd: string) => void
+  onFinished?: (threadId: string, cwd: string) => void
   platform?: NodeJS.Platform
 }): {
   commitThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
+  /** The phase of each thread's in-progress commit. */
+  getCommitPhases: () => ReadonlyMap<string, ThreadCommitPhase>
 } {
   const committing = new Set<string>()
+  const phases = new Map<string, ThreadCommitPhase>()
+  const progress = (threadId: string, phase: ThreadCommitPhase): void => {
+    phases.set(threadId, phase)
+    dependencies.onProgress(threadId, phase)
+  }
   const platform = dependencies.platform ?? process.platform
 
   const anyThreadWorking = (threadId: string): boolean =>
@@ -132,7 +139,7 @@ export function createThreadCommitService(dependencies: {
 
     committing.add(key)
     try {
-      dependencies.onProgress(threadId, 'generating')
+      progress(threadId, 'generating')
       const status = await dependencies.runGit(
         cwd,
         ['status', '--porcelain=v2', '--untracked-files=all'],
@@ -186,10 +193,7 @@ export function createThreadCommitService(dependencies: {
       if (anyThreadWorking(threadId))
         return { ok: false, error: 'Copilot started working. Commit again when it finishes.' }
 
-      dependencies.onProgress(
-        threadId,
-        (await hasPreCommitHook(cwd, backend)) ? 'hook' : 'committing'
-      )
+      progress(threadId, (await hasPreCommitHook(cwd, backend)) ? 'hook' : 'committing')
       const messageFile = join(tmpdir(), `taskmaster-commit-${randomUUID()}.txt`)
       await writeFile(messageFile, `${message}\n`, 'utf8')
       let committed: GitCommandResult
@@ -204,7 +208,7 @@ export function createThreadCommitService(dependencies: {
       if (!repository.autoPushAfterCommit)
         return { ok: true, committed: true, pushed: false, message }
 
-      dependencies.onProgress(threadId, 'pushing')
+      progress(threadId, 'pushing')
       const pushed = await push(cwd, backend)
       if (!pushed.ok)
         return {
@@ -217,9 +221,10 @@ export function createThreadCommitService(dependencies: {
       return { ok: true, committed: true, pushed: true, message }
     } finally {
       committing.delete(key)
-      dependencies.onFinished?.(cwd)
+      phases.delete(threadId)
+      dependencies.onFinished?.(threadId, cwd)
     }
   }
 
-  return { commitThreadChanges: commit }
+  return { commitThreadChanges: commit, getCommitPhases: () => phases }
 }

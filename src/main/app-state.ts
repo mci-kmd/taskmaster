@@ -110,6 +110,7 @@ const findRepository = (
 const nowIso = (): string => new Date().toISOString()
 
 let threadRunServiceRef: ReturnType<typeof createThreadRunService> | null = null
+let threadCommitServiceRef: ReturnType<typeof createThreadCommitService> | null = null
 let stopCopilotThread: (threadId: string) => Promise<void> = async () => undefined
 let hasCopilotSession: (threadId: string) => boolean = () => false
 let isCopilotThreadWorking: (threadId: string) => boolean = () => false
@@ -117,6 +118,7 @@ let isCopilotThreadWorking: (threadId: string) => boolean = () => false
 const snapshotService = createSnapshotService({
   ensureState,
   getRunningRunThreadIds: () => threadRunServiceRef?.getRunningThreadIds() ?? new Set(),
+  getCommitPhases: () => threadCommitServiceRef?.getCommitPhases() ?? new Map(),
   getRepositoryGitState: repositoryGitStateService.getRepositoryGitState,
   refreshRepositoryGitState: repositoryGitStateService.refreshRepositoryGitState,
   getThreadUiCwd,
@@ -299,11 +301,17 @@ const threadCommitService = createThreadCommitService({
     return generateCommitMessage(request)
   },
   runGit: tryGitAsync,
-  onProgress: (threadId, phase) => electronUi.broadcastCommitProgress({ threadId, phase }),
-  onFinished: (cwd) => {
+  onProgress: (threadId, phase) => {
+    electronUi.broadcastCommitProgress({ threadId, phase })
+    // Refreshes snapshots so thread cards show the commit.
+    electronUi.broadcastThreadRunState(threadId)
+  },
+  onFinished: (threadId, cwd) => {
     branchStatusService.invalidate(cwd)
+    electronUi.broadcastThreadRunState(threadId)
   }
 })
+threadCommitServiceRef = threadCommitService
 
 export function initializeAppState(): void {
   ensureState()
@@ -370,11 +378,17 @@ export function registerAppStateIpc(): void {
     selectRepository: (repositoryId: string | null) =>
       threadStateService.selectRepository(repositoryId),
     selectThread: (threadId: string | null) => threadStateService.selectThread(threadId),
-    commitThreadChanges: async (threadId: string) => {
-      const result = await threadCommitService.commitThreadChanges(threadId)
-      if (result.committed) electronUi.broadcastThreadRunState(threadId)
-      return result
-    }
+    commitThreadChanges: (threadId: string) => threadCommitService.commitThreadChanges(threadId)
+  })
+}
+
+/** Names of threads with an AI commit in progress. */
+export function getCommittingThreadNames(): string[] {
+  return [...threadCommitService.getCommitPhases().keys()].map((threadId) => {
+    const thread = findThread(threadId)
+    return (
+      thread?.customTitle ?? thread?.latestCopilotTitle ?? thread?.branchName ?? 'Untitled thread'
+    )
   })
 }
 

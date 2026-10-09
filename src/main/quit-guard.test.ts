@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createQuitGuard } from './quit-guard'
+import { createQuitGuard, describeBusyThreads } from './quit-guard'
 
 type Event = { preventDefault: () => void }
 
@@ -7,7 +7,7 @@ function setup(
   running: string[],
   platform: NodeJS.Platform = 'win32'
 ): {
-  guard: ReturnType<typeof createQuitGuard>
+  guard: ReturnType<typeof createQuitGuard<string>>
   confirmQuit: ReturnType<typeof vi.fn>
   quit: ReturnType<typeof vi.fn>
   event: () => Event & { preventDefault: ReturnType<typeof vi.fn<() => void>> }
@@ -79,5 +79,24 @@ describe('quit guard', () => {
     mac.guard.windowClose(macClose)
     expect(macClose.preventDefault).not.toHaveBeenCalled()
     expect(mac.quit).not.toHaveBeenCalled()
+  })
+
+  it('describes agents and commits that quitting would interrupt', () => {
+    expect(describeBusyThreads([{ name: 'Fix login', activity: 'working' }])).toEqual({
+      message: 'Copilot is still working in 1 thread.',
+      detail: '• Fix login\n\nQuitting stops this work.'
+    })
+    expect(describeBusyThreads([{ name: 'Docs', activity: 'committing' }]).message).toBe(
+      'A commit is still in progress in 1 thread.'
+    )
+    expect(
+      describeBusyThreads([
+        { name: 'Fix login', activity: 'working' },
+        { name: 'Docs', activity: 'committing' }
+      ])
+    ).toEqual({
+      message: 'Work is still in progress in 2 threads.',
+      detail: '• Fix login\n• Docs (committing)\n\nQuitting stops this work.'
+    })
   })
 })

@@ -21,6 +21,7 @@ function thread(id: string, activity: string, settledAt?: string): ThreadSnapsho
     executionCwd: '/repo',
     backend: { kind: 'native' },
     isRunCommandRunning: false,
+    commitPhase: null,
     previewUrl: null,
     commitAutoPush: false,
     customTitle: id,
@@ -89,6 +90,31 @@ const callbacks = (): Record<
 afterEach(cleanup)
 
 describe('inbox', () => {
+  it('shows when a thread is committing or running its app', () => {
+    const busy = repository('Busy', [
+      { ...thread('Committing', '2026-02-01'), commitPhase: 'hook' },
+      { ...thread('Serving', '2026-01-01'), isRunCommandRunning: true }
+    ])
+    render(
+      <InboxThreads
+        repositories={[busy]}
+        selectedRepository={busy}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...callbacks()}
+      />
+    )
+    const [committing, serving] = within(
+      screen.getByRole('list', { name: 'Active threads' })
+    ).getAllByRole('listitem')
+    expect(within(committing).getByTitle('Running pre-commit hook…').textContent).toBe('Committing')
+    expect(within(committing).queryByRole('img', { name: 'App running' })).toBeNull()
+    expect(within(serving).getByRole('img', { name: 'App running' })).toBeTruthy()
+    expect(within(serving).queryByText('Committing')).toBeNull()
+  })
+
   it('includes threads from every project in one activity-ordered list', () => {
     const shared = repository('Shared', [
       thread('Project session', '2026-01-01'),

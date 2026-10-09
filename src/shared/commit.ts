@@ -1,4 +1,4 @@
-import type { CopilotModelSelection, CopilotReasoningEffort } from './app-types'
+import type { CopilotModelSelection, CopilotReasoningEffort, ThreadCommitPhase } from './app-types'
 
 export const DEFAULT_COMMIT_MESSAGE_MODEL: CopilotModelSelection = {
   model: 'gpt-6-luna',
@@ -6,6 +6,13 @@ export const DEFAULT_COMMIT_MESSAGE_MODEL: CopilotModelSelection = {
 }
 
 export const COMMIT_SHORTCUT_LABEL = 'Ctrl+S'
+
+export const COMMIT_PHASE_LABELS: Record<ThreadCommitPhase, string> = {
+  generating: 'Writing commit message…',
+  hook: 'Running pre-commit hook…',
+  committing: 'Committing…',
+  pushing: 'Pushing…'
+}
 
 const REASONING_EFFORTS: readonly CopilotReasoningEffort[] = [
   'low',
