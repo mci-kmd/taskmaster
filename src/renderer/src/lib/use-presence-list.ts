@@ -88,20 +88,37 @@ export function usePresenceList<T>(
   }
 
   const { entries } = current
+  // Each exit gets a fixed deadline when it starts, so frequent re-renders (streaming snapshots
+  // rebuild the items) can't keep postponing the removal of rows that already left.
+  const deadlines = useRef(new Map<number, number>())
   useEffect(() => {
     const tokens = new Set(entries.flatMap((entry) => entry.exitToken ?? []))
+    for (const token of deadlines.current.keys()) {
+      if (!tokens.has(token)) deadlines.current.delete(token)
+    }
+    for (const token of tokens) {
+      if (!deadlines.current.has(token)) deadlines.current.set(token, Date.now() + EXIT_MS + 40)
+    }
     if (tokens.size === 0) {
       return
     }
 
-    const timer = window.setTimeout(() => {
-      setState((latest) => ({
-        ...latest,
-        entries: latest.entries.filter(
-          (entry) => entry.exitToken === null || !tokens.has(entry.exitToken)
+    const next = Math.min(...deadlines.current.values())
+    const timer = window.setTimeout(
+      () => {
+        const now = Date.now()
+        const due = new Set(
+          [...deadlines.current].filter(([, deadline]) => deadline <= now).map(([token]) => token)
         )
-      }))
-    }, EXIT_MS + 40)
+        setState((latest) => ({
+          ...latest,
+          entries: latest.entries.filter(
+            (entry) => entry.exitToken === null || !due.has(entry.exitToken)
+          )
+        }))
+      },
+      Math.max(0, next - Date.now())
+    )
     return () => window.clearTimeout(timer)
   }, [entries])
 
@@ -152,10 +169,23 @@ export function useAnimatedListMotion<E extends HTMLElement>(
               {
                 opacity: 1,
                 height: `${child.offsetHeight}px`,
+                minHeight: '0px',
+                paddingTop: style.paddingTop,
                 paddingBottom: style.paddingBottom,
+                borderTopWidth: style.borderTopWidth,
+                borderBottomWidth: style.borderBottomWidth,
                 transform: 'scale(1)'
               },
-              { opacity: 0, height: '0px', paddingBottom: '0px', transform: 'scale(0.98)' }
+              {
+                opacity: 0,
+                height: '0px',
+                minHeight: '0px',
+                paddingTop: '0px',
+                paddingBottom: '0px',
+                borderTopWidth: '0px',
+                borderBottomWidth: '0px',
+                transform: 'scale(0.98)'
+              }
             ],
             { duration: EXIT_MS, easing: MOTION.easeIn, fill: 'forwards' }
           )

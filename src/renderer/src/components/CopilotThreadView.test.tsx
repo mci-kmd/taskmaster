@@ -1431,6 +1431,24 @@ describe('AI commit button', () => {
     expect(await screen.findByText('Committed, but push failed: rejected')).toBeTruthy()
   })
 
+  it('leaves Ctrl+S alone while the view is fading out', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    render(
+      <div data-state="closed">
+        <CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />
+      </div>
+    )
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+
+    const event = new KeyboardEvent('keydown', { key: 's', ctrlKey: true, cancelable: true })
+    act(() => {
+      window.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(false)
+    expect(appState.commitThreadChanges).not.toHaveBeenCalled()
+  })
+
   it('ignores Ctrl+S without changes and disables commits with conflicts', async () => {
     appState.getBranchStatus.mockResolvedValue(clean)
     const view = render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)

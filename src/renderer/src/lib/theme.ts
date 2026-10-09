@@ -31,13 +31,15 @@ export function initializeTheme(): void {
 /** Switches the app's theme, crossfading the window unless `animate` is false. */
 export function setTheme(id: ThemeId, { animate = true }: { animate?: boolean } = {}): void {
   if (id === current && document.documentElement.dataset.theme === id) return
-  current = id
   try {
     window.localStorage.setItem(STORAGE_KEY, id)
   } catch {
     // Storage is only a first-paint optimization.
   }
+  // The store and the stylesheet change together, so anything reading tokens on a theme
+  // change (xterm, Monaco) sees the new values.
   const apply = (): void => {
+    current = id
     document.documentElement.dataset.theme = id
     listeners.forEach((listener) => listener())
   }

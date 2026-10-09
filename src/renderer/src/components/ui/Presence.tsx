@@ -22,6 +22,7 @@ export default function Presence({
   if (!mounted || !child) return null
   return cloneElement(child as ReactElement<Record<string, unknown>>, {
     'data-motion': motion,
-    'data-state': state
+    'data-state': state,
+    inert: state === 'closed' || undefined
   })
 }

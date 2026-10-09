@@ -153,9 +153,11 @@
   [data-motion='collapse'][data-state='closed'] {
     animation: tm-collapse-out var(--duration-exit) var(--ease-in) both;
   }
-  /* Closed elements are on their way out: they must not catch clicks or focus. */
-  [data-motion][data-state='closed'] {
-    pointer-events: none;
+  /* Leaving elements (presence exits, exiting list rows) are on their way out: they must not
+     take focus, keystrokes or clicks, whatever utilities they carry. */
+  [data-state='closed'],
+  [data-exiting] {
+    interactivity: inert;
   }
 
   /* Entrance-only presets for content that is replaced rather than removed (keyed views). */

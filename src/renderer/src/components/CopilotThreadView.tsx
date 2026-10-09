@@ -128,6 +128,7 @@ function SessionView({
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const timelineRef = useRef<HTMLDivElement>(null)
+  const sectionRef = useRef<HTMLElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const promptRef = useRef<HTMLTextAreaElement>(null)
   const mounted = useRef(false)
@@ -582,7 +583,9 @@ function SessionView({
         event.altKey ||
         event.shiftKey ||
         event.key.toLowerCase() !== 's' ||
-        document.querySelector('[role="dialog"][aria-modal="true"]')
+        document.querySelector('[role="dialog"][aria-modal="true"]') ||
+        // A view that is crossfading out (or otherwise inert) no longer owns the shortcut.
+        sectionRef.current?.closest('[data-state="closed"], [inert]')
       )
         return
       event.preventDefault()
@@ -611,6 +614,7 @@ function SessionView({
 
   return (
     <section
+      ref={sectionRef}
       className="tm-session"
       aria-label="Copilot session"
       onDragEnter={(event) => {
