@@ -60,32 +60,59 @@ afterEach(() => {
 })
 
 describe('thread workspace service', () => {
-  it('opens the configured repo-root solution file', async () => {
-    const repoPath = createTempRepo()
-    const solutionPath = writeRepoFile(repoPath, 'Taskmaster.slnx')
+  function setup(
+    repoPath: string,
+    cwd: string,
+    platform: NodeJS.Platform = 'win32'
+  ): {
+    service: ReturnType<typeof createThreadWorkspaceService>
+    openPath: ReturnType<typeof vi.fn>
+  } {
     const openPath = vi.fn().mockResolvedValue('')
     const service = createThreadWorkspaceService({
       resolveThreadGitContext: () => ({
         ok: true,
-        cwd: join(repoPath, '.worktrees', 'feature-thread'),
+        cwd,
         repository: createRepository(repoPath),
         thread: createThread()
       }),
       openPath,
-      openExternal: vi.fn()
+      openExternal: vi.fn(),
+      platform
     })
+    return { service, openPath }
+  }
 
-    const result = await service.openThreadSolutionInVisualStudio('thread-1')
+  it("opens the solution file in the thread's worktree", async () => {
+    const repoPath = createTempRepo()
+    writeRepoFile(repoPath, 'Taskmaster.slnx')
+    const worktree = join(repoPath, '.worktrees', 'feature-thread')
+    const solutionPath = writeRepoFile(worktree, 'Taskmaster.slnx')
+    const { service, openPath } = setup(repoPath, worktree)
 
-    if (process.platform !== 'win32') {
-      expect(result).toEqual({
-        ok: false,
-        error: 'Opening a solution in Visual Studio is only supported on Windows.'
-      })
-      return
-    }
-
-    expect(result).toEqual({ ok: true })
+    expect(await service.openThreadSolutionInVisualStudio('thread-1')).toEqual({ ok: true })
     expect(openPath).toHaveBeenCalledWith(solutionPath)
+  })
+
+  it('reports a solution file missing from the worktree', async () => {
+    const repoPath = createTempRepo()
+    writeRepoFile(repoPath, 'Taskmaster.slnx')
+    const { service, openPath } = setup(repoPath, join(repoPath, '.worktrees', 'feature-thread'))
+
+    expect(await service.openThreadSolutionInVisualStudio('thread-1')).toEqual({
+      ok: false,
+      error: "Configured solution file was not found in this thread's worktree: Taskmaster.slnx."
+    })
+    expect(openPath).not.toHaveBeenCalled()
+  })
+
+  it('only opens solutions on Windows', async () => {
+    const repoPath = createTempRepo()
+    const { service } = setup(repoPath, repoPath, 'linux')
+
+    expect(await service.openThreadSolutionInVisualStudio('thread-1')).toEqual({
+      ok: false,
+      error: 'Opening a solution in Visual Studio is only supported on Windows.'
+    })
   })
 })

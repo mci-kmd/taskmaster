@@ -66,6 +66,7 @@ export function createThreadWorkspaceService(dependencies: {
   resolveThreadGitContext: (threadId: string) => ThreadGitContext
   openPath: (path: string) => Promise<string>
   openExternal: (url: string) => Promise<void>
+  platform?: NodeJS.Platform
 }): {
   openThreadWorkingDirectory: (threadId: string) => Promise<OpenThreadWorkingDirectoryResult>
   openThreadWorkspaceInVscode: (threadId: string) => Promise<OpenThreadWorkspaceInVscodeResult>
@@ -73,6 +74,8 @@ export function createThreadWorkspaceService(dependencies: {
     threadId: string
   ) => Promise<OpenThreadSolutionInVisualStudioResult>
 } {
+  const platform = dependencies.platform ?? process.platform
+
   const openThreadWorkingDirectory = async (
     threadId: string
   ): Promise<OpenThreadWorkingDirectoryResult> => {
@@ -144,7 +147,7 @@ export function createThreadWorkspaceService(dependencies: {
       return { ok: false, error: `${context.repository.name} has no solution file.` }
     }
 
-    if (process.platform !== 'win32') {
+    if (platform !== 'win32') {
       return {
         ok: false,
         error: 'Opening a solution in Visual Studio is only supported on Windows.'
@@ -156,11 +159,16 @@ export function createThreadWorkspaceService(dependencies: {
       return { ok: false, error: 'No solution file is configured for this project.' }
     }
 
-    const solutionPath = resolveRepositorySolutionFilePath(context.repository.path, configuredPath)
+    // The path is relative to the repository root, so worktree threads open their own copy.
+    const root = toUiPath(context.repository.backend, context.cwd)
+    const solutionPath = resolveRepositorySolutionFilePath(root, configuredPath)
     if (!solutionPath) {
       return {
         ok: false,
-        error: `Configured solution file was not found: ${configuredPath}. Update it in Edit project.`
+        error:
+          context.thread.mode === 'worktree'
+            ? `Configured solution file was not found in this thread's worktree: ${configuredPath}.`
+            : `Configured solution file was not found: ${configuredPath}. Update it in Edit project.`
       }
     }
 
