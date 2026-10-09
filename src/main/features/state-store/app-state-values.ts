@@ -51,15 +51,24 @@ function sameRepositoryBackend(
 export function normalizePersistedThread(thread: PersistedThread): PersistedThread {
   const latestCopilotTitle = normalizeCopilotTitle(thread.latestCopilotTitle)
   const lastUserMessage = normalizeTrackedText(thread.lastUserMessage ?? null)
+  const rawGeneratedTitle = (thread as { generatedTitle?: unknown }).generatedTitle
+  const generatedTitle =
+    typeof rawGeneratedTitle === 'string' ? normalizeCopilotTitle(rawGeneratedTitle) : null
 
-  return latestCopilotTitle === thread.latestCopilotTitle &&
-    lastUserMessage === thread.lastUserMessage
-    ? thread
-    : {
-        ...thread,
-        latestCopilotTitle,
-        lastUserMessage
-      }
+  if (
+    latestCopilotTitle === thread.latestCopilotTitle &&
+    lastUserMessage === thread.lastUserMessage &&
+    (generatedTitle ?? undefined) === rawGeneratedTitle
+  )
+    return thread
+  const { generatedTitle: _generatedTitle, ...rest } = thread
+  void _generatedTitle
+  return {
+    ...rest,
+    latestCopilotTitle,
+    lastUserMessage,
+    ...(generatedTitle ? { generatedTitle } : {})
+  }
 }
 
 export function createGeneralProject(

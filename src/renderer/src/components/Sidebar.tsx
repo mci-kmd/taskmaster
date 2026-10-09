@@ -36,6 +36,8 @@ type SidebarProps = {
   onConvertThreadToWorktree: (id: string) => void
   onCloseThread: (id: string) => void
   onToggleRepositoryFavorite: (id: string, favorite: boolean) => void
+  onRegenerateTitle: (id: string) => void
+  regeneratingTitleIds: ReadonlySet<string>
   convertingThread: boolean
   closingThread: boolean
 }
@@ -60,6 +62,8 @@ export default function Sidebar({
   onConvertThreadToWorktree,
   onCloseThread,
   onToggleRepositoryFavorite,
+  onRegenerateTitle,
+  regeneratingTitleIds,
   convertingThread,
   closingThread
 }: SidebarProps): React.JSX.Element {
@@ -72,6 +76,11 @@ export default function Sidebar({
     (payload: SidebarContextMenuActionEvent): void => {
       if (payload.action === 'edit') {
         onEditThread(payload.itemId)
+        return
+      }
+
+      if (payload.action === 'regenerate-title') {
+        onRegenerateTitle(payload.itemId)
         return
       }
 
@@ -89,7 +98,7 @@ export default function Sidebar({
         onCloseThread(payload.itemId)
       }
     },
-    [onSettleThread, onCloseThread, onConvertThreadToWorktree, onEditThread]
+    [onSettleThread, onCloseThread, onConvertThreadToWorktree, onEditThread, onRegenerateTitle]
   )
 
   useEffect(() => {
@@ -193,6 +202,8 @@ export default function Sidebar({
           onCloseThread={onCloseThread}
           onConvertThreadToWorktree={onConvertThreadToWorktree}
           onToggleRepositoryFavorite={onToggleRepositoryFavorite}
+          onRegenerateTitle={onRegenerateTitle}
+          regeneratingTitleIds={regeneratingTitleIds}
           convertingThread={convertingThread}
           closingThread={closingThread}
           onContextMenu={(thread, x, y) =>
@@ -201,7 +212,12 @@ export default function Sidebar({
               itemId: thread.id,
               x,
               y,
-              ...threadMenuOptions(thread, convertingThread, closingThread)
+              ...threadMenuOptions(
+                thread,
+                convertingThread,
+                closingThread,
+                regeneratingTitleIds.has(thread.id)
+              )
             })
           }
         />

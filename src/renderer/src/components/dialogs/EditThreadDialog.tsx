@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { ThreadSnapshot } from '../../../../shared/app-types'
 import { GENERAL_THREAD_FALLBACK_TITLE } from '../../../../shared/general-project'
-import { getCopilotTitle } from '../../../../shared/thread-title'
 import { composeThreadTitle } from '../../lib/title'
 import Modal from '../Modal'
 import Button from '../ui/Button'
@@ -85,11 +84,8 @@ function EditThreadForm({
 
   const dirty = draft !== (thread.customTitle ?? '')
   const normalizedDraft = draft.trim()
-  const previewTitle = useMemo(() => {
-    const copilotTitle = getCopilotTitle(thread, runtimeTitle)
-    if (normalizedDraft) {
-      return copilotTitle ? `${normalizedDraft} — ${copilotTitle}` : normalizedDraft
-    }
+  // What the title falls back to without a manual one.
+  const automaticTitle = useMemo(() => {
     return composeThreadTitle(
       {
         ...thread,
@@ -99,7 +95,8 @@ function EditThreadForm({
       },
       runtimeTitle
     )
-  }, [normalizedDraft, runtimeTitle, thread])
+  }, [runtimeTitle, thread])
+  const previewTitle = normalizedDraft || automaticTitle
 
   return (
     <form
@@ -117,15 +114,15 @@ function EditThreadForm({
       <Field
         hint={
           thread.projectKind === 'general'
-            ? 'Shown before the live agent title. Leave blank to use the agent title on its own.'
-            : 'Shown before the live agent title. Leave blank to use the agent title or branch name on its own.'
+            ? 'Leave blank to use a title written from the conversation.'
+            : 'Leave blank to use a title written from the conversation, or the branch name until there is one.'
         }
-        label="Title prefix"
+        label="Title"
       >
         <TextInput
           autoFocus
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Optional title prefix"
+          placeholder={automaticTitle}
           value={draft}
         />
       </Field>
@@ -145,7 +142,7 @@ function EditThreadForm({
         <Button
           disabled={busy || draft.length === 0}
           onClick={() => setDraft('')}
-          title="Clear title prefix"
+          title="Clear the manual title"
           type="button"
           variant="ghost"
         >
@@ -158,7 +155,7 @@ function EditThreadForm({
           </Button>
           <Button
             disabled={busy || !dirty}
-            title="Save thread title prefix"
+            title="Save thread title"
             type="submit"
             variant="primary"
           >

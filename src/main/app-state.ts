@@ -33,7 +33,7 @@ import type {
 import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from '../shared/app-types'
 import { parseTaskTagsInput } from '../shared/task-tags'
 import { isHttpUrl } from '../shared/preview'
-import { normalizeCopilotTitle } from '../shared/thread-title'
+import { normalizeCopilotTitle, threadDisplayName } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
 import { createProjectTaskTools } from './copilot/project-task-tools'
 import { createRepositoryRemoveService } from './features/repositories/repository-remove-service'
@@ -78,6 +78,7 @@ import { createThreadRunService } from './features/threads/thread-run-service'
 import { createThreadStateService } from './features/threads/thread-state-service'
 import { normalizeCustomTitle, normalizeTrackedText } from './features/threads/thread-values'
 import { createThreadWorkspaceService } from './features/threads/thread-workspace-service'
+import { createThreadTitleService } from './features/threads/thread-title-service'
 import { applyThreadBranchTokens } from './features/threads/thread-worktree-utils'
 import { sanitizeUserFacingMessage } from './features/shared/user-facing-messages'
 import { hasSessionsForThread, killSessionsForThread } from './terminal'
@@ -115,6 +116,7 @@ let threadCommitServiceRef: ReturnType<typeof createThreadCommitService> | null 
 let stopCopilotThread: (threadId: string) => Promise<void> = async () => undefined
 let hasCopilotSession: (threadId: string) => boolean = () => false
 let isCopilotThreadWorking: (threadId: string) => boolean = () => false
+let getCopilotUserPrompts: (threadId: string) => string[] = () => []
 
 const snapshotService = createSnapshotService({
   ensureState,
@@ -313,6 +315,16 @@ const threadCommitService = createThreadCommitService({
   }
 })
 threadCommitServiceRef = threadCommitService
+const threadTitleService = createThreadTitleService({
+  resolveThreadContext: threadGitContextService.resolveThreadGitContext,
+  getUserPrompts: (threadId) => getCopilotUserPrompts(threadId),
+  generateText: (request) => {
+    if (!generateCommitMessage) return Promise.reject(new Error('Copilot is not available.'))
+    return generateCommitMessage(request)
+  },
+  saveState,
+  onTitleChanged: (threadId) => electronUi.broadcastThreadRunState(threadId)
+})
 
 export function initializeAppState(): void {
   ensureState()
@@ -381,18 +393,19 @@ export function registerAppStateIpc(): void {
     selectRepository: (repositoryId: string | null) =>
       threadStateService.selectRepository(repositoryId),
     selectThread: (threadId: string | null) => threadStateService.selectThread(threadId),
-    commitThreadChanges: (threadId: string) => threadCommitService.commitThreadChanges(threadId)
+    commitThreadChanges: (threadId: string) => threadCommitService.commitThreadChanges(threadId),
+    regenerateThreadTitle: async (threadId: string): Promise<MutationResult> => {
+      const result = await threadTitleService.regenerateTitle(threadId)
+      return result.ok ? successResult() : failureResult(result.error ?? 'Could not write a title.')
+    }
   })
 }
 
 /** Names of threads with an AI commit in progress. */
 export function getCommittingThreadNames(): string[] {
-  return [...threadCommitService.getCommitPhases().keys()].map((threadId) => {
-    const thread = findThread(threadId)
-    return (
-      thread?.customTitle ?? thread?.latestCopilotTitle ?? thread?.branchName ?? 'Untitled thread'
-    )
-  })
+  return [...threadCommitService.getCommitPhases().keys()].map((threadId) =>
+    threadDisplayName(findThread(threadId))
+  )
 }
 
 export function setCommitMessageGenerator(
@@ -405,10 +418,12 @@ export function setCopilotThreadController(controller: {
   stop: (threadId: string) => Promise<void>
   has: (threadId: string) => boolean
   isWorking: (threadId: string) => boolean
+  getUserPrompts: (threadId: string) => string[]
 }): void {
   stopCopilotThread = controller.stop
   hasCopilotSession = controller.has
   isCopilotThreadWorking = controller.isWorking
+  getCopilotUserPrompts = controller.getUserPrompts
 }
 
 export function resolveCopilotThread(threadId: string): {
@@ -477,6 +492,7 @@ export function updateCopilotThreadTitle(threadId: string, title: string): void 
 export function updateCopilotLastUserMessage(threadId: string, message: string): void {
   threadStateService.updateThreadLastUserMessage({ threadId, message })
   electronUi.broadcastThreadRunState(threadId)
+  threadTitleService.generateTitleIfMissing(threadId)
 }
 
 export function updateCopilotActivity(threadId: string): void {

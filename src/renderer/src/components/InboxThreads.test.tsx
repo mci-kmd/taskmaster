@@ -123,6 +123,44 @@ describe('inbox', () => {
     expect(onToggleRepositoryFavorite).toHaveBeenLastCalledWith('Beta', false)
   })
 
+  it('shows generated titles and regenerates them from the thread menu', () => {
+    const onRegenerateTitle = vi.fn()
+    const titled = repository('Titled', [
+      { ...thread('Generated', '2026-02-01'), customTitle: null, generatedTitle: 'Fix login' }
+    ])
+    const { rerender } = render(
+      <InboxThreads
+        repositories={[titled]}
+        selectedRepository={titled}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...callbacks()}
+        onRegenerateTitle={onRegenerateTitle}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Fix login' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Regenerate title' }))
+    expect(onRegenerateTitle).toHaveBeenCalledWith('Generated')
+    rerender(
+      <InboxThreads
+        repositories={[titled]}
+        selectedRepository={titled}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...callbacks()}
+        regeneratingTitleIds={new Set(['Generated'])}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Fix login' }))
+    expect(
+      screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Writing title...' }).disabled
+    ).toBe(true)
+  })
+
   it('shows when a thread is committing or running its app', () => {
     const busy = repository('Busy', [
       { ...thread('Committing', '2026-02-01'), commitPhase: 'hook' },
@@ -204,7 +242,7 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Convert to work tree', 'Settle thread', 'Close thread'])
+    ).toEqual(['Edit', 'Regenerate title', 'Convert to work tree', 'Settle thread', 'Close thread'])
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Edit' }))
     expect(handlers.onEditThread).toHaveBeenCalledWith('Newest')
     expect(screen.queryByRole('menu')).toBeNull()
@@ -267,7 +305,13 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Convert to work tree', 'Unsettle thread', 'Close thread'])
+    ).toEqual([
+      'Edit',
+      'Regenerate title',
+      'Convert to work tree',
+      'Unsettle thread',
+      'Close thread'
+    ])
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Unsettle thread' }))
     expect(handlers.onSettleThread).toHaveBeenCalledWith('Finished', false)
 
@@ -288,7 +332,7 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Settle thread', 'Close thread'])
+    ).toEqual(['Edit', 'Regenerate title', 'Settle thread', 'Close thread'])
     fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Worktree' }))
     rerender(
       <InboxThreads

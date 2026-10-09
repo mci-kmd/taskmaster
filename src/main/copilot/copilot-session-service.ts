@@ -28,6 +28,7 @@ import type {
   PersistedThread
 } from '../../shared/app-types'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
+import { resolveThreadTitle, threadDisplayName } from '../../shared/thread-title'
 import { sendIpc } from '../ipc/typed-ipc'
 import type {
   CopilotClient,
@@ -472,6 +473,8 @@ export function createCopilotSessionService(dependencies: {
   hasSession: (threadId: string) => boolean
   isThreadWorking: (threadId: string) => boolean
   runningThreadNames: () => string[]
+  /** User messages in the thread's connected session, oldest first. */
+  getUserPrompts: (threadId: string) => string[]
   listModels: () => Promise<CopilotListModelsResult>
   generateText: (input: CopilotGenerateTextInput) => Promise<string>
   shutdown: () => Promise<void>
@@ -1621,12 +1624,7 @@ export function createCopilotSessionService(dependencies: {
         startingThreads.keys(),
         (threadId) => {
           const thread = dependencies.resolveThread(threadId)?.thread
-          return (
-            thread?.customTitle ??
-            thread?.latestCopilotTitle ??
-            thread?.branchName ??
-            `Thread ${threadId}`
-          )
+          return thread ? threadDisplayName(thread) : `Thread ${threadId}`
         }
       )
       if (blockers.length > 0) {
@@ -1853,14 +1851,14 @@ export function createCopilotSessionService(dependencies: {
         .filter((active) => active.snapshot.phase === 'running')
         .map((active) => {
           const thread = dependencies.resolveThread(active.snapshot.threadId)?.thread
-          return (
-            thread?.customTitle ??
-            active.snapshot.title ??
-            thread?.latestCopilotTitle ??
-            thread?.branchName ??
-            'Untitled thread'
-          )
+          return thread
+            ? (resolveThreadTitle(thread, active.snapshot.title) ?? threadDisplayName(thread))
+            : (active.snapshot.title ?? 'Untitled thread')
         }),
+    getUserPrompts: (threadId) =>
+      (sessions.get(threadId)?.snapshot.timeline ?? []).flatMap((item) =>
+        item.type === 'user' ? [item.content] : []
+      ),
     listModels: async () => {
       try {
         const sdkClient = await ensureClient()

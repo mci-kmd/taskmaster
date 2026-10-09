@@ -14,6 +14,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Copilot sessions can list/search, create, edit (including labels and the GitHub issue link) and complete the project's tasks via `taskmaster_*` tools; the tools tell the agent these are the user's tasks, to be changed only when asked. Listing needs no approval; changes follow the normal permission prompts
 - Completed tasks are kept rather than deleted: open them from the quiet "N completed tasks" link below the task list, newest first, with the same search and label filters, and reopen any of them
 - Tag tasks with global labels from Settings plus optional project-specific labels from Edit project
+- Threads are named automatically after your first message, using the project's commit message model; a title you set in Edit thread replaces it, and **Regenerate title** in a thread's menu writes a new one from the conversation (replacing any manual title)
 - Create Copilot threads on a branch or worktree; settling preserves sessions, branches, and worktrees without cleanup, and keeps the current project selected
 - Choose a predefined project icon and color as a fallback for custom favicons
 - Browse available Copilot models through nested family submenus, preserving the active model and per-model reasoning settings; star models (click the star or press `*`) to list them as favorites at the bottom of the picker

@@ -26,6 +26,7 @@ describe('thread menu actions', () => {
     }
     expect(threadMenuActions(options)).toEqual([
       { action: 'edit', label: 'Edit', enabled: true },
+      { action: 'regenerate-title', label: 'Regenerate title', enabled: true },
       { action: 'convert-to-worktree', label: 'Converting...', enabled: false },
       { action: 'settle-thread', label: 'Settle thread', enabled: true },
       { action: 'close-thread', label: 'Closing...', enabled: false }
@@ -35,10 +36,12 @@ describe('thread menu actions', () => {
         ...options,
         settled: true,
         convertToWorktreeEnabled: true,
-        closeThreadEnabled: true
+        closeThreadEnabled: true,
+        regenerateTitleEnabled: false
       })
     ).toEqual([
       { action: 'edit', label: 'Edit', enabled: true },
+      { action: 'regenerate-title', label: 'Writing title...', enabled: false },
       { action: 'convert-to-worktree', label: 'Convert to work tree', enabled: true },
       { action: 'unsettle-thread', label: 'Unsettle thread', enabled: true },
       { action: 'close-thread', label: 'Close thread', enabled: true }

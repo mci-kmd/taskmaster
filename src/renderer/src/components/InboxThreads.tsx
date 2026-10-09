@@ -39,7 +39,9 @@ export default function InboxThreads({
   convertingThread,
   closingThread,
   onContextMenu,
-  onToggleRepositoryFavorite
+  onToggleRepositoryFavorite,
+  onRegenerateTitle,
+  regeneratingTitleIds
 }: {
   repositories: RepositorySnapshot[]
   selectedRepository: RepositorySnapshot | null
@@ -58,6 +60,8 @@ export default function InboxThreads({
   closingThread: boolean
   onContextMenu: (thread: ThreadSnapshot, x: number, y: number) => void
   onToggleRepositoryFavorite?: (id: string, favorite: boolean) => void
+  onRegenerateTitle?: (id: string) => void
+  regeneratingTitleIds?: ReadonlySet<string>
 }): React.JSX.Element {
   const [settledExpanded, setSettledExpanded] = useState(false)
   const activeList = useListMotion()
@@ -157,12 +161,18 @@ export default function InboxThreads({
           <ActionMenu
             label={`Thread actions for ${title}`}
             items={threadMenuActions(
-              threadMenuOptions(thread, convertingThread, closingThread)
+              threadMenuOptions(
+                thread,
+                convertingThread,
+                closingThread,
+                regeneratingTitleIds?.has(thread.id)
+              )
             ).map(({ action, label, enabled }) => ({
               label,
               disabled: !enabled,
               onSelect: () => {
                 if (action === 'edit') onEditThread(thread.id)
+                else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
                 else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
                 else if (action === 'settle-thread' || action === 'unsettle-thread')
                   onSettleThread(thread.id, action === 'settle-thread')

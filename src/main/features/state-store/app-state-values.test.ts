@@ -3,7 +3,8 @@ import type { PersistedProjectTask, PersistedRepository } from '../../../shared/
 import {
   createGeneralProject,
   ensureGeneralProject,
-  normalizePersistedRepository
+  normalizePersistedRepository,
+  normalizePersistedThread
 } from './app-state-values'
 
 const NOW = (): string => '2026-01-01T00:00:00.000Z'
@@ -174,5 +175,31 @@ describe('favorite project persistence', () => {
     expect(
       normalizePersistedRepository({ ...repository('alpha'), favorite: 'yes' as never })
     ).not.toHaveProperty('favorite')
+  })
+})
+
+describe('generated thread titles', () => {
+  it('keeps a valid generated title and drops invalid ones', () => {
+    const base = normalizePersistedThread({
+      id: 't',
+      repositoryId: 'r',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01',
+      lastActivityAt: '2026-01-01'
+    })
+    const titled = { ...base, generatedTitle: 'Fix login' }
+    expect(normalizePersistedThread(titled)).toBe(titled)
+    expect(normalizePersistedThread({ ...base, generatedTitle: '  ' })).not.toHaveProperty(
+      'generatedTitle'
+    )
+    expect(normalizePersistedThread({ ...base, generatedTitle: 5 as never })).not.toHaveProperty(
+      'generatedTitle'
+    )
   })
 })

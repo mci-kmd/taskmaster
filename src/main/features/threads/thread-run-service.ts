@@ -9,6 +9,7 @@ import {
 import { normalizeRunCommand } from '../repositories/repository-values'
 import { applyThreadBranchTokens } from './thread-worktree-utils'
 import type { ThreadGitContext } from './thread-git-context'
+import { threadDisplayName } from '../../../shared/thread-title'
 
 const RUN_OUTPUT_LIMIT = 24_000
 
@@ -197,7 +198,7 @@ export function createThreadRunService(dependencies: {
           child,
           cwd: context.cwd,
           command: resolvedRunCommand,
-          threadLabel: context.thread.customTitle ?? context.thread.branchName,
+          threadLabel: threadDisplayName(context.thread),
           output: '',
           stopping: false
         }

@@ -100,6 +100,7 @@ export const IPC_CHANNELS = {
     selectRepository: 'app-state:select-repository',
     selectThread: 'app-state:select-thread',
     commitThreadChanges: 'app-state:commit-thread-changes',
+    regenerateThreadTitle: 'app-state:regenerate-thread-title',
     commitProgress: 'app-state:commit-progress',
     threadRunState: 'app-state:thread-run-state'
   },
@@ -241,6 +242,7 @@ export type IpcInvokeDefinitions = {
   'app-state:select-repository': { request: [string | null]; response: AppSnapshot }
   'app-state:select-thread': { request: [string | null]; response: AppSnapshot }
   'app-state:commit-thread-changes': { request: [string]; response: ThreadCommitResult }
+  'app-state:regenerate-thread-title': { request: [string]; response: MutationResult }
   'native-menu:show-sidebar-context-menu': {
     request: [SidebarContextMenuRequest]
     response: boolean

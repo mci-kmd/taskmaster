@@ -6,27 +6,39 @@ import type {
 
 type ThreadMenuOptions = Pick<
   SidebarContextMenuRequest,
-  'settled' | 'convertToWorktreeVisible' | 'convertToWorktreeEnabled' | 'closeThreadEnabled'
+  | 'settled'
+  | 'convertToWorktreeVisible'
+  | 'convertToWorktreeEnabled'
+  | 'closeThreadEnabled'
+  | 'regenerateTitleEnabled'
 >
 
 export function threadMenuOptions(
   thread: ThreadSnapshot,
   convertingThread: boolean,
-  closingThread: boolean
+  closingThread: boolean,
+  regeneratingTitle = false
 ): ThreadMenuOptions {
   return {
     settled: Boolean(thread.settledAt),
     convertToWorktreeVisible: thread.mode !== 'worktree' && thread.projectKind !== 'general',
     convertToWorktreeEnabled: !convertingThread,
-    closeThreadEnabled: !closingThread
+    closeThreadEnabled: !closingThread,
+    regenerateTitleEnabled: !regeneratingTitle
   }
 }
 
 export function threadMenuActions(
   options: ThreadMenuOptions
 ): Array<{ action: SidebarContextMenuAction; label: string; enabled: boolean }> {
+  const regenerateTitleEnabled = options.regenerateTitleEnabled !== false
   const actions: Array<{ action: SidebarContextMenuAction; label: string; enabled: boolean }> = [
-    { action: 'edit', label: 'Edit', enabled: true }
+    { action: 'edit', label: 'Edit', enabled: true },
+    {
+      action: 'regenerate-title',
+      label: regenerateTitleEnabled ? 'Regenerate title' : 'Writing title...',
+      enabled: regenerateTitleEnabled
+    }
   ]
   if (options.convertToWorktreeVisible) {
     actions.push({

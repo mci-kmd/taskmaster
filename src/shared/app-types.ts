@@ -132,7 +132,10 @@ export interface PersistedThread {
   settledAt?: string | null
   id: string
   repositoryId: string
+  /** Set by the user; replaces any generated title. */
   customTitle: string | null
+  /** Written by the project's commit message model from the conversation. */
+  generatedTitle?: string | null
   latestCopilotTitle: string | null
   lastUserMessage: string | null
   mode: ThreadMode
@@ -332,7 +335,12 @@ export type ThreadDiffFileSaveResult =
     }
 
 export type SidebarContextMenuAction =
-  'edit' | 'convert-to-worktree' | 'close-thread' | 'settle-thread' | 'unsettle-thread'
+  | 'edit'
+  | 'regenerate-title'
+  | 'convert-to-worktree'
+  | 'close-thread'
+  | 'settle-thread'
+  | 'unsettle-thread'
 
 export interface SidebarContextMenuRequest {
   settled?: boolean
@@ -343,6 +351,8 @@ export interface SidebarContextMenuRequest {
   convertToWorktreeVisible: boolean
   convertToWorktreeEnabled: boolean
   closeThreadEnabled: boolean
+  /** False while a title is being written. */
+  regenerateTitleEnabled?: boolean
 }
 
 export interface SidebarContextMenuActionEvent {

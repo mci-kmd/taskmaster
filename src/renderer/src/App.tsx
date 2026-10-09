@@ -133,6 +133,27 @@ export default function App(): React.JSX.Element {
     [applyMutation]
   )
 
+  const [regeneratingTitleIds, setRegeneratingTitleIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
+  const handleRegenerateTitle = useCallback(
+    async (threadId: string): Promise<void> => {
+      setRegeneratingTitleIds((current) => new Set(current).add(threadId))
+      try {
+        await applyMutation(api.appState.regenerateThreadTitle(threadId))
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      } finally {
+        setRegeneratingTitleIds((current) => {
+          const next = new Set(current)
+          next.delete(threadId)
+          return next
+        })
+      }
+    },
+    [applyMutation]
+  )
+
   const selectedRepository = useMemo(() => {
     if (!snapshot) {
       return null
@@ -726,6 +747,8 @@ export default function App(): React.JSX.Element {
           onAddRepository={() => void handleAddRepository()}
           onCloseThread={(id) => void handleCloseThread(id)}
           onConvertThreadToWorktree={(id) => void handleConvertThreadToWorktree(id)}
+          onRegenerateTitle={(id) => void handleRegenerateTitle(id)}
+          regeneratingTitleIds={regeneratingTitleIds}
           onToggleRepositoryFavorite={(repositoryId, favorite) =>
             void applyMutation(api.appState.setRepositoryFavorite({ repositoryId, favorite }))
           }

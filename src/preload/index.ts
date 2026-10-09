@@ -161,6 +161,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.selectThread, threadId),
     commitThreadChanges: (threadId: string) =>
       invokeIpc(IPC_CHANNELS.appState.commitThreadChanges, threadId),
+    regenerateThreadTitle: (threadId: string) =>
+      invokeIpc(IPC_CHANNELS.appState.regenerateThreadTitle, threadId),
     onCommitProgress: (callback: (payload: ThreadCommitProgressEvent) => void) =>
       onIpc(IPC_CHANNELS.appState.commitProgress, callback),
     showSidebarContextMenu: (input: SidebarContextMenuRequest) =>
