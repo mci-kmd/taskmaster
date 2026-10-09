@@ -17,6 +17,7 @@ import {
   SIDEBAR_WIDTH_MIN,
   type AppSnapshot,
   type ModelPerformanceSample,
+  type MutationResult,
   type UsdDkkRate,
   type CreateRepositoryTaskInput,
   type RepositorySnapshot,
@@ -417,14 +418,14 @@ export default function App(): React.JSX.Element {
     setNewThreadError(null)
   }, [])
 
+  // Settings dialogs auto-save and show failures inline, so these skip the busy state and toast.
   const handleSaveSettings = useCallback(
-    async (input: UpdateSettingsInput): Promise<boolean> => {
-      setBusyAction('save-settings')
-      const result = await applyMutation(api.appState.updateSettings(input))
-      setBusyAction(null)
-      return result.ok
+    async (input: UpdateSettingsInput): Promise<MutationResult> => {
+      const result = await api.appState.updateSettings(input)
+      if (result.snapshot) setSnapshot(result.snapshot)
+      return result
     },
-    [applyMutation]
+    [setSnapshot]
   )
 
   const handleBrowseRepositoryFavicon = useCallback(
@@ -468,13 +469,12 @@ export default function App(): React.JSX.Element {
   )
 
   const handleSaveRepository = useCallback(
-    async (input: UpdateRepositoryInput): Promise<boolean> => {
-      setBusyAction('save-repository')
-      const result = await applyMutation(api.appState.updateRepository(input))
-      setBusyAction(null)
-      return result.ok
+    async (input: UpdateRepositoryInput): Promise<MutationResult> => {
+      const result = await api.appState.updateRepository(input)
+      if (result.snapshot) setSnapshot(result.snapshot)
+      return result
     },
-    [applyMutation]
+    [setSnapshot]
   )
 
   const handleRemoveRepository = useCallback(
@@ -844,20 +844,18 @@ export default function App(): React.JSX.Element {
       />
 
       <SettingsDialog
-        busy={busyAction === 'save-settings'}
         onClose={() => setDialog(null)}
-        onSubmit={handleSaveSettings}
+        onSave={handleSaveSettings}
         open={dialog === 'settings'}
         settings={snapshot.settings}
       />
 
       <EditRepositoryDialog
-        busy={busyAction === 'save-repository'}
         onBrowseFavicon={handleBrowseRepositoryFavicon}
         onBrowseSolutionFile={handleBrowseRepositorySolutionFile}
         onClose={handleCloseRepositoryEditor}
         onRemove={handleRemoveRepository}
-        onSubmit={handleSaveRepository}
+        onSave={handleSaveRepository}
         open={dialog === 'edit-repository'}
         removing={busyAction === 'remove-repository'}
         repository={editingRepository}

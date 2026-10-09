@@ -1,8 +1,16 @@
 import { useState } from 'react'
 import Modal from '../Modal'
-import Button from '../ui/Button'
-import Checkbox from '../ui/Checkbox'
-import { Field, TextArea, TextInput } from '../ui/Field'
+import {
+  CheckboxSetting,
+  SaveStatus,
+  SettingRow,
+  SettingsLayout,
+  TagPreview,
+  TextAreaSetting,
+  TextSetting,
+  type SettingsSection
+} from '../settings/SettingsLayout'
+import { useAutoSave, type AutoSaveResult } from '../settings/use-auto-save'
 import type { AppSettingsSnapshot, UpdateSettingsInput } from '../../../../shared/app-types'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
 import LegacyModelsPicker from './LegacyModelsPicker'
@@ -10,168 +18,126 @@ import LegacyModelsPicker from './LegacyModelsPicker'
 type SettingsDialogProps = {
   open: boolean
   settings: AppSettingsSnapshot
-  busy: boolean
   onClose: () => void
-  onSubmit: (input: UpdateSettingsInput) => Promise<boolean>
+  /** Persists the full settings; called automatically as settings change. */
+  onSave: (input: UpdateSettingsInput) => Promise<AutoSaveResult>
 }
 
-export default function SettingsDialog({
-  open,
+export default function SettingsDialog(props: SettingsDialogProps): React.JSX.Element | null {
+  // Mounting only while open resets the drafts each time the dialog opens.
+  return props.open ? <SettingsDialogContent {...props} /> : null
+}
+
+function SettingsDialogContent({
   settings,
-  busy,
   onClose,
-  onSubmit
+  onSave
 }: SettingsDialogProps): React.JSX.Element {
+  const [sectionId, setSectionId] = useState('copilot')
+  const form = useAutoSave<UpdateSettingsInput>({
+    initialValues: {
+      yoloEnabled: settings.yoloEnabled,
+      terminalFontFamilyInput: settings.terminalFontFamilyInput,
+      taskTagsInput: settings.taskTagsInput,
+      legacyCopilotModels: settings.legacyCopilotModels ?? []
+    },
+    save: (values) => onSave(values)
+  })
+  const { values } = form
+  const legacyModels = form.field('legacyCopilotModels')
+
+  const close = (): void => {
+    void form.flush()
+    onClose()
+  }
+
+  const sections: SettingsSection[] = [
+    {
+      id: 'copilot',
+      label: 'Copilot',
+      description: 'Applies to newly opened sessions.',
+      hasError: form.hasErrors(['yoloEnabled', 'legacyCopilotModels']),
+      content: (
+        <>
+          <CheckboxSetting
+            checkboxLabel="Approve requests automatically"
+            field={form.field('yoloEnabled')}
+            hint="Copilot permission requests are approved without asking, except those that managed policy requires you to approve."
+            label="Permissions"
+          />
+          <SettingRow
+            hint="The model picker lists these under a collapsed Legacy row at the end of their family."
+            label="Legacy models"
+            labelsControl={false}
+            status={legacyModels.status}
+          >
+            <LegacyModelsPicker onChange={legacyModels.set} value={legacyModels.value ?? []} />
+          </SettingRow>
+        </>
+      )
+    },
+    {
+      id: 'terminal',
+      label: 'Terminal',
+      hasError: form.hasErrors(['terminalFontFamilyInput']),
+      content: (
+        <TextSetting
+          field={form.field('terminalFontFamilyInput')}
+          hint="CSS font-family stack for thread terminals. Leave blank for the built-in Nerd Font stack."
+          label="Font family"
+          placeholder="'CaskaydiaCove Nerd Font Mono', Consolas, monospace"
+          stacked
+        >
+          <p className="mt-2 break-words text-[12px] leading-5 text-[var(--color-fg-subtle)]">
+            In use:{' '}
+            <span className="font-mono text-[11.5px] text-[var(--color-fg-muted)]">
+              {values.terminalFontFamilyInput.trim() || settings.resolvedTerminalFontFamily}
+            </span>
+          </p>
+        </TextSetting>
+      )
+    },
+    {
+      id: 'tasks',
+      label: 'Tasks',
+      hasError: form.hasErrors(['taskTagsInput']),
+      content: (
+        <TextAreaSetting
+          field={form.field('taskTagsInput')}
+          hint="Comma- or newline-separated labels offered for tasks in every project. Projects can add their own in Edit project."
+          label="Task tags"
+          placeholder={'bug\nfeature'}
+          rows={4}
+        >
+          <TagPreview
+            empty="No task tags configured."
+            tags={
+              values.taskTagsInput === settings.taskTagsInput
+                ? settings.parsedTaskTags
+                : parseTaskTagsInput(values.taskTagsInput)
+            }
+          />
+        </TextAreaSetting>
+      )
+    }
+  ]
+
   return (
     <Modal
       description="Configure Copilot sessions and your workspace."
-      onClose={onClose}
-      open={open}
+      fill
+      headerExtra={<SaveStatus errorCount={form.errorCount} status={form.status} />}
+      onClose={close}
+      open
       title="Settings"
-      width="md"
+      width="xl"
     >
-      <SettingsForm
-        busy={busy}
-        onCancel={onClose}
-        onSubmit={async (input) => {
-          const ok = await onSubmit(input)
-          if (ok) {
-            onClose()
-          }
-        }}
-        settings={settings}
+      <SettingsLayout
+        activeId={sectionId}
+        label="Settings sections"
+        onActiveChange={setSectionId}
+        sections={sections}
       />
     </Modal>
-  )
-}
-
-type SettingsFormProps = {
-  settings: AppSettingsSnapshot
-  busy: boolean
-  onCancel: () => void
-  onSubmit: (input: UpdateSettingsInput) => Promise<void>
-}
-
-function SettingsForm({
-  settings,
-  busy,
-  onCancel,
-  onSubmit
-}: SettingsFormProps): React.JSX.Element {
-  const [yoloEnabled, setYoloEnabled] = useState(settings.yoloEnabled)
-  const [terminalFontFamilyDraft, setTerminalFontFamilyDraft] = useState(
-    settings.terminalFontFamilyInput
-  )
-  const [taskTagsDraft, setTaskTagsDraft] = useState(settings.taskTagsInput)
-  const savedLegacyModels = settings.legacyCopilotModels ?? []
-  const [legacyModels, setLegacyModels] = useState(savedLegacyModels)
-
-  const parsedTaskTagsPreview =
-    taskTagsDraft === settings.taskTagsInput
-      ? settings.parsedTaskTags
-      : parseTaskTagsInput(taskTagsDraft)
-  const dirty =
-    yoloEnabled !== settings.yoloEnabled ||
-    terminalFontFamilyDraft !== settings.terminalFontFamilyInput ||
-    taskTagsDraft !== settings.taskTagsInput ||
-    legacyModels.join('\n') !== savedLegacyModels.join('\n')
-
-  return (
-    <form
-      className="space-y-4"
-      onSubmit={(event) => {
-        event.preventDefault()
-        if (dirty && !busy) {
-          void onSubmit({
-            yoloEnabled,
-            terminalFontFamilyInput: terminalFontFamilyDraft,
-            taskTagsInput: taskTagsDraft,
-            legacyCopilotModels: legacyModels
-          })
-        }
-      }}
-    >
-      <Field
-        hint="Automatically approve Copilot permission requests, except those that require approval by managed policy. Applies to new sessions."
-        label="Copilot permissions"
-      >
-        <Checkbox
-          autoFocus
-          checked={yoloEnabled}
-          label="Approve requests automatically"
-          onChange={setYoloEnabled}
-        />
-      </Field>
-
-      <Field
-        hint="The model picker lists these under a collapsed Legacy row at the end of their family."
-        label="Legacy models"
-      >
-        <LegacyModelsPicker value={legacyModels} onChange={setLegacyModels} />
-      </Field>
-
-      <Field
-        hint="CSS font-family stack for thread terminals. Leave blank to use the built-in Nerd Font fallback stack."
-        label="Terminal font family"
-      >
-        <TextInput
-          onChange={(event) => setTerminalFontFamilyDraft(event.target.value)}
-          placeholder="'CaskaydiaCove Nerd Font Mono', Consolas, monospace"
-          value={terminalFontFamilyDraft}
-        />
-      </Field>
-
-      <Field
-        hint="Comma- or newline-separated labels available in every project's task create/edit forms. Projects can add their own tags in Edit project."
-        label="Task tags"
-      >
-        <TextArea
-          onChange={(event) => setTaskTagsDraft(event.target.value)}
-          placeholder={'bug\nfeature'}
-          spellCheck={false}
-          value={taskTagsDraft}
-        />
-      </Field>
-
-      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5">
-        <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-          Active terminal font stack
-        </div>
-        <div className="mt-1.5 break-words font-mono text-[11.5px] leading-5 text-[var(--color-fg)]">
-          {terminalFontFamilyDraft.trim() || settings.resolvedTerminalFontFamily}
-        </div>
-      </div>
-
-      <div>
-        <div className="mb-1.5 text-[12px] font-medium uppercase tracking-[0.14em] text-[var(--color-fg-subtle)]">
-          Task tag preview
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {parsedTaskTagsPreview.length > 0 ? (
-            parsedTaskTagsPreview.map((tag) => (
-              <span
-                className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-1 text-[11.5px] text-[var(--color-fg)]"
-                key={tag}
-              >
-                {tag}
-              </span>
-            ))
-          ) : (
-            <span className="text-[12.5px] text-[var(--color-fg-subtle)]">
-              No task tags configured.
-            </span>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-2 flex items-center justify-end gap-2 pt-1">
-        <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
-          Cancel
-        </Button>
-        <Button disabled={busy || !dirty} title="Save settings" type="submit" variant="primary">
-          {busy ? 'Saving…' : 'Save settings'}
-        </Button>
-      </div>
-    </form>
   )
 }

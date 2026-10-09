@@ -1,4 +1,6 @@
 type CheckboxProps = {
+  id?: string
+  'aria-describedby'?: string
   autoFocus?: boolean
   checked: boolean
   disabled?: boolean
@@ -8,6 +10,8 @@ type CheckboxProps = {
 }
 
 export default function Checkbox({
+  id,
+  'aria-describedby': describedBy,
   autoFocus,
   checked,
   disabled,
@@ -23,10 +27,12 @@ export default function Checkbox({
       title={title}
     >
       <input
+        aria-describedby={describedBy}
         autoFocus={autoFocus}
         checked={checked}
         className="tm-checkbox__input"
         disabled={disabled}
+        id={id}
         onChange={(event) => onChange(event.target.checked)}
         type="checkbox"
       />

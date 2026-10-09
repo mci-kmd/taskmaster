@@ -31,8 +31,8 @@ export function Field({ label, hint, children, htmlFor }: FieldShellProps): Reac
   return <div className="block">{content}</div>
 }
 
-const inputClass =
-  'block w-full rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2 text-[13px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-faint)] transition-colors focus:border-[var(--color-border-strong)] focus:bg-[#1c1c1c]'
+// Styled by .tm-input: utilities lose to the unlayered input/textarea reset in main.css.
+const inputClass = 'tm-input block w-full'
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>): React.JSX.Element {
   const { className = '', ...rest } = props

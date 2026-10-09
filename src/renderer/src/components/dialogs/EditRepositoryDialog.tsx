@@ -3,8 +3,11 @@ import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../../shared/project-i
 import { ProjectGlyph } from '../ProjectIcon'
 import Modal from '../Modal'
 import Button from '../ui/Button'
-import { Field, TextArea, TextInput } from '../ui/Field'
-import type { RepositorySnapshot, UpdateRepositoryInput } from '../../../../shared/app-types'
+import type {
+  CopilotModelSelection,
+  RepositorySnapshot,
+  UpdateRepositoryInput
+} from '../../../../shared/app-types'
 import {
   GENERAL_PROJECT_DEFAULTS,
   GENERAL_PROJECT_NAME_MAX_LENGTH,
@@ -13,24 +16,37 @@ import {
 } from '../../../../shared/general-project'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
 import {
+  COMMIT_SHORTCUT_LABEL,
   DEFAULT_COMMIT_MESSAGE_MODEL,
   isSameModelSelection,
   resolveCommitMessageModel
 } from '../../../../shared/commit'
-import Checkbox from '../ui/Checkbox'
+import {
+  CheckboxSetting,
+  SaveStatus,
+  SettingRow,
+  SettingsLayout,
+  SettingsSectionBody,
+  TagPreview,
+  TextAreaSetting,
+  TextSetting,
+  Token,
+  type SettingsSection
+} from '../settings/SettingsLayout'
+import { useAutoSave, type AutoSaveField, type AutoSaveResult } from '../settings/use-auto-save'
 import CommitModelPicker from './CommitModelPicker'
 
 type EditRepositoryDialogProps = {
   open: boolean
   repository: RepositorySnapshot | null
-  busy: boolean
   removing: boolean
   /** Threads of this project whose Copilot session is currently working; blocks removal. */
   workingThreadCount: number
   onClose: () => void
   onBrowseFavicon: (repositoryId: string) => Promise<string | null>
   onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
-  onSubmit: (input: UpdateRepositoryInput) => Promise<boolean>
+  /** Persists the project's settings; called automatically as settings change. */
+  onSave: (input: UpdateRepositoryInput) => Promise<AutoSaveResult>
   onRemove: (repositoryId: string) => Promise<boolean>
 }
 
@@ -45,99 +61,380 @@ function workingThreadsMessage(count: number): string {
 export default function EditRepositoryDialog({
   open,
   repository,
-  busy,
-  removing,
-  workingThreadCount,
   onClose,
-  onBrowseFavicon,
-  onBrowseSolutionFile,
-  onSubmit,
-  onRemove
-}: EditRepositoryDialogProps): React.JSX.Element {
-  const [confirmingRemovalId, setConfirmingRemovalId] = useState<string | null>(null)
-  const confirmingRemoval =
-    repository !== null && !isGeneralProject(repository) && confirmingRemovalId === repository.id
-  const handleClose = (): void => {
-    setConfirmingRemovalId(null)
-    onClose()
+  ...props
+}: EditRepositoryDialogProps): React.JSX.Element | null {
+  // Settings mount only while open, so their drafts reset each time the dialog opens.
+  if (!open) {
+    return null
   }
 
-  return (
-    <Modal
-      description={
-        !repository
-          ? 'Pick a repository in the sidebar first.'
-          : confirmingRemoval
-            ? `${repository.name} will be removed from Taskmaster. This cannot be undone.`
-            : isGeneralProject(repository)
-              ? 'Configure the title and icon of the project for general computer tasks.'
-              : `Configure the icon, solution file, project commands, task tags, and commit settings for ${repository.name}.`
-      }
-      onClose={confirmingRemoval ? () => setConfirmingRemovalId(null) : handleClose}
-      open={open}
-      title={confirmingRemoval ? 'Remove project?' : 'Edit project'}
-      width="md"
-    >
-      {repository && confirmingRemoval ? (
-        <RemoveRepositoryConfirmation
-          onCancel={() => setConfirmingRemovalId(null)}
-          onConfirm={async () => {
-            const ok = await onRemove(repository.id)
-            if (ok) {
-              setConfirmingRemovalId(null)
-            }
-          }}
-          removing={removing}
-          repository={repository}
-          workingThreadCount={workingThreadCount}
-        />
-      ) : null}
-      {repository && isGeneralProject(repository) ? (
-        <EditGeneralProjectForm
-          busy={busy}
-          key={`${repository.id}:${repository.name}:${repository.icon ?? ''}:${repository.iconColor ?? ''}`}
-          onCancel={handleClose}
-          onSubmit={async (input) => {
-            const ok = await onSubmit(input)
-            if (ok) {
-              handleClose()
-            }
-          }}
-          repository={repository}
-        />
-      ) : repository ? (
-        // Kept mounted while confirming removal so unsaved edits survive a cancelled removal.
-        <div hidden={confirmingRemoval}>
-          <EditRepositoryForm
-            busy={busy}
-            key={`${repository.id}:${repository.faviconPath ?? ''}:${repository.runCommand ?? ''}:${repository.solutionFilePath ?? ''}:${repository.newWorktreeSetupCommand ?? ''}:${repository.postWorktreeRemoveCommand ?? ''}:${repository.previewUrl ?? ''}:${repository.taskTagsInput ?? ''}:${repository.commitMessageModel?.model ?? ''}:${repository.commitMessageModel?.reasoningEffort ?? ''}:${repository.autoPushAfterCommit === true}`}
-            onBrowseFavicon={onBrowseFavicon}
-            onBrowseSolutionFile={onBrowseSolutionFile}
-            onCancel={handleClose}
-            onRequestRemove={() => setConfirmingRemovalId(repository.id)}
-            onSubmit={async (input) => {
-              const ok = await onSubmit(input)
-              if (ok) {
-                handleClose()
-              }
-            }}
-            removing={removing}
-            repository={repository}
-            workingThreadCount={workingThreadCount}
-          />
-        </div>
-      ) : (
+  if (!repository) {
+    return (
+      <Modal
+        description="Pick a repository in the sidebar first."
+        onClose={onClose}
+        open
+        title="Edit project"
+      >
         <div className="space-y-5">
           <p className="text-[13px] text-[var(--color-fg-muted)]">
             Select a repository, then reopen the editor.
           </p>
           <div className="flex justify-end">
-            <Button onClick={handleClose} title="Close dialog" variant="secondary">
+            <Button onClick={onClose} title="Close dialog" variant="secondary">
               Close
             </Button>
           </div>
         </div>
-      )}
+      </Modal>
+    )
+  }
+
+  return isGeneralProject(repository) ? (
+    <GeneralProjectSettings
+      key={repository.id}
+      onClose={onClose}
+      onSave={props.onSave}
+      repository={repository}
+    />
+  ) : (
+    <RepositorySettings key={repository.id} onClose={onClose} repository={repository} {...props} />
+  )
+}
+
+type RepositoryValues = {
+  icon: string
+  iconColor: string
+  faviconPath: string
+  solutionFilePath: string
+  runCommand: string
+  previewUrl: string
+  newWorktreeSetupCommand: string
+  postWorktreeRemoveCommand: string
+  taskTagsInput: string
+  commitMessageModel: CopilotModelSelection
+  autoPushAfterCommit: boolean
+}
+
+function repositoryValues(repository: RepositorySnapshot): RepositoryValues {
+  return {
+    icon: repository.icon ?? 'folder',
+    iconColor: repository.iconColor ?? 'default',
+    faviconPath: repository.faviconPath ?? '',
+    solutionFilePath: repository.solutionFilePath ?? '',
+    runCommand: repository.runCommand ?? '',
+    previewUrl: repository.previewUrl ?? '',
+    newWorktreeSetupCommand: repository.newWorktreeSetupCommand ?? '',
+    postWorktreeRemoveCommand: repository.postWorktreeRemoveCommand ?? '',
+    taskTagsInput: repository.taskTagsInput ?? '',
+    commitMessageModel: resolveCommitMessageModel(repository),
+    autoPushAfterCommit: repository.autoPushAfterCommit === true
+  }
+}
+
+function toUpdateInput(repositoryId: string, values: RepositoryValues): UpdateRepositoryInput {
+  return {
+    repositoryId,
+    icon: values.icon,
+    iconColor: values.iconColor,
+    faviconPath: values.faviconPath.trim() || null,
+    solutionFilePath: values.solutionFilePath.trim() || null,
+    runCommand: values.runCommand.trim() || null,
+    previewUrl: values.previewUrl.trim() || null,
+    newWorktreeSetupCommand: values.newWorktreeSetupCommand.trim() || null,
+    postWorktreeRemoveCommand: values.postWorktreeRemoveCommand.trim() || null,
+    taskTagsInput: values.taskTagsInput,
+    // Null restores the default, so later changes to the default apply to this project.
+    commitMessageModel: isSameModelSelection(
+      values.commitMessageModel,
+      DEFAULT_COMMIT_MESSAGE_MODEL
+    )
+      ? null
+      : values.commitMessageModel,
+    autoPushAfterCommit: values.autoPushAfterCommit
+  }
+}
+
+type RepositorySettingsProps = Omit<EditRepositoryDialogProps, 'open' | 'repository'> & {
+  repository: RepositorySnapshot
+}
+
+function RepositorySettings({
+  repository,
+  removing,
+  workingThreadCount,
+  onClose,
+  onBrowseFavicon,
+  onBrowseSolutionFile,
+  onSave,
+  onRemove
+}: RepositorySettingsProps): React.JSX.Element {
+  const [sectionId, setSectionId] = useState('general')
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+  const form = useAutoSave<RepositoryValues>({
+    initialValues: repositoryValues(repository),
+    save: (values) => onSave(toUpdateInput(repository.id, values))
+  })
+  const { values } = form
+  const icon = form.field('icon')
+  const iconColor = form.field('iconColor')
+  const commitModel = form.field('commitMessageModel')
+
+  const close = (): void => {
+    void form.flush()
+    onClose()
+  }
+
+  const browseButton = (
+    title: string,
+    browse: (repositoryId: string) => Promise<string | null>,
+    field: AutoSaveField<string>
+  ): React.JSX.Element => (
+    <Button
+      aria-label={title}
+      className="shrink-0"
+      onClick={async () => {
+        const nextPath = await browse(repository.id)
+        if (nextPath) field.set(nextPath)
+      }}
+      title={title}
+      variant="secondary"
+    >
+      Browse…
+    </Button>
+  )
+
+  const sections: SettingsSection[] = [
+    {
+      id: 'general',
+      label: 'General',
+      hasError: form.hasErrors(['icon', 'iconColor', 'faviconPath', 'solutionFilePath']),
+      content: (
+        <>
+          <SettingRow
+            hint="Shown when the project has no favicon."
+            label="Icon"
+            status={icon.status.state !== 'idle' ? icon.status : iconColor.status}
+          >
+            <ProjectIconPicker
+              icon={icon.value}
+              iconColor={iconColor.value}
+              onIconChange={icon.set}
+              onIconColorChange={iconColor.set}
+            />
+          </SettingRow>
+          <TextSetting
+            action={browseButton(
+              'Browse for a favicon file',
+              onBrowseFavicon,
+              form.field('faviconPath')
+            )}
+            field={form.field('faviconPath')}
+            hint="Relative to the repository root, so it also works in worktrees."
+            label="Favicon"
+            placeholder="app\public\favicon.ico"
+          />
+          <TextSetting
+            action={browseButton(
+              'Browse for a solution file',
+              onBrowseSolutionFile,
+              form.field('solutionFilePath')
+            )}
+            field={form.field('solutionFilePath')}
+            hint="A .sln or .slnx file relative to the repository root, opened from worktrees too."
+            label="Visual Studio solution"
+            placeholder="src\MyApp.slnx"
+          />
+          <SettingRow label="Location">
+            <p className="break-all py-0.5 font-mono text-[12px] leading-5 text-[var(--color-fg-muted)]">
+              {repository.path}
+            </p>
+          </SettingRow>
+        </>
+      )
+    },
+    {
+      id: 'run',
+      label: 'Run & preview',
+      description:
+        "Start the project from a thread's working directory and browse it beside the conversation.",
+      hasError: form.hasErrors(['runCommand', 'previewUrl']),
+      content: (
+        <>
+          <TextAreaSetting
+            field={form.field('runCommand')}
+            hint={
+              <>
+                Runs in the thread&apos;s working directory. <Token>{'{BRANCH-NAME}'}</Token> is the
+                branch name, <Token>{'{BRANCH-NAME-SAFE}'}</Token> a lowercased Docker-safe variant
+                and <Token>{'{BRANCH-PORT}'}</Token> a stable port for this repository and branch.
+              </>
+            }
+            label="Run command"
+            placeholder={'bun install\nbun run dev'}
+            rows={4}
+          />
+          <TextSetting
+            field={form.field('previewUrl')}
+            hint="Enables the Preview view while the run command runs, for browsing the app and commenting on elements. Supports the same tokens."
+            label="Preview URL"
+            placeholder="http://localhost:{BRANCH-PORT}"
+          />
+        </>
+      )
+    },
+    {
+      id: 'worktrees',
+      label: 'Worktrees',
+      description:
+        "Optional scripts for worktree-backed threads. Both support the run command's tokens.",
+      hasError: form.hasErrors(['newWorktreeSetupCommand', 'postWorktreeRemoveCommand']),
+      content: (
+        <>
+          <TextAreaSetting
+            field={form.field('newWorktreeSetupCommand')}
+            hint="Runs in a new worktree once its branch and worktree are created."
+            label="Setup script"
+            placeholder={'bun install\ncp .env.example .env'}
+          />
+          <TextAreaSetting
+            field={form.field('postWorktreeRemoveCommand')}
+            hint="Runs in the repository root after an owned worktree thread is closed and its branch deleted. Settling a thread never runs it."
+            label="Cleanup script"
+            placeholder="docker volume rm myapp-{BRANCH-NAME-SAFE}-sql"
+          />
+        </>
+      )
+    },
+    {
+      id: 'tasks',
+      label: 'Tasks',
+      hasError: form.hasErrors(['taskTagsInput']),
+      content: (
+        <TextAreaSetting
+          field={form.field('taskTagsInput')}
+          hint="Comma- or newline-separated labels for this project's tasks, offered alongside the global task tags from Settings."
+          label="Project task tags"
+          placeholder={'backend\nui'}
+          rows={3}
+        >
+          <TagPreview tags={parseTaskTagsInput(values.taskTagsInput)} />
+        </TextAreaSetting>
+      )
+    },
+    {
+      id: 'commits',
+      label: 'Commits',
+      description: `For the commit button in Copilot threads (${COMMIT_SHORTCUT_LABEL}).`,
+      hasError: form.hasErrors(['commitMessageModel', 'autoPushAfterCommit']),
+      content: (
+        <>
+          <SettingRow
+            hint="Model and reasoning effort Copilot uses to write commit messages."
+            label="Message model"
+            status={commitModel.status}
+          >
+            <CommitModelPicker
+              disabled={false}
+              onChange={commitModel.set}
+              value={commitModel.value}
+            />
+            {isSameModelSelection(commitModel.value, DEFAULT_COMMIT_MESSAGE_MODEL) ? null : (
+              <button
+                className="tm-quiet-link mt-1.5"
+                onClick={() => commitModel.set(DEFAULT_COMMIT_MESSAGE_MODEL)}
+                type="button"
+              >
+                Reset to default
+              </button>
+            )}
+          </SettingRow>
+          <CheckboxSetting
+            checkboxLabel="Push to the remote after committing"
+            field={form.field('autoPushAfterCommit')}
+            hint="Runs git push after each AI commit."
+            label="Push"
+          />
+        </>
+      )
+    },
+    {
+      id: 'danger',
+      label: 'Danger zone',
+      tone: 'danger',
+      content: (
+        <section
+          aria-label="Remove project"
+          className="mt-4 flex items-center justify-between gap-4 rounded-md border border-[rgba(240,140,140,0.28)] px-4 py-3"
+        >
+          <div className="min-w-0">
+            <p className="text-[13px] font-medium text-[var(--color-fg)]">Remove project</p>
+            <p className="mt-0.5 text-[12px] leading-[18px] text-[var(--color-fg-muted)]">
+              {workingThreadCount > 0
+                ? workingThreadsMessage(workingThreadCount)
+                : "Deletes this project's threads and tasks from Taskmaster. The repository is not touched."}
+            </p>
+          </div>
+          <Button
+            className="shrink-0"
+            disabled={removing || workingThreadCount > 0}
+            onClick={() => {
+              void form.flush()
+              setConfirmingRemoval(true)
+            }}
+            title={
+              workingThreadCount > 0
+                ? 'Unavailable while threads are working'
+                : 'Remove this project from Taskmaster'
+            }
+            variant="danger"
+          >
+            Remove…
+          </Button>
+        </section>
+      )
+    }
+  ]
+
+  if (confirmingRemoval) {
+    return (
+      <Modal
+        description={`${repository.name} will be removed from Taskmaster. This cannot be undone.`}
+        onClose={() => setConfirmingRemoval(false)}
+        open
+        title="Remove project?"
+      >
+        <RemoveRepositoryConfirmation
+          onCancel={() => setConfirmingRemoval(false)}
+          onConfirm={async () => {
+            const ok = await onRemove(repository.id)
+            if (ok) setConfirmingRemoval(false)
+          }}
+          removing={removing}
+          repository={repository}
+          workingThreadCount={workingThreadCount}
+        />
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal
+      description={`Settings for ${repository.name}.`}
+      fill
+      headerExtra={<SaveStatus errorCount={form.errorCount} status={form.status} />}
+      onClose={close}
+      open
+      title="Edit project"
+      width="xl"
+    >
+      <SettingsLayout
+        activeId={sectionId}
+        label="Project settings sections"
+        onActiveChange={setSectionId}
+        sections={sections}
+      />
     </Modal>
   )
 }
@@ -224,346 +521,6 @@ function RemoveRepositoryConfirmation({
   )
 }
 
-type EditRepositoryFormProps = {
-  repository: RepositorySnapshot
-  busy: boolean
-  removing: boolean
-  workingThreadCount: number
-  onCancel: () => void
-  onRequestRemove: () => void
-  onBrowseFavicon: (repositoryId: string) => Promise<string | null>
-  onBrowseSolutionFile: (repositoryId: string) => Promise<string | null>
-  onSubmit: (input: UpdateRepositoryInput) => Promise<void>
-}
-
-function EditRepositoryForm({
-  repository,
-  busy,
-  removing,
-  workingThreadCount,
-  onCancel,
-  onRequestRemove,
-  onBrowseFavicon,
-  onBrowseSolutionFile,
-  onSubmit
-}: EditRepositoryFormProps): React.JSX.Element {
-  const [icon, setIcon] = useState(repository.icon ?? 'folder')
-  const [iconColor, setIconColor] = useState(repository.iconColor ?? 'default')
-  const [faviconDraft, setFaviconDraft] = useState(repository.faviconPath ?? '')
-  const [runCommandDraft, setRunCommandDraft] = useState(repository.runCommand ?? '')
-  const [solutionFilePathDraft, setSolutionFilePathDraft] = useState(
-    repository.solutionFilePath ?? ''
-  )
-  const [newWorktreeSetupCommandDraft, setNewWorktreeSetupCommandDraft] = useState(
-    repository.newWorktreeSetupCommand ?? ''
-  )
-  const [postWorktreeRemoveCommandDraft, setPostWorktreeRemoveCommandDraft] = useState(
-    repository.postWorktreeRemoveCommand ?? ''
-  )
-
-  const [previewUrlDraft, setPreviewUrlDraft] = useState(repository.previewUrl ?? '')
-
-  const [taskTagsDraft, setTaskTagsDraft] = useState(repository.taskTagsInput ?? '')
-  const parsedTaskTagsPreview = parseTaskTagsInput(taskTagsDraft)
-
-  const savedCommitModel = resolveCommitMessageModel(repository)
-  const [commitModelDraft, setCommitModelDraft] = useState(savedCommitModel)
-  const savedAutoPush = repository.autoPushAfterCommit === true
-  const [autoPushDraft, setAutoPushDraft] = useState(savedAutoPush)
-
-  const dirty =
-    icon !== (repository.icon ?? 'folder') ||
-    iconColor !== (repository.iconColor ?? 'default') ||
-    faviconDraft !== (repository.faviconPath ?? '') ||
-    runCommandDraft !== (repository.runCommand ?? '') ||
-    solutionFilePathDraft !== (repository.solutionFilePath ?? '') ||
-    newWorktreeSetupCommandDraft !== (repository.newWorktreeSetupCommand ?? '') ||
-    postWorktreeRemoveCommandDraft !== (repository.postWorktreeRemoveCommand ?? '') ||
-    previewUrlDraft !== (repository.previewUrl ?? '') ||
-    taskTagsDraft !== (repository.taskTagsInput ?? '') ||
-    !isSameModelSelection(commitModelDraft, savedCommitModel) ||
-    autoPushDraft !== savedAutoPush
-
-  return (
-    <form
-      className="space-y-4"
-      onSubmit={(event) => {
-        event.preventDefault()
-        if (!busy && dirty) {
-          void onSubmit({
-            icon,
-            iconColor,
-            repositoryId: repository.id,
-            faviconPath: faviconDraft.trim() || null,
-            runCommand: runCommandDraft.trim() || null,
-            solutionFilePath: solutionFilePathDraft.trim() || null,
-            newWorktreeSetupCommand: newWorktreeSetupCommandDraft.trim() || null,
-            postWorktreeRemoveCommand: postWorktreeRemoveCommandDraft.trim() || null,
-            previewUrl: previewUrlDraft.trim() || null,
-            taskTagsInput: taskTagsDraft,
-            commitMessageModel: isSameModelSelection(commitModelDraft, DEFAULT_COMMIT_MESSAGE_MODEL)
-              ? null
-              : commitModelDraft,
-            autoPushAfterCommit: autoPushDraft
-          })
-        }
-      }}
-    >
-      <Field label="Project icon" hint="Used when no custom favicon is available.">
-        <ProjectIconPicker
-          icon={icon}
-          iconColor={iconColor}
-          onIconChange={setIcon}
-          onIconColorChange={setIconColor}
-        />
-      </Field>
-      <Field
-        hint={`Use Browse to pick a file, or paste a relative path manually. Stored relative to ${repository.name}'s repo root so the same path works in worktrees too.`}
-        label="Application favicon path"
-      >
-        <div className="flex items-center gap-2">
-          <TextInput
-            autoFocus
-            className="min-w-0 flex-1"
-            onChange={(event) => setFaviconDraft(event.target.value)}
-            placeholder="app\\public\\favicon.ico"
-            value={faviconDraft}
-          />
-          <Button
-            disabled={busy}
-            onClick={async () => {
-              const nextPath = await onBrowseFavicon(repository.id)
-              if (nextPath) {
-                setFaviconDraft(nextPath)
-              }
-            }}
-            title="Browse for a favicon file"
-            type="button"
-            variant="secondary"
-          >
-            Browse…
-          </Button>
-        </div>
-      </Field>
-
-      <Field
-        hint="Runs in the selected thread's working directory. Use {BRANCH-NAME} for the raw branch name, {BRANCH-NAME-SAFE} for a lowercased Docker-safe variant, or {BRANCH-PORT} for a deterministic pseudo-random port for this repo + branch."
-        label="Run command"
-      >
-        <TextArea
-          className="min-w-0 w-full"
-          onChange={(event) => setRunCommandDraft(event.target.value)}
-          placeholder={'bun install\nbun run dev'}
-          rows={5}
-          spellCheck={false}
-          value={runCommandDraft}
-        />
-      </Field>
-
-      <Field
-        hint="Optional. Set this if the run command serves a website to enable the Preview view, where you can browse the app and pick elements to comment on. Available while the run command is running. Supports the same tokens as the run command."
-        label="Preview URL"
-      >
-        <TextInput
-          className="min-w-0 w-full"
-          onChange={(event) => setPreviewUrlDraft(event.target.value)}
-          placeholder="http://localhost:{BRANCH-PORT}"
-          spellCheck={false}
-          value={previewUrlDraft}
-        />
-      </Field>
-
-      <Field
-        hint={`Use Browse to pick a .sln or .slnx file, or paste a relative path manually. Stored relative to ${repository.name}'s repo root so the same solution opens from worktrees too.`}
-        label="Visual Studio solution file"
-      >
-        <div className="flex items-center gap-2">
-          <TextInput
-            className="min-w-0 flex-1"
-            onChange={(event) => setSolutionFilePathDraft(event.target.value)}
-            placeholder="src\\MyApp.slnx"
-            spellCheck={false}
-            value={solutionFilePathDraft}
-          />
-          <Button
-            disabled={busy}
-            onClick={async () => {
-              const nextPath = await onBrowseSolutionFile(repository.id)
-              if (nextPath) {
-                setSolutionFilePathDraft(nextPath)
-              }
-            }}
-            title="Browse for a solution file"
-            type="button"
-            variant="secondary"
-          >
-            Browse…
-          </Button>
-        </div>
-      </Field>
-
-      <Field
-        hint="Optional. Runs in the new worktree after its branch and worktree are created. Supports the same tokens as the run command."
-        label="New worktree setup script"
-      >
-        <TextArea
-          className="min-w-0 w-full"
-          onChange={(event) => setNewWorktreeSetupCommandDraft(event.target.value)}
-          placeholder={'bun install\ncp .env.example .env'}
-          rows={4}
-          spellCheck={false}
-          value={newWorktreeSetupCommandDraft}
-        />
-      </Field>
-
-      <Field
-        hint="Optional. Runs in the repository root after an owned worktree thread is closed and its branch is deleted. Settling a thread never runs this script. Supports the same tokens as the run command."
-        label="Post-worktree-remove script"
-      >
-        <TextArea
-          className="min-w-0 w-full"
-          onChange={(event) => setPostWorktreeRemoveCommandDraft(event.target.value)}
-          placeholder={'docker volume rm myapp-{BRANCH-NAME-SAFE}-sql'}
-          rows={4}
-          spellCheck={false}
-          value={postWorktreeRemoveCommandDraft}
-        />
-      </Field>
-
-      <Field
-        hint="Optional. Comma- or newline-separated labels for this project's tasks, offered in addition to the global task tags from Settings."
-        label="Project task tags"
-      >
-        <TextArea
-          className="min-w-0 w-full"
-          onChange={(event) => setTaskTagsDraft(event.target.value)}
-          placeholder={'backend\nui'}
-          rows={3}
-          spellCheck={false}
-          value={taskTagsDraft}
-        />
-        {parsedTaskTagsPreview.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {parsedTaskTagsPreview.map((tag) => (
-              <span
-                className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-2 py-1 text-[11.5px] text-[var(--color-fg)]"
-                key={tag}
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </Field>
-
-      <Field
-        hint="Model Copilot uses to write messages for the commit button in Copilot threads (Ctrl+S)."
-        label="Commit message model"
-      >
-        <CommitModelPicker
-          disabled={busy}
-          onChange={setCommitModelDraft}
-          value={commitModelDraft}
-        />
-        <div className="mt-2.5">
-          <Checkbox
-            checked={autoPushDraft}
-            disabled={busy}
-            label="Push to the remote after committing"
-            onChange={setAutoPushDraft}
-            title="Run git push after each AI commit"
-          />
-        </div>
-      </Field>
-
-      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-        Repository root: <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>
-      </div>
-
-      <section
-        aria-label="Remove project"
-        className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] px-3 py-2.5"
-      >
-        <div className="min-w-0">
-          <p className="text-[13px] font-medium text-[var(--color-fg)]">Remove project</p>
-          <p className="mt-0.5 text-[12px] leading-5 text-[var(--color-fg-muted)]">
-            {workingThreadCount > 0
-              ? workingThreadsMessage(workingThreadCount)
-              : "Deletes this project's threads and tasks from Taskmaster. The repository is not touched."}
-          </p>
-        </div>
-        <Button
-          className="shrink-0"
-          disabled={busy || removing || workingThreadCount > 0}
-          onClick={onRequestRemove}
-          title={
-            workingThreadCount > 0
-              ? 'Unavailable while threads are working'
-              : 'Remove this project from Taskmaster'
-          }
-          type="button"
-          variant="danger"
-        >
-          Remove…
-        </Button>
-      </section>
-
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Button
-            disabled={
-              busy ||
-              (icon === 'folder' &&
-                iconColor === 'default' &&
-                faviconDraft.length === 0 &&
-                runCommandDraft.length === 0 &&
-                solutionFilePathDraft.length === 0 &&
-                newWorktreeSetupCommandDraft.length === 0 &&
-                postWorktreeRemoveCommandDraft.length === 0 &&
-                previewUrlDraft.length === 0 &&
-                taskTagsDraft.length === 0 &&
-                isSameModelSelection(commitModelDraft, DEFAULT_COMMIT_MESSAGE_MODEL) &&
-                !autoPushDraft)
-            }
-            onClick={() => {
-              setIcon('folder')
-              setIconColor('default')
-              setFaviconDraft('')
-              setRunCommandDraft('')
-              setSolutionFilePathDraft('')
-              setNewWorktreeSetupCommandDraft('')
-              setPostWorktreeRemoveCommandDraft('')
-              setPreviewUrlDraft('')
-              setTaskTagsDraft('')
-              setCommitModelDraft(DEFAULT_COMMIT_MESSAGE_MODEL)
-              setAutoPushDraft(false)
-            }}
-            title="Clear project fields"
-            type="button"
-            variant="ghost"
-          >
-            Clear fields
-          </Button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
-            Cancel
-          </Button>
-          <Button
-            disabled={busy || !dirty}
-            title="Save project settings"
-            type="submit"
-            variant="primary"
-          >
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
-        </div>
-      </div>
-    </form>
-  )
-}
-
 type ProjectIconPickerProps = {
   icon: string
   iconColor: string
@@ -579,7 +536,7 @@ function ProjectIconPicker({
 }: ProjectIconPickerProps): React.JSX.Element {
   return (
     <>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="Project icon">
+      <div className="flex flex-wrap gap-1" role="group" aria-label="Project icon">
         {PROJECT_ICONS.map((item) => (
           <button
             type="button"
@@ -588,13 +545,13 @@ function ProjectIconPicker({
             aria-pressed={icon === item.id}
             title={item.label}
             onClick={() => onIconChange(item.id)}
-            className={`grid size-8 place-items-center rounded-md border ${icon === item.id ? 'border-[var(--color-fg-muted)] bg-[var(--color-active)]' : 'border-[var(--color-border)] hover:bg-[var(--color-hover)]'}`}
+            className={`grid size-8 place-items-center rounded-md border transition-colors ${icon === item.id ? 'border-[var(--color-fg-muted)] bg-[var(--color-active)]' : 'border-[var(--color-border)] hover:bg-[var(--color-hover)]'}`}
           >
             <ProjectGlyph icon={item.id} color={iconColor} />
           </button>
         ))}
       </div>
-      <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Project icon color">
+      <div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Project icon color">
         {PROJECT_ICON_COLORS.map((item) => (
           <button
             type="button"
@@ -618,106 +575,112 @@ function ProjectIconPicker({
   )
 }
 
-type EditGeneralProjectFormProps = {
-  repository: RepositorySnapshot
-  busy: boolean
-  onCancel: () => void
-  onSubmit: (input: UpdateRepositoryInput) => Promise<void>
-}
+type GeneralProjectValues = { name: string; icon: string; iconColor: string }
 
-function EditGeneralProjectForm({
+function GeneralProjectSettings({
   repository,
-  busy,
-  onCancel,
-  onSubmit
-}: EditGeneralProjectFormProps): React.JSX.Element {
-  const initialIcon = repository.icon ?? GENERAL_PROJECT_DEFAULTS.icon
-  const initialIconColor = repository.iconColor ?? GENERAL_PROJECT_DEFAULTS.iconColor
-  const [nameDraft, setNameDraft] = useState<string>(repository.name)
-  const [icon, setIcon] = useState<string>(initialIcon)
-  const [iconColor, setIconColor] = useState<string>(initialIconColor)
-  const name = normalizeGeneralProjectName(nameDraft)
-  const dirty =
-    nameDraft !== repository.name || icon !== initialIcon || iconColor !== initialIconColor
+  onClose,
+  onSave
+}: {
+  repository: RepositorySnapshot
+  onClose: () => void
+  onSave: (input: UpdateRepositoryInput) => Promise<AutoSaveResult>
+}): React.JSX.Element {
+  const form = useAutoSave<GeneralProjectValues>({
+    initialValues: {
+      name: repository.name,
+      icon: repository.icon ?? GENERAL_PROJECT_DEFAULTS.icon,
+      iconColor: repository.iconColor ?? GENERAL_PROJECT_DEFAULTS.iconColor
+    },
+    save: async (values) => {
+      const name = normalizeGeneralProjectName(values.name)
+      if (!name) {
+        return { ok: false, error: 'Enter a project title.' }
+      }
+      return onSave({
+        repositoryId: repository.id,
+        name,
+        icon: values.icon,
+        iconColor: values.iconColor,
+        faviconPath: null,
+        runCommand: null,
+        solutionFilePath: null,
+        newWorktreeSetupCommand: null,
+        postWorktreeRemoveCommand: null
+      })
+    }
+  })
+  const name = form.field('name')
+  const icon = form.field('icon')
+  const iconColor = form.field('iconColor')
   const isDefault =
-    nameDraft === GENERAL_PROJECT_DEFAULTS.name &&
-    icon === GENERAL_PROJECT_DEFAULTS.icon &&
-    iconColor === GENERAL_PROJECT_DEFAULTS.iconColor
+    name.value === GENERAL_PROJECT_DEFAULTS.name &&
+    icon.value === GENERAL_PROJECT_DEFAULTS.icon &&
+    iconColor.value === GENERAL_PROJECT_DEFAULTS.iconColor
+
+  const close = (): void => {
+    void form.flush()
+    onClose()
+  }
 
   return (
-    <form
-      className="space-y-4"
-      onSubmit={(event) => {
-        event.preventDefault()
-        if (!busy && dirty && name) {
-          void onSubmit({
-            repositoryId: repository.id,
-            name,
-            icon,
-            iconColor,
-            faviconPath: null,
-            runCommand: null,
-            solutionFilePath: null,
-            newWorktreeSetupCommand: null,
-            postWorktreeRemoveCommand: null
-          })
-        }
-      }}
+    <Modal
+      description="The project for general computer tasks."
+      headerExtra={<SaveStatus errorCount={form.errorCount} status={form.status} />}
+      onClose={close}
+      open
+      title="Edit project"
+      width="lg"
     >
-      <Field label="Project title" hint="Shown in the sidebar and project picker.">
-        <TextInput
-          autoFocus
-          aria-label="Project title"
-          className="min-w-0 w-full"
-          maxLength={GENERAL_PROJECT_NAME_MAX_LENGTH}
-          onChange={(event) => setNameDraft(event.target.value)}
-          placeholder={GENERAL_PROJECT_DEFAULTS.name}
-          value={nameDraft}
-        />
-      </Field>
-
-      <Field label="Project icon">
-        <ProjectIconPicker
-          icon={icon}
-          iconColor={iconColor}
-          onIconChange={setIcon}
-          onIconColorChange={setIconColor}
-        />
-      </Field>
-
-      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-input)] px-3 py-2.5 text-[12.5px] leading-5 text-[var(--color-fg-muted)]">
-        Sessions run in: <span className="font-mono text-[var(--color-fg)]">{repository.path}</span>
-      </div>
-
-      <div className="flex items-center justify-between gap-2">
+      <SettingsSectionBody
+        section={{
+          label: 'General',
+          content: (
+            <>
+              <TextSetting
+                autoFocus
+                field={name}
+                hint="Shown in the sidebar and project picker."
+                label="Project title"
+                maxLength={GENERAL_PROJECT_NAME_MAX_LENGTH}
+                placeholder={GENERAL_PROJECT_DEFAULTS.name}
+              />
+              <SettingRow
+                label="Icon"
+                status={icon.status.state !== 'idle' ? icon.status : iconColor.status}
+              >
+                <ProjectIconPicker
+                  icon={icon.value}
+                  iconColor={iconColor.value}
+                  onIconChange={icon.set}
+                  onIconColorChange={iconColor.set}
+                />
+              </SettingRow>
+              <SettingRow label="Sessions run in">
+                <p className="break-all py-0.5 font-mono text-[12px] leading-5 text-[var(--color-fg-muted)]">
+                  {repository.path}
+                </p>
+              </SettingRow>
+            </>
+          )
+        }}
+        showHeading={false}
+      />
+      <div className="mt-2 flex justify-end">
         <Button
-          disabled={busy || isDefault}
+          disabled={isDefault}
           onClick={() => {
-            setNameDraft(GENERAL_PROJECT_DEFAULTS.name)
-            setIcon(GENERAL_PROJECT_DEFAULTS.icon)
-            setIconColor(GENERAL_PROJECT_DEFAULTS.iconColor)
+            name.set(GENERAL_PROJECT_DEFAULTS.name)
+            icon.set(GENERAL_PROJECT_DEFAULTS.icon)
+            iconColor.set(GENERAL_PROJECT_DEFAULTS.iconColor)
           }}
+          size="sm"
           title="Reset title and icon to defaults"
-          type="button"
           variant="ghost"
         >
           Reset to defaults
         </Button>
-
-        <div className="flex items-center gap-2">
-          <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">
-            Cancel
-          </Button>
-          <Button
-            disabled={busy || !dirty || !name}
-            title="Save project settings"
-            type="submit"
-            variant="primary"
-          >
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
-        </div>
       </div>
-    </form>
+    </Modal>
   )
 }
