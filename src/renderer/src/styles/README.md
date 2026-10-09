@@ -70,6 +70,9 @@ Everything that appears, disappears or moves animates, using the presets in `sty
 - Things that manage their own mounting (popovers, dialogs): `usePresence(open)` gives `mounted`
   and `state`; render while `mounted` with `data-motion` and `data-state={state}`.
 - Lists: `usePresenceList` + `useAnimatedListMotion` animate insertions, moves and removals.
+- Leaving content takes what it opened with it: `usePresence` closes inside a leaving `<Presence>`
+  or Modal (also across portals). Wrap exiting list rows that can open popovers in `<LeaveWith>`.
+  Leaving elements are inert (`[data-state='closed']`, `[data-exiting]`).
 - Two icons sharing one slot (run/stop, branch/worktree): `tm-icon-swap` with `data-active` on each.
 - Keyed replacements that don't need an exit: the entrance classes `tm-fade-in`, `tm-rise-in`,
   `tm-pop-in`, `tm-slide-in`.

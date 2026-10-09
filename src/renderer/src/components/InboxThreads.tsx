@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import Select from './ui/Select'
 import ActionMenu from './ui/ActionMenu'
+import LeaveWith from './ui/LeaveWith'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
 import {
@@ -105,92 +106,94 @@ export default function InboxThreads({
         data-exiting={exiting ? '' : undefined}
         inert={exiting}
       >
-        <div
-          className="tm-inbox-row group"
-          data-selected={selectedThread?.id === thread.id || undefined}
-          onContextMenu={(event) => {
-            event.preventDefault()
-            onContextMenu(thread, event.clientX, event.clientY)
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => onSelectThread(thread.id)}
-            className="tm-inbox-row-main"
-            title={`${title}\n${subtitle}\n${thread.cwd}`}
+        <LeaveWith leaving={exiting}>
+          <div
+            className="tm-inbox-row group"
+            data-selected={selectedThread?.id === thread.id || undefined}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              onContextMenu(thread, event.clientX, event.clientY)
+            }}
           >
-            <span className="mt-px">
-              <ProjectIcon repository={repository} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="tm-inbox-row-title">{title}</span>
-              <span className="tm-inbox-row-subtitle">{subtitle}</span>
-              <span className="tm-inbox-row-meta">
-                <ThreadStatus
-                  commitPhase={thread.commitPhase}
-                  status={session?.copilotStatus ?? 'idle'}
-                />
-                <span className="text-fg-faint">·</span>
-                <span className="tabular-nums">
-                  {formatRelativeTime(thread.lastActivityAt, now)}
-                </span>
-                <Presence show={thread.isRunCommandRunning} motion="fade">
-                  <span
-                    className="tm-inbox-app-running"
-                    role="img"
-                    aria-label="App running"
-                    title="App running"
-                  >
-                    <PlayIcon width={9} height={9} />
-                  </span>
-                </Presence>
+            <button
+              type="button"
+              onClick={() => onSelectThread(thread.id)}
+              className="tm-inbox-row-main"
+              title={`${title}\n${subtitle}\n${thread.cwd}`}
+            >
+              <span className="mt-px">
+                <ProjectIcon repository={repository} />
               </span>
-            </span>
-          </button>
-          <div className="tm-inbox-actions">
-            <Button
-              className="tm-inbox-action"
-              data-action={thread.settledAt ? 'unsettle' : 'settle'}
-              iconOnly
-              size="xs"
-              variant="ghost"
-              onClick={() => onSettleThread(thread.id, !thread.settledAt)}
-              aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
-              title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
-            >
-              {thread.settledAt ? (
-                <UndoIcon width={12} height={12} strokeWidth={1.7} />
-              ) : (
-                <CheckIcon width={13} height={13} strokeWidth={1.8} />
-              )}
-            </Button>
-            <ActionMenu
-              label={`Thread actions for ${title}`}
-              triggerClassName="tm-inbox-action"
-              items={threadMenuActions(
-                threadMenuOptions(
-                  thread,
-                  convertingThread,
-                  closingThread,
-                  regeneratingTitleIds?.has(thread.id)
-                )
-              ).map(({ action, label, enabled }) => ({
-                label,
-                disabled: !enabled,
-                onSelect: () => {
-                  if (action === 'edit') onEditThread(thread.id)
-                  else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
-                  else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
-                  else if (action === 'settle-thread' || action === 'unsettle-thread')
-                    onSettleThread(thread.id, action === 'settle-thread')
-                  else if (action === 'close-thread') onCloseThread(thread.id)
-                }
-              }))}
-            >
-              <MoreIcon width={13} height={13} />
-            </ActionMenu>
+              <span className="min-w-0 flex-1">
+                <span className="tm-inbox-row-title">{title}</span>
+                <span className="tm-inbox-row-subtitle">{subtitle}</span>
+                <span className="tm-inbox-row-meta">
+                  <ThreadStatus
+                    commitPhase={thread.commitPhase}
+                    status={session?.copilotStatus ?? 'idle'}
+                  />
+                  <span className="text-fg-faint">·</span>
+                  <span className="tabular-nums">
+                    {formatRelativeTime(thread.lastActivityAt, now)}
+                  </span>
+                  <Presence show={thread.isRunCommandRunning} motion="fade">
+                    <span
+                      className="tm-inbox-app-running"
+                      role="img"
+                      aria-label="App running"
+                      title="App running"
+                    >
+                      <PlayIcon width={9} height={9} />
+                    </span>
+                  </Presence>
+                </span>
+              </span>
+            </button>
+            <div className="tm-inbox-actions">
+              <Button
+                className="tm-inbox-action"
+                data-action={thread.settledAt ? 'unsettle' : 'settle'}
+                iconOnly
+                size="xs"
+                variant="ghost"
+                onClick={() => onSettleThread(thread.id, !thread.settledAt)}
+                aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
+                title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
+              >
+                {thread.settledAt ? (
+                  <UndoIcon width={12} height={12} strokeWidth={1.7} />
+                ) : (
+                  <CheckIcon width={13} height={13} strokeWidth={1.8} />
+                )}
+              </Button>
+              <ActionMenu
+                label={`Thread actions for ${title}`}
+                triggerClassName="tm-inbox-action"
+                items={threadMenuActions(
+                  threadMenuOptions(
+                    thread,
+                    convertingThread,
+                    closingThread,
+                    regeneratingTitleIds?.has(thread.id)
+                  )
+                ).map(({ action, label, enabled }) => ({
+                  label,
+                  disabled: !enabled,
+                  onSelect: () => {
+                    if (action === 'edit') onEditThread(thread.id)
+                    else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
+                    else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
+                    else if (action === 'settle-thread' || action === 'unsettle-thread')
+                      onSettleThread(thread.id, action === 'settle-thread')
+                    else if (action === 'close-thread') onCloseThread(thread.id)
+                  }
+                }))}
+              >
+                <MoreIcon width={13} height={13} />
+              </ActionMenu>
+            </div>
           </div>
-        </div>
+        </LeaveWith>
       </li>
     )
   }

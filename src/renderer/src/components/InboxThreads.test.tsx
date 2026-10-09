@@ -470,6 +470,12 @@ describe('inbox', () => {
         ...callbacks()
       }
       const { rerender } = render(<InboxThreads repositories={repositories} {...props} />)
+      // An open actions menu leaves with its row.
+      const menuButton = screen
+        .getByRole('list', { name: 'Active threads' })
+        .querySelector<HTMLElement>('[data-thread-id="Newest"] [aria-haspopup="menu"]')
+      fireEvent.click(menuButton!)
+      expect(document.querySelector('[role="menu"]')?.getAttribute('data-state')).toBe('open')
       const settledNewest = [
         repositories[0],
         repository('Beta', [{ ...repositories[1].threads[0], settledAt: '2026-03-03' }])
@@ -480,9 +486,11 @@ describe('inbox', () => {
       expect(leaving?.hasAttribute('data-exiting')).toBe(true)
       expect(leaving?.hasAttribute('inert')).toBe(true)
       expect(animate).toHaveBeenCalled()
+      expect(document.querySelector('[role="menu"]')?.getAttribute('data-state')).toBe('closed')
       act(() => {
         vi.advanceTimersByTime(500)
       })
+      expect(document.querySelector('[role="menu"]')).toBeNull()
       expect(activeList.querySelector('[data-thread-id="Newest"]')).toBeNull()
       expect(
         screen
