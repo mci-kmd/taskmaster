@@ -1,17 +1,34 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import type { ModelPerformanceSample } from '../../../shared/app-types'
+import {
+  FALLBACK_DKK_PER_USD,
+  nanoAiuToCredits,
+  nanoAiuToDkk,
+  USD_PER_AI_CREDIT
+} from '../../../shared/ai-credits'
+import type { ModelPerformanceSample, UsdDkkRate } from '../../../shared/app-types'
+import { formatCostAmount } from './copilot/prompt-cost'
+import SegmentedControl from './ui/SegmentedControl'
 import '../assets/model-performance.css'
 
 type Props = {
   samples: ModelPerformanceSample[]
   loading: boolean
   error: string | null
+  /** Defaults to the built-in fallback rate until the live lookup is known. */
+  usdDkkRate?: UsdDkkRate
   onRetry: () => void
   onClose: () => void
 }
 
 type Period = '1h' | '1d' | '1w' | '1m'
-type Metric = 'tps' | 'ttft'
+type View = 'performance' | 'credits' | 'dkk'
+type Metric = 'tps' | 'ttft' | 'credits' | 'dkk'
+
+const FALLBACK_RATE: UsdDkkRate = {
+  dkkPerUsd: FALLBACK_DKK_PER_USD,
+  source: 'fallback',
+  updatedAt: null
+}
 
 const PERIODS: { key: Period; label: string; duration: number }[] = [
   { key: '1h', label: 'Past hour', duration: 60 * 60 * 1000 },
@@ -19,31 +36,67 @@ const PERIODS: { key: Period; label: string; duration: number }[] = [
   { key: '1w', label: 'Past 7 days', duration: 7 * 24 * 60 * 60 * 1000 },
   { key: '1m', label: 'Past 30 days', duration: 30 * 24 * 60 * 60 * 1000 }
 ]
+const VIEWS: { value: View; label: string; description: string }[] = [
+  { value: 'performance', label: 'Performance', description: 'Output speed and first token' },
+  { value: 'credits', label: 'Credits', description: 'AI credits used' },
+  { value: 'dkk', label: 'DKK', description: 'Estimated cost in Danish kroner' }
+]
+const INTROS: Record<View, string> = {
+  performance: 'Output speed and first-token latency for models used in this period.',
+  credits: 'AI credits used by each model in this period.',
+  dkk: 'Estimated cost in Danish kroner for each model in this period.'
+}
+const METRICS: Record<Metric, { name: string; label: string; unit: string; spoken: string }> = {
+  tps: { name: 'TPS', label: 'Tokens per second', unit: 'tok/s', spoken: 'tokens per second' },
+  ttft: { name: 'TTFT', label: 'Time to first token', unit: 'ms', spoken: 'milliseconds' },
+  credits: { name: 'Credits', label: 'AI credits', unit: 'credits', spoken: 'credits' },
+  dkk: { name: 'DKK', label: 'Estimated cost', unit: 'DKK', spoken: 'DKK' }
+}
 const BUCKET_COUNT = 12
 type SampleBucket = { start: number; end: number; samples: ModelPerformanceSample[] }
+type Series = { metric: Metric; values: (number | null)[]; max: number }
+type Row = { label: string; text: string; spoken: string }
 
 function formatValue(value: number, metric: Metric): string {
-  return metric === 'tps'
-    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(value)
-    : new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
+  if (metric === 'credits' || metric === 'dkk') return formatCostAmount(value)
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: metric === 'tps' ? 1 : 0
+  }).format(value)
 }
 
-function aggregate(samples: ModelPerformanceSample[], metric: Metric): number | null {
+const isAmount = (value: number | null | undefined): value is number =>
+  value !== null && value !== undefined && Number.isFinite(value) && value >= 0
+
+/** Sum of billed usage; null when no call in the group reported it. */
+function totalNanoAiu(samples: ModelPerformanceSample[]): number | null {
+  const billed = samples.map((sample) => sample.nanoAiu).filter(isAmount)
+  return billed.length ? billed.reduce((sum, value) => sum + value, 0) : null
+}
+
+function aggregate(
+  samples: ModelPerformanceSample[],
+  metric: Metric,
+  dkkPerUsd: number
+): number | null {
+  if (metric === 'credits' || metric === 'dkk') {
+    const nanoAiu = totalNanoAiu(samples)
+    if (nanoAiu === null) return null
+    return metric === 'credits' ? nanoAiuToCredits(nanoAiu) : nanoAiuToDkk(nanoAiu, dkkPerUsd)
+  }
   if (metric === 'ttft') {
-    const recorded = samples
-      .map((sample) => sample.timeToFirstTokenMs)
-      .filter((value): value is number => value !== null && Number.isFinite(value) && value >= 0)
+    const recorded = samples.map((sample) => sample.timeToFirstTokenMs).filter(isAmount)
     return recorded.length
       ? recorded.reduce((sum, value) => sum + value, 0) / recorded.length
       : null
   }
 
+  // Calls recorded only for their usage have no timing and don't count towards speed.
   const measured = samples.filter(
     (sample) =>
       Number.isFinite(sample.durationMs) &&
       sample.durationMs > 0 &&
       Number.isFinite(sample.outputTokens) &&
-      sample.outputTokens >= 0
+      sample.outputTokens > 0
   )
   if (!measured.length) return null
   const duration = measured.reduce((sum, sample) => sum + sample.durationMs, 0)
@@ -77,15 +130,35 @@ function bucketSamples(
   return buckets
 }
 
+function linePaths(points: ({ x: number; y: number } | null)[]): string[] {
+  const segments: string[] = []
+  let segment = ''
+  for (const point of points) {
+    if (point) {
+      segment += `${segment ? ' L' : 'M'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+    } else if (segment) {
+      segments.push(segment)
+      segment = ''
+    }
+  }
+  if (segment) segments.push(segment)
+  return segments
+}
+
 function Trend({
   buckets,
-  metric,
+  series,
+  rows,
+  title,
   start,
   end,
   model
 }: {
   buckets: SampleBucket[]
-  metric: Metric
+  /** Each series has its own labeled 0–max scale so both stay readable in one plot. */
+  series: Series[]
+  rows: (samples: ModelPerformanceSample[]) => Row[]
+  title: string
   start: number
   end: number
   model: string
@@ -113,33 +186,19 @@ function Trend({
     event.preventDefault()
     hitRefs.current[target]?.focus()
   }
-  const values = buckets.map((bucket) => aggregate(bucket.samples, metric))
-  const max = Math.max(0, ...values.filter((value): value is number => value !== null))
   const activeIndex =
     activeStart === null ? null : buckets.findIndex((bucket) => bucket.start === activeStart)
   const xAt = (time: number): number => 12 + ((time - start) / (end - start)) * 616
-  const points = values.map((value, index) =>
-    value === null
-      ? null
-      : {
-          x: xAt((Math.max(start, buckets[index].start) + Math.min(end, buckets[index].end)) / 2),
-          y: 72 - (value / (max || 1)) * 56
-        }
+  const centers = buckets.map((bucket) =>
+    xAt((Math.max(start, bucket.start) + Math.min(end, bucket.end)) / 2)
   )
-  const segments: string[] = []
-  let segment = ''
-  for (const point of points) {
-    if (point) {
-      segment += `${segment ? ' L' : 'M'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`
-    } else if (segment) {
-      segments.push(segment)
-      segment = ''
-    }
-  }
-  if (segment) segments.push(segment)
+  const plotted = series.map((item) => ({
+    ...item,
+    points: item.values.map((value, index) =>
+      value === null ? null : { x: centers[index], y: 72 - (value / (item.max || 1)) * 56 }
+    )
+  }))
 
-  const label = metric === 'tps' ? 'Tokens per second' : 'Time to first token'
-  const unit = metric === 'tps' ? 'tokens per second' : 'milliseconds'
   const rangeFormat = new Intl.DateTimeFormat(undefined, {
     month: 'short',
     day: 'numeric',
@@ -148,53 +207,73 @@ function Trend({
   })
   const interval = (index: number): string =>
     `${rangeFormat.format(Math.max(start, buckets[index].start))} – ${rangeFormat.format(Math.min(end, buckets[index].end))}`
-  const description = values
-    .map((value, index) =>
-      value === null ? null : `${interval(index)}: ${formatValue(value, metric)} ${unit}`
-    )
+  const description = series
+    .map((item) => {
+      const recorded = item.values
+        .map((value, index) =>
+          value === null
+            ? null
+            : `${interval(index)}: ${formatValue(value, item.metric)} ${METRICS[item.metric].spoken}`
+        )
+        .filter(Boolean)
+        .join('; ')
+      return recorded ? `${METRICS[item.metric].label}: ${recorded}.` : null
+    })
     .filter(Boolean)
-    .join('; ')
+    .join(' ')
   const active = activeIndex === null || activeIndex < 0 ? null : buckets[activeIndex]
-  const activeTps = active ? aggregate(active.samples, 'tps') : null
-  const activeTtft = active ? aggregate(active.samples, 'ttft') : null
-  const details = (index: number): string => {
-    const tps = aggregate(buckets[index].samples, 'tps')
-    const ttft = aggregate(buckets[index].samples, 'ttft')
-    return `${model}, ${interval(index)}. TPS: ${tps === null ? 'not recorded' : `${formatValue(tps, 'tps')} tokens per second`}. TTFT: ${ttft === null ? 'not recorded' : `${formatValue(ttft, 'ttft')} milliseconds`}. ${buckets[index].samples.length} ${buckets[index].samples.length === 1 ? 'call' : 'calls'}.`
-  }
+  const calls = (count: number): string => `${count} ${count === 1 ? 'call' : 'calls'}`
+  const details = (index: number): string =>
+    `${model}, ${interval(index)}. ${rows(buckets[index].samples)
+      .map((row) => `${row.label}: ${row.spoken}. `)
+      .join('')}${calls(buckets[index].samples.length)}.`
+  const hasValues = series.some((item) => item.values.some((value) => value !== null))
 
   return (
     <div className="tm-performance__chart-wrap">
       <svg
-        className={`tm-performance__chart tm-performance__chart--${metric}`}
+        className="tm-performance__chart"
         viewBox="0 0 640 84"
         preserveAspectRatio="none"
         role="img"
-        aria-label={`${model} ${label} trend. ${description || 'No recorded values in this period.'}`}
+        aria-label={`${model} ${title} trend. ${description || 'No recorded values in this period.'}`}
       >
         <path className="tm-performance__grid" d="M12 16H628 M12 44H628 M12 72H628" />
         {active && activeIndex !== null && (
-          <path className="tm-performance__guide" d={`M${points[activeIndex]?.x ?? 0} 8V76`} />
+          <path className="tm-performance__guide" d={`M${centers[activeIndex]} 8V76`} />
         )}
-        {segments.map((path, index) => (
-          <path key={index} className="tm-performance__line" d={path} />
+        {plotted.map((item) => (
+          <g key={item.metric} className={`tm-performance__series--${item.metric}`}>
+            {linePaths(item.points).map((path, index) => (
+              <path key={index} className="tm-performance__line" d={path} />
+            ))}
+            {item.points.map((point, index) =>
+              point ? (
+                <circle
+                  key={buckets[index].start}
+                  className="tm-performance__point"
+                  cx={point.x}
+                  cy={point.y}
+                  r={index === activeIndex ? 5 : 3.5}
+                />
+              ) : null
+            )}
+          </g>
         ))}
-        {points.map((point, index) =>
-          point ? (
-            <circle
-              key={buckets[index].start}
-              className="tm-performance__point"
-              cx={point.x}
-              cy={point.y}
-              r={index === activeIndex ? 5 : 3.5}
-            />
-          ) : null
-        )}
       </svg>
-      {values.some((value) => value !== null) ? (
-        <span className="tm-performance__scale" aria-hidden="true">
-          0–{formatValue(max, metric)} {metric === 'tps' ? 'tok/s' : 'ms'}
-        </span>
+      {hasValues ? (
+        <div className="tm-performance__scales" aria-hidden="true">
+          {series.map((item) => (
+            <span
+              key={item.metric}
+              className={`tm-performance__scale tm-performance__scale--${item.metric}`}
+            >
+              {series.length > 1 && <i className="tm-performance__swatch" />}
+              {series.length > 1 ? `${METRICS[item.metric].name} ` : ''}0–
+              {formatValue(item.max, item.metric)} {METRICS[item.metric].unit}
+            </span>
+          ))}
+        </div>
       ) : null}
       {buckets.map((bucket, index) =>
         bucket.samples.length ? (
@@ -230,23 +309,19 @@ function Trend({
           role="tooltip"
           style={
             {
-              '--tm-tooltip-center': `${((points[activeIndex]?.x ?? 0) / 640) * 100}%`
+              '--tm-tooltip-center': `${(centers[activeIndex] / 640) * 100}%`
             } as React.CSSProperties
           }
         >
           <strong>{model}</strong>
           <span>{interval(activeIndex)}</span>
-          <div>
-            <span>TPS</span>
-            <b>{activeTps === null ? 'Not recorded' : `${formatValue(activeTps, 'tps')} tok/s`}</b>
-          </div>
-          <div>
-            <span>TTFT</span>
-            <b>{activeTtft === null ? 'Not recorded' : `${formatValue(activeTtft, 'ttft')} ms`}</b>
-          </div>
-          <small>
-            {active.samples.length} {active.samples.length === 1 ? 'call' : 'calls'}
-          </small>
+          {rows(active.samples).map((row) => (
+            <div key={row.label}>
+              <span>{row.label}</span>
+              <b>{row.text}</b>
+            </div>
+          ))}
+          <small>{calls(active.samples.length)}</small>
         </div>
       )}
     </div>
@@ -257,10 +332,12 @@ export default function ModelPerformanceView({
   samples,
   loading,
   error,
+  usdDkkRate = FALLBACK_RATE,
   onRetry,
   onClose
 }: Props): React.JSX.Element {
   const [period, setPeriod] = useState<Period>('1h')
+  const [view, setView] = useState<View>('performance')
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
@@ -275,6 +352,7 @@ export default function ModelPerformanceView({
       active = false
     }
   }, [samples])
+  const { dkkPerUsd } = usdDkkRate
   const selected = PERIODS.find((item) => item.key === period)!
   const start = now - selected.duration
   const timeLabel = new Intl.DateTimeFormat(undefined, {
@@ -293,6 +371,36 @@ export default function ModelPerformanceView({
     }
   }
 
+  const value = (group: ModelPerformanceSample[], metric: Metric): number | null =>
+    aggregate(group, metric, dkkPerUsd)
+  const row = (group: ModelPerformanceSample[], metric: Metric, label: string): Row => {
+    const amount = value(group, metric)
+    const { unit, spoken } = METRICS[metric]
+    const prefix = metric === 'dkk' && amount !== null && amount >= 0.01 ? '≈' : ''
+    return {
+      label,
+      text: amount === null ? 'Not recorded' : `${prefix}${formatValue(amount, metric)} ${unit}`,
+      spoken: amount === null ? 'not recorded' : `${formatValue(amount, metric)} ${spoken}`
+    }
+  }
+  const performanceRows = (group: ModelPerformanceSample[]): Row[] => [
+    row(group, 'tps', 'TPS'),
+    row(group, 'ttft', 'TTFT')
+  ]
+  const costRows = (group: ModelPerformanceSample[]): Row[] => [
+    row(group, 'credits', 'Credits'),
+    row(group, 'dkk', 'DKK')
+  ]
+  const seriesFor = (buckets: SampleBucket[], metric: Metric): Series => {
+    const values = buckets.map((bucket) => value(bucket.samples, metric))
+    return {
+      metric,
+      values,
+      max: Math.max(0, ...values.filter((item): item is number => item !== null))
+    }
+  }
+  const rateNote = `$1 = ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(dkkPerUsd)} DKK (${usdDkkRate.source === 'live' ? 'live rate' : 'fallback rate'})`
+
   return (
     <section className="tm-performance" aria-labelledby="tm-performance-title">
       <div className="tm-performance__inner">
@@ -300,9 +408,7 @@ export default function ModelPerformanceView({
           <div>
             <p className="tm-performance__eyebrow">Model telemetry / local sessions</p>
             <h1 id="tm-performance-title">Model performance</h1>
-            <p className="tm-performance__intro">
-              Output speed and first-token latency for models used in this period.
-            </p>
+            <p className="tm-performance__intro">{INTROS[view]}</p>
           </div>
           <button
             className="tm-performance__close"
@@ -315,22 +421,32 @@ export default function ModelPerformanceView({
         </header>
 
         <div className="tm-performance__toolbar">
-          <div className="tm-performance__periods" role="group" aria-label="Time period">
-            {PERIODS.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                className="tm-performance__period"
-                aria-pressed={period === item.key}
-                title={item.label}
-                onClick={() => {
-                  setNow(Date.now())
-                  setPeriod(item.key)
-                }}
-              >
-                {item.key}
-              </button>
-            ))}
+          <div className="tm-performance__controls">
+            <div className="tm-performance__views">
+              <SegmentedControl<View>
+                ariaLabel="Chart"
+                value={view}
+                options={VIEWS}
+                onChange={setView}
+              />
+            </div>
+            <div className="tm-performance__periods" role="group" aria-label="Time period">
+              {PERIODS.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  className="tm-performance__period"
+                  aria-pressed={period === item.key}
+                  title={item.label}
+                  onClick={() => {
+                    setNow(Date.now())
+                    setPeriod(item.key)
+                  }}
+                >
+                  {item.key}
+                </button>
+              ))}
+            </div>
           </div>
           <span className="tm-performance__scope">
             {selected.label}
@@ -378,19 +494,23 @@ export default function ModelPerformanceView({
           <div className="tm-performance__models">
             {Array.from(byModel, ([model, group]) => {
               const buckets = bucketSamples(group, start, now)
-              const tps = aggregate(group, 'tps')
-              const ttft = aggregate(group, 'ttft')
-              const recordedTtft = group.filter(
-                (sample) =>
-                  sample.timeToFirstTokenMs !== null &&
-                  Number.isFinite(sample.timeToFirstTokenMs) &&
-                  sample.timeToFirstTokenMs >= 0
+              const tps = value(group, 'tps')
+              const ttft = value(group, 'ttft')
+              const recordedTtft = group.filter((sample) =>
+                isAmount(sample.timeToFirstTokenMs)
               ).length
+              const billed = group.filter((sample) => isAmount(sample.nanoAiu)).length
+              const costMetric: Metric = view === 'dkk' ? 'dkk' : 'credits'
+              const cost = value(group, costMetric)
               return (
                 <section
                   className="tm-performance__model"
                   key={model}
-                  aria-label={`${model} performance`}
+                  aria-label={
+                    view === 'performance'
+                      ? `${model} performance`
+                      : `${model} ${view === 'credits' ? 'AI credits' : 'estimated DKK'}`
+                  }
                 >
                   <div className="tm-performance__model-head">
                     <h2>
@@ -401,49 +521,68 @@ export default function ModelPerformanceView({
                       {group.length} {group.length === 1 ? 'sample' : 'samples'}
                     </span>
                   </div>
-                  <div className="tm-performance__metric tm-performance__metric--tps">
-                    <div className="tm-performance__readout">
-                      <span className="tm-performance__metric-name">
-                        Output speed <abbr title="Tokens per second">TPS</abbr>
-                      </span>
-                      <span className="tm-performance__value">
-                        {tps === null ? '—' : formatValue(tps, 'tps')}
-                        <small>tok/s</small>
-                      </span>
-                    </div>
-                    <div className="tm-performance__plot">
-                      <Trend
-                        key={`${period}:tps`}
-                        buckets={buckets}
-                        metric="tps"
-                        start={start}
-                        end={now}
-                        model={model}
-                      />
-                      <div className="tm-performance__axis" aria-hidden="true">
-                        <span>{timeLabel.format(start)}</span>
-                        <span>{timeLabel.format(now)}</span>
+                  <div className={`tm-performance__metric tm-performance__metric--${view}`}>
+                    {view === 'performance' ? (
+                      <div className="tm-performance__readouts">
+                        <div className="tm-performance__readout tm-performance__readout--tps">
+                          <span className="tm-performance__metric-name">
+                            <i className="tm-performance__swatch" aria-hidden="true" />
+                            Output speed <abbr title="Tokens per second">TPS</abbr>
+                          </span>
+                          <span className="tm-performance__value">
+                            {tps === null ? '—' : formatValue(tps, 'tps')}
+                            <small>tok/s</small>
+                          </span>
+                        </div>
+                        <div className="tm-performance__readout tm-performance__readout--ttft">
+                          <span className="tm-performance__metric-name">
+                            <i className="tm-performance__swatch" aria-hidden="true" />
+                            First token <abbr title="Time to first token">TTFT</abbr>
+                          </span>
+                          <span className="tm-performance__value">
+                            {ttft === null ? '—' : formatValue(ttft, 'ttft')}
+                            <small>ms avg</small>
+                          </span>
+                          <span className="tm-performance__coverage">
+                            {recordedTtft} / {group.length} recorded
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                  <div className="tm-performance__metric tm-performance__metric--ttft">
-                    <div className="tm-performance__readout">
-                      <span className="tm-performance__metric-name">
-                        First token <abbr title="Time to first token">TTFT</abbr>
-                      </span>
-                      <span className="tm-performance__value">
-                        {ttft === null ? '—' : formatValue(ttft, 'ttft')}
-                        <small>ms avg</small>
-                      </span>
-                      <span className="tm-performance__coverage">
-                        {recordedTtft} / {group.length} recorded
-                      </span>
-                    </div>
+                    ) : (
+                      <div className="tm-performance__readouts">
+                        <div
+                          className={`tm-performance__readout tm-performance__readout--${costMetric}`}
+                        >
+                          <span className="tm-performance__metric-name">
+                            {view === 'credits' ? 'AI credits used' : 'Estimated cost'}
+                          </span>
+                          <span className="tm-performance__value">
+                            {cost === null
+                              ? '—'
+                              : `${view === 'dkk' && cost >= 0.01 ? '≈' : ''}${formatValue(cost, costMetric)}`}
+                            <small>{view === 'credits' ? 'credits' : 'DKK'}</small>
+                          </span>
+                          <span className="tm-performance__coverage">
+                            {billed} / {group.length} with usage
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     <div className="tm-performance__plot">
                       <Trend
-                        key={`${period}:ttft`}
+                        key={`${period}:${view}`}
                         buckets={buckets}
-                        metric="ttft"
+                        series={
+                          view === 'performance'
+                            ? [seriesFor(buckets, 'tps'), seriesFor(buckets, 'ttft')]
+                            : [seriesFor(buckets, costMetric)]
+                        }
+                        rows={view === 'performance' ? performanceRows : costRows}
+                        title={
+                          view === 'performance'
+                            ? 'output speed and first token'
+                            : METRICS[costMetric].label
+                        }
                         start={start}
                         end={now}
                         model={model}
@@ -460,9 +599,9 @@ export default function ModelPerformanceView({
           </div>
         )}
         <footer className="tm-performance__footer">
-          TPS = total output tokens ÷ total duration (end-to-end), in seconds. TTFT averages
-          recorded values only. Each point combines calls in its time interval; gaps indicate no
-          measurement. Samples come from new Copilot calls only, not past history.
+          {view === 'performance'
+            ? 'TPS = total output tokens ÷ total duration (end-to-end), in seconds. TTFT averages recorded values only. Each line uses its own labeled 0–max scale. Each point combines calls in its time interval; gaps indicate no measurement. Samples come from new Copilot calls only, not past history.'
+            : `Each point sums the AI credits billed for calls in its time interval, including sub-agents; gaps indicate no recorded usage. Estimate: 1 credit = $${USD_PER_AI_CREDIT}, ${rateNote}. Calls recorded before usage tracking have no credit data.`}
         </footer>
       </div>
     </section>

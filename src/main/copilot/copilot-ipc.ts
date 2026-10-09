@@ -4,7 +4,8 @@ import type {
   CopilotMcpAuthInput,
   CopilotSendInput,
   CopilotSetModelFavoriteInput,
-  CopilotSetModelInput
+  CopilotSetModelInput,
+  UsdDkkRate
 } from '../../shared/app-types'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
 import { handleIpc } from '../ipc/typed-ipc'
@@ -13,7 +14,10 @@ type CopilotSessionService = ReturnType<
   typeof import('./copilot-session-service').createCopilotSessionService
 >
 
-export function registerCopilotIpc(service: CopilotSessionService): void {
+export function registerCopilotIpc(
+  service: CopilotSessionService,
+  getUsdDkkRate: () => UsdDkkRate
+): void {
   handleIpc(IPC_CHANNELS.copilot.getSdkStatus, () => service.getSdkStatus())
   handleIpc(IPC_CHANNELS.copilot.updateSdk, () => service.updateSdk())
   handleIpc(IPC_CHANNELS.copilot.start, (_event, threadId: string) => service.start(threadId))
@@ -21,6 +25,7 @@ export function registerCopilotIpc(service: CopilotSessionService): void {
     service.getSession(threadId)
   )
   handleIpc(IPC_CHANNELS.copilot.getPerformanceSamples, () => service.getPerformanceSamples())
+  handleIpc(IPC_CHANNELS.copilot.getUsdDkkRate, () => getUsdDkkRate())
   handleIpc(IPC_CHANNELS.copilot.listSkills, (_event, threadId: string) =>
     service.listSkills(threadId)
   )

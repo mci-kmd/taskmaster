@@ -215,7 +215,8 @@ it('records model usage with call timing, including subagents, and ignores unmea
     timestamp: usage.timestamp,
     outputTokens: 120,
     durationMs: 2400,
-    timeToFirstTokenMs: 310
+    timeToFirstTokenMs: 310,
+    nanoAiu: null
   })
   harness.listener!(
     event('assistant.usage', { model: 'model-b', outputTokens: 40, duration: 1000 })
@@ -236,6 +237,51 @@ it('records model usage with call timing, including subagents, and ignores unmea
   expect(harness.recordPerformanceSample).toHaveBeenLastCalledWith(
     expect.objectContaining({ model: 'subagent', outputTokens: 30 })
   )
+})
+
+it('records billed usage per call for credit charts, even without timing', async () => {
+  const service = setup()
+  await service.start('thread')
+  const copilotUsage = (totalNanoAiu: number): unknown => ({ totalNanoAiu, tokenDetails: [] })
+  harness.listener!(
+    event('assistant.usage', {
+      model: 'model-a',
+      outputTokens: 50,
+      duration: 1000,
+      copilotUsage: copilotUsage(3_000_000_000)
+    })
+  )
+  expect(harness.recordPerformanceSample).toHaveBeenLastCalledWith(
+    expect.objectContaining({ model: 'model-a', outputTokens: 50, nanoAiu: 3_000_000_000 })
+  )
+  const untimed = event('assistant.usage', {
+    model: 'model-b',
+    copilotUsage: copilotUsage(1_000_000_000)
+  })
+  harness.listener!(untimed)
+  expect(harness.recordPerformanceSample).toHaveBeenLastCalledWith({
+    id: untimed.id,
+    model: 'model-b',
+    timestamp: untimed.timestamp,
+    outputTokens: 0,
+    durationMs: 0,
+    timeToFirstTokenMs: null,
+    nanoAiu: 1_000_000_000
+  })
+  harness.listener!(
+    event(
+      'assistant.usage',
+      { model: 'subagent', copilotUsage: copilotUsage(500_000_000) },
+      { agentId: 'child' }
+    )
+  )
+  expect(harness.recordPerformanceSample).toHaveBeenLastCalledWith(
+    expect.objectContaining({ model: 'subagent', nanoAiu: 500_000_000 })
+  )
+  harness.listener!(
+    event('assistant.usage', { model: 'model-c', copilotUsage: copilotUsage(Number.NaN) })
+  )
+  expect(harness.recordPerformanceSample).toHaveBeenCalledTimes(3)
 })
 
 describe('prompt summaries', () => {

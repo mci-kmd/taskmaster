@@ -32,6 +32,7 @@ import {
 import { registerNativeMenuIpc } from './native-menu'
 import { createCopilotSessionService } from './copilot/copilot-session-service'
 import { registerCopilotIpc } from './copilot/copilot-ipc'
+import { createUsdDkkRate } from './copilot/usd-dkk-rate'
 import { hardenPreviewWebviews, registerPreviewIpc } from './preview/preview-webviews'
 
 const devUserDataPath = resolveDevUserDataPath(app.getPath('appData'), isDevMode)
@@ -160,7 +161,10 @@ app.whenReady().then(() => {
     isWorking: copilotService.isThreadWorking
   })
   setCommitMessageGenerator(copilotService.generateText)
-  registerCopilotIpc(copilotService)
+  const usdDkkRate = createUsdDkkRate()
+  // Non-blocking; DKK estimates use the fallback rate until (or unless) this succeeds.
+  void usdDkkRate.refresh()
+  registerCopilotIpc(copilotService, usdDkkRate.get)
   registerPreviewIpc()
   let copilotShutdownComplete = false
   app.on('before-quit', (event) => {

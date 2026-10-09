@@ -14,7 +14,8 @@ function sample(
   minutesAgo: number,
   outputTokens: number,
   durationMs: number,
-  timeToFirstTokenMs: number | null
+  timeToFirstTokenMs: number | null,
+  nanoAiu?: number | null
 ): ModelPerformanceSample {
   return {
     id,
@@ -22,7 +23,8 @@ function sample(
     timestamp: new Date(now.getTime() - minutesAgo * 60_000).toISOString(),
     outputTokens,
     durationMs,
-    timeToFirstTokenMs
+    timeToFirstTokenMs,
+    ...(nanoAiu === undefined ? {} : { nanoAiu })
   }
 }
 
@@ -62,8 +64,18 @@ it('shows only active models and calculates weighted end-to-end TPS and recorded
   expect(within(model).getByText('300')).toBeTruthy()
   expect(within(model).getByText('2 / 3 recorded')).toBeTruthy()
   expect(screen.queryByRole('region', { name: 'Older performance' })).toBeNull()
-  expect(within(model).getByRole('img', { name: /Alpha Tokens per second trend/ })).toBeTruthy()
-  expect(within(model).getByRole('img', { name: /Alpha Time to first token trend/ })).toBeTruthy()
+  const chart = within(model).getByRole('img', { name: /Alpha output speed and first token trend/ })
+  expect(within(model).getAllByRole('img')).toEqual([chart])
+  expect(chart.getAttribute('aria-label')).toContain('Tokens per second:')
+  expect(chart.getAttribute('aria-label')).toContain('Time to first token:')
+  expect(
+    chart.querySelectorAll('.tm-performance__series--tps .tm-performance__point')
+  ).toHaveLength(1)
+  expect(
+    chart.querySelectorAll('.tm-performance__series--ttft .tm-performance__point')
+  ).toHaveLength(1)
+  expect(within(model).getByText('TPS 0–50 tok/s')).toBeTruthy()
+  expect(within(model).getByText('TTFT 0–300 ms')).toBeTruthy()
 
   fireEvent.click(screen.getByRole('button', { name: '1w' }))
   expect(screen.getByRole('region', { name: 'Older performance' })).toBeTruthy()
@@ -80,7 +92,7 @@ it('names each used model and shows bucket metrics and time on hover and keyboar
   expect(within(models).getByText('Alpha')).toBeTruthy()
   expect(within(models).getByText('Beta')).toBeTruthy()
   const alpha = screen.getByRole('region', { name: 'Alpha performance' })
-  const alphaGraph = alpha.querySelector('.tm-performance__metric--tps')!
+  const alphaGraph = alpha.querySelector('.tm-performance__metric')!
   const alphaPoint = within(alphaGraph as HTMLElement).getByRole('button', { name: /Alpha,/ })
   fireEvent.mouseEnter(alphaPoint)
   let tooltip = within(alphaGraph as HTMLElement).getByRole('tooltip')
@@ -100,7 +112,7 @@ it('names each used model and shows bucket metrics and time on hover and keyboar
   expect(screen.queryByRole('tooltip')).toBeNull()
 
   const beta = screen.getByRole('region', { name: 'Beta performance' })
-  const betaGraph = beta.querySelector('.tm-performance__metric--ttft')!
+  const betaGraph = beta.querySelector('.tm-performance__metric')!
   const betaPoint = within(betaGraph as HTMLElement).getByRole('button', { name: /Beta,/ })
   fireEvent.focus(betaPoint)
   tooltip = within(betaGraph as HTMLElement).getByRole('tooltip')
@@ -121,7 +133,7 @@ it('keeps one tab stop per chart and moves between intervals with arrow keys', (
   fireEvent.click(screen.getByRole('button', { name: '1d' }))
   const graph = screen
     .getByRole('region', { name: 'Alpha performance' })
-    .querySelector('.tm-performance__metric--tps') as HTMLElement
+    .querySelector('.tm-performance__metric') as HTMLElement
   const points = within(graph).getAllByRole('button', { name: /Alpha,/ })
   expect(points.map((point) => point.tabIndex)).toEqual([-1, -1, 0])
   points[2].focus()
@@ -226,21 +238,21 @@ it('keeps completed intervals and their positions stable as samples and the cloc
   fireEvent.click(screen.getByRole('button', { name: '1h' }))
   const graph = screen
     .getByRole('region', { name: 'Alpha performance' })
-    .querySelector('.tm-performance__metric--tps') as HTMLElement
+    .querySelector('.tm-performance__metric') as HTMLElement
   const past = (): string[] =>
     within(graph)
       .getAllByRole('button', { name: /Alpha,/ })
       .slice(0, 2)
       .map((button) => button.getAttribute('aria-label')!)
   const heights = (): string[] =>
-    Array.from(graph.querySelectorAll('.tm-performance__point'))
+    Array.from(graph.querySelectorAll('.tm-performance__series--tps .tm-performance__point'))
       .slice(0, 2)
       .map((point) => point.getAttribute('cy')!)
   const original = past()
   const originalHeights = heights()
   expect(original[0]).toContain('50 tokens per second')
   expect(original[1]).toContain('30 tokens per second')
-  expect(within(graph).getByText('0–50 tok/s')).toBeTruthy()
+  expect(within(graph).getByText('TPS 0–50 tok/s')).toBeTruthy()
   expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' L')
   const focused = within(graph).getAllByRole('button', { name: /Alpha,/ })[0]
   act(() => focused.focus())
@@ -297,11 +309,11 @@ it('labels a changed vertical scale without changing recorded interval metrics',
   fireEvent.click(screen.getByRole('button', { name: '1h' }))
   const graph = screen
     .getByRole('region', { name: 'Alpha performance' })
-    .querySelector('.tm-performance__metric--tps') as HTMLElement
+    .querySelector('.tm-performance__metric') as HTMLElement
   const recorded = within(graph)
     .getByRole('button', { name: /Alpha,/ })
     .getAttribute('aria-label')
-  expect(within(graph).getByText('0–50 tok/s')).toBeTruthy()
+  expect(within(graph).getByText('TPS 0–50 tok/s')).toBeTruthy()
 
   vi.setSystemTime(new Date(now.getTime() + 2 * 60_000))
   await act(async () => {
@@ -315,7 +327,7 @@ it('labels a changed vertical scale without changing recorded interval metrics',
       />
     )
   })
-  expect(within(graph).getByText('0–100 tok/s')).toBeTruthy()
+  expect(within(graph).getByText('TPS 0–100 tok/s')).toBeTruthy()
   expect(
     within(graph)
       .getAllByRole('button', { name: /Alpha,/ })[0]
@@ -358,4 +370,68 @@ it('shows loading, error with retry, empty range, and close actions', () => {
   expect(screen.getByRole('status').textContent).toContain('No model activity')
   fireEvent.click(screen.getByRole('button', { name: 'Close model performance' }))
   expect(onClose).toHaveBeenCalledOnce()
+})
+
+it('toggles to AI credit and DKK usage per model, tolerating samples without usage', () => {
+  const { container } = render(
+    <ModelPerformanceView
+      samples={[
+        sample('a1', 'Alpha', 2, 100, 1000, 200, 2_000_000_000),
+        sample('a2', 'Alpha', 3, 100, 1000, 200, 500_000_000),
+        sample('a3', 'Alpha', 4, 100, 1000, 200),
+        sample('legacy', 'Beta', 5, 100, 1000, 200),
+        sample('usage-only', 'Gamma', 6, 0, 0, null, 1_000_000_000)
+      ]}
+      loading={false}
+      error={null}
+      usdDkkRate={{ dkkPerUsd: 6.5, source: 'live', updatedAt: null }}
+      onRetry={onRetry}
+      onClose={onClose}
+    />
+  )
+  const chart = screen.getByRole('radiogroup', { name: 'Chart' })
+  expect(
+    within(chart).getByRole('radio', { name: 'Performance' }).getAttribute('aria-checked')
+  ).toBe('true')
+  const gamma = screen.getByRole('region', { name: 'Gamma performance' })
+  expect(within(gamma).getAllByText('—')).toHaveLength(2)
+
+  fireEvent.click(within(chart).getByRole('radio', { name: 'Credits' }))
+  const alpha = screen.getByRole('region', { name: 'Alpha AI credits' })
+  expect(within(alpha).getByText('2.50')).toBeTruthy()
+  expect(within(alpha).getByText('2 / 3 with usage')).toBeTruthy()
+  expect(within(alpha).getByText('0–2.50 credits')).toBeTruthy()
+  expect(within(alpha).getByRole('img', { name: /Alpha AI credits trend/ })).toBeTruthy()
+  const point = within(alpha).getByRole('button', { name: /Alpha,/ })
+  expect(point.getAttribute('aria-label')).toContain('Credits: 2.50 credits')
+  fireEvent.mouseEnter(point)
+  const tooltip = within(alpha).getByRole('tooltip')
+  expect(tooltip.textContent).toContain('2.50 credits')
+  expect(tooltip.textContent).toContain('≈0.16 DKK')
+  expect(tooltip.textContent).toContain('3 calls')
+  const beta = screen.getByRole('region', { name: 'Beta AI credits' })
+  expect(within(beta).getByText('—')).toBeTruthy()
+  expect(within(beta).getByText('0 / 1 with usage')).toBeTruthy()
+  expect(within(beta).getByRole('img', { name: /No recorded values/ })).toBeTruthy()
+  expect(
+    within(screen.getByRole('region', { name: 'Gamma AI credits' })).getByText('1.00')
+  ).toBeTruthy()
+
+  fireEvent.click(within(chart).getByRole('radio', { name: 'DKK' }))
+  const alphaDkk = screen.getByRole('region', { name: 'Alpha estimated DKK' })
+  expect(within(alphaDkk).getByText('≈0.16')).toBeTruthy()
+  expect(within(alphaDkk).getByText('0–0.16 DKK')).toBeTruthy()
+  expect(container.querySelector('.tm-performance__footer')?.textContent).toContain(
+    '$1 = 6.5 DKK (live rate)'
+  )
+})
+
+it('estimates DKK with the fallback rate until a live rate is available', () => {
+  const { container } = view([sample('a1', 'Alpha', 2, 100, 1000, 200, 100_000_000_000)])
+  fireEvent.click(screen.getByRole('radio', { name: 'DKK' }))
+  const alpha = screen.getByRole('region', { name: 'Alpha estimated DKK' })
+  expect(within(alpha).getByText('≈6.58')).toBeTruthy()
+  expect(container.querySelector('.tm-performance__footer')?.textContent).toContain(
+    '$1 = 6.58 DKK (fallback rate)'
+  )
 })

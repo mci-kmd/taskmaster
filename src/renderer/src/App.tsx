@@ -17,6 +17,7 @@ import {
   SIDEBAR_WIDTH_MIN,
   type AppSnapshot,
   type ModelPerformanceSample,
+  type UsdDkkRate,
   type CreateRepositoryTaskInput,
   type RepositorySnapshot,
   type ThreadMode,
@@ -97,6 +98,7 @@ export default function App(): React.JSX.Element {
   const [performanceLoading, setPerformanceLoading] = useState(false)
   const [performanceError, setPerformanceError] = useState<string | null>(null)
   const [performanceRetry, setPerformanceRetry] = useState(0)
+  const [usdDkkRate, setUsdDkkRate] = useState<UsdDkkRate | undefined>(undefined)
   const [sidebarWidth, setSidebarWidth] = useState<number>(SIDEBAR_WIDTH_DEFAULT)
   const selectionRequestIdRef = useRef(0)
   const handleSnapshotLoaded = useCallback((nextSnapshot: AppSnapshot): void => {
@@ -204,6 +206,13 @@ export default function App(): React.JSX.Element {
       return added.length ? [...current, ...added] : current
     }
     setPerformanceLoading(true)
+    // The main process looks the rate up at startup; until then it reports the fallback.
+    void api.copilot.getUsdDkkRate().then(
+      (rate) => {
+        if (mounted) setUsdDkkRate(rate)
+      },
+      () => undefined
+    )
     const unsubscribe = api.copilot.onPerformanceSample(({ sample }) => {
       if (mounted) setPerformanceSamples((current) => merge(current, [sample]))
     })
@@ -791,6 +800,7 @@ export default function App(): React.JSX.Element {
               samples={performanceSamples}
               loading={performanceLoading}
               error={performanceError}
+              usdDkkRate={usdDkkRate}
               onRetry={() => setPerformanceRetry((value) => value + 1)}
               onClose={() => setPerformanceOpen(false)}
             />

@@ -685,6 +685,16 @@ export interface ModelPerformanceSample {
   outputTokens: number
   durationMs: number
   timeToFirstTokenMs: number | null
+  /** Billed usage for the call; absent on samples recorded before usage was tracked. */
+  nanoAiu?: number | null
+}
+
+export interface UsdDkkRate {
+  dkkPerUsd: number
+  /** `live` once the startup lookup succeeded; otherwise the built-in fallback rate. */
+  source: 'live' | 'fallback'
+  /** When the live rate was published by the provider (ISO), if known. */
+  updatedAt: string | null
 }
 
 export interface ModelPerformanceSampleEvent {
@@ -715,6 +725,7 @@ export interface CopilotApi {
   start: (threadId: string) => Promise<CopilotStartResult>
   getSession: (threadId: string) => Promise<CopilotSessionSnapshot | null>
   getPerformanceSamples: () => Promise<ModelPerformanceSample[]>
+  getUsdDkkRate: () => Promise<UsdDkkRate>
   onPerformanceSample: (callback: (payload: ModelPerformanceSampleEvent) => void) => () => void
   listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>

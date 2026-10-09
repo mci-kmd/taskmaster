@@ -186,6 +186,7 @@ const api = {
     start: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.start, threadId),
     getSession: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.getSession, threadId),
     getPerformanceSamples: () => invokeIpc(IPC_CHANNELS.copilot.getPerformanceSamples),
+    getUsdDkkRate: () => invokeIpc(IPC_CHANNELS.copilot.getUsdDkkRate),
     onPerformanceSample: (callback: (payload: ModelPerformanceSampleEvent) => void) =>
       onIpc(IPC_CHANNELS.copilot.performanceSample, callback),
     listSkills: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.listSkills, threadId),

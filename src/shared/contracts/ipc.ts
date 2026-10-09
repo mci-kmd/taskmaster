@@ -57,7 +57,8 @@ import type {
   UpdateThreadInput,
   UpdateThreadLastUserMessageInput,
   UpdateThreadResumeSessionInput,
-  UpdateUiInput
+  UpdateUiInput,
+  UsdDkkRate
 } from '../app-types'
 
 export const IPC_CHANNELS = {
@@ -120,6 +121,7 @@ export const IPC_CHANNELS = {
     getSession: 'copilot:get-session',
     getPerformanceSamples: 'copilot:get-performance-samples',
     performanceSample: 'copilot:performance-sample',
+    getUsdDkkRate: 'copilot:get-usd-dkk-rate',
     listSkills: 'copilot:list-skills',
     send: 'copilot:send',
     cancelQueued: 'copilot:cancel-queued',
@@ -245,6 +247,7 @@ export type IpcInvokeDefinitions = {
   'copilot:start': { request: [string]; response: CopilotStartResult }
   'copilot:get-session': { request: [string]; response: CopilotSessionSnapshot | null }
   'copilot:get-performance-samples': { request: []; response: ModelPerformanceSample[] }
+  'copilot:get-usd-dkk-rate': { request: []; response: UsdDkkRate }
   'copilot:list-skills': { request: [string]; response: CopilotSkillsResult }
   'copilot:send': { request: [CopilotSendInput]; response: CopilotStartResult }
   'copilot:cancel-queued': { request: [CopilotCancelQueuedInput]; response: CopilotStartResult }

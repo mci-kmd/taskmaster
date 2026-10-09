@@ -80,6 +80,31 @@ describe('model performance store', () => {
     ])
   })
 
+  it('loads samples without usage and keeps billed usage, including calls without timing', () => {
+    const path = join(directory(), 'performance.json')
+    writeFileSync(path, `${JSON.stringify(sample('legacy', 0))}\n`)
+    const store = createModelPerformanceStore(path, () => now)
+    const billed = { ...sample('billed', 0), nanoAiu: 2_500_000_000 }
+    const usageOnly = {
+      ...sample('usage-only', 0),
+      outputTokens: 0,
+      durationMs: 0,
+      timeToFirstTokenMs: null,
+      nanoAiu: 0
+    }
+    store.addSample(billed)
+    store.addSample(usageOnly)
+    expect(createModelPerformanceStore(path, () => now).getSamples()).toEqual([
+      sample('legacy', 0),
+      billed,
+      usageOnly
+    ])
+    expect(() => store.addSample({ ...sample('negative', 0), nanoAiu: -1 })).toThrow('invalid')
+    expect(() =>
+      store.addSample({ ...sample('untimed', 0), durationMs: 0, nanoAiu: null })
+    ).toThrow('invalid')
+  })
+
   it('surfaces unreadable data and write errors instead of silently losing measurements', () => {
     const path = join(directory(), 'performance.json')
     const store = createModelPerformanceStore(path, () => now)

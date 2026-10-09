@@ -971,8 +971,12 @@ export function createCopilotSessionService(dependencies: {
 
   const handleEvent = (active: ActiveSession, event: SessionEvent): void => {
     if (event.type === 'assistant.usage') {
-      const nanoAiu = event.data.copilotUsage?.totalNanoAiu
-      if (nanoAiu !== undefined && Number.isFinite(nanoAiu) && nanoAiu >= 0) {
+      const reportedNanoAiu = event.data.copilotUsage?.totalNanoAiu
+      const nanoAiu =
+        reportedNanoAiu !== undefined && Number.isFinite(reportedNanoAiu) && reportedNanoAiu >= 0
+          ? reportedNanoAiu
+          : null
+      if (nanoAiu !== null) {
         const { model, reasoningEffort } = event.data
         const counted =
           event.agentId !== undefined &&
@@ -990,28 +994,29 @@ export function createCopilotSessionService(dependencies: {
         if (!counted) addUsage(active, nanoAiu)
       }
       const { model, outputTokens, duration, timeToFirstTokenMs } = event.data
-      if (
-        model &&
+      const measured =
         outputTokens !== undefined &&
         Number.isFinite(outputTokens) &&
         outputTokens > 0 &&
         duration !== undefined &&
         Number.isFinite(duration) &&
         duration > 0
-      ) {
+      // Billed calls are kept even without timing so credit usage stays complete.
+      if (model && (measured || nanoAiu !== null)) {
         try {
           dependencies.recordPerformanceSample({
             id: event.id,
             model,
             timestamp: event.timestamp,
-            outputTokens,
-            durationMs: duration,
+            outputTokens: measured ? outputTokens : 0,
+            durationMs: measured ? duration : 0,
             timeToFirstTokenMs:
               timeToFirstTokenMs !== undefined &&
               Number.isFinite(timeToFirstTokenMs) &&
               timeToFirstTokenMs >= 0
                 ? timeToFirstTokenMs
-                : null
+                : null,
+            nanoAiu
           })
         } catch (error) {
           console.error('Could not save model performance:', error)

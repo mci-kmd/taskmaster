@@ -1,6 +1,7 @@
 .tm-performance {
   --tm-tps: #79d4d9;
   --tm-ttft: #e6b976;
+  --tm-cost: #b7a3f0;
   flex: 1 1 auto;
   width: 100%;
   height: 100%;
@@ -106,6 +107,18 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.tm-performance__controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.tm-performance__views {
+  width: 280px;
+  max-width: 100%;
+}
+
 .tm-performance__periods {
   display: flex;
   gap: 3px;
@@ -202,16 +215,56 @@
   grid-template-columns: minmax(170px, 210px) minmax(0, 1fr);
   align-items: center;
   gap: 20px;
-  min-height: 112px;
+  min-height: 132px;
+  padding: 10px 0;
   border-top: 1px solid var(--color-border);
 }
 
-.tm-performance__metric--tps {
+.tm-performance__metric--performance,
+.tm-performance__readout--tps,
+.tm-performance__series--tps,
+.tm-performance__scale--tps {
   --tm-ink: var(--tm-tps);
 }
 
-.tm-performance__metric--ttft {
+.tm-performance__readout--ttft,
+.tm-performance__series--ttft,
+.tm-performance__scale--ttft {
   --tm-ink: var(--tm-ttft);
+}
+
+.tm-performance__metric--credits,
+.tm-performance__metric--dkk,
+.tm-performance__series--credits,
+.tm-performance__series--dkk {
+  --tm-ink: var(--tm-cost);
+}
+
+.tm-performance__series--tps,
+.tm-performance__series--ttft,
+.tm-performance__series--credits,
+.tm-performance__series--dkk {
+  color: var(--tm-ink);
+}
+
+.tm-performance__readouts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tm-performance__swatch {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 0;
+  border-top: 2px solid var(--tm-ink);
+  vertical-align: middle;
+}
+
+.tm-performance__readout--ttft .tm-performance__swatch,
+.tm-performance__scale--ttft .tm-performance__swatch {
+  border-top-style: dashed;
 }
 
 .tm-performance__readout {
@@ -273,15 +326,29 @@
   color: var(--tm-ink);
 }
 
-.tm-performance__scale {
+.tm-performance__scales {
   position: absolute;
   top: 0;
   right: 12px;
+  left: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  pointer-events: none;
+}
+
+.tm-performance__scale {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--color-fg-subtle);
   font-family: var(--font-mono);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
+}
+
+.tm-performance__scale:only-child {
+  margin-left: auto;
 }
 
 .tm-performance__axis {
@@ -314,6 +381,17 @@
   fill: currentColor;
   stroke: var(--color-bg);
   stroke-width: 1;
+}
+
+/* TTFT is dashed with hollow points so the two series never rely on color alone. */
+.tm-performance__series--ttft .tm-performance__line {
+  stroke-dasharray: 5 4;
+}
+
+.tm-performance__series--ttft .tm-performance__point {
+  fill: var(--color-bg);
+  stroke: currentColor;
+  stroke-width: 1.5;
 }
 
 .tm-performance__guide {

@@ -5,24 +5,24 @@ import type { ModelPerformanceSample } from '../../shared/app-types'
 const RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 const COMPACTION_INTERVAL_MS = 24 * 60 * 60 * 1000
 
+const isAmount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+
+// A sample needs timing (for speed) or billed usage (for credits); older samples have no usage.
 function isSample(value: unknown): value is ModelPerformanceSample {
   if (!value || typeof value !== 'object') return false
   const sample = value as Record<string, unknown>
+  const billed = isAmount(sample.nanoAiu)
   return (
     typeof sample.id === 'string' &&
     typeof sample.model === 'string' &&
     typeof sample.timestamp === 'string' &&
     Number.isFinite(Date.parse(sample.timestamp)) &&
-    typeof sample.outputTokens === 'number' &&
-    Number.isFinite(sample.outputTokens) &&
-    sample.outputTokens > 0 &&
-    typeof sample.durationMs === 'number' &&
-    Number.isFinite(sample.durationMs) &&
-    sample.durationMs > 0 &&
-    (sample.timeToFirstTokenMs === null ||
-      (typeof sample.timeToFirstTokenMs === 'number' &&
-        Number.isFinite(sample.timeToFirstTokenMs) &&
-        sample.timeToFirstTokenMs >= 0))
+    isAmount(sample.outputTokens) &&
+    isAmount(sample.durationMs) &&
+    ((sample.outputTokens > 0 && sample.durationMs > 0) || billed) &&
+    (sample.timeToFirstTokenMs === null || isAmount(sample.timeToFirstTokenMs)) &&
+    (sample.nanoAiu === undefined || sample.nanoAiu === null || billed)
   )
 }
 
