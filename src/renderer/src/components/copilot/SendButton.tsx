@@ -217,8 +217,10 @@ export default function SendButton({
                   aria-checked={option.value === delivery}
                   className="tm-send-menu-item"
                   onClick={() => {
-                    close(false)
                     onDeliveryChange(option.value)
+                    // Callers usually move focus (to the message box); otherwise keep it on the
+                    // toggle rather than inside the menu that is closing.
+                    close(Boolean(menu.current?.contains(document.activeElement)))
                   }}
                 >
                   <span className="tm-send-menu-check" aria-hidden="true">

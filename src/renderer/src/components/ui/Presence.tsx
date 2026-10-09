@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, type ReactElement } from 'react'
-import { useLastValue, usePresence, type MotionPreset } from '../../lib/motion'
+import { LeavingContext, useLastValue, usePresence, type MotionPreset } from '../../lib/motion'
 
 /**
  * Animates its child in and out with a motion preset (styles/motion.css). While leaving, the
@@ -20,9 +20,13 @@ export default function Presence({
   const last = useLastValue(current)
   const child = current ?? last
   if (!mounted || !child) return null
-  return cloneElement(child as ReactElement<Record<string, unknown>>, {
-    'data-motion': motion,
-    'data-state': state,
-    inert: state === 'closed' || undefined
-  })
+  return (
+    <LeavingContext.Provider value={state === 'closed'}>
+      {cloneElement(child as ReactElement<Record<string, unknown>>, {
+        'data-motion': motion,
+        'data-state': state,
+        inert: state === 'closed' || undefined
+      })}
+    </LeavingContext.Provider>
+  )
 }

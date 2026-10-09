@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo } from 'react'
 import { CloseIcon } from './Icons'
 import Button from './ui/Button'
-import { useLastValue, usePresence } from '../lib/motion'
+import { LeavingContext, useLastValue, usePresence } from '../lib/motion'
 
 type ModalProps = {
   open: boolean
@@ -68,63 +68,65 @@ export default function Modal({
   }
 
   return (
-    <div
-      aria-labelledby={titleId}
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
-      inert={!open}
-      role="dialog"
-    >
+    <LeavingContext.Provider value={state === 'closed'}>
       <div
-        aria-hidden="true"
-        className="absolute inset-0 bg-overlay backdrop-blur-[2px]"
-        data-motion="fade"
-        data-state={state}
-        onClick={onClose}
-      />
-
-      <div
-        className={`relative flex max-h-[calc(100dvh-2rem)] w-full ${widths[width]} ${fill ? 'h-[min(600px,calc(100dvh-2rem))] sm:h-[min(600px,calc(100dvh-3rem))]' : ''} min-h-0 flex-col overflow-hidden rounded-xl bg-panel elevation-pop sm:max-h-[calc(100dvh-3rem)]`}
-        data-motion="pop"
-        data-state={state}
+        aria-labelledby={titleId}
+        aria-modal="true"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+        inert={state === 'closed'}
+        role="dialog"
       >
-        <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold tracking-tight text-fg" id={titleId}>
-              {content.title}
-            </h2>
-            {content.description ? (
-              <p className="mt-1 text-[13px] leading-5 text-fg-muted">{content.description}</p>
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            {content.headerExtra}
-            <Button
-              aria-label="Close dialog"
-              className="-m-1"
-              iconOnly
-              onClick={onClose}
-              size="sm"
-              title="Close (Esc)"
-              variant="ghost"
-            >
-              <CloseIcon />
-            </Button>
-          </div>
-        </header>
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-overlay backdrop-blur-[2px]"
+          data-motion="fade"
+          data-state={state}
+          onClick={onClose}
+        />
 
-        {fill ? (
-          <div className="flex min-h-0 flex-1">{content.children}</div>
-        ) : (
-          <div className="min-h-0 overflow-y-auto px-5 py-5">{content.children}</div>
-        )}
+        <div
+          className={`relative flex max-h-[calc(100dvh-2rem)] w-full ${widths[width]} ${fill ? 'h-[min(600px,calc(100dvh-2rem))] sm:h-[min(600px,calc(100dvh-3rem))]' : ''} min-h-0 flex-col overflow-hidden rounded-xl bg-panel elevation-pop sm:max-h-[calc(100dvh-3rem)]`}
+          data-motion="pop"
+          data-state={state}
+        >
+          <header className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
+            <div className="min-w-0">
+              <h2 className="text-[15px] font-semibold tracking-tight text-fg" id={titleId}>
+                {content.title}
+              </h2>
+              {content.description ? (
+                <p className="mt-1 text-[13px] leading-5 text-fg-muted">{content.description}</p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-3">
+              {content.headerExtra}
+              <Button
+                aria-label="Close dialog"
+                className="-m-1"
+                iconOnly
+                onClick={onClose}
+                size="sm"
+                title="Close (Esc)"
+                variant="ghost"
+              >
+                <CloseIcon />
+              </Button>
+            </div>
+          </header>
 
-        {content.footer ? (
-          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-surface px-5 py-3">
-            {content.footer}
-          </footer>
-        ) : null}
+          {fill ? (
+            <div className="flex min-h-0 flex-1">{content.children}</div>
+          ) : (
+            <div className="min-h-0 overflow-y-auto px-5 py-5">{content.children}</div>
+          )}
+
+          {content.footer ? (
+            <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-border bg-surface px-5 py-3">
+              {content.footer}
+            </footer>
+          ) : null}
+        </div>
       </div>
-    </div>
+    </LeavingContext.Provider>
   )
 }

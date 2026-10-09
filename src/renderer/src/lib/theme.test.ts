@@ -33,4 +33,21 @@ describe('setTheme', () => {
     expect(result.current.id).toBe('porcelain')
     expect(document.documentElement.dataset.theme).toBe('porcelain')
   })
+
+  it('lets the last request win while a crossfade is pending', () => {
+    Element.prototype.animate = vi.fn() as never
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+    const transitions: Array<() => void> = []
+    document.startViewTransition = vi.fn((callback: () => void) => {
+      transitions.push(callback)
+    }) as never
+    const { result } = renderHook(() => useTheme())
+
+    act(() => setTheme('porcelain'))
+    act(() => setTheme('graphite'))
+    act(() => transitions.forEach((run) => run()))
+
+    expect(result.current.id).toBe('graphite')
+    expect(document.documentElement.dataset.theme).toBe('graphite')
+  })
 })

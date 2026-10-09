@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 
 /** Mirrors the motion tokens in styles/tokens.css. */
 export const MOTION = {
@@ -23,13 +23,22 @@ export function canAnimate(): boolean {
 }
 
 /**
+ * True inside something that is animating out (provided by <Presence> and Modal). React context
+ * crosses portals, so popovers opened from a leaving view know to close with it.
+ */
+export const LeavingContext = createContext(false)
+
+/**
  * Keeps something mounted while it animates out. `state` is 'closed' during the exit; give it
- * to the element as data-state alongside a data-motion preset (see styles/motion.css).
+ * to the element as data-state alongside a data-motion preset (see styles/motion.css). Anything
+ * inside a leaving owner (see LeavingContext) closes too.
  */
 export function usePresence(
-  show: boolean,
+  requested: boolean,
   exitMs: number = MOTION.exitMs
 ): { mounted: boolean; state: PresenceState } {
+  const leaving = useContext(LeavingContext)
+  const show = requested && !leaving
   const [mounted, setMounted] = useState(show)
   if (show && !mounted) setMounted(true)
   const animates = canAnimate()

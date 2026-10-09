@@ -12,7 +12,10 @@ import { canAnimate } from './motion'
 const STORAGE_KEY = 'taskmaster:theme'
 
 const listeners = new Set<() => void>()
+/** The theme the stylesheet shows; useTheme() reports this one. */
 let current: ThemeId = readStoredTheme()
+/** The latest theme asked for; ahead of `current` while a crossfade is pending. */
+let requested: ThemeId = current
 
 function readStoredTheme(): ThemeId {
   try {
@@ -30,15 +33,18 @@ export function initializeTheme(): void {
 
 /** Switches the app's theme, crossfading the window unless `animate` is false. */
 export function setTheme(id: ThemeId, { animate = true }: { animate?: boolean } = {}): void {
-  if (id === current && document.documentElement.dataset.theme === id) return
+  if (id === requested && document.documentElement.dataset.theme === id) return
+  requested = id
   try {
     window.localStorage.setItem(STORAGE_KEY, id)
   } catch {
     // Storage is only a first-paint optimization.
   }
   // The store and the stylesheet change together, so anything reading tokens on a theme
-  // change (xterm, Monaco) sees the new values.
+  // change (xterm, Monaco) sees the new values. A switch superseded before its crossfade
+  // started is skipped, so the last request wins.
   const apply = (): void => {
+    if (id !== requested) return
     current = id
     document.documentElement.dataset.theme = id
     listeners.forEach((listener) => listener())
