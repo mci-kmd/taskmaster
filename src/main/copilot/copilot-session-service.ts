@@ -49,6 +49,7 @@ import type {
 import { CopilotSdkManager } from './copilot-sdk-manager'
 import { collectCopilotSdkUpdateBlockers } from './copilot-update-guard'
 import type { PromptSummaryRecord } from './prompt-summary-store'
+import type { InteractionRecord } from './interaction-record-store'
 
 type ThreadContext = {
   thread: PersistedThread
@@ -300,6 +301,51 @@ function summaryItem(record: PromptSummaryRecord): CopilotTimelineItem {
   }
 }
 
+function interactionItem(record: InteractionRecord): CopilotTimelineItem {
+  return {
+    id: record.id,
+    type: 'interaction',
+    timestamp: record.timestamp,
+    title: record.title,
+    prompt: record.prompt,
+    answer: record.answer,
+    outcome: record.outcome
+  }
+}
+
+function formatAnswerValue(value: string | number | boolean | string[]): string {
+  if (Array.isArray(value)) return value.join(', ')
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  return String(value)
+}
+
+/** How a request was answered, in words for the timeline. */
+export function describeInteractionResponse(
+  interaction: CopilotInteraction,
+  response: CopilotInteractionResponse
+): Pick<InteractionRecord, 'answer' | 'outcome'> {
+  if (response.action === 'approve-session')
+    return { answer: 'Allowed for this session', outcome: 'answered' }
+  if (response.action === 'approve-once') return { answer: 'Allowed', outcome: 'answered' }
+  if (response.action !== 'accept')
+    return {
+      answer: response.feedback ?? (interaction.kind === 'permission' ? 'Denied' : 'Skipped'),
+      outcome: 'declined'
+    }
+  if (interaction.kind === 'elicitation' && response.values) {
+    const entries = Object.entries(response.values)
+    const fields = interaction.schema?.properties ?? {}
+    const answer =
+      entries.length === 1
+        ? formatAnswerValue(entries[0][1])
+        : entries
+            .map(([name, value]) => `${fields[name]?.title ?? name}: ${formatAnswerValue(value)}`)
+            .join('\n')
+    return { answer: answer || 'Accepted', outcome: 'answered' }
+  }
+  return { answer: response.value?.trim() || 'Accepted', outcome: 'answered' }
+}
+
 function mergeTimelineItem(
   previous: CopilotTimelineItem,
   next: CopilotTimelineItem
@@ -388,6 +434,8 @@ export function createCopilotSessionService(dependencies: {
   getPerformanceSamples: () => ModelPerformanceSample[]
   getPromptSummaries?: (sessionId: string) => PromptSummaryRecord[]
   savePromptSummary?: (record: PromptSummaryRecord) => void
+  getInteractions?: (sessionId: string) => InteractionRecord[]
+  saveInteraction?: (record: InteractionRecord) => void
   /** Custom tools registered on every session started for the thread. */
   getSessionTools?: (threadId: string) => Tool[]
 }): {
@@ -484,13 +532,45 @@ export function createCopilotSessionService(dependencies: {
     updateSnapshot(active, { timeline })
   }
 
+  // Keeps each answered request in the timeline, since the runtime does not persist them.
+  const recordInteraction = (
+    active: ActiveSession,
+    interaction: CopilotInteraction,
+    response: CopilotInteractionResponse
+  ): void => {
+    // Requests cancelled by stopping the turn were never answered.
+    if (response.action === 'cancel' || sessions.get(active.snapshot.threadId) !== active) return
+    const anchor = active.snapshot.timeline.findLast(
+      (item) => item.type !== 'summary' && item.type !== 'interaction'
+    )
+    const record: InteractionRecord = {
+      sessionId: active.snapshot.sessionId ?? '',
+      id: `interaction:${interaction.id}`,
+      anchorId: anchor?.id ?? '',
+      timestamp: new Date().toISOString(),
+      title: interaction.title,
+      prompt: interaction.description,
+      ...describeInteractionResponse(interaction, response)
+    }
+    upsertTimeline(active, interactionItem(record))
+    if (!record.sessionId || !record.anchorId) return
+    try {
+      dependencies.saveInteraction?.(record)
+    } catch (error) {
+      console.error('Could not save interaction:', error)
+    }
+  }
+
   const createInteraction = (
     active: ActiveSession,
     interaction: CopilotInteraction
   ): Promise<CopilotInteractionResponse> =>
-    new Promise((resolve) => {
+    new Promise<CopilotInteractionResponse>((resolve) => {
       active.pending.push({ interaction, resolve })
       if (active.pending.length === 1) updateSnapshot(active, { pendingInteraction: interaction })
+    }).then((response) => {
+      recordInteraction(active, interaction, response)
+      return response
     })
 
   const clearInteraction = (active: ActiveSession, interactionId: string): void => {
@@ -1269,6 +1349,19 @@ export function createCopilotSessionService(dependencies: {
           timeline.push(item)
         }
       }
+      let interactions: InteractionRecord[] = []
+      try {
+        interactions = dependencies.getInteractions?.(session.sessionId) ?? []
+      } catch (error) {
+        console.error('Could not load interactions:', error)
+      }
+      // Before summaries, which may be anchored to an interaction.
+      for (const record of interactions) {
+        let index = timeline.findIndex((existingItem) => existingItem.id === record.anchorId)
+        if (index < 0 || timeline.some((existingItem) => existingItem.id === record.id)) continue
+        while (timeline[index + 1]?.type === 'interaction') index++
+        timeline.splice(index + 1, 0, interactionItem(record))
+      }
       let summaries: PromptSummaryRecord[] = []
       try {
         summaries = dependencies.getPromptSummaries?.(session.sessionId) ?? []
@@ -1488,14 +1581,7 @@ export function createCopilotSessionService(dependencies: {
           error: 'Attachments can’t be sent with this reply. Remove them and try again.',
           snapshot: active.snapshot
         }
-      // The runtime has no user message for feedback, so show the reply in the timeline here.
-      upsertTimeline(active, {
-        id: `reply:${pending.interaction.id}`,
-        type: 'user',
-        content: reply,
-        timestamp: new Date().toISOString(),
-        steered: true
-      })
+      // The runtime has no user message for feedback; the timeline shows it as the answer.
       decline(reply)
       return { ok: true, snapshot: active.snapshot }
     }

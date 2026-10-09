@@ -3,6 +3,7 @@ import { join } from 'path'
 import { createQuitGuard, describeBusyThreads, type BusyThread } from './quit-guard'
 import { createModelPerformanceStore } from './copilot/model-performance-store'
 import { createPromptSummaryStore } from './copilot/prompt-summary-store'
+import { createInteractionRecordStore } from './copilot/interaction-record-store'
 import { IPC_CHANNELS } from '../shared/contracts/ipc'
 import { sendIpc } from './ipc/typed-ipc'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -123,9 +124,14 @@ app.whenReady().then(() => {
   const promptSummaryStore = createPromptSummaryStore(
     join(app.getPath('userData'), 'prompt-summaries.jsonl')
   )
+  const interactionStore = createInteractionRecordStore(
+    join(app.getPath('userData'), 'interactions.jsonl')
+  )
   const copilotService = createCopilotSessionService({
     getPromptSummaries: promptSummaryStore.getSummaries,
     savePromptSummary: promptSummaryStore.saveSummary,
+    getInteractions: interactionStore.getInteractions,
+    saveInteraction: interactionStore.saveInteraction,
     getPerformanceSamples: performanceStore.getSamples,
     recordPerformanceSample: (sample) => {
       try {

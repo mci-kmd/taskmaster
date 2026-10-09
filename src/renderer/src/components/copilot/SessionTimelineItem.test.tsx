@@ -60,3 +60,22 @@ it('shows the sub-agent count with usage grouped by model and effort on hover', 
   fireEvent.mouseLeave(badge)
   expect(screen.queryByRole('tooltip')).toBeNull()
 })
+
+it('shows a request Copilot made together with the answer', () => {
+  render(
+    <SessionTimelineItem
+      item={{
+        id: 'interaction:1',
+        type: 'interaction',
+        timestamp: '',
+        title: 'Copilot needs your input',
+        prompt: 'Which **database**?',
+        answer: 'Postgres',
+        outcome: 'answered'
+      }}
+    />
+  )
+  const request = screen.getByRole('region', { name: 'Copilot needs your input' })
+  expect(within(request).getByText('database').tagName).toBe('STRONG')
+  expect(within(request).getByText('You answered').nextSibling?.textContent).toBe('Postgres')
+})

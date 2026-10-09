@@ -352,6 +352,46 @@ describe('prompt summaries', () => {
     ])
   })
 
+  it('restores saved interactions and summaries after their anchor items on resume', async () => {
+    harness.getEvents.mockResolvedValue([
+      event('user.message', { content: 'Hi', messageId: 'u1' }),
+      event('tool.execution_start', { toolCallId: 't1', toolName: 'ask_user' }),
+      event('assistant.message', { messageId: 'a1', content: 'Done' })
+    ])
+    const interaction = {
+      sessionId: 'session-id',
+      id: 'interaction:1',
+      anchorId: 'tool:t1',
+      timestamp: '2026-09-18T10:00:00Z',
+      title: 'Copilot needs your input',
+      prompt: 'Which approach?',
+      answer: 'Safe',
+      outcome: 'answered' as const
+    }
+    const service = setup(true, {
+      getInteractions: () => [interaction, { ...interaction, id: 'interaction:2' }],
+      getPromptSummaries: () => [
+        {
+          sessionId: 'session-id',
+          id: 'summary:1',
+          anchorId: 'assistant:a1',
+          timestamp: '2026-09-18T10:00:01Z',
+          durationMs: 1000,
+          nanoAiu: null
+        }
+      ]
+    })
+    await service.start('thread')
+    expect(service.getSession('thread')!.timeline.map((item) => item.id)).toEqual([
+      'user:u1',
+      'tool:t1',
+      'interaction:1',
+      'interaction:2',
+      'assistant:a1',
+      'summary:1'
+    ])
+  })
+
   it('restores saved summaries after their anchor item on resume', async () => {
     harness.getEvents.mockResolvedValue([
       event('user.message', { content: 'Hi', messageId: 'u1' }),
@@ -1359,9 +1399,10 @@ describe('messages sent while Copilot works', () => {
     expect((await service.send(reply('Use the cache instead', permission.id))).ok).toBe(true)
     await expect(approval).resolves.toEqual({ kind: 'reject', feedback: 'Use the cache instead' })
     expect(service.getSession('thread')!.timeline.at(-1)).toMatchObject({
-      type: 'user',
-      content: 'Use the cache instead',
-      steered: true
+      type: 'interaction',
+      title: 'Allow read access?',
+      answer: 'Use the cache instead',
+      outcome: 'declined'
     })
 
     const plan = harness.config!.onExitPlanModeRequest!(
@@ -1392,6 +1433,65 @@ describe('messages sent while Copilot works', () => {
     expect(service.getSession('thread')).toMatchObject({
       phase: 'running',
       pendingInteraction: null
+    })
+  })
+
+  it('records answered requests in the timeline and saves them', async () => {
+    const saveInteraction = vi.fn()
+    const service = setup(false, { saveInteraction })
+    await service.start('thread')
+    await service.send(message('Pick a database'))
+    harness.listener!(event('tool.execution_start', { toolCallId: 't1', toolName: 'ask_user' }))
+    const question = harness.config!.onElicitationRequest!({
+      sessionId: 'session-id',
+      message: 'Which database?',
+      requestedSchema: {
+        type: 'object',
+        properties: { database: { type: 'string', enum: ['Postgres', 'SQLite'] } }
+      }
+    })
+    const pending = service.getSession('thread')!.pendingInteraction!
+    expect(
+      service.respond({
+        threadId: 'thread',
+        interactionId: pending.id,
+        action: 'accept',
+        values: { database: 'Postgres' }
+      })
+    ).toBe(true)
+    await expect(question).resolves.toEqual({
+      action: 'accept',
+      content: { database: 'Postgres' }
+    })
+    const record = {
+      id: `interaction:${pending.id}`,
+      title: 'Copilot needs more information',
+      prompt: 'Which database?',
+      answer: 'Postgres',
+      outcome: 'answered'
+    }
+    expect(service.getSession('thread')!.timeline.at(-1)).toMatchObject({
+      ...record,
+      type: 'interaction'
+    })
+    expect(saveInteraction).toHaveBeenCalledWith(
+      expect.objectContaining({ ...record, sessionId: 'session-id', anchorId: 'tool:t1' })
+    )
+
+    const approval = harness.config!.onPermissionRequest!(shellPermissionRequest(), {
+      sessionId: 'session-id'
+    })
+    service.respond({
+      threadId: 'thread',
+      interactionId: service.getSession('thread')!.pendingInteraction!.id,
+      action: 'approve-session'
+    })
+    await approval
+    expect(service.getSession('thread')!.timeline.at(-1)).toMatchObject({
+      type: 'interaction',
+      prompt: 'git status',
+      answer: 'Allowed for this session',
+      outcome: 'answered'
     })
   })
 

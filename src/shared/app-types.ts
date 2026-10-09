@@ -486,6 +486,19 @@ export type CopilotTimelineItem =
       /** Sub-agents started during the prompt. */
       subagents: CopilotSubagentUsage[]
     }
+  | {
+      id: string
+      /** A question, permission prompt or plan approval Copilot showed, and how it was answered. */
+      type: 'interaction'
+      timestamp: string
+      title: string
+      prompt: string
+      answer: string
+      outcome: CopilotInteractionOutcome
+    }
+
+/** `declined` covers denials, skipped questions and rejected plans. */
+export type CopilotInteractionOutcome = 'answered' | 'declined'
 
 export interface CopilotSubagentUsage {
   /** Sub-agent instance id. */

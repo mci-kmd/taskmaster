@@ -562,6 +562,53 @@
   color: var(--color-fg-subtle);
 }
 .tm-session-error,
+.tm-session-interaction {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, #c4a7ff 28%, var(--color-border));
+  border-radius: 8px;
+  font-size: 12px;
+  overflow: hidden;
+}
+.tm-session-interaction-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px 0;
+  color: #c4a7ff;
+  font-weight: 600;
+}
+.tm-session-interaction-heading svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.tm-session-interaction-prompt {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 2px 12px 6px;
+  color: var(--color-fg-muted);
+}
+.tm-session-interaction-answer {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+}
+.tm-session-interaction-label {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--color-fg-subtle);
+}
+.tm-session-interaction-value {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tm-session-interaction-answer[data-outcome='declined'] .tm-session-interaction-value {
+  color: var(--color-fg-muted);
+}
 .tm-session-notice {
   display: flex;
   align-items: center;

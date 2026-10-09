@@ -1,7 +1,7 @@
 import { memo } from 'react'
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
 import SessionMarkdown, { CopyButton } from './SessionMarkdown'
-import { PaperclipIcon } from '../Icons'
+import { PaperclipIcon, QuestionIcon } from '../Icons'
 import { splitAttachmentMarkers } from './attachment-markers'
 import {
   PROMPT_COST_BASIS,
@@ -41,6 +41,25 @@ export default memo(function SessionTimelineItem({
   }
   if (item.type === 'notice') {
     return <div className={`tm-session-notice tm-session-notice--${item.tone}`}>{item.content}</div>
+  }
+  if (item.type === 'interaction') {
+    return (
+      <section className="tm-session-interaction" aria-label={item.title}>
+        <div className="tm-session-interaction-heading">
+          <QuestionIcon aria-hidden="true" />
+          <span>{item.title}</span>
+        </div>
+        <div className="tm-session-interaction-prompt">
+          <SessionMarkdown>{item.prompt}</SessionMarkdown>
+        </div>
+        <div className="tm-session-interaction-answer" data-outcome={item.outcome}>
+          <span className="tm-session-interaction-label">
+            {item.outcome === 'declined' ? 'You declined' : 'You answered'}
+          </span>
+          <span className="tm-session-interaction-value">{item.answer}</span>
+        </div>
+      </section>
+    )
   }
   if (item.type === 'summary') {
     return (
