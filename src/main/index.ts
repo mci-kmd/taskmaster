@@ -13,6 +13,7 @@ import devIconIco from '../../build/icon-dev.ico?asset'
 import devIconPng from '../../resources/icon-dev.png?asset'
 import { isDevMode } from '../shared/runtime-mode'
 import { resolveDevUserDataPath } from './dev-user-data-path'
+import { excludeNetworkFromDiagnosticReports } from './diagnostic-reports'
 import { getTheme, type ThemeId } from '../shared/themes'
 import { registerTerminalIpc } from './terminal'
 import {
@@ -39,6 +40,8 @@ import { createCopilotSessionService } from './copilot/copilot-session-service'
 import { registerCopilotIpc } from './copilot/copilot-ipc'
 import { createUsdDkkRate } from './copilot/usd-dkk-rate'
 import { hardenPreviewWebviews, registerPreviewIpc } from './preview/preview-webviews'
+
+excludeNetworkFromDiagnosticReports()
 
 const devUserDataPath = resolveDevUserDataPath(app.getPath('appData'), isDevMode)
 if (devUserDataPath) {

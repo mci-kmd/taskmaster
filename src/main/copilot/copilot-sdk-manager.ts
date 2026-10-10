@@ -18,14 +18,19 @@ type ActiveSdk = {
   version: string
 }
 
-function runtimePlatform(): string {
-  if (process.platform === 'linux') {
-    const report = process.report?.getReport() as
-      { header?: { glibcVersionRuntime?: unknown } } | undefined
-    const isMusl = report?.header?.glibcVersionRuntime === undefined
-    return `${isMusl ? 'linuxmusl' : 'linux'}-${process.arch}`
-  }
-  return `${process.platform}-${process.arch}`
+let detectedRuntimePlatform: string | null = null
+
+/** The runtime's prebuild folder name, e.g. `linux-x64` or `linuxmusl-x64`. */
+export function runtimePlatform(): string {
+  if (detectedRuntimePlatform) return detectedRuntimePlatform
+  if (process.platform !== 'linux') return `${process.platform}-${process.arch}`
+  // A diagnostic report tells glibc from musl. It is costly, so it runs once (and index.ts
+  // keeps it from resolving socket peers, which used to block the main thread).
+  const report = process.report?.getReport() as
+    { header?: { glibcVersionRuntime?: unknown } } | undefined
+  const isMusl = report?.header?.glibcVersionRuntime === undefined
+  detectedRuntimePlatform = `${isMusl ? 'linuxmusl' : 'linux'}-${process.arch}`
+  return detectedRuntimePlatform
 }
 
 function runtimeExecutableName(): string {

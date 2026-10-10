@@ -117,3 +117,19 @@ describe('runNpmInstall', () => {
     await expect(crashed).rejects.toThrow('stopped unexpectedly')
   })
 })
+
+describe('runtimePlatform', () => {
+  it.runIf(process.platform === 'linux')('detects the C library once', async () => {
+    vi.resetModules()
+    const { runtimePlatform } = await import('./copilot-sdk-manager')
+    const getReport = vi.spyOn(process.report!, 'getReport')
+    try {
+      const platform = runtimePlatform()
+      expect(platform).toMatch(/^linux(musl)?-/)
+      expect(runtimePlatform()).toBe(platform)
+      expect(getReport).toHaveBeenCalledTimes(1)
+    } finally {
+      getReport.mockRestore()
+    }
+  })
+})
