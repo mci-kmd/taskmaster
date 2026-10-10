@@ -1355,14 +1355,17 @@ export function createCopilotSessionService(dependencies: {
         session.rpc.mode.get()
       ])
       const timeline: CopilotTimelineItem[] = []
+      // Long sessions have thousands of events; index items by id instead of scanning.
+      const timelineIndex = new Map<string, number>()
       for (const event of history) {
         if (event.agentId) continue
         const item = timelineItemFromEvent(event)
         if (!item) continue
-        const index = timeline.findIndex((existingItem) => existingItem.id === item.id)
-        if (index >= 0) {
+        const index = timelineIndex.get(item.id)
+        if (index !== undefined) {
           timeline[index] = mergeTimelineItem(timeline[index], item)
         } else {
+          timelineIndex.set(item.id, timeline.length)
           timeline.push(item)
         }
       }

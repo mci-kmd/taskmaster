@@ -1490,6 +1490,48 @@ describe('AI commit button after reconnecting', () => {
     await waitFor(() => expect(document.querySelector('.tm-commit')).not.toBeNull())
   })
 
+  it('keeps the conversation on screen through a reconnect without animating it again', async () => {
+    const t = thread()
+    const history: CopilotSessionSnapshot['timeline'] = [
+      { id: 'a', type: 'assistant', content: 'Earlier answer', timestamp: '' }
+    ]
+    mock.getSession.mockResolvedValue(snapshot(t.id, { timeline: history }))
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    const answer = screen.getByText('Earlier answer').closest('article')
+
+    // Reconnecting (e.g. after a Copilot update) starts from an empty placeholder.
+    act(() => listener({ snapshot: snapshot(t.id, { phase: 'connecting' }) }))
+    expect(screen.getByText('Earlier answer').closest('article')).toBe(answer)
+    expect(screen.queryByText('What would you like to work on?')).toBeNull()
+
+    act(() => listener({ snapshot: structuredClone(snapshot(t.id, { timeline: history })) }))
+    expect(screen.getByText('Earlier answer').closest('article')).toBe(answer)
+    expect(answer?.classList.contains('tm-rise-in')).toBe(false)
+  })
+
+  it('shows history restored after a failed start at once', async () => {
+    const t = thread()
+    mock.getSession.mockResolvedValue(snapshot(t.id, { phase: 'disconnected' }))
+    mock.start.mockResolvedValue({
+      ok: false,
+      error: 'Not authenticated',
+      snapshot: snapshot(t.id, { phase: 'error', error: 'Not authenticated' })
+    })
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await waitFor(() => expect(mock.start).toHaveBeenCalled())
+
+    act(() =>
+      listener({
+        snapshot: snapshot(t.id, {
+          timeline: [{ id: 'a', type: 'assistant', content: 'Restored answer', timestamp: '' }]
+        })
+      })
+    )
+    const answer = await screen.findByText('Restored answer')
+    expect(answer.closest('article')?.classList.contains('tm-rise-in')).toBe(false)
+  })
+
   it('re-checks the working tree when a new session replaces an idle one', async () => {
     appState.getBranchStatus.mockResolvedValue(null)
     const t = thread()

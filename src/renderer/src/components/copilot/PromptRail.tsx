@@ -33,12 +33,15 @@ const reducedMotion = (): boolean =>
 export default function PromptRail({
   prompts,
   scrollRef,
-  onNavigate
+  onNavigate,
+  onRevealHistory
 }: {
   prompts: RailPrompt[]
   scrollRef: React.RefObject<HTMLElement | null>
   /** Called before the rail scrolls the transcript, e.g. to stop following new output. */
   onNavigate?: () => void
+  /** Renders the whole history synchronously when a target prompt isn't rendered yet. */
+  onRevealHistory?: () => void
 }): React.JSX.Element | null {
   const railRef = useRef<HTMLDivElement>(null)
   const bars = useRef<(HTMLButtonElement | null)[]>([])
@@ -81,7 +84,9 @@ export default function PromptRail({
       let next = 0
       order.forEach((id, index) => {
         const element = elements.get(id)
-        if (element && element.getBoundingClientRect().top <= line) next = index
+        // A prompt that isn't rendered yet is older than everything rendered (the history fills
+        // in from its newest end), so it lies above the reading line.
+        if (!element || element.getBoundingClientRect().top <= line) next = index
       })
       setActive(next)
     }
@@ -127,7 +132,11 @@ export default function PromptRail({
 
   const jump = (index: number): void => {
     const container = scrollRef.current
-    const element = promptElements().get(prompts[index]?.id)
+    let element = promptElements().get(prompts[index]?.id)
+    if (!element && onRevealHistory) {
+      onRevealHistory()
+      element = promptElements().get(prompts[index]?.id)
+    }
     if (!container || !element) return
     onNavigate?.()
     const offset = element.getBoundingClientRect().top - container.getBoundingClientRect().top

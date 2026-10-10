@@ -1,8 +1,16 @@
 import { join } from 'path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CopilotSdkManager } from './copilot-sdk-manager'
+import { EventEmitter } from 'events'
+import { CopilotSdkManager, runNpmInstall } from './copilot-sdk-manager'
 
 const values = vi.hoisted(() => ({
+  /** The utility processes forked by the test, newest last. */
+  children: [] as Array<
+    import('events').EventEmitter & {
+      postMessage: ReturnType<typeof vi.fn>
+      kill: ReturnType<typeof vi.fn>
+    }
+  >,
   resourcesPath:
     process.platform === 'win32'
       ? 'C:\\Program Files\\taskmaster\\resources'
@@ -10,6 +18,13 @@ const values = vi.hoisted(() => ({
 }))
 
 vi.mock('electron', () => ({
+  utilityProcess: {
+    fork: vi.fn(() => {
+      const child = Object.assign(new EventEmitter(), { postMessage: vi.fn(), kill: vi.fn() })
+      values.children.push(child)
+      return child
+    })
+  },
   app: {
     isPackaged: true,
     getAppPath: () =>
@@ -74,5 +89,31 @@ describe('CopilotSdkManager', () => {
       vi.unstubAllGlobals()
       vi.useRealTimers()
     }
+  })
+})
+
+describe('runNpmInstall', () => {
+  it('installs in a utility process and resolves when it reports success', async () => {
+    const install = runNpmInstall('/sdks/1.2.3', '1.2.3')
+    const child = values.children.at(-1)!
+    child.emit('spawn')
+    expect(child.postMessage).toHaveBeenCalledWith({
+      targetDirectory: '/sdks/1.2.3',
+      version: '1.2.3'
+    })
+
+    child.emit('message', { ok: true })
+    await expect(install).resolves.toBeUndefined()
+    expect(child.kill).toHaveBeenCalled()
+  })
+
+  it('rejects with the reported error or when the process exits without answering', async () => {
+    const failed = runNpmInstall('/sdks/1.2.3', '1.2.3')
+    values.children.at(-1)!.emit('message', { ok: false, error: 'ETARGET' })
+    await expect(failed).rejects.toThrow('ETARGET')
+
+    const crashed = runNpmInstall('/sdks/1.2.3', '1.2.3')
+    values.children.at(-1)!.emit('exit', 1)
+    await expect(crashed).rejects.toThrow('stopped unexpectedly')
   })
 })

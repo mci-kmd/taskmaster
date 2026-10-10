@@ -1,5 +1,6 @@
 import Select from './ui/Select'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type {
   BranchStatusSnapshot,
   CopilotAttachment,
@@ -23,6 +24,7 @@ import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimeline from './copilot/SessionTimeline'
+import { reconcileSessionSnapshot } from '../lib/session-snapshot'
 import PromptRail from './copilot/PromptRail'
 import type { RailPrompt } from './copilot/prompt-rail'
 import SessionPromptInput from './copilot/SessionPromptInput'
@@ -139,7 +141,7 @@ function SessionView({
   const updateSession = useCallback(
     (next: CopilotSessionSnapshot): void => {
       if (!mounted.current || next.threadId !== thread.id) return
-      setSession(next)
+      setSession((previous) => reconcileSessionSnapshot(previous, next))
       onSessionChangeRef.current(thread.id, toCopilotThreadSessionState(next))
     },
     [thread.id]
@@ -248,10 +250,21 @@ function SessionView({
   }, [])
 
   const hasTimeline = Boolean(session?.timeline.length)
-  // Whether this conversation started out empty, so its first items animate in.
-  const [startedEmpty, setStartedEmpty] = useState(false)
-  if (session && !hasTimeline && !startedEmpty) setStartedEmpty(true)
-  const emptyState = usePresence(!hasTimeline)
+  // Connecting snapshots carry no history yet, and a failed start (e.g. not signed in) may still
+  // have history to restore; only a running session's empty timeline means a new conversation.
+  const historyLoaded = session?.phase === 'idle' || session?.phase === 'running'
+  // Whether this conversation started out empty, so its first items animate in. Loaded
+  // history appears at once.
+  const [startedEmptyThread, setStartedEmptyThread] = useState<string | null>(null)
+  if (historyLoaded && !hasTimeline && startedEmptyThread !== thread.id)
+    setStartedEmptyThread(thread.id)
+  const startedEmpty = startedEmptyThread === thread.id
+  // The prompt rail can jump to a prompt the progressive history hasn't rendered yet.
+  const [revealedThread, setRevealedThread] = useState<string | null>(null)
+  const revealHistory = useCallback(() => {
+    flushSync(() => setRevealedThread(thread.id))
+  }, [thread.id])
+  const emptyState = usePresence(Boolean(session && session.phase !== 'connecting') && !hasTimeline)
   const mcpNotices = usePresenceList(
     session?.mcpServersNeedingAuth ?? NONE,
     (serverName: string) => serverName,
@@ -686,14 +699,24 @@ function SessionView({
               />
             ) : null}
             {session && hasTimeline ? (
-              <SessionTimeline items={session.timeline} animateInitial={startedEmpty} />
+              <SessionTimeline
+                animateInitial={startedEmpty}
+                items={session.timeline}
+                key={thread.id}
+                showAll={revealedThread === thread.id}
+              />
             ) : null}
             <Presence show={running} motion="collapse">
               <WorkingIndicator waiting={Boolean(session?.pendingInteraction)} />
             </Presence>
           </div>
         </div>
-        <PromptRail prompts={prompts} scrollRef={timelineRef} onNavigate={stopFollowing} />
+        <PromptRail
+          prompts={prompts}
+          scrollRef={timelineRef}
+          onNavigate={stopFollowing}
+          onRevealHistory={revealHistory}
+        />
         <Presence show={!atBottom} motion="rise">
           <Button size="sm" className="tm-session-jump" onClick={() => jumpToLatest('jump')}>
             ↓ Jump to latest

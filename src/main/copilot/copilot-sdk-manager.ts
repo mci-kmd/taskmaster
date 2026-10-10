@@ -1,8 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from 'fs/promises'
-import { createRequire } from 'module'
 import { dirname, join } from 'path'
 import { pathToFileURL } from 'url'
-import { app } from 'electron'
+import { app, utilityProcess } from 'electron'
 import type { CopilotClient as BundledCopilotClient } from '@github/copilot-sdk'
 import type { CopilotSdkStatus, CopilotSdkUpdateBlocker } from '../../shared/app-types'
 
@@ -59,27 +58,31 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function runNpmInstall(targetDirectory: string, version: string): Promise<void> {
-  const require = createRequire(import.meta.url)
-  const Arborist = require('@npmcli/arborist') as new (options: {
-    path: string
-    audit: boolean
-    fund: boolean
-  }) => {
-    reify: (options: { add: string[]; saveType: 'prod'; omit: string[] }) => Promise<unknown>
-  }
-  const arborist = new Arborist({
-    path: targetDirectory,
-    audit: false,
-    fund: false
-  })
-  return arborist
-    .reify({
-      add: [`@github/copilot-sdk@${version}`],
-      saveType: 'prod',
-      omit: ['dev']
+type SdkInstallResponse = { ok: true } | { ok: false; error: string }
+
+/**
+ * Installs an SDK version with npm in a utility process (out/main/sdk-install.js, built from
+ * sdk-install-process.ts). npm's install work is CPU-heavy; in the main process it would stall
+ * the window, which can't receive input while the main thread is busy.
+ */
+export function runNpmInstall(targetDirectory: string, version: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(join(__dirname, 'sdk-install.js'), [], {
+      serviceName: 'Copilot SDK install'
     })
-    .then(() => undefined)
+    let settled = false
+    child.once('message', (response: SdkInstallResponse) => {
+      settled = true
+      child.kill()
+      if (response.ok) resolve()
+      else reject(new Error(response.error))
+    })
+    child.once('exit', (code) => {
+      if (!settled)
+        reject(new Error(`The Copilot SDK install stopped unexpectedly (code ${code}).`))
+    })
+    child.once('spawn', () => child.postMessage({ targetDirectory, version }))
+  })
 }
 
 export class CopilotSdkManager {
