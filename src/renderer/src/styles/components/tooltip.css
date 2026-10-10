@@ -1,4 +1,5 @@
-/* Tooltips (ui/TooltipLayer.tsx): the app's replacement for native `title` tooltips. */
+/* Tooltips (ui/TooltipLayer.tsx). They render in the opposite appearance from the app (the
+   layer sets a contrasting data-theme), so these tokens resolve to that theme's colors. */
 @layer components {
   .tm-tooltip {
     position: fixed;
@@ -8,12 +9,75 @@
     border-radius: var(--radius-md);
     background: var(--color-popover);
     color: var(--color-fg);
-    box-shadow: var(--elevation-pop);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--color-fg) 8%, transparent),
+      0 10px 28px -8px rgb(0 0 0 / 0.45),
+      0 2px 6px rgb(0 0 0 / 0.2);
     font-size: 11.5px;
+    font-weight: 500;
     line-height: 1.5;
-    /* Multi-line titles (e.g. a thread's name, project and path) keep their lines. */
+    /* Multi-line titles keep their lines. */
     white-space: pre-line;
     overflow-wrap: anywhere;
     pointer-events: none;
+  }
+
+  /* Structured tooltips (richTooltip): a heading and labelled rows. */
+  .tm-tooltip[data-rich] {
+    min-width: 220px;
+    max-width: min(340px, calc(100vw - 16px));
+    padding: 10px 12px 11px;
+    border-radius: var(--radius-lg);
+    white-space: normal;
+  }
+  .tm-tooltip-title {
+    display: block;
+    margin-bottom: 7px;
+    color: var(--color-fg);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .tm-tooltip-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .tm-tooltip-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    color: var(--color-fg-muted);
+    font-weight: 450;
+  }
+  .tm-tooltip-row > svg,
+  .tm-tooltip-row > .tm-tooltip-icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    color: var(--color-fg-subtle);
+  }
+  .tm-tooltip-row > span:last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .tm-tooltip-row[data-tone='accent'] {
+    color: var(--color-accent);
+  }
+  .tm-tooltip-row[data-tone='positive'] {
+    color: var(--color-positive);
+  }
+  .tm-tooltip-row[data-tone='attention'] {
+    color: var(--color-accent-2-ink);
+  }
+  .tm-tooltip-row[data-tone='danger'] {
+    color: var(--color-danger);
+  }
+  .tm-tooltip-row[data-tone] > svg {
+    color: currentColor;
   }
 }

@@ -1,6 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useLastValue, usePresence } from '../../lib/motion'
+import { useTheme } from '../../lib/theme'
+import {
+  RICH_TOOLTIP_ATTRIBUTE,
+  RICH_TOOLTIP_CHANGE_EVENT,
+  getRichTooltip,
+  type TooltipPlacement
+} from '../../lib/tooltip'
 
 /** How long the pointer rests on an element before its tooltip shows. */
 const SHOW_DELAY_MS = 500
@@ -12,7 +19,7 @@ const MARGIN = 8
 /** Marks an aria-description the layer added, so it can keep it in sync or remove it. */
 const OWNED_DESCRIPTION = 'data-tooltip-description'
 
-type Tip = { target: HTMLElement; text: string }
+type Tip = { target: HTMLElement; content: ReactNode; placement: TooltipPlacement; rich: boolean }
 
 /**
  * Takes over an element's `title`: the text moves to `data-tooltip` and `title` becomes empty,
@@ -43,14 +50,17 @@ function release(element: Element): void {
 }
 
 /**
- * Shows the app's own tooltips for every element with a `title`, styled like the rest of the
- * theme instead of the native tooltip. Mounted once at the root; components keep using `title`.
+ * Shows the app's own tooltips: for every element with a `title` (components keep using
+ * `title`), and for elements given structured content with richTooltip(). Mounted once at the
+ * root. Tooltips use the opposite appearance from the app (light on the dark themes, dark on
+ * Porcelain) so they never read as one more card or menu.
  */
 export default function TooltipLayer(): React.JSX.Element | null {
   const [tip, setTip] = useState<Tip | null>(null)
   const shown = useLastValue(tip)
   const presence = usePresence(tip !== null)
   const element = useRef<HTMLDivElement>(null)
+  const contrastTheme = useTheme().appearance === 'dark' ? 'porcelain' : 'graphite'
 
   useEffect(() => {
     let timer: number | undefined
@@ -67,10 +77,16 @@ export default function TooltipLayer(): React.JSX.Element | null {
       setTip(null)
     }
     const show = (target: HTMLElement): void => {
-      const text = target.getAttribute('data-tooltip')
       if (current !== target || !target.isConnected) return
-      visible = Boolean(text)
-      setTip(text ? { target, text } : null)
+      const rich = getRichTooltip(target)
+      const text = target.getAttribute('data-tooltip')
+      const next: Tip | null = rich
+        ? { target, content: rich.content, placement: rich.placement, rich: true }
+        : text
+          ? { target, content: text, placement: 'bottom', rich: false }
+          : null
+      visible = next !== null
+      setTip(next)
     }
     const schedule = (target: HTMLElement): void => {
       if (target === current) return
@@ -84,7 +100,9 @@ export default function TooltipLayer(): React.JSX.Element | null {
       }
     }
     const tooltipTarget = (node: EventTarget | null): HTMLElement | null =>
-      node instanceof Element ? node.closest<HTMLElement>('[data-tooltip]') : null
+      node instanceof Element
+        ? node.closest<HTMLElement>(`[data-tooltip], [${RICH_TOOLTIP_ATTRIBUTE}]`)
+        : null
 
     // Keep tooltips in step with the DOM: adopt titles as they appear or change, drop the ones
     // the app removed, and hide a tooltip whose element went away or started leaving.
@@ -132,6 +150,10 @@ export default function TooltipLayer(): React.JSX.Element | null {
         schedule(target)
       }
     }
+    const onRichChange = (event: Event): void => {
+      if (visible && event.target === current && current) show(current)
+    }
+    document.addEventListener(RICH_TOOLTIP_CHANGE_EVENT, onRichChange, true)
     document.addEventListener('pointerover', onPointerOver, true)
     document.addEventListener('pointerout', onPointerOut, true)
     document.addEventListener('focusin', onFocusIn, true)
@@ -143,6 +165,7 @@ export default function TooltipLayer(): React.JSX.Element | null {
     return () => {
       window.clearTimeout(timer)
       observer.disconnect()
+      document.removeEventListener(RICH_TOOLTIP_CHANGE_EVENT, onRichChange, true)
       document.removeEventListener('pointerover', onPointerOver, true)
       document.removeEventListener('pointerout', onPointerOut, true)
       document.removeEventListener('focusin', onFocusIn, true)
@@ -154,18 +177,24 @@ export default function TooltipLayer(): React.JSX.Element | null {
     }
   }, [])
 
-  // Below the element, centered, flipped above when there is no room, kept on screen.
+  // Below the element (centered) or beside it on the right (top-aligned), flipped to the other
+  // side when there is no room, and kept on screen.
   useLayoutEffect(() => {
     const popup = element.current
     if (!popup || !tip) return
     const bounds = tip.target.getBoundingClientRect()
     const { offsetWidth: width, offsetHeight: height } = popup
+    const clamp = (value: number, size: number, limit: number): number =>
+      Math.max(MARGIN, Math.min(value, limit - size - MARGIN))
+    if (tip.placement === 'right') {
+      const right = bounds.right + GAP + width <= window.innerWidth - MARGIN
+      popup.style.left = `${right ? bounds.right + GAP : clamp(bounds.left - GAP - width, width, window.innerWidth)}px`
+      popup.style.top = `${clamp(bounds.top, height, window.innerHeight)}px`
+      popup.dataset.placement = right ? 'right' : 'left'
+      return
+    }
     const below = bounds.bottom + GAP + height <= window.innerHeight - MARGIN
-    const left = Math.max(
-      MARGIN,
-      Math.min(bounds.left + bounds.width / 2 - width / 2, window.innerWidth - width - MARGIN)
-    )
-    popup.style.left = `${left}px`
+    popup.style.left = `${clamp(bounds.left + bounds.width / 2 - width / 2, width, window.innerWidth)}px`
     popup.style.top = `${below ? bounds.bottom + GAP : Math.max(MARGIN, bounds.top - GAP - height)}px`
     popup.dataset.placement = below ? 'bottom' : 'top'
   }, [tip])
@@ -175,11 +204,13 @@ export default function TooltipLayer(): React.JSX.Element | null {
     <div
       aria-hidden="true"
       className="tm-tooltip"
-      data-motion="drop"
+      data-motion={shown.placement === 'right' ? 'rise' : 'drop'}
+      data-rich={shown.rich || undefined}
       data-state={presence.state}
+      data-theme={contrastTheme}
       ref={element}
     >
-      {shown.text}
+      {shown.content}
     </div>,
     document.body
   )

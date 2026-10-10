@@ -6,6 +6,7 @@ import LeaveWith from './ui/LeaveWith'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
 import { useLastValue } from '../lib/motion'
+import { richTooltip } from '../lib/tooltip'
 import {
   useAnimatedListMotion,
   usePresenceList,
@@ -17,9 +18,13 @@ import type { CopilotThreadStatus } from './ThreadTerminal'
 import ProjectIcon from './ProjectIcon'
 import {
   AlertIcon,
+  BranchIcon,
+  FolderIcon,
+  WorktreeIcon,
   ChevronRightIcon,
   CheckIcon,
   GitCommitIcon,
+  ThreadIcon,
   PencilIcon,
   GearIcon,
   MoreIcon,
@@ -145,6 +150,17 @@ export default function InboxThreads({
         <LeaveWith leaving={exiting}>
           <div
             className="tm-inbox-row group"
+            ref={richTooltip(
+              <ThreadTooltip
+                commitPhase={thread.commitPhase}
+                lastActivity={formatRelativeTime(thread.lastActivityAt, now)}
+                repository={repository}
+                status={session?.copilotStatus ?? 'idle'}
+                thread={thread}
+                title={title}
+              />,
+              'right'
+            )}
             data-selected={selectedThread?.id === thread.id || undefined}
             onContextMenu={(event) => {
               event.preventDefault()
@@ -155,7 +171,8 @@ export default function InboxThreads({
               type="button"
               onClick={() => onSelectThread(thread.id)}
               className="tm-inbox-row-main"
-              title={`${title}\n${subtitle}\n${thread.cwd}`}
+              // The details tooltip is visual; this keeps them available to assistive technology.
+              aria-description={`${subtitle}\n${thread.cwd}`}
             >
               <span className="mt-px">
                 <ProjectIcon repository={repository} />
@@ -416,4 +433,71 @@ function projectOptions(repositories: RepositorySnapshot[]): RepositorySnapshot[
     ...repositories.filter((repository) => repository.favorite),
     ...repositories.filter((repository) => !repository.favorite)
   ]
+}
+
+/** A thread's details beside its card: what the card abbreviates, in full. */
+function ThreadTooltip({
+  thread,
+  title,
+  repository,
+  status,
+  commitPhase,
+  lastActivity
+}: {
+  thread: ThreadSnapshot
+  title: string
+  repository: RepositorySnapshot
+  status: CopilotThreadStatus
+  commitPhase: ThreadSnapshot['commitPhase']
+  lastActivity: string
+}): React.JSX.Element {
+  const tone =
+    status === 'working' || status === 'connecting'
+      ? 'accent'
+      : status === 'done'
+        ? 'positive'
+        : status === 'input'
+          ? 'attention'
+          : status === 'error'
+            ? 'danger'
+            : undefined
+  return (
+    <>
+      <strong className="tm-tooltip-title">{title}</strong>
+      <ul className="tm-tooltip-rows">
+        <li className="tm-tooltip-row">
+          <span className="tm-tooltip-icon">
+            <ProjectIcon repository={repository} />
+          </span>
+          <span>{repository.name}</span>
+        </li>
+        {thread.projectKind === 'general' ? null : (
+          <li className="tm-tooltip-row">
+            {thread.mode === 'worktree' ? <WorktreeIcon /> : <BranchIcon />}
+            <span>
+              {thread.displayBranchName}
+              {thread.mode === 'worktree' ? ' (worktree)' : ''}
+            </span>
+          </li>
+        )}
+        <li className="tm-tooltip-row">
+          <FolderIcon />
+          <span>{thread.cwd}</span>
+        </li>
+        <li className="tm-tooltip-row" data-tone={commitPhase ? 'accent' : tone}>
+          {commitPhase ? <GitCommitIcon /> : <ThreadIcon />}
+          <span>
+            {commitPhase ? COMMIT_PHASE_LABELS[commitPhase] : STATUS_LABELS[status]} ·{' '}
+            {lastActivity}
+          </span>
+        </li>
+        {thread.isRunCommandRunning ? (
+          <li className="tm-tooltip-row" data-tone="positive">
+            <PlayIcon />
+            <span>App running</span>
+          </li>
+        ) : null}
+      </ul>
+    </>
+  )
 }

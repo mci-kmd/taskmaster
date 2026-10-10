@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import TooltipLayer from './TooltipLayer'
+import { richTooltip } from '../../lib/tooltip'
 
 const tooltip = (): Element | null => document.querySelector('.tm-tooltip')
 /** Lets the layer's MutationObserver see DOM changes made by React. */
@@ -112,4 +113,37 @@ it('hides a tooltip whose element is removed', async () => {
   rerender(view(false))
   await flushMutations()
   expect(tooltip()).toBeNull()
+})
+
+it('shows structured tooltips in the opposite appearance from the app', () => {
+  render(
+    <>
+      <button ref={richTooltip(<strong>Refresh the app</strong>, 'right')}>Thread</button>
+      <TooltipLayer />
+    </>
+  )
+  fireEvent.pointerOver(screen.getByRole('button'))
+  act(() => vi.advanceTimersByTime(500))
+
+  const shown = tooltip() as HTMLElement
+  expect(shown.querySelector('strong')?.textContent).toBe('Refresh the app')
+  expect(shown.dataset.rich).toBe('true')
+  // The app defaults to a dark theme, so tooltips use the light one.
+  expect(shown.dataset.theme).toBe('porcelain')
+})
+
+it('updates a shown structured tooltip when its content changes', () => {
+  const view = (status: string): React.JSX.Element => (
+    <>
+      <button ref={richTooltip(<span>{status}</span>, 'right')}>Thread</button>
+      <TooltipLayer />
+    </>
+  )
+  const { rerender } = render(view('Working'))
+  fireEvent.pointerOver(screen.getByRole('button'))
+  act(() => vi.advanceTimersByTime(500))
+  expect(tooltip()?.textContent).toBe('Working')
+
+  rerender(view('Done'))
+  expect(tooltip()?.textContent).toBe('Done')
 })
