@@ -23,8 +23,6 @@ import type {
   PickRepositorySolutionFileResult,
   PreviewCaptureRequest,
   ReorderRepositoryTasksInput,
-  SidebarContextMenuActionEvent,
-  SidebarContextMenuRequest,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -165,12 +163,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.regenerateThreadTitle, threadId),
     onCommitProgress: (callback: (payload: ThreadCommitProgressEvent) => void) =>
       onIpc(IPC_CHANNELS.appState.commitProgress, callback),
-    showSidebarContextMenu: (input: SidebarContextMenuRequest) =>
-      invokeIpc(IPC_CHANNELS.nativeMenu.showSidebarContextMenu, input),
     onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) =>
-      onIpc(IPC_CHANNELS.appState.threadRunState, callback),
-    onSidebarContextMenuAction: (callback: (payload: SidebarContextMenuActionEvent) => void) =>
-      onIpc(IPC_CHANNELS.nativeMenu.sidebarContextMenuAction, callback)
+      onIpc(IPC_CHANNELS.appState.threadRunState, callback)
   },
   terminal: {
     create: (request: TerminalCreateRequest) => invokeIpc(IPC_CHANNELS.terminal.create, request),

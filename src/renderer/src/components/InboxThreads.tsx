@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react'
 import Select from './ui/Select'
 import ActionMenu from './ui/ActionMenu'
+import Menu, { type MenuItem } from './ui/Menu'
 import LeaveWith from './ui/LeaveWith'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
+import { useLastValue } from '../lib/motion'
 import {
   useAnimatedListMotion,
   usePresenceList,
@@ -31,7 +33,7 @@ import { composeThreadTitle } from '../lib/title'
 import { formatRelativeTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
 import { getInboxThreads } from '../lib/inbox-threads'
-import { threadMenuOptions, threadMenuActions } from '../../../shared/sidebar-thread-actions'
+import { threadMenuOptions, threadMenuActions } from '../lib/thread-menu'
 
 type InboxEntry = ReturnType<typeof getInboxThreads>['active'][number]
 
@@ -53,7 +55,6 @@ export default function InboxThreads({
   onConvertThreadToWorktree,
   convertingThread,
   closingThread,
-  onContextMenu,
   onToggleRepositoryFavorite,
   onRegenerateTitle,
   regeneratingTitleIds
@@ -73,14 +74,49 @@ export default function InboxThreads({
   onConvertThreadToWorktree: (id: string) => void
   convertingThread: boolean
   closingThread: boolean
-  onContextMenu: (thread: ThreadSnapshot, x: number, y: number) => void
   onToggleRepositoryFavorite?: (id: string, favorite: boolean) => void
   onRegenerateTitle?: (id: string) => void
   regeneratingTitleIds?: ReadonlySet<string>
 }): React.JSX.Element {
   const [settledExpanded, setSettledExpanded] = useState(false)
+
+  const threadMenuItems = (thread: ThreadSnapshot): MenuItem[] =>
+    threadMenuActions(
+      threadMenuOptions(
+        thread,
+        convertingThread,
+        closingThread,
+        regeneratingTitleIds?.has(thread.id)
+      )
+    ).map(({ action, label, enabled }) => ({
+      label,
+      disabled: !enabled,
+      onSelect: () => {
+        if (action === 'edit') onEditThread(thread.id)
+        else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
+        else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
+        else if (action === 'settle-thread' || action === 'unsettle-thread')
+          onSettleThread(thread.id, action === 'settle-thread')
+        else if (action === 'close-thread') onCloseThread(thread.id)
+      }
+    }))
   const now = useNow(30_000)
   const { active, settled } = useMemo(() => getInboxThreads(repositories), [repositories])
+  // A right-clicked thread's menu, opened where the pointer is. It keeps only the thread's id
+  // and reads the thread afresh, so its items follow the thread (e.g. a finished conversion),
+  // and it closes when the thread leaves the list.
+  const [contextMenu, setContextMenu] = useState<{ threadId: string; x: number; y: number } | null>(
+    null
+  )
+  const contextThread = contextMenu
+    ? [...active, ...settled].find((entry) => entry.thread.id === contextMenu.threadId)?.thread
+    : undefined
+  if (contextMenu && !contextThread) setContextMenu(null)
+  const contextMenuOpen = useMemo(
+    () => (contextMenu && contextThread ? { ...contextMenu, thread: contextThread } : null),
+    [contextMenu, contextThread]
+  )
+  const contextMenuShown = useLastValue(contextMenuOpen)
   // Rows that leave a list (settled, restored, closed) stay mounted while they animate out.
   const activeEntries = usePresenceList(active, entryKey, 'inbox')
   const settledEntries = usePresenceList(settled, entryKey, 'inbox')
@@ -112,7 +148,7 @@ export default function InboxThreads({
             data-selected={selectedThread?.id === thread.id || undefined}
             onContextMenu={(event) => {
               event.preventDefault()
-              onContextMenu(thread, event.clientX, event.clientY)
+              setContextMenu({ threadId: thread.id, x: event.clientX, y: event.clientY })
             }}
           >
             <button
@@ -169,25 +205,7 @@ export default function InboxThreads({
               <ActionMenu
                 label={`Thread actions for ${title}`}
                 triggerClassName="tm-inbox-action"
-                items={threadMenuActions(
-                  threadMenuOptions(
-                    thread,
-                    convertingThread,
-                    closingThread,
-                    regeneratingTitleIds?.has(thread.id)
-                  )
-                ).map(({ action, label, enabled }) => ({
-                  label,
-                  disabled: !enabled,
-                  onSelect: () => {
-                    if (action === 'edit') onEditThread(thread.id)
-                    else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
-                    else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
-                    else if (action === 'settle-thread' || action === 'unsettle-thread')
-                      onSettleThread(thread.id, action === 'settle-thread')
-                    else if (action === 'close-thread') onCloseThread(thread.id)
-                  }
-                }))}
+                items={threadMenuItems(thread)}
               >
                 <MoreIcon width={13} height={13} />
               </ActionMenu>
@@ -307,6 +325,26 @@ export default function InboxThreads({
           </ul>
         </div>
       </div>
+      <Menu
+        anchor={contextMenuShown}
+        items={contextMenuShown ? threadMenuItems(contextMenuShown.thread) : []}
+        label={
+          contextMenuShown
+            ? `Thread actions for ${composeThreadTitle(contextMenuShown.thread, sessions.get(contextMenuShown.thread.id)?.runtimeTitle)}`
+            : 'Thread actions'
+        }
+        onClose={(restoreFocus) => {
+          if (restoreFocus && contextMenu) {
+            document
+              .querySelector<HTMLElement>(
+                `[data-thread-id="${CSS.escape(contextMenu.threadId)}"] .tm-inbox-row-main`
+              )
+              ?.focus()
+          }
+          setContextMenu(null)
+        }}
+        open={contextMenu !== null && contextThread !== undefined}
+      />
     </div>
   )
 }

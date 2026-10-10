@@ -36,8 +36,6 @@ import type {
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
   ThreadDiffFileSaveResult,
-  SidebarContextMenuActionEvent,
-  SidebarContextMenuRequest,
   ThreadDiffPatchRequest,
   ThreadDiffPatchResult,
   ThreadDiffQuery,
@@ -103,10 +101,6 @@ export const IPC_CHANNELS = {
     regenerateThreadTitle: 'app-state:regenerate-thread-title',
     commitProgress: 'app-state:commit-progress',
     threadRunState: 'app-state:thread-run-state'
-  },
-  nativeMenu: {
-    showSidebarContextMenu: 'native-menu:show-sidebar-context-menu',
-    sidebarContextMenuAction: 'native-menu:sidebar-context-menu-action'
   },
   terminal: {
     create: 'terminal:create',
@@ -243,10 +237,6 @@ export type IpcInvokeDefinitions = {
   'app-state:select-thread': { request: [string | null]; response: AppSnapshot }
   'app-state:commit-thread-changes': { request: [string]; response: ThreadCommitResult }
   'app-state:regenerate-thread-title': { request: [string]; response: MutationResult }
-  'native-menu:show-sidebar-context-menu': {
-    request: [SidebarContextMenuRequest]
-    response: boolean
-  }
   'terminal:create': { request: [TerminalCreateRequest]; response: TerminalLaunchResult }
   'terminal:kill': { request: [string]; response: boolean }
   'terminal:read-clipboard-text': { request: []; response: string }
@@ -281,7 +271,6 @@ export type IpcSendDefinitions = {
 export type IpcEventDefinitions = {
   'app-state:thread-run-state': { payload: ThreadRunStateEvent }
   'app-state:commit-progress': { payload: ThreadCommitProgressEvent }
-  'native-menu:sidebar-context-menu-action': { payload: SidebarContextMenuActionEvent }
   'terminal:data': { payload: TerminalDataEvent }
   'terminal:exit': { payload: TerminalExitEvent }
   'copilot:session': { payload: CopilotSessionEvent }

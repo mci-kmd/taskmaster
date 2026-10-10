@@ -268,8 +268,8 @@ export default function ModelPicker({
       root.style.maxHeight = `${Math.min(360, window.innerHeight - 16)}px`
       const height = root.offsetHeight
       root.style.left = `${Math.max(8, Math.min(bounds.left, window.innerWidth - width - 8))}px`
-      const upwards = bounds.bottom + 4 + height > window.innerHeight - 8
-      root.style.top = `${Math.max(8, Math.min(upwards ? bounds.top - height - 4 : bounds.bottom + 4, window.innerHeight - height - 8))}px`
+      const upwards = bounds.bottom + 6 + height > window.innerHeight - 8
+      root.style.top = `${Math.max(8, Math.min(upwards ? bounds.top - height - 6 : bounds.bottom + 6, window.innerHeight - height - 8))}px`
       root.dataset.placement = upwards ? 'top' : 'bottom'
       root.style.visibility = 'visible'
       const sub = submenu.current
@@ -281,9 +281,9 @@ export default function ModelPicker({
       sub.style.width = `${subWidth}px`
       sub.style.maxHeight = `${Math.min(360, window.innerHeight - 16)}px`
       const left =
-        rootBounds.right + subWidth + 4 <= window.innerWidth - 8
-          ? rootBounds.right + 4
-          : rootBounds.left - subWidth - 4
+        rootBounds.right + subWidth + 6 <= window.innerWidth - 8
+          ? rootBounds.right + 6
+          : rootBounds.left - subWidth - 6
       sub.style.left = `${Math.max(8, Math.min(left, window.innerWidth - subWidth - 8))}px`
       sub.style.top = `${Math.max(8, Math.min(rowBounds.top, window.innerHeight - sub.offsetHeight - 8))}px`
       sub.style.visibility = 'visible'

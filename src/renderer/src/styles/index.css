@@ -18,6 +18,7 @@
 @import './components/field.css';
 @import './components/segmented.css';
 @import './components/picker.css';
+@import './components/tooltip.css';
 @import './components/settings.css';
 @import './components/inbox.css';
 @import './components/tasks.css';

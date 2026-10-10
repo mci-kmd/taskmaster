@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { ThreadSnapshot } from './app-types'
-import { threadMenuActions, threadMenuOptions } from './sidebar-thread-actions'
+import type { ThreadSnapshot } from '../../../shared/app-types'
+import { threadMenuActions, threadMenuOptions } from './thread-menu'
 
 describe('thread menu actions', () => {
   it('hides worktree conversion for general project threads', () => {

@@ -1,19 +1,11 @@
-import { useCallback, useEffect, useMemo } from 'react'
-import type {
-  AppSnapshot,
-  RepositorySnapshot,
-  SidebarContextMenuActionEvent,
-  SidebarContextMenuRequest,
-  ThreadSnapshot
-} from '../../../shared/app-types'
+import { useMemo } from 'react'
+import type { AppSnapshot, RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
 import { GearIcon, LogoMark, PerformanceIcon, PlusIcon } from './Icons'
 import InboxThreads from './InboxThreads'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
-import { getRendererApi } from '../shared/api/client'
 import { isDevMode } from '../../../shared/runtime-mode'
-import { threadMenuOptions } from '../../../shared/sidebar-thread-actions'
 
 type SidebarProps = {
   snapshot: AppSnapshot
@@ -70,43 +62,6 @@ export default function Sidebar({
     () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
     [snapshot.repositories]
   )
-
-  const handleContextMenuAction = useCallback(
-    (payload: SidebarContextMenuActionEvent): void => {
-      if (payload.action === 'edit') {
-        onEditThread(payload.itemId)
-        return
-      }
-
-      if (payload.action === 'regenerate-title') {
-        onRegenerateTitle(payload.itemId)
-        return
-      }
-
-      if (payload.action === 'convert-to-worktree') {
-        onConvertThreadToWorktree(payload.itemId)
-        return
-      }
-
-      if (payload.action === 'settle-thread' || payload.action === 'unsettle-thread') {
-        onSettleThread(payload.itemId, payload.action === 'settle-thread')
-        return
-      }
-
-      if (payload.action === 'close-thread') {
-        onCloseThread(payload.itemId)
-      }
-    },
-    [onSettleThread, onCloseThread, onConvertThreadToWorktree, onEditThread, onRegenerateTitle]
-  )
-
-  useEffect(() => {
-    return getRendererApi().appState.onSidebarContextMenuAction(handleContextMenuAction)
-  }, [handleContextMenuAction])
-
-  const showContextMenu = useCallback((request: SidebarContextMenuRequest): void => {
-    void getRendererApi().appState.showSidebarContextMenu(request)
-  }, [])
 
   return (
     <aside className="flex min-h-0 w-full min-w-0 flex-col">
@@ -202,20 +157,6 @@ export default function Sidebar({
           regeneratingTitleIds={regeneratingTitleIds}
           convertingThread={convertingThread}
           closingThread={closingThread}
-          onContextMenu={(thread, x, y) =>
-            showContextMenu({
-              kind: 'thread',
-              itemId: thread.id,
-              x,
-              y,
-              ...threadMenuOptions(
-                thread,
-                convertingThread,
-                closingThread,
-                regeneratingTitleIds.has(thread.id)
-              )
-            })
-          }
         />
       </nav>
     </aside>

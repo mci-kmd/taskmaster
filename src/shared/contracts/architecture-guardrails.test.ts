@@ -38,7 +38,7 @@ describe('architecture guardrails', () => {
   })
 
   it('keeps IPC channel literals in the shared contract module', () => {
-    const channelLiteralPattern = /['"`](?:app-state|terminal|native-menu):[^'"`]+['"`]/u
+    const channelLiteralPattern = /['"`](?:app-state|terminal):[^'"`]+['"`]/u
     const offenders = listSourceFiles(SOURCE_ROOT).filter((path) => {
       if (path.startsWith(CONTRACTS_ROOT)) {
         return false

@@ -205,7 +205,7 @@ export default function Select(props: SelectProps): React.JSX.Element {
       const bounds = trigger.current?.getBoundingClientRect()
       if (!bounds) return
       const margin = 8,
-        gap = 4
+        gap = 6
       const width = Math.min(Math.max(bounds.width, 280), window.innerWidth - margin * 2)
       const below = window.innerHeight - bounds.bottom - margin - gap
       const above = bounds.top - margin - gap

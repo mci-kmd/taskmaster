@@ -72,8 +72,7 @@ const callbacks = (): Record<
   | 'onEditThread'
   | 'onSettleThread'
   | 'onCloseThread'
-  | 'onConvertThreadToWorktree'
-  | 'onContextMenu',
+  | 'onConvertThreadToWorktree',
   Mock<(...args: unknown[]) => void>
 > => ({
   onSelectRepository: vi.fn(),
@@ -84,8 +83,7 @@ const callbacks = (): Record<
   onEditThread: vi.fn(),
   onSettleThread: vi.fn(),
   onCloseThread: vi.fn(),
-  onConvertThreadToWorktree: vi.fn(),
-  onContextMenu: vi.fn()
+  onConvertThreadToWorktree: vi.fn()
 })
 afterEach(cleanup)
 
@@ -287,9 +285,13 @@ describe('inbox', () => {
       fireEvent.click(screen.getByRole('button', { name: `Thread actions for ${title}` }))
       return screen.getByRole('menu')
     }
+    // Right-clicking a thread opens the same menu where the pointer is.
     fireEvent.contextMenu(screen.getByText('Newest'), { clientX: 10, clientY: 20 })
-    expect(handlers.onContextMenu).toHaveBeenCalledWith(repositories[1].threads[0], 10, 20)
-    let menu = openMenu('Newest')
+    let menu = screen.getByRole('menu', { name: 'Thread actions for Newest' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Edit' }))
+    expect(handlers.onEditThread).toHaveBeenCalledWith('Newest')
+    expect(screen.queryByRole('menu')).toBeNull()
+    menu = openMenu('Newest')
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Convert to work tree' }))
     expect(handlers.onConvertThreadToWorktree).toHaveBeenCalledWith('Newest')
     menu = openMenu('Newest')
@@ -358,6 +360,42 @@ describe('inbox', () => {
     expect(document.activeElement).toBe(
       within(menu).getByRole('menuitem', { name: 'Settle thread' })
     )
+  })
+
+  it('keeps a right-click menu in step with its thread and closes it when the thread goes', () => {
+    const handlers = callbacks()
+    const view = (props: {
+      repositories: typeof repositories
+      convertingThread: boolean
+    }): React.JSX.Element => (
+      <InboxThreads
+        selectedRepository={repositories[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        closingThread={false}
+        {...handlers}
+        {...props}
+      />
+    )
+    const { rerender } = render(view({ repositories, convertingThread: false }))
+    fireEvent.contextMenu(screen.getByText('Newest'))
+    const menu = screen.getByRole('menu', { name: 'Thread actions for Newest' })
+    expect(within(menu).getByRole('menuitem', { name: 'Convert to work tree' })).toBeTruthy()
+
+    const close = within(menu).getByRole('menuitem', { name: 'Close thread' })
+    close.focus()
+    // A refreshed snapshot brings new thread objects.
+    rerender(view({ repositories: structuredClone(repositories), convertingThread: true }))
+    expect(within(menu).getByRole('menuitem', { name: 'Converting...' })).toBeTruthy()
+    // An update keeps keyboard focus where it was.
+    expect(document.activeElement).toBe(close)
+
+    const withoutNewest = repositories.map((repository) => ({
+      ...repository,
+      threads: repository.threads.filter((thread) => thread.id !== 'Newest')
+    }))
+    rerender(view({ repositories: withoutNewest, convertingThread: false }))
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('shows done and input states as status pills', () => {

@@ -3,15 +3,6 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import Sidebar from './Sidebar'
 
-vi.mock('../shared/api/client', () => ({
-  getRendererApi: () => ({
-    appState: {
-      onSidebarContextMenuAction: () => () => {},
-      showSidebarContextMenu: vi.fn()
-    }
-  })
-}))
-
 afterEach(cleanup)
 
 it('shows only the unified thread view without a mode switch', () => {

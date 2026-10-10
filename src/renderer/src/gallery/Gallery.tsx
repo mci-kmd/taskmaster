@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { THEMES, isThemeId } from '../../../shared/themes'
 import { setTheme, useTheme } from '../lib/theme'
 import SegmentedControl from '../components/ui/SegmentedControl'
+import TooltipLayer from '../components/ui/TooltipLayer'
 import type { GallerySection } from './gallery-section'
 
 // Each file in ./sections default-exports a GallerySection.
@@ -68,6 +69,7 @@ export default function Gallery(): React.JSX.Element {
           </section>
         ))}
       </main>
+      <TooltipLayer />
     </div>
   )
 }

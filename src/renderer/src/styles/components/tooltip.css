@@ -1,0 +1,19 @@
+/* Tooltips (ui/TooltipLayer.tsx): the app's replacement for native `title` tooltips. */
+@layer components {
+  .tm-tooltip {
+    position: fixed;
+    z-index: 200;
+    max-width: min(360px, calc(100vw - 16px));
+    padding: 5px 9px;
+    border-radius: var(--radius-md);
+    background: var(--color-popover);
+    color: var(--color-fg);
+    box-shadow: var(--elevation-pop);
+    font-size: 11.5px;
+    line-height: 1.5;
+    /* Multi-line titles (e.g. a thread's name, project and path) keep their lines. */
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+  }
+}

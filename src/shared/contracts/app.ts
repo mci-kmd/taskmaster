@@ -4,8 +4,5 @@ export type {
   MutationResult,
   PersistedAppState,
   PickRepositoryFaviconResult,
-  SidebarContextMenuAction,
-  SidebarContextMenuActionEvent,
-  SidebarContextMenuRequest,
   UpdateUiInput
 } from '../app-types'

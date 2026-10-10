@@ -35,7 +35,6 @@ import {
   updateCopilotLastUserMessage,
   updateCopilotThreadTitle
 } from './app-state'
-import { registerNativeMenuIpc } from './native-menu'
 import { createCopilotSessionService } from './copilot/copilot-session-service'
 import { registerCopilotIpc } from './copilot/copilot-ipc'
 import { createUsdDkkRate } from './copilot/usd-dkk-rate'
@@ -76,7 +75,10 @@ function createWindow(): void {
     height: 920,
     minWidth: 1180,
     minHeight: 760,
-    show: false,
+    // Shown right away, painted in the theme's background until the renderer's first frame.
+    // Waiting for ready-to-show delayed the window by up to seconds on a cold start, and a
+    // window that appears late takes focus from whatever app the user switched to meanwhile.
+    show: true,
     autoHideMenuBar: true,
     backgroundColor: getTheme(getThemeSetting()).background,
     ...(process.platform !== 'darwin' ? { icon: windowIcon } : {}),
@@ -88,10 +90,6 @@ function createWindow(): void {
   })
 
   hardenPreviewWebviews(mainWindow.webContents, join(__dirname, '../preload/preview.js'))
-
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
-  })
 
   mainWindow.on('close', (event) => quitGuard?.windowClose(event))
 
@@ -145,7 +143,6 @@ app.whenReady().then(() => {
   applyNativeTheme(getThemeSetting())
   setThemeChangeListener(applyNativeTheme)
   registerAppStateIpc()
-  registerNativeMenuIpc()
   registerTerminalIpc()
   const performanceStore = createModelPerformanceStore(
     join(app.getPath('userData'), 'model-performance.json')

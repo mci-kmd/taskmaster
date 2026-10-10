@@ -16,8 +16,6 @@ import type {
   PickRepositorySolutionFileResult,
   PreviewApi,
   ReorderRepositoryTasksInput,
-  SidebarContextMenuActionEvent,
-  SidebarContextMenuRequest,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -88,11 +86,7 @@ declare global {
     commitThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
     regenerateThreadTitle: (threadId: string) => Promise<MutationResult>
     onCommitProgress: (callback: (payload: ThreadCommitProgressEvent) => void) => () => void
-    showSidebarContextMenu: (input: SidebarContextMenuRequest) => Promise<boolean>
     onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) => () => void
-    onSidebarContextMenuAction: (
-      callback: (payload: SidebarContextMenuActionEvent) => void
-    ) => () => void
   }
 
   interface Window {

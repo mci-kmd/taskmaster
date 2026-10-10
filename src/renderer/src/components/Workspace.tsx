@@ -536,7 +536,7 @@ export default function Workspace({
         </div>
 
         {selectedThread ? (
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-1">
             {showRunCommandButton ? (
               <Button
                 aria-label={runCommandRunning ? 'Stop run command' : 'Run project command'}

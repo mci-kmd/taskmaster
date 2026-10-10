@@ -338,33 +338,6 @@ export type ThreadDiffFileSaveResult =
       error: string
     }
 
-export type SidebarContextMenuAction =
-  | 'edit'
-  | 'regenerate-title'
-  | 'convert-to-worktree'
-  | 'close-thread'
-  | 'settle-thread'
-  | 'unsettle-thread'
-
-export interface SidebarContextMenuRequest {
-  settled?: boolean
-  kind: 'thread'
-  itemId: string
-  x: number
-  y: number
-  convertToWorktreeVisible: boolean
-  convertToWorktreeEnabled: boolean
-  closeThreadEnabled: boolean
-  /** False while a title is being written. */
-  regenerateTitleEnabled?: boolean
-}
-
-export interface SidebarContextMenuActionEvent {
-  action: SidebarContextMenuAction
-  kind: 'thread'
-  itemId: string
-}
-
 export interface AppSnapshot {
   repositories: RepositorySnapshot[]
   settings: AppSettingsSnapshot

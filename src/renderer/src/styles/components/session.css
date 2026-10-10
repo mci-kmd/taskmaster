@@ -1553,7 +1553,7 @@
   .tm-session-pending {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
     max-height: 136px;
     margin: 0;
     padding: 8px 8px 0;

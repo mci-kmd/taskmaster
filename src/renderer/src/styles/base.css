@@ -44,11 +44,57 @@
     outline: none;
   }
 
-  button {
+  /* Everything clickable shows a pointer and text entry shows a text cursor. :where() keeps
+     these at zero specificity, so components can still opt into grab, progress and so on. */
+  :where(
+    button,
+    a[href],
+    summary,
+    select,
+    label:has(input[type='checkbox'], input[type='radio']),
+    input:is(
+      [type='checkbox'],
+      [type='radio'],
+      [type='button'],
+      [type='submit'],
+      [type='reset'],
+      [type='range'],
+      [type='color'],
+      [type='file']
+    ),
+    [role='button'],
+    [role='link'],
+    [role='tab'],
+    [role='radio'],
+    [role='checkbox'],
+    [role='switch'],
+    [role='option'],
+    [role='treeitem'],
+    [role='menuitem'],
+    [role='menuitemradio'],
+    [role='menuitemcheckbox']
+  ) {
     cursor: pointer;
   }
-
-  button:disabled {
+  :where(
+    input:not(
+      [type='checkbox'],
+      [type='radio'],
+      [type='button'],
+      [type='submit'],
+      [type='reset'],
+      [type='range'],
+      [type='color'],
+      [type='file'],
+      [type='hidden']
+    ),
+    textarea,
+    [contenteditable]:not([contenteditable='false'])
+  ) {
+    cursor: text;
+  }
+  :where(button, input, select, textarea):disabled,
+  :where([aria-disabled='true']) {
     cursor: not-allowed;
   }
 

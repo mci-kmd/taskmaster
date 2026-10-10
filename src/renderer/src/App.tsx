@@ -9,6 +9,7 @@ import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
 import ResizeHandle from './components/ResizeHandle'
 import Presence from './components/ui/Presence'
+import TooltipLayer from './components/ui/TooltipLayer'
 import type { SessionMap } from './components/TerminalSessions'
 import { getRendererApi } from './shared/api/client'
 import { useAppSnapshot } from './shared/hooks/use-app-snapshot'
@@ -886,6 +887,7 @@ export default function App(): React.JSX.Element {
       />
 
       <Toast message={toastError} onDismiss={() => setToastError(null)} />
+      <TooltipLayer />
     </div>
   )
 }

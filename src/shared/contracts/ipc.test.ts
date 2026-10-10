@@ -21,7 +21,6 @@ describe('IPC channel contracts', () => {
     expect(flattenChannels(IPC_CHANNELS)).toEqual(
       expect.arrayContaining([
         'app-state:get-snapshot',
-        'native-menu:show-sidebar-context-menu',
         'terminal:create',
         'terminal:read-clipboard-text'
       ])

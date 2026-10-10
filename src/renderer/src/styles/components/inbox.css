@@ -16,7 +16,7 @@
   /* The list item carries list motion; its bottom padding is the gap between rows, so it
      collapses along with a row that animates out. */
   .tm-inbox-item {
-    padding-bottom: 2px;
+    padding-bottom: 4px;
   }
 
   .tm-inbox-row {
@@ -103,7 +103,7 @@
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    gap: 2px;
+    gap: 4px;
     margin-right: 8px;
     opacity: 0;
     transition: opacity var(--duration-fast) ease;
