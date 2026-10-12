@@ -1061,9 +1061,22 @@ describe('Copilot session settings and surrounding controls', () => {
     expect(model.textContent).toBe('legacy-model')
   })
 
+  it('hides the mode picker by default and sends every message in interactive mode', async () => {
+    const a = thread()
+    mock.getSession.mockResolvedValue(snapshot(a.id, { agentMode: 'plan' }))
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    expect(screen.queryByRole('combobox', { name: 'Agent mode' })).toBeNull()
+    fireEvent.change(input(), { target: { value: 'Do it' } })
+    fireEvent.click(send())
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenCalledWith(expect.objectContaining({ agentMode: 'interactive' }))
+    )
+  })
+
   it('uses the selected mode for the next message and follows subsequent runtime mode changes', async () => {
     const a = thread()
-    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} showModePicker />)
     await ready()
     chooseOption('Agent mode', 'Plan')
     fireEvent.change(input(), { target: { value: 'Plan this feature' } })

@@ -11,6 +11,8 @@ const LABEL_NEIGHBOURS = 2
 const MIN_LABEL_WEIGHT = 0.12
 /** Where in the viewport a prompt counts as the one being read. */
 const READING_LINE = 0.3
+/** Only the newest prompts get a bar, so each stays large enough to aim at. */
+export const MAX_RAIL_PROMPTS = 15
 
 interface Magnification {
   nearest: number
@@ -29,9 +31,10 @@ const reducedMotion = (): boolean =>
 /**
  * A narrow stack of bars at the left edge of the transcript, one per user prompt. Hovering
  * magnifies the bars near the pointer and previews their prompts; clicking scrolls to one.
+ * Only the newest {@link MAX_RAIL_PROMPTS} prompts are listed.
  */
 export default function PromptRail({
-  prompts,
+  prompts: allPrompts,
   scrollRef,
   onNavigate,
   onRevealHistory
@@ -51,11 +54,14 @@ export default function PromptRail({
   const pointerFocus = useRef(false)
   /** Set by a jump so smooth scrolling past other prompts keeps the target highlighted. */
   const pinned = useRef<{ index: number; settled: boolean } | null>(null)
+  // Prompts older than the listed ones; bar numbers still count from the first prompt.
+  const offset = Math.max(0, allPrompts.length - MAX_RAIL_PROMPTS)
+  const prompts = useMemo(() => allPrompts.slice(offset), [allPrompts, offset])
   const [active, setActive] = useState(0)
   const [magnified, setMagnified] = useState<Magnification | null>(null)
   const previews = useMemo(() => prompts.map(promptPreview), [prompts])
   const ids = prompts.map((prompt) => prompt.id).join('\n')
-  const visible = prompts.length >= 2
+  const visible = allPrompts.length >= 2
   const rail = usePresence(visible)
   const labels = usePresence(magnified !== null)
   // Labels keep their last positions while they fade out after the pointer leaves.
@@ -81,7 +87,8 @@ export default function PromptRail({
       const box = container.getBoundingClientRect()
       const atEnd = container.scrollHeight - container.scrollTop - container.clientHeight < 2
       const line = atEnd ? box.bottom - 24 : box.top + box.height * READING_LINE
-      let next = 0
+      // While reading above the listed prompts, none of them is current.
+      let next = offset > 0 ? -1 : 0
       order.forEach((id, index) => {
         const element = elements.get(id)
         // A prompt that isn't rendered yet is older than everything rendered (the history fills
@@ -101,7 +108,7 @@ export default function PromptRail({
       container.removeEventListener('scroll', update)
       container.removeEventListener('scrollend', settle)
     }
-  }, [scrollRef, ids, visible, promptElements])
+  }, [scrollRef, ids, visible, offset, promptElements])
 
   // Magnify around the pointer, or around the keyboard-focused bar when the pointer is away.
   const magnify = useCallback((): void => {
@@ -161,7 +168,7 @@ export default function PromptRail({
   }
 
   if (!rail.mounted) return null
-  const current = magnified?.nearest ?? active
+  const current = magnified?.nearest ?? Math.max(0, active)
 
   return (
     <div
@@ -200,7 +207,7 @@ export default function PromptRail({
             type="button"
             className="tm-prompt-rail-bar"
             tabIndex={index === current ? 0 : -1}
-            aria-label={`Prompt ${index + 1} of ${prompts.length}: ${previews[index].slice(0, 160) || 'Empty prompt'}`}
+            aria-label={`Prompt ${offset + index + 1} of ${allPrompts.length}: ${previews[index].slice(0, 160) || 'Empty prompt'}`}
             aria-current={index === active ? 'location' : undefined}
             data-nearest={magnified?.nearest === index ? '' : undefined}
             style={
@@ -237,7 +244,7 @@ export default function PromptRail({
               data-nearest={index === shownLabels.nearest ? '' : undefined}
               style={{ top, opacity: weight }}
             >
-              <span className="tm-prompt-rail-label-number">{index + 1}</span>
+              <span className="tm-prompt-rail-label-number">{offset + index + 1}</span>
               <span className="tm-prompt-rail-label-text">{previews[index] || 'Empty prompt'}</span>
             </div>
           ))}

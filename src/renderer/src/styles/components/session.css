@@ -320,8 +320,9 @@
   /* A skill loaded into the conversation: coral spark and a mono name chip. */
   .tm-session-skill {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: 6px 8px;
     min-width: 0;
     max-width: 100%;
     margin-left: 2px;
@@ -346,13 +347,6 @@
     font-size: 11.5px;
     font-weight: 600;
     color: var(--color-fg);
-  }
-  .tm-session-skill-description {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--color-fg-muted);
   }
 
   /* A request Copilot made, with how it was answered. */
@@ -567,6 +561,11 @@
   }
   .tm-session-working[data-waiting] .tm-session-working-spark {
     color: var(--color-accent-2);
+  }
+  .tm-session-working-time {
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-subtle);
   }
 
   /* Before the first message. */

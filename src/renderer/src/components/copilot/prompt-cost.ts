@@ -16,6 +16,15 @@ export function formatPromptDuration(ms: number): string {
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
 }
 
+/** Whole-second time elapsed so far, e.g. `42s`, `3m 05s` or `1h 02m`. */
+export function formatElapsed(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
+}
+
 /** An amount of credits or DKK without a unit; tiny non-zero amounts show as "<0.01". */
 export function formatCostAmount(amount: number): string {
   if (amount > 0 && amount < 0.01) return '<0.01'

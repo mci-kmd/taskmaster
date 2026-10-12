@@ -99,6 +99,30 @@ describe('settings service', () => {
     expect(onThemeChange).toHaveBeenCalledTimes(2)
   })
 
+  it('stores the mode picker choice only when given and only when on', () => {
+    const settings: PersistedSettings = {
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: ''
+    }
+    const state = { settings, ui: { selectedRepositoryId: null, selectedThreadId: null } }
+    const service = createSettingsService({
+      ensureState: () => state,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      normalizeTerminalFontFamilyInput: (value) => value,
+      clampSidebarWidth: (value) => value
+    })
+    const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+
+    service.updateSettings({ ...base, showAgentModePicker: true })
+    expect(state.settings.showAgentModePicker).toBe(true)
+    service.updateSettings(base)
+    expect(state.settings.showAgentModePicker).toBe(true)
+    service.updateSettings({ ...base, showAgentModePicker: false })
+    expect(state.settings).not.toHaveProperty('showAgentModePicker')
+  })
+
   it('clamps sidebar width on UI updates', () => {
     const saveState = vi.fn()
     const state = {

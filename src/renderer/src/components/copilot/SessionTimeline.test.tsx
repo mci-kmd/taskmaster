@@ -63,3 +63,31 @@ it('renders the whole history at once when asked', () => {
   render(<SessionTimeline items={history} showAll />)
   expect(screen.queryByText('Answer 0')).not.toBeNull()
 })
+
+it('puts skills loaded together on one line', () => {
+  const skill = (id: string, name: string): CopilotTimelineItem => ({
+    id,
+    type: 'skill',
+    timestamp: '',
+    name,
+    description: `${name} docs`,
+    invokedBy: 'copilot'
+  })
+  render(
+    <SessionTimeline
+      items={[
+        skill('s1', 'review'),
+        skill('s2', 'deploy'),
+        message('a', 'Done'),
+        skill('s3', 'lint')
+      ]}
+    />
+  )
+  const notes = screen.getAllByRole('note')
+  expect(notes.map((note) => note.getAttribute('aria-label'))).toEqual([
+    'Skills review, deploy loaded',
+    'Skill lint loaded'
+  ])
+  expect(notes[0].textContent).toBe('Copilot loaded skillsreviewdeploy')
+  expect(screen.getByText('deploy').title).toBe('deploy docs')
+})

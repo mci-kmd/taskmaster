@@ -2,14 +2,17 @@ import { memo, startTransition, useEffect, useId, useMemo, useRef, useState } fr
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
 import { ChevronRightIcon } from '../Icons'
 import Presence from '../ui/Presence'
-import SessionTimelineItem, { ToolStatusDot } from './SessionTimelineItem'
+import SessionTimelineItem, { SkillLine, ToolStatusDot } from './SessionTimelineItem'
 import { TOOL_STATUS_LABELS } from './tool-status'
 
 type ToolItem = Extract<CopilotTimelineItem, { type: 'tool' }>
+type SkillItem = Extract<CopilotTimelineItem, { type: 'skill' }>
 type TimelineRow =
-  { type: 'item'; item: CopilotTimelineItem } | { type: 'tools'; id: string; items: ToolItem[] }
+  | { type: 'item'; item: CopilotTimelineItem }
+  | { type: 'tools'; id: string; items: ToolItem[] }
+  | { type: 'skills'; id: string; items: SkillItem[] }
 
-const rowKey = (row: TimelineRow): string => (row.type === 'tools' ? row.id : row.item.id)
+const rowKey = (row: TimelineRow): string => (row.type === 'item' ? row.item.id : row.id)
 
 /** Rows rendered as soon as a conversation opens: its newest end, which is what's in view. */
 const INITIAL_ROWS = 24
@@ -127,7 +130,12 @@ export default function SessionTimeline({
       // Empty assistant and reasoning events have no visible content to separate tool calls.
       if ((item.type === 'assistant' || item.type === 'reasoning') && !item.content.trim()) continue
       const previous = result[result.length - 1]
-      if (item.type !== 'tool') {
+      if (item.type === 'skill') {
+        // Skills loaded together by the same party share one line.
+        if (previous?.type === 'skills' && previous.items[0].invokedBy === item.invokedBy)
+          previous.items.push(item)
+        else result.push({ type: 'skills', id: item.id, items: [item] })
+      } else if (item.type !== 'tool') {
         result.push({ type: 'item', item })
       } else if (previous?.type === 'tools') {
         previous.items.push(item)
@@ -167,6 +175,8 @@ export default function SessionTimeline({
         const enter = !initialKeys.has(key)
         return row.type === 'tools' ? (
           <ToolGroup key={key} items={row.items} enter={enter} />
+        ) : row.type === 'skills' ? (
+          <SkillLine key={key} items={row.items} enter={enter} />
         ) : (
           <SessionTimelineItem key={key} item={row.item} enter={enter} />
         )

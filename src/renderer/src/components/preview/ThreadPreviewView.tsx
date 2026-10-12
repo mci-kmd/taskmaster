@@ -57,6 +57,7 @@ type Props = {
   onSessionChange: (threadId: string, state: ThreadSessionState) => void
   sharedCheckoutBusy?: boolean
   legacyModels?: string[]
+  showModePicker?: boolean
 }
 
 const RETRY_DELAY_MS = 1500
@@ -117,7 +118,8 @@ function PreviewPane({
   previewUrl,
   onSessionChange,
   sharedCheckoutBusy,
-  legacyModels
+  legacyModels,
+  showModePicker
 }: Props): React.JSX.Element {
   const webviewRef = useRef<WebviewElement | null>(null)
   const [initialUrl] = useState(() => {
@@ -501,6 +503,7 @@ function PreviewPane({
           onSessionChange={onSessionChange}
           sharedCheckoutBusy={sharedCheckoutBusy}
           legacyModels={legacyModels}
+          showModePicker={showModePicker}
         />
       </aside>
     </div>

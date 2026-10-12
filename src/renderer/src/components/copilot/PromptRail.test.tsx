@@ -86,6 +86,26 @@ it('labels a bar per prompt and highlights the prompt in view as you scroll', ()
   expect(bars.map((bar) => bar.tabIndex)).toEqual([-1, -1, 0, -1])
 })
 
+it('lists only the newest 15 prompts, numbered within the whole thread', () => {
+  const many = Array.from({ length: 20 }, (_, index) => ({
+    id: `p${index + 1}`,
+    content: `Prompt text ${index + 1}`
+  }))
+  render(<Harness items={many} />)
+  const bars = within(screen.getByRole('navigation')).getAllByRole('button')
+  expect(bars).toHaveLength(15)
+  expect(bars[0].getAttribute('aria-label')).toBe('Prompt 6 of 20: Prompt text 6')
+  expect(bars[14].getAttribute('aria-label')).toBe('Prompt 20 of 20: Prompt text 20')
+  // Reading an older prompt than the listed ones highlights none, but keeps a bar tabbable.
+  const timeline = layOut(820)
+  fireEvent.scroll(timeline)
+  expect(bars.some((bar) => bar.hasAttribute('aria-current'))).toBe(false)
+  expect(bars.filter((bar) => bar.tabIndex === 0)).toEqual([bars[0]])
+  layOut(2400)
+  fireEvent.scroll(timeline)
+  expect(bars[1].getAttribute('aria-current')).toBe('location')
+})
+
 it('scrolls the timeline to a prompt when its bar is clicked', () => {
   const onNavigate = vi.fn()
   render(<Harness items={prompts} onNavigate={onNavigate} />)

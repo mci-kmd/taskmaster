@@ -40,13 +40,14 @@ function SettingsDialogContent({
   onSave
 }: SettingsDialogProps): React.JSX.Element {
   const [sectionId, setSectionId] = useState('appearance')
-  const form = useAutoSave<UpdateSettingsInput>({
+  const form = useAutoSave<UpdateSettingsInput & { showAgentModePicker: boolean }>({
     initialValues: {
       yoloEnabled: settings.yoloEnabled,
       terminalFontFamilyInput: settings.terminalFontFamilyInput,
       taskTagsInput: settings.taskTagsInput,
       legacyCopilotModels: settings.legacyCopilotModels ?? [],
-      theme: settings.theme ?? DEFAULT_THEME
+      theme: settings.theme ?? DEFAULT_THEME,
+      showAgentModePicker: settings.showAgentModePicker ?? false
     },
     save: (values) => onSave(values)
   })
@@ -85,7 +86,7 @@ function SettingsDialogContent({
       id: 'copilot',
       label: 'Copilot',
       description: 'Applies to newly opened sessions.',
-      hasError: form.hasErrors(['yoloEnabled', 'legacyCopilotModels']),
+      hasError: form.hasErrors(['yoloEnabled', 'showAgentModePicker', 'legacyCopilotModels']),
       content: (
         <>
           <CheckboxSetting
@@ -93,6 +94,12 @@ function SettingsDialogContent({
             field={form.field('yoloEnabled')}
             hint="Copilot permission requests are approved without asking, except those that managed policy requires you to approve."
             label="Permissions"
+          />
+          <CheckboxSetting
+            checkboxLabel="Show the mode picker"
+            field={form.field('showAgentModePicker')}
+            hint="Lets you send messages in Plan or Autopilot mode. When hidden, Copilot always works in Interactive mode."
+            label="Agent mode"
           />
           <SettingRow
             hint="The model picker lists these under a collapsed Legacy row at the end of their family."

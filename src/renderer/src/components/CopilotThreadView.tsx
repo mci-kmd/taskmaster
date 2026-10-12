@@ -50,6 +50,8 @@ type Props = {
   sharedCheckoutBusy?: boolean
   /** Model ids the model picker tucks under a Legacy row. */
   legacyModels?: string[]
+  /** Shows the agent mode picker; otherwise every message is sent in interactive mode. */
+  showModePicker?: boolean
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const WORKING_TREE_POLL_MS = 15_000
@@ -110,14 +112,17 @@ function SessionView({
   thread,
   onSessionChange,
   sharedCheckoutBusy = false,
-  legacyModels
+  legacyModels,
+  showModePicker = false
 }: Props): React.JSX.Element {
   const [session, setSession] = useState<CopilotSessionSnapshot | null>(null)
   const [sdk, setSdk] = useState<CopilotSdkStatus | null>(null)
   const [favoriteModels, setFavoriteModels] = useState<string[]>([])
   const [draft, updateDraft] = useSessionDraft(thread.id)
   const { prompt, attachments } = draft
-  const agentMode = draft.agentMode ?? session?.agentMode ?? 'interactive'
+  const agentMode = showModePicker
+    ? (draft.agentMode ?? session?.agentMode ?? 'interactive')
+    : 'interactive'
   const [busy, setBusy] = useState<string | null>(null)
   const [delivery, setDelivery] = useState<CopilotSendDelivery>('steer')
   const [cancelling, setCancelling] = useState<string | null>(null)
@@ -707,7 +712,10 @@ function SessionView({
               />
             ) : null}
             <Presence show={running} motion="collapse">
-              <WorkingIndicator waiting={Boolean(session?.pendingInteraction)} />
+              <WorkingIndicator
+                waiting={Boolean(session?.pendingInteraction)}
+                since={session?.workingSince}
+              />
             </Presence>
           </div>
         </div>
@@ -907,23 +915,28 @@ function SessionView({
             >
               <PaperclipIcon aria-hidden="true" />
             </Button>
-            <label className="tm-session-setting" title="Mode for your next message">
-              <span>Mode</span>
-              <Select
-                compact
-                aria-label="Agent mode"
-                value={agentMode}
-                onChange={(value) =>
-                  updateDraft((current) => ({ ...current, agentMode: value as typeof agentMode }))
-                }
-                title="Mode for your next message"
-                options={[
-                  { value: 'interactive', label: 'Interactive' },
-                  { value: 'plan', label: 'Plan' },
-                  { value: 'autopilot', label: 'Autopilot' }
-                ]}
-              />
-            </label>
+            {showModePicker ? (
+              <label className="tm-session-setting" title="Mode for your next message">
+                <span>Mode</span>
+                <Select
+                  compact
+                  aria-label="Agent mode"
+                  value={agentMode}
+                  onChange={(value) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      agentMode: value as typeof agentMode
+                    }))
+                  }
+                  title="Mode for your next message"
+                  options={[
+                    { value: 'interactive', label: 'Interactive' },
+                    { value: 'plan', label: 'Plan' },
+                    { value: 'autopilot', label: 'Autopilot' }
+                  ]}
+                />
+              </label>
+            ) : null}
             <SessionModelControls
               session={session}
               disabled={modelControlsDisabled}

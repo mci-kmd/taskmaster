@@ -26,6 +26,38 @@ export function ToolStatusDot({ status }: { status: ToolStatus }): React.JSX.Ele
   )
 }
 
+type SkillItem = Extract<CopilotTimelineItem, { type: 'skill' }>
+
+/** One line naming skills loaded together; each name shows its description on hover. */
+export function SkillLine({
+  items,
+  enter = false
+}: {
+  items: SkillItem[]
+  enter?: boolean
+}): React.JSX.Element {
+  const names = items.map((item) => item.name)
+  const byUser = items[0]?.invokedBy === 'user'
+  const plural = items.length > 1 ? 's' : ''
+  return (
+    <div
+      className={`tm-session-skill${enter ? ' tm-rise-in' : ''}`}
+      role="note"
+      aria-label={`Skill${plural} ${names.join(', ')} loaded`}
+    >
+      <SparkIcon className="tm-session-skill-icon" aria-hidden="true" />
+      <span className="tm-session-skill-label">
+        {byUser ? `Loaded skill${plural}` : `Copilot loaded skill${plural}`}
+      </span>
+      {items.map((item) => (
+        <span className="tm-session-skill-name" key={item.id} title={item.description ?? undefined}>
+          {item.name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 export default memo(function SessionTimelineItem({
   item,
   enter = false
@@ -62,25 +94,7 @@ export default memo(function SessionTimelineItem({
       </div>
     )
   }
-  if (item.type === 'skill') {
-    return (
-      <div
-        className={`tm-session-skill${motion}`}
-        role="note"
-        aria-label={`Skill ${item.name} loaded`}
-        title={item.description ?? undefined}
-      >
-        <SparkIcon className="tm-session-skill-icon" aria-hidden="true" />
-        <span className="tm-session-skill-label">
-          {item.invokedBy === 'user' ? 'Loaded skill' : 'Copilot loaded skill'}
-        </span>
-        <span className="tm-session-skill-name">{item.name}</span>
-        {item.description ? (
-          <span className="tm-session-skill-description">{item.description}</span>
-        ) : null}
-      </div>
-    )
-  }
+  if (item.type === 'skill') return <SkillLine items={[item]} enter={enter} />
   if (item.type === 'interaction') {
     return (
       <section className={`tm-session-interaction${motion}`} aria-label={item.title}>

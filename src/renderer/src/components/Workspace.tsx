@@ -631,6 +631,7 @@ export default function Workspace({
                     legacyModels={settings.legacyCopilotModels}
                     onSessionChange={handleCustomCopilotSessionChange}
                     sharedCheckoutBusy={sharedCheckoutBusy}
+                    showModePicker={settings.showAgentModePicker}
                     thread={selectedThread}
                   />
                 </Suspense>
@@ -647,6 +648,7 @@ export default function Workspace({
                     onSessionChange={handleCustomCopilotSessionChange}
                     previewUrl={selectedPreviewUrl}
                     sharedCheckoutBusy={sharedCheckoutBusy}
+                    showModePicker={settings.showAgentModePicker}
                     thread={selectedThread}
                   />
                 </Suspense>

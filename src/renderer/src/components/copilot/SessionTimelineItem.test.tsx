@@ -89,9 +89,9 @@ it('marks skills loaded into the conversation and who asked for them', () => {
     description: 'Review the diff'
   }
   render(<SessionTimelineItem item={{ ...skill, invokedBy: 'copilot' }} />)
-  expect(screen.getByRole('note', { name: 'Skill review loaded' }).textContent).toBe(
-    'Copilot loaded skillreviewReview the diff'
-  )
+  const note = screen.getByRole('note', { name: 'Skill review loaded' })
+  expect(note.textContent).toBe('Copilot loaded skillreview')
+  expect(within(note).getByText('review').title).toBe('Review the diff')
   cleanup()
   render(<SessionTimelineItem item={{ ...skill, description: null, invokedBy: 'user' }} />)
   expect(screen.getByRole('note').textContent).toBe('Loaded skillreview')

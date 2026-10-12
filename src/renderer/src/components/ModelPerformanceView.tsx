@@ -424,7 +424,7 @@ export default function ModelPerformanceView({
   const modelEntries = usePresenceList(modelGroups, modelKey, 'models')
   const modelListRef = useAnimatedListMotion<HTMLDivElement>('models')
   const modelChips = usePresenceList(modelGroups, modelKey, 'models')
-  const rateNote = `$1 = ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(dkkPerUsd)} DKK (${usdDkkRate.source === 'live' ? 'live rate' : 'fallback rate'})`
+  const rateNote = `$1 = ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(dkkPerUsd)} DKK (${usdDkkRate.source === 'live' ? 'live rate' : 'fallback rate'})`
 
   return (
     <section className="tm-performance" aria-labelledby="tm-performance-title">

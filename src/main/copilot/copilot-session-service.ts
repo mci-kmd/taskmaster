@@ -613,6 +613,7 @@ export function createCopilotSessionService(dependencies: {
 
   const completePrompt = (active: ActiveSession, timestamp: string): void => {
     const prompt = active.prompt
+    if (active.snapshot.workingSince) updateSnapshot(active, { workingSince: null })
     if (!prompt) return
     active.prompt = null
     const anchor = active.snapshot.timeline.findLast((item) => item.type !== 'summary')
@@ -1090,6 +1091,7 @@ export function createCopilotSessionService(dependencies: {
     if (item?.type === 'user' && !item.steered) {
       completePrompt(active, event.timestamp)
       active.prompt = { startedAt: event.timestamp, nanoAiu: null, subagents: [] }
+      updateSnapshot(active, { workingSince: event.timestamp })
     }
     if (item) upsertTimeline(active, item)
 
@@ -1109,7 +1111,11 @@ export function createCopilotSessionService(dependencies: {
         break
       case 'assistant.turn_start':
         active.prompt ??= { startedAt: event.timestamp, nanoAiu: null, subagents: [] }
-        updateSnapshot(active, { phase: 'running', error: null })
+        updateSnapshot(active, {
+          phase: 'running',
+          error: null,
+          workingSince: active.snapshot.workingSince ?? active.prompt.startedAt
+        })
         break
       case 'session.mode_changed':
         if (['interactive', 'plan', 'autopilot'].includes(event.data.newMode)) {
@@ -1702,7 +1708,8 @@ export function createCopilotSessionService(dependencies: {
       updateSnapshot(active, {
         phase: 'running',
         agentMode: input.agentMode,
-        error: null
+        error: null,
+        workingSince: new Date().toISOString()
       })
       try {
         const expanded = withPreviewElementContext(
@@ -1726,7 +1733,7 @@ export function createCopilotSessionService(dependencies: {
         }
         finishActivity(active)
         cancelInteractions(active)
-        updateSnapshot(active, { phase: 'error', error: message })
+        updateSnapshot(active, { phase: 'error', error: message, workingSince: null })
         return { ok: false, error: message, snapshot: active.snapshot }
       }
     },

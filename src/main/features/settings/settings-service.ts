@@ -35,6 +35,10 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
         if (legacy.length) state.settings.legacyCopilotModels = legacy
         else delete state.settings.legacyCopilotModels
       }
+      if (input.showAgentModePicker !== undefined) {
+        if (input.showAgentModePicker === true) state.settings.showAgentModePicker = true
+        else delete state.settings.showAgentModePicker
+      }
       const themeChanged =
         input.theme !== undefined &&
         isThemeId(input.theme) &&

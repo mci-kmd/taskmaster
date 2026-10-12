@@ -69,7 +69,8 @@ it('shows automatic approval enabled by default and saves a toggle immediately',
     terminalFontFamilyInput: '',
     taskTagsInput: 'bug',
     legacyCopilotModels: [],
-    theme: 'graphite'
+    theme: 'graphite',
+    showAgentModePicker: false
   })
   expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Saved')
 })
@@ -145,8 +146,19 @@ it('shows a rejected value inline and keeps saving other settings from the last 
     terminalFontFamilyInput: '',
     taskTagsInput: 'bug',
     legacyCopilotModels: [],
-    theme: 'graphite'
+    theme: 'graphite',
+    showAgentModePicker: false
   })
+})
+
+it('saves the agent mode picker toggle', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog()
+  await user.click(screen.getByRole('tab', { name: 'Copilot' }))
+  const picker = screen.getByRole('checkbox', { name: 'Show the mode picker' })
+  expect(picker).toHaveProperty('checked', false)
+  await user.click(picker)
+  expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({ showAgentModePicker: true }))
 })
 
 it('navigates sections with the arrow keys', async () => {

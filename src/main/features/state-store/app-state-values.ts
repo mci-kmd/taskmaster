@@ -260,6 +260,7 @@ export function normalizePersistedSettings(
   const favoriteCopilotModels = normalizeModelIds(settings.favoriteCopilotModels)
   const legacyCopilotModels = normalizeModelIds(settings.legacyCopilotModels)
   const theme = isThemeId(settings.theme) ? settings.theme : undefined
+  const showAgentModePicker = settings.showAgentModePicker === true ? true : undefined
 
   if (
     yoloEnabled === settings.yoloEnabled &&
@@ -267,7 +268,8 @@ export function normalizePersistedSettings(
     taskTagsInput === currentTaskTagsInput &&
     favoriteCopilotModels === settings.favoriteCopilotModels &&
     legacyCopilotModels === settings.legacyCopilotModels &&
-    theme === settings.theme
+    theme === settings.theme &&
+    showAgentModePicker === settings.showAgentModePicker
   ) {
     return settings
   }
@@ -282,6 +284,8 @@ export function normalizePersistedSettings(
   }
   if (theme) normalized.theme = theme
   else delete normalized.theme
+  if (showAgentModePicker) normalized.showAgentModePicker = true
+  else delete normalized.showAgentModePicker
   return normalized
 }
 

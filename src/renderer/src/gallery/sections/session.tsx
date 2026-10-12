@@ -28,6 +28,8 @@ import type { RailPrompt } from '../../components/copilot/prompt-rail'
 import type { GallerySection } from '../gallery-section'
 
 const at = '2026-10-09T10:00:00.000Z'
+/** The gallery's working indicator starts out partway into a prompt. */
+const WORKING_SINCE = new Date(Date.now() - 83_000).toISOString()
 
 const MARKDOWN = `Here's the direction I'm proposing. The neutrals get a subtle tint so the app has its own temperature, and a single accent carries focus and primary actions.
 
@@ -86,6 +88,14 @@ const TIMELINE: CopilotTimelineItem[] = [
     type: 'skill',
     name: 'impeccable',
     description: 'Design review and polish',
+    invokedBy: 'copilot',
+    timestamp: at
+  },
+  {
+    id: 's2',
+    type: 'skill',
+    name: 'frontend-design',
+    description: 'Distinctive, intentional visual design',
     invokedBy: 'copilot',
     timestamp: at
   },
@@ -513,7 +523,7 @@ function LiveConversation(): React.JSX.Element {
           <>
             <SessionTimeline items={timeline} />
             <Presence show={working} motion="collapse">
-              <WorkingIndicator waiting={request} />
+              <WorkingIndicator waiting={request} since={WORKING_SINCE} />
             </Presence>
           </>
         }

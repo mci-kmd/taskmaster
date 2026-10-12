@@ -92,6 +92,8 @@ export interface PersistedSettings {
   legacyCopilotModels?: string[]
   /** Absent means the default theme. */
   theme?: ThemeId
+  /** Shows the agent mode picker in the composer. Absent means hidden: sessions stay interactive. */
+  showAgentModePicker?: boolean
 }
 
 export type CopilotModelSelection = {
@@ -581,6 +583,8 @@ export interface CopilotSessionSnapshot {
   queuedMessages: CopilotQueuedMessage[]
   /** Steering messages not yet picked up by the running turn. */
   steeringMessages: string[]
+  /** When Copilot started working on the current prompt; null when idle. */
+  workingSince?: string | null
   error: string | null
 }
 
@@ -753,6 +757,8 @@ export interface UpdateSettingsInput {
   legacyCopilotModels?: string[]
   /** Left unchanged when omitted. */
   theme?: ThemeId
+  /** Left unchanged when omitted. */
+  showAgentModePicker?: boolean
 }
 
 export interface UpdateRepositoryInput {
