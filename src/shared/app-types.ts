@@ -134,6 +134,8 @@ export interface PersistedRepository {
   completedTasks?: PersistedCompletedProjectTask[]
 }
 
+export type ThreadModel = { id: string; name: string }
+
 export interface PersistedThread {
   settledAt?: string | null
   id: string
@@ -144,6 +146,8 @@ export interface PersistedThread {
   generatedTitle?: string | null
   latestCopilotTitle: string | null
   lastUserMessage: string | null
+  /** The model the latest prompt was sent to. Absent until the first prompt. */
+  lastModel?: ThreadModel
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
@@ -862,6 +866,8 @@ export interface UpdateThreadResumeSessionInput {
 export interface UpdateThreadLastUserMessageInput {
   threadId: string
   message: string | null
+  /** The model the message was sent to; left unchanged when omitted. */
+  model?: ThreadModel | null
 }
 
 export type PickRepositoryFaviconResult =

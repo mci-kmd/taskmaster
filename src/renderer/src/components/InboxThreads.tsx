@@ -16,6 +16,8 @@ import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-typ
 import type { SessionMap } from './TerminalSessions'
 import type { CopilotThreadStatus } from './ThreadTerminal'
 import ProjectIcon from './ProjectIcon'
+import ModelFamilyIcon from './copilot/ModelFamilyIcon'
+import { modelFamily } from './copilot/model-families'
 import {
   AlertIcon,
   BranchIcon,
@@ -202,30 +204,33 @@ export default function InboxThreads({
                 </span>
               </span>
             </button>
-            <div className="tm-inbox-actions">
-              <Button
-                className="tm-inbox-action"
-                data-action={thread.settledAt ? 'unsettle' : 'settle'}
-                iconOnly
-                size="xs"
-                variant="ghost"
-                onClick={() => onSettleThread(thread.id, !thread.settledAt)}
-                aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
-                title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
-              >
-                {thread.settledAt ? (
-                  <UndoIcon width={12} height={12} strokeWidth={1.7} />
-                ) : (
-                  <CheckIcon width={13} height={13} strokeWidth={1.8} />
-                )}
-              </Button>
-              <ActionMenu
-                label={`Thread actions for ${title}`}
-                triggerClassName="tm-inbox-action"
-                items={threadMenuItems(thread)}
-              >
-                <MoreIcon width={13} height={13} />
-              </ActionMenu>
+            <div className="tm-inbox-side">
+              <ThreadIndicators thread={thread} />
+              <div className="tm-inbox-actions">
+                <Button
+                  className="tm-inbox-action"
+                  data-action={thread.settledAt ? 'unsettle' : 'settle'}
+                  iconOnly
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => onSettleThread(thread.id, !thread.settledAt)}
+                  aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
+                  title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
+                >
+                  {thread.settledAt ? (
+                    <UndoIcon width={12} height={12} strokeWidth={1.7} />
+                  ) : (
+                    <CheckIcon width={13} height={13} strokeWidth={1.8} />
+                  )}
+                </Button>
+                <ActionMenu
+                  label={`Thread actions for ${title}`}
+                  triggerClassName="tm-inbox-action"
+                  items={threadMenuItems(thread)}
+                >
+                  <MoreIcon width={13} height={13} />
+                </ActionMenu>
+              </div>
             </div>
           </div>
         </LeaveWith>
@@ -435,6 +440,51 @@ function projectOptions(repositories: RepositorySnapshot[]): RepositorySnapshot[
   ]
 }
 
+/** A thread's checkout mode, as the card's indicator and tooltip name it. */
+function checkoutLabel(thread: ThreadSnapshot): string {
+  return thread.mode === 'worktree' ? 'Worktree checkout' : 'Local branch checkout'
+}
+
+/**
+ * The card's at-rest indicators, in the hover actions' place: the family of the model last
+ * prompted and the checkout mode. Hover, focus or an open menu swaps them for the actions.
+ */
+function ThreadIndicators({ thread }: { thread: ThreadSnapshot }): React.JSX.Element | null {
+  const showMode = thread.projectKind !== 'general'
+  if (!thread.lastModel && !showMode) return null
+  const family = thread.lastModel ? modelFamily(thread.lastModel) : null
+  return (
+    <div className="tm-inbox-indicators">
+      {thread.lastModel && family ? (
+        <span
+          className="tm-inbox-indicator"
+          data-indicator="model"
+          data-family={family}
+          role="img"
+          aria-label={`Last model: ${thread.lastModel.name}`}
+        >
+          <ModelFamilyIcon family={family} width={13} height={13} />
+        </span>
+      ) : null}
+      {showMode ? (
+        <span
+          className="tm-inbox-indicator"
+          data-indicator="mode"
+          data-mode={thread.mode}
+          role="img"
+          aria-label={checkoutLabel(thread)}
+        >
+          {thread.mode === 'worktree' ? (
+            <WorktreeIcon width={13} height={13} />
+          ) : (
+            <BranchIcon width={13} height={13} />
+          )}
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 /** A thread's details beside its card: what the card abbreviates, in full. */
 function ThreadTooltip({
   thread,
@@ -475,11 +525,16 @@ function ThreadTooltip({
           <li className="tm-tooltip-row">
             {thread.mode === 'worktree' ? <WorktreeIcon /> : <BranchIcon />}
             <span>
-              {thread.displayBranchName}
-              {thread.mode === 'worktree' ? ' (worktree)' : ''}
+              {thread.displayBranchName} · {checkoutLabel(thread)}
             </span>
           </li>
         )}
+        {thread.lastModel ? (
+          <li className="tm-tooltip-row">
+            <ModelFamilyIcon family={modelFamily(thread.lastModel)} />
+            <span>Last model: {thread.lastModel.name}</span>
+          </li>
+        ) : null}
         <li className="tm-tooltip-row">
           <FolderIcon />
           <span>{thread.cwd}</span>

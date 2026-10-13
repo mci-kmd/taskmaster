@@ -123,15 +123,9 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       }
 
       const nextMessage = dependencies.normalizeTrackedText(input.message)
-      const nextActivityAt = dependencies.nowIso()
-      if (thread.lastUserMessage === nextMessage) {
-        thread.lastActivityAt = nextActivityAt
-        dependencies.saveState()
-        return true
-      }
-
+      thread.lastActivityAt = dependencies.nowIso()
       thread.lastUserMessage = nextMessage
-      thread.lastActivityAt = nextActivityAt
+      if (input.model) thread.lastModel = { id: input.model.id, name: input.model.name }
       dependencies.saveState()
       return true
     },

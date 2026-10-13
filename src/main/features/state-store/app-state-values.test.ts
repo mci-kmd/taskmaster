@@ -203,6 +203,34 @@ describe('generated thread titles', () => {
       'generatedTitle'
     )
   })
+
+  it('keeps a valid last model and drops invalid ones', () => {
+    const base = normalizePersistedThread({
+      id: 't',
+      repositoryId: 'r',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01',
+      lastActivityAt: '2026-01-01'
+    })
+    expect(
+      normalizePersistedThread({ ...base, lastModel: { id: 'gpt-5.5', name: 'GPT-5.5' } })
+    ).toHaveProperty('lastModel', { id: 'gpt-5.5', name: 'GPT-5.5' })
+    expect(
+      normalizePersistedThread({ ...base, lastModel: { id: 'gpt-5.5', name: ' ' } }).lastModel
+    ).toEqual({ id: 'gpt-5.5', name: 'gpt-5.5' })
+    expect(
+      normalizePersistedThread({ ...base, lastModel: { id: '', name: 'x' } })
+    ).not.toHaveProperty('lastModel')
+    expect(normalizePersistedThread({ ...base, lastModel: 'gpt' as never })).not.toHaveProperty(
+      'lastModel'
+    )
+  })
 })
 
 describe('theme persistence', () => {

@@ -27,6 +27,7 @@ import type {
   UpdateThreadCopilotTitleInput,
   UpdateThreadInput,
   UpdateThreadLastUserMessageInput,
+  ThreadModel,
   UpdateThreadResumeSessionInput,
   UpdateUiInput
 } from '../shared/app-types'
@@ -512,8 +513,12 @@ export function updateCopilotThreadTitle(threadId: string, title: string): void 
   electronUi.broadcastThreadRunState(threadId)
 }
 
-export function updateCopilotLastUserMessage(threadId: string, message: string): void {
-  threadStateService.updateThreadLastUserMessage({ threadId, message })
+export function updateCopilotLastUserMessage(
+  threadId: string,
+  message: string,
+  model?: ThreadModel | null
+): void {
+  threadStateService.updateThreadLastUserMessage({ threadId, message, model })
   electronUi.broadcastThreadRunState(threadId)
   threadTitleService.generateTitleIfMissing(threadId)
 }

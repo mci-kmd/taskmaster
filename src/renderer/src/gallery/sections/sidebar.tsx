@@ -91,14 +91,17 @@ function fixtureRepositories(): RepositorySnapshot[] {
   return [
     makeRepository('taskmaster', 'layers', '#bb9af7', [
       makeThread('paint', 'taskmaster', 'Give the app a new coat of paint', 'theme/refresh', 0, {
-        isRunCommandRunning: true
+        isRunCommandRunning: true,
+        mode: 'worktree',
+        lastModel: { id: 'claude-opus-5.5', name: 'Claude Opus 5.5' }
       }),
       makeThread(
         'flaky',
         'taskmaster',
         'Fix flaky worktree cleanup test',
         'fix/cleanup',
-        2 * MINUTE
+        2 * MINUTE,
+        { lastModel: { id: 'gpt-5.5', name: 'GPT-5.5' } }
       ),
       makeThread(
         'electron',
@@ -119,9 +122,13 @@ function fixtureRepositories(): RepositorySnapshot[] {
       )
     ]),
     makeRepository('ledger-api', 'database', '#73daca', [
-      makeThread('csv', 'ledger-api', 'Add CSV export to reports', 'feat/csv-export', 14 * MINUTE),
+      makeThread('csv', 'ledger-api', 'Add CSV export to reports', 'feat/csv-export', 14 * MINUTE, {
+        mode: 'worktree',
+        lastModel: { id: 'gemini-3-pro', name: 'Gemini 3 Pro' }
+      }),
       makeThread('push', 'ledger-api', 'Bump the rate limiter', 'fix/rate-limit', 19 * MINUTE, {
-        commitPhase: 'pushing'
+        commitPhase: 'pushing',
+        lastModel: { id: 'grok-4.7', name: 'Grok 4.7' }
       }),
       makeThread(
         'schema',
@@ -166,7 +173,8 @@ function fixtureRepositories(): RepositorySnapshot[] {
       'default',
       [
         makeThread('release', 'notes', 'Draft release notes for 2.4', 'main', 60 * MINUTE, {
-          projectKind: 'general'
+          projectKind: 'general',
+          lastModel: { id: 'claude-sonnet-5.5', name: 'Claude Sonnet 5.5' }
         })
       ],
       { favorite: true }

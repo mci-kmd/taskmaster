@@ -25,7 +25,8 @@ import type {
   CopilotStartResult,
   CopilotSubagentUsage,
   CopilotTimelineItem,
-  PersistedThread
+  PersistedThread,
+  ThreadModel
 } from '../../shared/app-types'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
 import { resolveThreadTitle, threadDisplayName } from '../../shared/thread-title'
@@ -446,7 +447,8 @@ export function createCopilotSessionService(dependencies: {
   resolveThread: (threadId: string) => ThreadContext | null
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
-  onUserMessage: (threadId: string, message: string) => void
+  /** `model` is the model the message was sent to, when known. */
+  onUserMessage: (threadId: string, message: string, model: ThreadModel | null) => void
   onActivity?: (threadId: string) => void
   recordPerformanceSample: (sample: ModelPerformanceSample) => void
   getPerformanceSamples: () => ModelPerformanceSample[]
@@ -1147,7 +1149,15 @@ export function createCopilotSessionService(dependencies: {
 
     switch (event.type) {
       case 'user.message':
-        if (item) dependencies.onUserMessage(active.snapshot.threadId, event.data.content)
+        if (item) {
+          const model = active.snapshot.model
+          const name = active.snapshot.models.find((option) => option.id === model)?.name
+          dependencies.onUserMessage(
+            active.snapshot.threadId,
+            event.data.content,
+            model ? { id: model, name: name ?? model } : null
+          )
+        }
         break
       case 'session.title_changed':
         dependencies.onTitleChanged(active.snapshot.threadId, event.data.title)

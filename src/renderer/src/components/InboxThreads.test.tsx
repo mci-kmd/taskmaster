@@ -184,6 +184,49 @@ describe('inbox', () => {
     expect(within(serving).queryByText('Committing')).toBeNull()
   })
 
+  it('shows the last model family and checkout mode where the hover actions appear', () => {
+    const mixed = repository('Mixed', [
+      {
+        ...thread('Worktree', '2026-03-01'),
+        mode: 'worktree' as const,
+        lastModel: { id: 'claude-opus-5.5', name: 'Claude Opus 5.5' }
+      },
+      thread('Local', '2026-02-01'),
+      {
+        ...thread('General', '2026-01-01'),
+        projectKind: 'general' as const,
+        lastModel: { id: 'gpt-5.5', name: 'GPT-5.5' }
+      }
+    ])
+    render(
+      <InboxThreads
+        repositories={[mixed]}
+        selectedRepository={mixed}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...callbacks()}
+      />
+    )
+    const [worktree, local, general] = within(
+      screen.getByRole('list', { name: 'Active threads' })
+    ).getAllByRole('listitem')
+    const indicators = (row: HTMLElement): string[] =>
+      [...row.querySelectorAll('.tm-inbox-indicators [role="img"]')].map(
+        (element) => element.getAttribute('aria-label') ?? ''
+      )
+    expect(indicators(worktree)).toEqual(['Last model: Claude Opus 5.5', 'Worktree checkout'])
+    expect(
+      worktree.querySelector('.tm-inbox-side .tm-inbox-actions [aria-label="Settle Worktree"]')
+    ).toBeTruthy()
+    expect(worktree.querySelector('[data-indicator="model"]')?.getAttribute('data-family')).toBe(
+      'Claude'
+    )
+    expect(indicators(local)).toEqual(['Local branch checkout'])
+    expect(indicators(general)).toEqual(['Last model: GPT-5.5'])
+  })
+
   it('includes threads from every project in one activity-ordered list', () => {
     const shared = repository('Shared', [
       thread('Project session', '2026-01-01'),

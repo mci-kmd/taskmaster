@@ -92,6 +92,18 @@ describe('thread state service', () => {
       lastUserMessage: 'hello',
       lastActivityAt: '2026-01-01T00:00:01.000Z'
     })
+    expect(thread).not.toHaveProperty('lastModel')
     expect(saveState).toHaveBeenCalledTimes(4)
+
+    service.updateThreadLastUserMessage({
+      threadId: 'thread-1',
+      message: 'next',
+      model: { id: 'gpt-5.5', name: 'GPT-5.5' }
+    })
+    service.updateThreadLastUserMessage({ threadId: 'thread-1', message: 'again', model: null })
+    expect(thread).toMatchObject({
+      lastUserMessage: 'again',
+      lastModel: { id: 'gpt-5.5', name: 'GPT-5.5' }
+    })
   })
 })

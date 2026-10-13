@@ -49,26 +49,39 @@ function sameRepositoryBackend(
   return true
 }
 
+export function normalizeThreadModel(value: unknown): PersistedThread['lastModel'] {
+  if (!value || typeof value !== 'object') return undefined
+  const { id, name } = value as Record<string, unknown>
+  if (typeof id !== 'string' || !id.trim()) return undefined
+  return { id, name: typeof name === 'string' && name.trim() ? name : id }
+}
+
 export function normalizePersistedThread(thread: PersistedThread): PersistedThread {
   const latestCopilotTitle = normalizeCopilotTitle(thread.latestCopilotTitle)
   const lastUserMessage = normalizeTrackedText(thread.lastUserMessage ?? null)
   const rawGeneratedTitle = (thread as { generatedTitle?: unknown }).generatedTitle
   const generatedTitle =
     typeof rawGeneratedTitle === 'string' ? normalizeCopilotTitle(rawGeneratedTitle) : null
+  const lastModel = normalizeThreadModel(thread.lastModel)
 
   if (
     latestCopilotTitle === thread.latestCopilotTitle &&
     lastUserMessage === thread.lastUserMessage &&
-    (generatedTitle ?? undefined) === rawGeneratedTitle
+    (generatedTitle ?? undefined) === rawGeneratedTitle &&
+    (lastModel === undefined) === (thread.lastModel === undefined) &&
+    lastModel?.id === thread.lastModel?.id &&
+    lastModel?.name === thread.lastModel?.name
   )
     return thread
-  const { generatedTitle: _generatedTitle, ...rest } = thread
+  const { generatedTitle: _generatedTitle, lastModel: _lastModel, ...rest } = thread
   void _generatedTitle
+  void _lastModel
   return {
     ...rest,
     latestCopilotTitle,
     lastUserMessage,
-    ...(generatedTitle ? { generatedTitle } : {})
+    ...(generatedTitle ? { generatedTitle } : {}),
+    ...(lastModel ? { lastModel } : {})
   }
 }
 
