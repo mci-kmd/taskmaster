@@ -12,9 +12,11 @@ import { completeSkill, searchSkills, skillTrigger } from './skill-completions'
 import {
   applyMarkerEdit,
   attachmentMarker,
+  collapsePastedText,
   markerRanges,
   snapOutOfMarker,
-  splitAttachmentMarkers
+  splitAttachmentMarkers,
+  type PastedText
 } from './attachment-markers'
 import type { SendMode } from './SendButton'
 import Button from '../ui/Button'
@@ -22,7 +24,7 @@ import Presence from '../ui/Presence'
 
 const api = getRendererApi()
 const PLACEHOLDERS: Record<SendMode, string> = {
-  send: 'Ask Copilot anything, / or $ for skills…',
+  send: 'Ask Copilot anything, / for skills…',
   steer: 'Steer Copilot while it works…',
   queue: 'Queue a follow-up for when Copilot finishes…',
   reply: 'Or skip the request above and reply in your own words…'
@@ -46,6 +48,7 @@ export default function SessionPromptInput({
   onChange,
   onSend,
   onFiles,
+  onPastedText,
   attachmentNames = [],
   mode,
   interactionKind,
@@ -62,6 +65,8 @@ export default function SessionPromptInput({
   onChange: (prompt: string) => void
   onSend: () => void
   onFiles: (files: File[]) => void
+  /** Receives long pasted text, which then stays out of the message box. */
+  onPastedText?: (pasted: PastedText) => void
   attachmentNames?: string[]
   mode: SendMode
   /** Kind of the pending request, used to explain what a reply does. */
@@ -355,6 +360,12 @@ export default function SessionPromptInput({
             if (files.length) {
               event.preventDefault()
               onFiles(files)
+              return
+            }
+            const pasted = onPastedText && collapsePastedText(event.clipboardData.getData('text'))
+            if (pasted) {
+              event.preventDefault()
+              onPastedText(pasted)
             }
           }}
           placeholder={

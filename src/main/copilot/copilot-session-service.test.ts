@@ -28,6 +28,7 @@ const harness = vi.hoisted(() => ({
   disconnect: vi.fn(),
   setModel: vi.fn(),
   getCurrentModel: vi.fn(),
+  setAllowedModels: vi.fn(),
   listModels: vi.fn(),
   listSkills: vi.fn(),
   invokeCommand: vi.fn(),
@@ -158,6 +159,7 @@ beforeEach(() => {
   harness.ping.mockResolvedValue({ message: 'pong', timestamp: '' })
   harness.forceStop.mockResolvedValue(undefined)
   harness.setModel.mockResolvedValue(undefined)
+  harness.setAllowedModels.mockResolvedValue({})
   harness.send.mockResolvedValue('message-id')
   harness.abort.mockResolvedValue(undefined)
   harness.disconnect.mockResolvedValue(undefined)
@@ -171,7 +173,7 @@ beforeEach(() => {
       disconnect: harness.disconnect,
       setModel: harness.setModel,
       rpc: {
-        model: { getCurrent: harness.getCurrentModel },
+        model: { getCurrent: harness.getCurrentModel, setAllowedModels: harness.setAllowedModels },
         mode: { get: async () => 'plan' },
         skills: { list: harness.listSkills },
         commands: { invoke: harness.invokeCommand },
@@ -1171,6 +1173,95 @@ it('does not append buffered deltas to a finalized message already present in hi
   const result = await starting
   expect(result.snapshot?.timeline).toMatchObject([{ content: 'Hello there' }])
   expect(result.snapshot?.timeline[0]).not.toHaveProperty('streaming', true)
+})
+
+describe('legacy models', () => {
+  const catalog = ['current', 'fresh', 'legacy', 'old'].map((id) => ({
+    id,
+    name: id,
+    capabilities: { supports: { vision: false } }
+  })) as ModelInfo[]
+  const allowed = (): unknown[] =>
+    harness.setAllowedModels.mock.calls.map(([params]) => params.allowedModels)
+
+  beforeEach(() => {
+    harness.listModels.mockResolvedValue(catalog)
+    harness.getCurrentModel.mockResolvedValue({ modelId: 'current' })
+  })
+
+  it('leaves sessions unrestricted while no model is legacy', async () => {
+    const service = setup(true, { getLegacyModels: () => [] })
+    await service.start('thread')
+    await vi.waitFor(() => expect(service.getSession('thread')?.models).toHaveLength(4))
+    service.refreshAllowedModels()
+    await Promise.resolve()
+    expect(harness.setAllowedModels).not.toHaveBeenCalled()
+  })
+
+  it('keeps the agent off legacy models once the catalog arrives', async () => {
+    const service = setup(true, { getLegacyModels: () => ['legacy', 'old'] })
+    await service.start('thread')
+    await vi.waitFor(() => expect(allowed()).toEqual([['current', 'fresh']]))
+  })
+
+  it('allows a legacy model the user chose, until they switch away from it', async () => {
+    harness.getCurrentModel.mockResolvedValue({ modelId: 'legacy' })
+    const service = setup(true, { getLegacyModels: () => ['legacy', 'old'] })
+    await service.start('thread')
+    await vi.waitFor(() => expect(allowed()).toEqual([['current', 'fresh', 'legacy']]))
+
+    harness.getCurrentModel.mockResolvedValue({ modelId: 'old' })
+    await service.setModel({ threadId: 'thread', model: 'old', reasoningEffort: null })
+    await vi.waitFor(() => expect(allowed().at(-1)).toEqual(['current', 'fresh', 'old']))
+    // The chosen model was allowed before the switch, alongside the one in use.
+    expect(allowed()[1]).toEqual(['current', 'fresh', 'legacy', 'old'])
+    expect(harness.setAllowedModels.mock.invocationCallOrder[1]).toBeLessThan(
+      harness.setModel.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('follows changes to the legacy setting and lifts the restriction when it is cleared', async () => {
+    let legacy = ['legacy']
+    const service = setup(true, { getLegacyModels: () => legacy })
+    await service.start('thread')
+    await vi.waitFor(() => expect(allowed()).toEqual([['current', 'fresh', 'old']]))
+    legacy = ['legacy', 'old']
+    service.refreshAllowedModels()
+    await vi.waitFor(() => expect(allowed().at(-1)).toEqual(['current', 'fresh']))
+    legacy = []
+    service.refreshAllowedModels()
+    await vi.waitFor(() => expect(allowed().at(-1)).toBeNull())
+    service.refreshAllowedModels()
+    await Promise.resolve()
+    expect(harness.setAllowedModels).toHaveBeenCalledTimes(3)
+  })
+
+  it('waits for the current model before restricting a session that is still loading', async () => {
+    const history = deferred<SessionEvent[]>()
+    harness.getEvents.mockReturnValueOnce(history.promise)
+    harness.getCurrentModel.mockResolvedValue({ modelId: 'legacy' })
+    const service = setup(true, { getLegacyModels: () => ['legacy', 'old'] })
+    const started = service.start('thread')
+    await vi.waitFor(() => expect(harness.listModels).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve))
+    expect(harness.setAllowedModels).not.toHaveBeenCalled()
+    history.resolve([])
+    await started
+    await vi.waitFor(() => expect(allowed()).toEqual([['current', 'fresh', 'legacy']]))
+  })
+
+  it('keeps working with SDK versions that cannot restrict models', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      harness.setAllowedModels.mockRejectedValue(new Error('Unknown method'))
+      const service = setup(true, { getLegacyModels: () => ['legacy'] })
+      await service.start('thread')
+      await vi.waitFor(() => expect(warning).toHaveBeenCalled())
+      expect(service.getSession('thread')?.phase).toBe('idle')
+    } finally {
+      warning.mockRestore()
+    }
+  })
 })
 
 it('uses the model default when resetting effort and reports the runtime settings', async () => {

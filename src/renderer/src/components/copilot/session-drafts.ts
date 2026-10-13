@@ -1,10 +1,14 @@
 import { useCallback, useSyncExternalStore } from 'react'
 import type { CopilotAgentMode, CopilotAttachment } from '../../../../shared/app-types'
-import { insertAttachmentMarkers, withUniqueNames } from './attachment-markers'
+import {
+  insertAttachmentMarkers,
+  withUniqueNames,
+  type DraftAttachment
+} from './attachment-markers'
 
 type Draft = {
   prompt: string
-  attachments: CopilotAttachment[]
+  attachments: DraftAttachment[]
   agentMode: CopilotAgentMode | null
 }
 const emptyDraft: Draft = { prompt: '', attachments: [], agentMode: null }

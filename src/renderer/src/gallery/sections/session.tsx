@@ -25,6 +25,7 @@ import SessionPromptInput from '../../components/copilot/SessionPromptInput'
 import SessionTimeline from '../../components/copilot/SessionTimeline'
 import SessionTimelineItem from '../../components/copilot/SessionTimelineItem'
 import type { RailPrompt } from '../../components/copilot/prompt-rail'
+import type { PastedText } from '../../components/copilot/attachment-markers'
 import type { GallerySection } from '../gallery-section'
 
 const at = '2026-10-09T10:00:00.000Z'
@@ -265,6 +266,16 @@ const ATTACHMENTS: CopilotAttachment[] = [
   { id: 'f1', type: 'file', path: '/tmp/current-ui.png', displayName: 'current-ui.png' },
   { id: 'f2', type: 'file', path: '/tmp/brief.md', displayName: 'brief.md' }
 ]
+
+const PASTED_TEXT: PastedText = {
+  id: 't1',
+  type: 'text',
+  displayName: 'Pasted text, 18 lines',
+  text: Array.from(
+    { length: 18 },
+    (_, line) => `[12:00:${String(line).padStart(2, '0')}] build step ${line + 1} ok`
+  ).join('\n')
+}
 
 const QUEUED: CopilotQueuedMessage[] = [
   { id: 'q1', text: 'Then update the screenshots in the README.' },
@@ -770,7 +781,7 @@ function Session(): React.JSX.Element {
           <div className="mt-6">
             <Label>Attachment chips</Label>
             <div className="tm-session-composer pb-3">
-              <AttachmentChips attachments={ATTACHMENTS} onRemove={noop} />
+              <AttachmentChips attachments={[...ATTACHMENTS, PASTED_TEXT]} onRemove={noop} />
             </div>
           </div>
         </div>

@@ -93,12 +93,18 @@ type ActiveSession = {
   mcpAuthAttempted: Set<string>
   mcpAuthInFlight: Map<string, Promise<CopilotStartResult>>
   modelChangePending: boolean
+  /** The model a pending model change switches to. */
+  selectingModel: string | null
   sendRevision: number
   queueRevision: number
   /** The prompt currently being worked on, from the user's message until the agent goes idle. */
   prompt: { startedAt: string; nanoAiu: number | null; subagents: CopilotSubagentUsage[] } | null
   /** Receives usage reported after its prompt finished, e.g. by background sub-agents. */
   lastSummary: PromptSummaryRecord | null
+  /** The model allowlist last applied to the runtime, or null while unrestricted. */
+  allowedModels: string[] | null
+  /** Serializes allowlist updates so they reach the runtime in order. */
+  allowedModelsSync: Promise<void>
   unsubscribe: () => void
 }
 
@@ -435,6 +441,8 @@ export function createCopilotSessionService(dependencies: {
   onModelSelected?: (selection: CopilotModelSelection) => void
   getFavoriteModels?: () => string[]
   setFavoriteModels?: (models: string[]) => void
+  /** Models the user marked as legacy, which the agent should not pick on its own. */
+  getLegacyModels?: () => string[]
   resolveThread: (threadId: string) => ThreadContext | null
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
@@ -461,6 +469,8 @@ export function createCopilotSessionService(dependencies: {
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
   getFavoriteModels: () => string[]
   setModelFavorite: (input: CopilotSetModelFavoriteInput) => string[]
+  /** Reapplies the legacy model setting to every connected session. */
+  refreshAllowedModels: () => void
   respond: (input: CopilotInteractionResponse) => boolean
   authenticateMcpServer: (input: CopilotMcpAuthInput) => Promise<CopilotStartResult>
   pickAttachments: () => Promise<{
@@ -531,6 +541,46 @@ export function createCopilotSessionService(dependencies: {
   const updateSnapshot = (active: ActiveSession, patch: Partial<CopilotSessionSnapshot>): void => {
     active.snapshot = { ...active.snapshot, ...patch }
     broadcastSession(active.snapshot)
+  }
+
+  // Keeps the agent off legacy models, e.g. when it picks a model for a sub-agent. A legacy
+  // model the user chose for the session stays allowed.
+  const syncAllowedModels = (active: ActiveSession): Promise<void> => {
+    const apply = async (): Promise<void> => {
+      // Until hydration reads the current model, it could be left out and switched away from.
+      if (
+        sessions.get(active.snapshot.threadId) !== active ||
+        active.snapshot.phase === 'connecting'
+      )
+        return
+      const legacy = new Set(dependencies.getLegacyModels?.() ?? [])
+      // Without the catalog there is no list to allow; it syncs again once the catalog loads.
+      if (legacy.size && !models.length) return
+      const allowed = legacy.size
+        ? [
+            ...new Set([
+              ...models.map((model) => model.id).filter((id) => !legacy.has(id)),
+              ...[active.snapshot.model, active.selectingModel].filter((id): id is string =>
+                Boolean(id)
+              )
+            ])
+          ]
+        : null
+      if (
+        allowed?.length === 0 ||
+        allowed?.join('\n') === active.allowedModels?.join('\n') ||
+        (!allowed && !active.allowedModels)
+      )
+        return
+      // Experimental in the SDK; other installed SDK versions may not offer it.
+      if (typeof active.session.rpc.model.setAllowedModels !== 'function') return
+      await active.session.rpc.model.setAllowedModels({ allowedModels: allowed })
+      active.allowedModels = allowed
+    }
+    active.allowedModelsSync = active.allowedModelsSync
+      .then(apply)
+      .catch((error) => console.warn('Could not keep Copilot off legacy models:', error))
+    return active.allowedModelsSync
   }
 
   const upsertTimeline = (active: ActiveSession, item: CopilotTimelineItem): void => {
@@ -1108,6 +1158,7 @@ export function createCopilotSessionService(dependencies: {
           model: event.data.newModel,
           reasoningEffort: (event.data.reasoningEffort as CopilotReasoningEffort | null) ?? null
         })
+        void syncAllowedModels(active)
         break
       case 'assistant.turn_start':
         active.prompt ??= { startedAt: event.timestamp, nanoAiu: null, subagents: [] }
@@ -1188,7 +1239,10 @@ export function createCopilotSessionService(dependencies: {
       .then((catalog) => {
         if (client !== sdkClient) return
         models = mapCatalog(catalog)
-        for (const active of sessions.values()) updateSnapshot(active, { models })
+        for (const active of sessions.values()) {
+          updateSnapshot(active, { models })
+          void syncAllowedModels(active)
+        }
       })
       .catch((error) => {
         if (client !== sdkClient) return
@@ -1316,10 +1370,13 @@ export function createCopilotSessionService(dependencies: {
         mcpAuthAttempted: new Set(),
         mcpAuthInFlight: new Map(),
         modelChangePending: false,
+        selectingModel: null,
         sendRevision: 0,
         queueRevision: 0,
         prompt: null,
         lastSummary: null,
+        allowedModels: null,
+        allowedModelsSync: Promise.resolve(),
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder, context.yoloEnabled)
@@ -1446,6 +1503,7 @@ export function createCopilotSessionService(dependencies: {
         handleEvent(placeholder, event)
       }
       broadcastSession(placeholder.snapshot)
+      void syncAllowedModels(placeholder)
       // Status events may have fired before this listener was attached.
       void session.rpc.mcp
         .list()
@@ -1504,10 +1562,14 @@ export function createCopilotSessionService(dependencies: {
     selection: CopilotModelSelection
   ): Promise<CopilotStartResult> => {
     active.modelChangePending = true
+    active.selectingModel = selection.model
     const selectionRevision = ++modelSelectionRevision
     try {
       const selected = active.snapshot.models.find((model) => model.id === selection.model)
       const effort = selection.reasoningEffort ?? selected?.defaultReasoningEffort ?? undefined
+      await syncAllowedModels(active)
+      if (sessions.get(active.snapshot.threadId) !== active)
+        return { ok: false, error: 'Session closed before model settings were applied.' }
       await active.session.setModel(selection.model, {
         reasoningEffort: effort,
         reasoningSummary: effort ? 'concise' : 'none'
@@ -1542,6 +1604,8 @@ export function createCopilotSessionService(dependencies: {
       return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
     } finally {
       active.modelChangePending = false
+      active.selectingModel = null
+      void syncAllowedModels(active)
     }
   }
 
@@ -1780,6 +1844,9 @@ export function createCopilotSessionService(dependencies: {
       for (const window of BrowserWindow.getAllWindows())
         sendIpc(window.webContents, IPC_CHANNELS.copilot.favoriteModels, { models })
       return [...models]
+    },
+    refreshAllowedModels: () => {
+      for (const active of sessions.values()) void syncAllowedModels(active)
     },
     setModel: async (input: CopilotSetModelInput) => {
       const startResult = await start(input.threadId)

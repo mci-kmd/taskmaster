@@ -164,7 +164,8 @@ const settingsService = createSettingsService({
   successResult,
   normalizeTerminalFontFamilyInput,
   clampSidebarWidth,
-  onThemeChange: (theme) => themeChangeListener?.(theme)
+  onThemeChange: (theme) => themeChangeListener?.(theme),
+  onLegacyModelsChange: () => legacyModelsChangeListener?.()
 })
 const repositoryService = createRepositoryService({
   ensureState,
@@ -485,6 +486,16 @@ export function getCopilotModelDefaults(): CopilotModelSelection | null {
 export function rememberCopilotModelSelection(selection: CopilotModelSelection): void {
   ensureState().settings.lastCopilotModelSelection = { ...selection }
   saveState()
+}
+
+let legacyModelsChangeListener: (() => void) | null = null
+
+export function setLegacyModelsChangeListener(listener: () => void): void {
+  legacyModelsChangeListener = listener
+}
+
+export function getLegacyCopilotModels(): string[] {
+  return ensureState().settings.legacyCopilotModels ?? []
 }
 
 export function getFavoriteCopilotModels(): string[] {

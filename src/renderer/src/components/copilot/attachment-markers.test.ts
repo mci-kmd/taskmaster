@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyMarkerEdit,
+  collapsePastedText,
+  expandPastedText,
   insertAttachmentMarkers,
   removeAttachmentMarkers,
   snapOutOfMarker,
@@ -88,5 +90,34 @@ describe('attachment markers', () => {
         { id: 'b', type: 'user', content: '[📎 y.png]', attachments: ['y.png'], timestamp: '' }
       ])
     ).toEqual([{ id: 'a', prompt: 'Fix now' }])
+  })
+
+  it('collapses pastes longer than 15 lines, ignoring a final line break', () => {
+    const lines = (count: number): string =>
+      Array.from({ length: count }, (_, index) => `line ${index + 1}`).join('\r\n')
+    expect(collapsePastedText(lines(15))).toBeNull()
+    expect(collapsePastedText(`${lines(15)}\r\n`)).toBeNull()
+    expect(collapsePastedText(`${lines(16)}\r\n`)).toMatchObject({
+      type: 'text',
+      displayName: 'Pasted text, 16 lines',
+      text: `${lines(16).replaceAll('\r\n', '\n')}\n`
+    })
+  })
+
+  it('sends pasted text in place of its marker and keeps files attached', () => {
+    const file = { id: 'f', type: 'file' as const, path: '/a.png', displayName: 'a.png' }
+    const pasted = {
+      id: 't',
+      type: 'text' as const,
+      displayName: 'Pasted text, 16 lines',
+      text: 'a\nb'
+    }
+    expect(
+      expandPastedText('Fix [📎 Pasted text, 16 lines] using [📎 a.png]', [pasted, file])
+    ).toEqual({ prompt: 'Fix a\nb using [📎 a.png]', attachments: [file] })
+    expect(expandPastedText('Only [📎 a.png]', [file])).toEqual({
+      prompt: 'Only [📎 a.png]',
+      attachments: [file]
+    })
   })
 })

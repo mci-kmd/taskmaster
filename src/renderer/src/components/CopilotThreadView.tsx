@@ -35,10 +35,13 @@ import AttachmentChips from './copilot/AttachmentChips'
 import { EmptyConversation, WorkingIndicator } from './copilot/ConversationStates'
 import { registerComposer, useSessionDraft } from './copilot/session-drafts'
 import {
+  expandPastedText,
   hasAttachmentMarker,
   insertAttachmentMarkers,
+  markerRanges,
   removeAttachmentMarkers,
-  withUniqueNames
+  withUniqueNames,
+  type DraftAttachment
 } from './copilot/attachment-markers'
 import { stepReasoningEffort } from '../../../shared/reasoning-effort'
 
@@ -370,21 +373,39 @@ function SessionView({
     pendingCaret.current = null
   }, [prompt])
   // Insert a marker at the caret so the message shows where each file belongs.
-  const attach = (added: CopilotAttachment[], replaceSelection = false): void => {
+  const attach = (added: DraftAttachment[], replaceSelection = false): void => {
     if (!added.length) return
     const element = promptRef.current
     updateDraft((current) => {
       const named = withUniqueNames(added, current.attachments)
-      const end = element?.selectionEnd ?? current.prompt.length
-      const start = replaceSelection ? (element?.selectionStart ?? end) : end
+      let end = element?.selectionEnd ?? current.prompt.length
+      let start = replaceSelection ? (element?.selectionStart ?? end) : end
+      // A selection that cuts into a marker replaces all of it.
+      for (const range of markerRanges(
+        current.prompt,
+        current.attachments.map((item) => item.displayName)
+      ))
+        if (start < end && range.start < end && range.end > start) {
+          start = Math.min(start, range.start)
+          end = Math.max(end, range.end)
+        }
       const next = insertAttachmentMarkers(
         current.prompt,
         named.map((item) => item.displayName),
         start,
-        end
+        end,
+        // Pasted text goes back exactly where it was pasted.
+        named.some((item) => item.type !== 'text')
       )
       pendingCaret.current = next.caret
-      return { ...current, prompt: next.prompt, attachments: [...current.attachments, ...named] }
+      return {
+        ...current,
+        prompt: next.prompt,
+        // Attachments whose markers the selection replaced are gone.
+        attachments: [...current.attachments, ...named].filter((item) =>
+          hasAttachmentMarker(next.prompt, item.displayName)
+        )
+      }
     })
     if (mounted.current) promptRef.current?.focus()
   }
@@ -417,10 +438,11 @@ function SessionView({
     const sentDelivery = replying ? 'steer' : sendWhileRunning ? delivery : undefined
     void run('send', async () => {
       const revision = sessionRevision.current
+      const message = expandPastedText(prompt, attachments)
       const result = await api.copilot.send({
         threadId: thread.id,
-        prompt: prompt.trim(),
-        attachments,
+        prompt: message.prompt.trim(),
+        attachments: message.attachments,
         agentMode,
         ...(replying && replyTo
           ? { replyToInteractionId: replyTo.id }
@@ -431,18 +453,24 @@ function SessionView({
       acceptResult(result, revision)
       if (result.ok) {
         // Keep any draft changes made while this request was in flight.
-        updateDraft((current) => ({
-          ...current,
-          prompt: current.prompt === prompt ? '' : current.prompt,
-          // Steering joins the running turn, so the chosen mode still applies to the next one.
-          agentMode:
-            sentDelivery !== 'steer' && current.agentMode === draft.agentMode
-              ? null
-              : current.agentMode,
-          attachments: current.attachments.filter(
-            (item) => !attachments.some((sent) => sent.id === item.id)
-          )
-        }))
+        updateDraft((current) => {
+          const nextPrompt = current.prompt === prompt ? '' : current.prompt
+          return {
+            ...current,
+            prompt: nextPrompt,
+            // Steering joins the running turn, so the chosen mode still applies to the next one.
+            agentMode:
+              sentDelivery !== 'steer' && current.agentMode === draft.agentMode
+                ? null
+                : current.agentMode,
+            // An edited draft keeps the attachments its markers still refer to.
+            attachments: current.attachments.filter(
+              (item) =>
+                !attachments.some((sent) => sent.id === item.id) ||
+                hasAttachmentMarker(nextPrompt, item.displayName)
+            )
+          }
+        })
         if (mounted.current) {
           jumpToLatest()
           promptRef.current?.focus()
@@ -893,6 +921,7 @@ function SessionView({
             }
             onSend={send}
             onFiles={(files) => addFiles(files, true)}
+            onPastedText={(pasted) => attach([pasted], true)}
             onStepEffort={stepEffort}
             attachmentNames={attachments.map((item) => item.displayName)}
           />

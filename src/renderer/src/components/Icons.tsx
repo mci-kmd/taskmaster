@@ -29,6 +29,15 @@ export function PaperclipIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function DocumentIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M4 1.5h5.5L12.5 4.5v10h-8.5z" />
+      <path d="M9.5 1.5v3h3M6.2 8h4.1M6.2 10.7h4.1" />
+    </svg>
+  )
+}
+
 export function GitCommitIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

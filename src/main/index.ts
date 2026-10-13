@@ -24,6 +24,7 @@ import {
   getCopilotModelDefaults,
   rememberCopilotModelSelection,
   getFavoriteCopilotModels,
+  getLegacyCopilotModels,
   setFavoriteCopilotModels,
   markCopilotSessionStarted,
   updateCopilotActivity,
@@ -31,6 +32,7 @@ import {
   resolveCopilotThread,
   setCommitMessageGenerator,
   setCopilotThreadController,
+  setLegacyModelsChangeListener,
   setThemeChangeListener,
   updateCopilotLastUserMessage,
   updateCopilotThreadTitle
@@ -172,6 +174,7 @@ app.whenReady().then(() => {
     onModelSelected: rememberCopilotModelSelection,
     getFavoriteModels: getFavoriteCopilotModels,
     setFavoriteModels: setFavoriteCopilotModels,
+    getLegacyModels: getLegacyCopilotModels,
     resolveThread: resolveCopilotThread,
     onSessionStarted: markCopilotSessionStarted,
     onTitleChanged: updateCopilotThreadTitle,
@@ -180,6 +183,7 @@ app.whenReady().then(() => {
     getSessionTools: createCopilotSessionTools
   })
   copilotSessionService = copilotService
+  setLegacyModelsChangeListener(copilotService.refreshAllowedModels)
   setCopilotThreadController({
     stop: copilotService.stopThread,
     has: copilotService.hasSession,

@@ -266,6 +266,60 @@ describe('Copilot session composer', () => {
     expect(document.querySelector('.tm-session-prompt-marker')).toBeNull()
   })
 
+  it('collapses long pasted text into a pill that opens read-only and sends the full text', async () => {
+    const a = thread()
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    const text = Array.from({ length: 20 }, (_, index) => `log line ${index + 1}`).join('\n')
+    const paste = (value: string): void => {
+      fireEvent.paste(input(), { clipboardData: { files: [], getData: () => value } })
+    }
+    fireEvent.change(input(), { target: { value: 'Why did this fail?\n' } })
+    input().setSelectionRange(input().value.length, input().value.length)
+    paste('short\npaste')
+    expect(screen.queryByRole('button', { name: /Pasted text/ })).toBeNull()
+    paste(`${text}\n`)
+    expect(input().value).toBe('Why did this fail?\n[📎 Pasted text, 20 lines]')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pasted text, 20 lines' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Pasted text, 20 lines' })
+    expect(within(dialog).getByLabelText('Pasted text').textContent).toBe(`${text}\n`)
+    expect(within(dialog).queryByRole('textbox')).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close dialog' }))
+
+    paste(text)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Pasted text, 20 lines (2)' }))
+    expect(input().value).toBe('Why did this fail?\n[📎 Pasted text, 20 lines]')
+
+    fireEvent.click(send())
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: `Why did this fail?\n${text}`, attachments: [] })
+      )
+    )
+  })
+
+  it('drops attachments whose markers a long paste replaces', async () => {
+    const a = thread()
+    mock.pickAttachments.mockResolvedValue({
+      ok: true,
+      attachments: [{ id: 'picked', type: 'file', path: '/a.png', displayName: 'image.png' }]
+    })
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: 'See ' } })
+    input().setSelectionRange(4, 4)
+    fireEvent.click(screen.getByRole('button', { name: 'Attach files' }))
+    await screen.findByRole('button', { name: 'Remove image.png' })
+    expect(input().value).toBe('See [📎 image.png] ')
+    // The selection ends inside the marker, so the whole marker is replaced.
+    input().setSelectionRange(0, 8)
+    const text = Array.from({ length: 16 }, (_, index) => `line ${index + 1}`).join('\n')
+    fireEvent.paste(input(), { clipboardData: { files: [], getData: () => text } })
+    expect(input().value).toBe('[📎 Pasted text, 16 lines] ')
+    expect(screen.queryByRole('button', { name: 'Remove image.png' })).toBeNull()
+  })
+
   it('sends files with their markers', async () => {
     const a = thread()
     mock.pickAttachments.mockResolvedValue({

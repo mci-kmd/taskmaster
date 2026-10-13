@@ -16,6 +16,8 @@ type SettingsServiceDependencies = {
   clampSidebarWidth: (value: number) => number
   /** Applies a changed theme to the native window chrome. */
   onThemeChange?: (theme: ThemeId) => void
+  /** Keeps running sessions in line with the changed legacy models. */
+  onLegacyModelsChange?: () => void
 }
 
 export function createSettingsService(dependencies: SettingsServiceDependencies): {
@@ -30,6 +32,7 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
         input.terminalFontFamilyInput
       )
       state.settings.taskTagsInput = normalizeTaskTagsInput(input.taskTagsInput)
+      const previousLegacy = (state.settings.legacyCopilotModels ?? []).join('\n')
       if (input.legacyCopilotModels !== undefined) {
         const legacy = normalizeModelIds(input.legacyCopilotModels) ?? []
         if (legacy.length) state.settings.legacyCopilotModels = legacy
@@ -49,6 +52,8 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
       }
       dependencies.saveState()
       if (themeChanged && input.theme) dependencies.onThemeChange?.(input.theme)
+      if ((state.settings.legacyCopilotModels ?? []).join('\n') !== previousLegacy)
+        dependencies.onLegacyModelsChange?.()
       return dependencies.successResult()
     },
 

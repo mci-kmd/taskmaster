@@ -39,28 +39,34 @@ describe('settings service', () => {
     expect(saveState).toHaveBeenCalledTimes(1)
   })
 
-  it('replaces legacy models only when given, dropping duplicates and empty lists', () => {
+  it('replaces legacy models only when given, dropping duplicates and empty lists, and reports changes', () => {
     const settings: PersistedSettings = {
       yoloEnabled: true,
       terminalFontFamilyInput: '',
       taskTagsInput: ''
     }
     const state = { settings, ui: { selectedRepositoryId: null, selectedThreadId: null } }
+    const onLegacyModelsChange = vi.fn()
     const service = createSettingsService({
       ensureState: () => state,
       saveState: vi.fn(),
       successResult: () => ({ ok: true }),
       normalizeTerminalFontFamilyInput: (value) => value,
-      clampSidebarWidth: (value) => value
+      clampSidebarWidth: (value) => value,
+      onLegacyModelsChange
     })
     const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
 
     service.updateSettings({ ...base, legacyCopilotModels: ['gpt-4', 'gpt-4', ''] })
     expect(state.settings.legacyCopilotModels).toEqual(['gpt-4'])
+    expect(onLegacyModelsChange).toHaveBeenCalledTimes(1)
     service.updateSettings(base)
+    service.updateSettings({ ...base, legacyCopilotModels: ['gpt-4'] })
     expect(state.settings.legacyCopilotModels).toEqual(['gpt-4'])
+    expect(onLegacyModelsChange).toHaveBeenCalledTimes(1)
     service.updateSettings({ ...base, legacyCopilotModels: [] })
     expect(state.settings).not.toHaveProperty('legacyCopilotModels')
+    expect(onLegacyModelsChange).toHaveBeenCalledTimes(2)
   })
 
   it('stores the theme when given and reports only actual changes', () => {

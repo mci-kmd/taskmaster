@@ -2,6 +2,46 @@ import type { CopilotAttachment } from '../../../../shared/app-types'
 
 export const attachmentMarker = (name: string): string => `[📎 ${name}]`
 
+/** Long pasted text, shown as a pill in the draft and sent in place of its marker. */
+export type PastedText = { id: string; type: 'text'; displayName: string; text: string }
+export type DraftAttachment = CopilotAttachment | PastedText
+
+/** Pastes with more lines than this collapse into a pill. */
+export const COLLAPSED_PASTE_LINES = 15
+
+/** Collapses text with more than {@link COLLAPSED_PASTE_LINES} lines; null for shorter text. */
+export function collapsePastedText(text: string): PastedText | null {
+  const normalized = text.replace(/\r\n?/g, '\n')
+  // A final line break ends the last line rather than starting another.
+  const lines = normalized.replace(/\n$/, '').split('\n').length
+  if (lines <= COLLAPSED_PASTE_LINES) return null
+  return {
+    id: crypto.randomUUID(),
+    type: 'text',
+    displayName: `Pasted text, ${lines} lines`,
+    text: normalized
+  }
+}
+
+/** The message to send: pasted text goes back in place of its marker, files stay attached. */
+export function expandPastedText(
+  prompt: string,
+  attachments: DraftAttachment[]
+): { prompt: string; attachments: CopilotAttachment[] } {
+  const pasted = attachments.filter((item): item is PastedText => item.type === 'text')
+  const files = attachments.filter((item): item is CopilotAttachment => item.type !== 'text')
+  if (!pasted.length) return { prompt, attachments: files }
+  const expanded = splitAttachmentMarkers(
+    prompt,
+    pasted.map((item) => item.displayName)
+  )
+    .map((part) =>
+      'text' in part ? part.text : pasted.find((item) => item.displayName === part.attachment)!.text
+    )
+    .join('')
+  return { prompt: expanded, attachments: files }
+}
+
 const escape = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 export function uniqueAttachmentName(name: string, taken: Iterable<string>): string {
@@ -16,10 +56,10 @@ export function uniqueAttachmentName(name: string, taken: Iterable<string>): str
   }
 }
 
-export function withUniqueNames(
-  added: CopilotAttachment[],
-  existing: CopilotAttachment[]
-): CopilotAttachment[] {
+export function withUniqueNames<T extends { displayName: string }>(
+  added: T[],
+  existing: { displayName: string }[]
+): T[] {
   const taken = existing.map((item) => item.displayName)
   return added.map((item) => {
     const displayName = uniqueAttachmentName(item.displayName, taken)
@@ -32,15 +72,17 @@ export function insertAttachmentMarkers(
   prompt: string,
   names: string[],
   start: number,
-  end = start
+  end = start,
+  /** Pads the markers with spaces to set them apart from adjacent words. */
+  pad = true
 ): { prompt: string; caret: number } {
   const from = Math.max(0, Math.min(start, prompt.length))
   const to = Math.max(from, Math.min(end, prompt.length))
   if (!names.length) return { prompt, caret: from }
   const before = prompt.slice(0, from)
   const after = prompt.slice(to)
-  const lead = before && !/\s$/.test(before) ? ' ' : ''
-  const trail = after && /^\s/.test(after) ? '' : ' '
+  const lead = pad && before && !/\s$/.test(before) ? ' ' : ''
+  const trail = !pad || (after && /^\s/.test(after)) ? '' : ' '
   const inserted = `${lead}${names.map(attachmentMarker).join(' ')}${trail}`
   return { prompt: before + inserted + after, caret: before.length + inserted.length }
 }

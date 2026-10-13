@@ -1085,6 +1085,43 @@
   .tm-session-attachment--removable:hover .tm-session-attachment-remove {
     color: var(--color-danger);
   }
+  .tm-session-attachment--text {
+    padding-right: 3px;
+  }
+  .tm-session-attachment-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    border-radius: var(--radius-xs);
+    color: inherit;
+    cursor: pointer;
+  }
+  .tm-session-attachment-open:hover {
+    color: var(--color-fg);
+  }
+  button.tm-session-attachment-remove {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-xs);
+    cursor: pointer;
+  }
+  button.tm-session-attachment-remove:hover {
+    color: var(--color-danger);
+  }
+  .tm-pasted-text {
+    margin: 0;
+    padding: 12px 14px;
+    overflow-x: auto;
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-2);
+    color: var(--color-fg);
+    font: 12px/1.6 var(--font-mono);
+    white-space: pre;
+    tab-size: 4;
+  }
   .tm-session-inline-attachment {
     display: inline-flex;
     align-items: center;
