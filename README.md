@@ -12,6 +12,8 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Every task has a per-project number shown as `#N` (existing tasks are numbered oldest first on upgrade)
 - Link a task to a GitHub issue (issue URL or `owner/repo#123`) when adding or editing it; the card shows a `#123` chip with an issue icon (hover for the full `owner/repo#123` and URL) that opens the issue in the browser, Clear removes the link, and search also matches linked issues
 - Copilot sessions can list/search, create, edit (including labels and the GitHub issue link) and complete the project's tasks via `taskmaster_*` tools; the tools tell the agent these are the user's tasks, to be changed only when asked. Listing needs no approval; changes follow the normal permission prompts
+- Ask Copilot to resolve its own thread when it is done (e.g. "fix the bug, then resolve yourself"): the `taskmaster_settle_thread` tool settles the thread without moving the selection. Its description tells the agent never to use it unless asked
+- Copilot links a thread to the GitHub issues/pull requests or Azure DevOps work items it works on, via the `taskmaster_link_work_items` tool, which tells it to do so automatically. The thread card shows a `#123` link per item (issue, pull request or work item icon; hover for the full reference and title) that opens it in the browser, and the card's tooltip lists them. Links cannot be edited by hand; ask Copilot to change them
 - Completed tasks are kept rather than deleted: open them from the quiet "N completed tasks" link below the task list, newest first, with the same search and label filters, and reopen any of them
 - Tag tasks with global labels from Settings plus optional project-specific labels from Edit project
 - Threads are named automatically after your first message, using the project's commit message model; a title you set in Edit thread replaces it, and **Regenerate title** in a thread's menu writes a new one from the conversation (replacing any manual title)
@@ -24,6 +26,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Press Page Up/Page Down in the message box to raise or lower the selected model's reasoning effort
 - Copilot always works in Interactive mode; turn on **Show the mode picker** in Settings → Copilot to pick Plan or Autopilot for the next message
 - While Copilot works, the indicator at the end of the conversation shows how long it has spent on the current prompt
+- Running sub-agents are listed below it with their name, task, model and runtime, including background ones that outlive the turn
 - Copilot's questions list their choices visibly, with an **Other** field for answering in your own words. Instead of using a pending question, permission prompt or plan approval, you can type in the composer and press **Reply**: permission prompts and plans are declined with your reply as feedback, and questions are skipped with your reply sent as a steering message
 - The conversation keeps each question, permission prompt and plan approval Copilot showed together with your answer (or your reason for declining), including after a restart
 - Quitting while Copilot agents are still working or an AI commit is in progress asks for confirmation and lists the busy threads

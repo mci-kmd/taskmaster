@@ -12,7 +12,8 @@ import {
   usePresenceList,
   type PresenceEntry
 } from '../lib/use-presence-list'
-import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
+import type { RepositorySnapshot, ThreadSnapshot, ThreadWorkItem } from '../../../shared/app-types'
+import { formatWorkItemReference } from '../../../shared/work-items'
 import type { SessionMap } from './TerminalSessions'
 import type { CopilotThreadStatus } from './ThreadTerminal'
 import ProjectIcon from './ProjectIcon'
@@ -26,6 +27,8 @@ import {
   ChevronRightIcon,
   CheckIcon,
   GitCommitIcon,
+  GitHubIssueIcon,
+  GitPullRequestIcon,
   ThreadIcon,
   PencilIcon,
   GearIcon,
@@ -33,7 +36,8 @@ import {
   PlayIcon,
   QuestionIcon,
   TasksIcon,
-  UndoIcon
+  UndoIcon,
+  WorkItemIcon
 } from './Icons'
 import { COMMIT_PHASE_LABELS } from '../../../shared/commit'
 import { composeThreadTitle } from '../lib/title'
@@ -169,41 +173,45 @@ export default function InboxThreads({
               setContextMenu({ threadId: thread.id, x: event.clientX, y: event.clientY })
             }}
           >
-            <button
-              type="button"
-              onClick={() => onSelectThread(thread.id)}
-              className="tm-inbox-row-main"
-              // The details tooltip is visual; this keeps them available to assistive technology.
-              aria-description={`${subtitle}\n${thread.cwd}`}
-            >
-              <span className="mt-px">
-                <ProjectIcon repository={repository} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="tm-inbox-row-title">{title}</span>
-                <span className="tm-inbox-row-subtitle">{subtitle}</span>
-                <span className="tm-inbox-row-meta">
-                  <ThreadStatus
-                    commitPhase={thread.commitPhase}
-                    status={session?.copilotStatus ?? 'idle'}
-                  />
-                  <span className="text-fg-faint">·</span>
-                  <span className="tabular-nums">
-                    {formatRelativeTime(thread.lastActivityAt, now)}
-                  </span>
-                  <Presence show={thread.isRunCommandRunning} motion="fade">
-                    <span
-                      className="tm-inbox-app-running"
-                      role="img"
-                      aria-label="App running"
-                      title="App running"
-                    >
-                      <PlayIcon width={9} height={9} />
-                    </span>
-                  </Presence>
+            <div className="tm-inbox-row-body">
+              <button
+                type="button"
+                onClick={() => onSelectThread(thread.id)}
+                className="tm-inbox-row-main"
+                data-has-work-items={thread.workItems?.length ? '' : undefined}
+                // The details tooltip is visual; this keeps them available to assistive technology.
+                aria-description={`${subtitle}\n${thread.cwd}`}
+              >
+                <span className="mt-px">
+                  <ProjectIcon repository={repository} />
                 </span>
-              </span>
-            </button>
+                <span className="min-w-0 flex-1">
+                  <span className="tm-inbox-row-title">{title}</span>
+                  <span className="tm-inbox-row-subtitle">{subtitle}</span>
+                  <span className="tm-inbox-row-meta">
+                    <ThreadStatus
+                      commitPhase={thread.commitPhase}
+                      status={session?.copilotStatus ?? 'idle'}
+                    />
+                    <span className="text-fg-faint">·</span>
+                    <span className="tabular-nums">
+                      {formatRelativeTime(thread.lastActivityAt, now)}
+                    </span>
+                    <Presence show={thread.isRunCommandRunning} motion="fade">
+                      <span
+                        className="tm-inbox-app-running"
+                        role="img"
+                        aria-label="App running"
+                        title="App running"
+                      >
+                        <PlayIcon width={9} height={9} />
+                      </span>
+                    </Presence>
+                  </span>
+                </span>
+              </button>
+              {thread.workItems?.length ? <ThreadWorkItems items={thread.workItems} /> : null}
+            </div>
             <div className="tm-inbox-side">
               <ThreadIndicators thread={thread} />
               <div className="tm-inbox-actions">
@@ -552,7 +560,62 @@ function ThreadTooltip({
             <span>App running</span>
           </li>
         ) : null}
+        {thread.workItems?.map((item) => (
+          <li key={item.url} className="tm-tooltip-row">
+            <WorkItemKindIcon item={item} />
+            <span>{describeWorkItem(item)}</span>
+          </li>
+        ))}
       </ul>
     </>
+  )
+}
+
+function WorkItemKindIcon({
+  item,
+  ...props
+}: { item: ThreadWorkItem } & React.SVGProps<SVGSVGElement>): React.JSX.Element {
+  if (item.provider === 'azure-devops') return <WorkItemIcon {...props} />
+  return isPullRequest(item) ? <GitPullRequestIcon {...props} /> : <GitHubIssueIcon {...props} />
+}
+
+function isPullRequest(item: ThreadWorkItem): boolean {
+  return item.provider === 'github' && item.url.includes('/pull/')
+}
+
+function describeWorkItem(item: ThreadWorkItem): string {
+  const reference = formatWorkItemReference(item)
+  return item.title ? `${reference} · ${item.title}` : reference
+}
+
+/** The work items the agent linked the thread to, as links under the card's text. */
+function ThreadWorkItems({ items }: { items: ThreadWorkItem[] }): React.JSX.Element {
+  return (
+    <ul className="tm-inbox-work-items" aria-label="Linked work items">
+      {items.map((item) => {
+        const kind =
+          item.provider === 'azure-devops'
+            ? 'work item'
+            : isPullRequest(item)
+              ? 'pull request'
+              : 'issue'
+        return (
+          <li key={item.url}>
+            <a
+              className="tm-inbox-work-item"
+              data-provider={item.provider}
+              href={item.url}
+              target="_blank"
+              rel="noreferrer"
+              title={describeWorkItem(item)}
+              aria-label={`Open ${kind} ${describeWorkItem(item)}`}
+            >
+              <WorkItemKindIcon item={item} width={11} height={11} aria-hidden="true" />
+              <span>#{item.number}</span>
+            </a>
+          </li>
+        )
+      })}
+    </ul>
   )
 }

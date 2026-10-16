@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { PersistedThread } from '../../../shared/app-types'
 import { createThreadStateService } from './thread-state-service'
 
 describe('thread state service', () => {
@@ -105,5 +106,61 @@ describe('thread state service', () => {
       lastUserMessage: 'again',
       lastModel: { id: 'gpt-5.5', name: 'GPT-5.5' }
     })
+  })
+
+  it('lets the agent settle its thread and link work items without moving the selection', () => {
+    const saveState = vi.fn()
+    const updateSelection = vi.fn()
+    const thread: PersistedThread = {
+      id: 'thread-1',
+      repositoryId: 'repo-1',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActivityAt: '2026-01-01T00:00:00.000Z'
+    }
+    const service = createThreadStateService({
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: 'thread-1' }
+      }),
+      findThread: (id) => (id === thread.id ? thread : undefined),
+      saveState,
+      updateSelection,
+      buildSelectionSnapshot: () => ({}) as never,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      normalizeCustomTitle: (value) => value ?? null,
+      normalizeTrackedText: (value) => value ?? null,
+      normalizeCopilotTitle: (title) => title ?? null,
+      nowIso: () => '2026-01-01T00:00:01.000Z'
+    })
+
+    expect(service.settleThreadFromAgent('missing')).toBe(false)
+    expect(service.settleThreadFromAgent('thread-1')).toBe(true)
+    expect(service.settleThreadFromAgent('thread-1')).toBe(true)
+    expect(thread.settledAt).toBe('2026-01-01T00:00:01.000Z')
+    expect(updateSelection).not.toHaveBeenCalled()
+    expect(saveState).toHaveBeenCalledTimes(1)
+
+    const item = { provider: 'github', container: 'o/r', number: 1 } as const
+    expect(
+      service.setThreadWorkItems('thread-1', [
+        { ...item, url: 'https://github.com/o/r/issues/1' },
+        { ...item, url: 'https://github.com/o/r/issues/1' }
+      ])
+    ).toBe(true)
+    expect(thread.workItems).toEqual([{ ...item, url: 'https://github.com/o/r/issues/1' }])
+    service.setThreadWorkItems('thread-1', [...thread.workItems!])
+    expect(saveState).toHaveBeenCalledTimes(2)
+    service.setThreadWorkItems('thread-1', [])
+    expect(thread).not.toHaveProperty('workItems')
+    expect(saveState).toHaveBeenCalledTimes(3)
   })
 })

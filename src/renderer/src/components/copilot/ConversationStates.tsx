@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import type { CopilotRunningSubagent } from '../../../../shared/app-types'
 import Button from '../ui/Button'
-import { SparkIcon } from '../Icons'
+import { AgentIcon, SparkIcon } from '../Icons'
+import { useLastValue } from '../../lib/motion'
 import { formatElapsed } from './prompt-cost'
 
 const SUGGESTIONS = ['Explain this project', 'Find and fix a bug', 'Plan a change']
@@ -68,5 +70,41 @@ export function WorkingIndicator({
         </span>
       ) : null}
     </div>
+  )
+}
+
+/** Sub-agents running now, below the working row. Background ones may outlive the turn. */
+export function RunningSubagents({
+  agents,
+  ...motion
+}: { agents: CopilotRunningSubagent[] } & MotionProps): React.JSX.Element {
+  // Keeps the last agents on screen while the list animates out.
+  const shown = useLastValue(agents.length > 0 ? agents : null) ?? []
+  return (
+    <ul className="tm-session-running-agents" aria-label="Running sub-agents" {...motion}>
+      {shown.map((agent) => (
+        <RunningSubagent key={agent.id} agent={agent} />
+      ))}
+    </ul>
+  )
+}
+
+function RunningSubagent({ agent }: { agent: CopilotRunningSubagent }): React.JSX.Element {
+  const elapsed = useElapsed(agent.startedAt)
+  return (
+    <li className="tm-session-running-agent tm-fade-in">
+      <AgentIcon className="tm-session-running-agent-icon" aria-hidden="true" />
+      <span className="tm-session-running-agent-name">{agent.name}</span>
+      {agent.description ? (
+        <span className="tm-session-running-agent-description" title={agent.description}>
+          {agent.description}
+        </span>
+      ) : null}
+      <span className="tm-session-running-agent-meta">
+        {[agent.model, elapsed === null ? null : formatElapsed(elapsed)]
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
+    </li>
   )
 }

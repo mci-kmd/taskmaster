@@ -14,7 +14,11 @@ import Select from '../../components/ui/Select'
 import { PaperclipIcon } from '../../components/Icons'
 import AttachmentChips from '../../components/copilot/AttachmentChips'
 import CommitButton from '../../components/copilot/CommitButton'
-import { EmptyConversation, WorkingIndicator } from '../../components/copilot/ConversationStates'
+import {
+  EmptyConversation,
+  RunningSubagents,
+  WorkingIndicator
+} from '../../components/copilot/ConversationStates'
 import InteractionPanel from '../../components/copilot/InteractionPanel'
 import ModelPicker from '../../components/copilot/ModelPicker'
 import PendingMessages from '../../components/copilot/PendingMessages'
@@ -31,6 +35,22 @@ import type { GallerySection } from '../gallery-section'
 const at = '2026-10-09T10:00:00.000Z'
 /** The gallery's working indicator starts out partway into a prompt. */
 const WORKING_SINCE = new Date(Date.now() - 83_000).toISOString()
+const RUNNING_SUBAGENTS = [
+  {
+    id: 'explore',
+    name: 'Explore',
+    description: 'Find where theme tokens are defined and used',
+    model: 'claude-haiku-5.5',
+    startedAt: new Date(Date.now() - 41_000).toISOString()
+  },
+  {
+    id: 'task',
+    name: 'Task',
+    description: 'Run the renderer tests',
+    model: 'gpt-6-luna',
+    startedAt: new Date(Date.now() - 9_000).toISOString()
+  }
+]
 
 const MARKDOWN = `Here's the direction I'm proposing. The neutrals get a subtle tint so the app has its own temperature, and a single accent carries focus and primary actions.
 
@@ -451,6 +471,7 @@ const RAIL = TIMELINE.filter(
 function LiveConversation(): React.JSX.Element {
   const [timeline, setTimeline] = useState(TIMELINE)
   const [working, setWorking] = useState(true)
+  const [subagents, setSubagents] = useState(true)
   const [request, setRequest] = useState(false)
   const [queued, setQueued] = useState<CopilotQueuedMessage[]>([])
   const [attachments, setAttachments] = useState<CopilotAttachment[]>([])
@@ -522,6 +543,7 @@ function LiveConversation(): React.JSX.Element {
           Detach
         </Button>
         {toggle('Working', working, setWorking)}
+        {toggle('Sub-agents', subagents, setSubagents)}
         {toggle('Request', request, setRequest)}
         {toggle('Error', error, setError)}
         {toggle('Jump pill', jump, setJump)}
@@ -535,6 +557,9 @@ function LiveConversation(): React.JSX.Element {
             <SessionTimeline items={timeline} />
             <Presence show={working} motion="collapse">
               <WorkingIndicator waiting={request} since={WORKING_SINCE} />
+            </Presence>
+            <Presence show={subagents} motion="collapse">
+              <RunningSubagents agents={subagents ? RUNNING_SUBAGENTS : []} />
             </Presence>
           </>
         }

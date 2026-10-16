@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { WorkingIndicator } from './ConversationStates'
+import { RunningSubagents, WorkingIndicator } from './ConversationStates'
 import { formatElapsed } from './prompt-cost'
 
 afterEach(() => {
@@ -28,4 +28,29 @@ it('shows how long Copilot has been working, ticking every second', () => {
   expect(screen.queryByTitle('Time spent on this prompt')).toBeNull()
   rerender(<WorkingIndicator waiting={false} />)
   expect(screen.queryByTitle('Time spent on this prompt')).toBeNull()
+})
+
+it('lists running sub-agents with their model and runtime, keeping them while leaving', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2024-01-01T00:00:30Z'))
+  const agents = [
+    {
+      id: 'a',
+      name: 'Explore',
+      description: 'Finds the parser',
+      model: 'gpt-5.5',
+      startedAt: '2024-01-01T00:00:00Z'
+    },
+    { id: 'b', name: 'task', description: '', model: null, startedAt: '2024-01-01T00:00:25Z' }
+  ]
+  const { rerender } = render(<RunningSubagents agents={agents} />)
+  const rows = (): Array<string | null> =>
+    within(screen.getByRole('list', { name: 'Running sub-agents' }))
+      .getAllByRole('listitem')
+      .map((row) => row.textContent)
+  expect(rows()).toEqual(['ExploreFinds the parsergpt-5.5 · 30s', 'task5s'])
+  act(() => vi.advanceTimersByTime(2000))
+  expect(rows()).toEqual(['ExploreFinds the parsergpt-5.5 · 32s', 'task7s'])
+  rerender(<RunningSubagents agents={[]} />)
+  expect(rows()).toHaveLength(2)
 })

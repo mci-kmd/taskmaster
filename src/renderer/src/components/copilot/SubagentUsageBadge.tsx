@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { CopilotSubagentUsage } from '../../../../shared/app-types'
 import { AgentIcon } from '../Icons'
 import { usePresence } from '../../lib/motion'
@@ -34,6 +35,8 @@ export default function SubagentUsageBadge({
   const label = `${agents.length} sub-${agents.length === 1 ? 'agent' : 'agents'}`
 
   // The transcript scrolls and clips overflow, so the tooltip is fixed and flips below when needed.
+  // It is portaled to the body: a summary that just rose in keeps its entrance animation's
+  // transform, which would otherwise position the fixed tooltip relative to the summary.
   useLayoutEffect(() => {
     const tooltip = tooltipRef.current
     if (!open || !anchorRef.current || !tooltip) return
@@ -77,56 +80,59 @@ export default function SubagentUsageBadge({
     >
       <AgentIcon aria-hidden="true" />
       <span>{agents.length}</span>
-      {presence.mounted && total ? (
-        <div
-          ref={tooltipRef}
-          id={tooltipId}
-          role="tooltip"
-          className="tm-session-subagents-tooltip"
-          data-motion="fade"
-          data-state={presence.state}
-        >
-          <strong>Sub-agents</strong>
-          <table>
-            <thead>
-              <tr>
-                <th scope="col">Model</th>
-                <th scope="col">Effort</th>
-                <th scope="col" className="tm-num">
-                  Agents
-                </th>
-                <th scope="col" className="tm-num">
-                  Runtime
-                </th>
-                <th scope="col" className="tm-num">
-                  Credits
-                </th>
-                <th scope="col" className="tm-num">
-                  ≈DKK
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.map((group) => (
-                <tr key={group.key}>
-                  <td>{group.model ?? 'Unknown'}</td>
-                  <td>{group.reasoningEffort ?? '—'}</td>
-                  <UsageCells totals={group} />
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <th scope="row" colSpan={2}>
-                  Total
-                </th>
-                <UsageCells totals={total} />
-              </tr>
-            </tfoot>
-          </table>
-          <small>{PROMPT_COST_BASIS}</small>
-        </div>
-      ) : null}
+      {presence.mounted && total
+        ? createPortal(
+            <div
+              ref={tooltipRef}
+              id={tooltipId}
+              role="tooltip"
+              className="tm-session-subagents-tooltip"
+              data-motion="fade"
+              data-state={presence.state}
+            >
+              <strong>Sub-agents</strong>
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Model</th>
+                    <th scope="col">Effort</th>
+                    <th scope="col" className="tm-num">
+                      Agents
+                    </th>
+                    <th scope="col" className="tm-num">
+                      Runtime
+                    </th>
+                    <th scope="col" className="tm-num">
+                      Credits
+                    </th>
+                    <th scope="col" className="tm-num">
+                      ≈DKK
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map((group) => (
+                    <tr key={group.key}>
+                      <td>{group.model ?? 'Unknown'}</td>
+                      <td>{group.reasoningEffort ?? '—'}</td>
+                      <UsageCells totals={group} />
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <th scope="row" colSpan={2}>
+                      Total
+                    </th>
+                    <UsageCells totals={total} />
+                  </tr>
+                </tfoot>
+              </table>
+              <small>{PROMPT_COST_BASIS}</small>
+            </div>,
+            document.body
+          )
+        : null}
     </span>
   )
 }

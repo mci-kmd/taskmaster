@@ -16,6 +16,7 @@ import {
 import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../shared/project-icons'
 import { normalizeCopilotTitle } from '../../../shared/thread-title'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
+import { normalizeThreadWorkItems, sameThreadWorkItems } from '../../../shared/work-items'
 import {
   assignTaskNumbers,
   normalizePersistedCompletedTasks,
@@ -63,6 +64,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
   const generatedTitle =
     typeof rawGeneratedTitle === 'string' ? normalizeCopilotTitle(rawGeneratedTitle) : null
   const lastModel = normalizeThreadModel(thread.lastModel)
+  const workItems = normalizeThreadWorkItems(thread.workItems)
 
   if (
     latestCopilotTitle === thread.latestCopilotTitle &&
@@ -70,18 +72,27 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     (generatedTitle ?? undefined) === rawGeneratedTitle &&
     (lastModel === undefined) === (thread.lastModel === undefined) &&
     lastModel?.id === thread.lastModel?.id &&
-    lastModel?.name === thread.lastModel?.name
+    lastModel?.name === thread.lastModel?.name &&
+    (workItems === undefined) === (thread.workItems === undefined) &&
+    sameThreadWorkItems(workItems, thread.workItems)
   )
     return thread
-  const { generatedTitle: _generatedTitle, lastModel: _lastModel, ...rest } = thread
+  const {
+    generatedTitle: _generatedTitle,
+    lastModel: _lastModel,
+    workItems: _workItems,
+    ...rest
+  } = thread
   void _generatedTitle
   void _lastModel
+  void _workItems
   return {
     ...rest,
     latestCopilotTitle,
     lastUserMessage,
     ...(generatedTitle ? { generatedTitle } : {}),
-    ...(lastModel ? { lastModel } : {})
+    ...(lastModel ? { lastModel } : {}),
+    ...(workItems ? { workItems } : {})
   }
 }
 

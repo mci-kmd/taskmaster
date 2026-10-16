@@ -115,6 +115,28 @@ export function GitHubIssueIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function GitPullRequestIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <circle cx="4.5" cy="3.75" r="1.5" />
+      <circle cx="4.5" cy="12.25" r="1.5" />
+      <circle cx="11.5" cy="12.25" r="1.5" />
+      <path d="M4.5 5.25v5.5M11.5 10.75V6a1.75 1.75 0 0 0-1.75-1.75H7.5M8.75 3 7.5 4.25 8.75 5.5" />
+    </svg>
+  )
+}
+
+/** An Azure DevOps work item: a card with a colored edge, as on Azure Boards. */
+export function WorkItemIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+      <path d="M2.5 4.5v7" strokeWidth={2.4} strokeLinecap="butt" />
+      <path d="M6.5 6.5h4.5M6.5 9.5h3" />
+    </svg>
+  )
+}
+
 export function InspectIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

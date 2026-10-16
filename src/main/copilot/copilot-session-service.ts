@@ -23,6 +23,7 @@ import type {
   CopilotSetModelFavoriteInput,
   CopilotSetModelInput,
   CopilotStartResult,
+  CopilotRunningSubagent,
   CopilotSubagentUsage,
   CopilotTimelineItem,
   PersistedThread,
@@ -744,29 +745,66 @@ export function createCopilotSessionService(dependencies: {
     return true
   }
 
+  const setRunningSubagents = (
+    active: ActiveSession,
+    update: (agents: CopilotRunningSubagent[]) => CopilotRunningSubagent[]
+  ): void => {
+    const current = active.snapshot.runningSubagents ?? []
+    const next = update(current)
+    if (next !== current) updateSnapshot(active, { runningSubagents: next })
+  }
+
   const handleSubagentEvent = (active: ActiveSession, event: SessionEvent): boolean => {
     switch (event.type) {
-      case 'subagent.started':
+      case 'subagent.started': {
+        const id = event.agentId ?? event.data.toolCallId
         addSubagent(active, {
-          id: event.agentId ?? event.data.toolCallId,
+          id,
           model: event.data.model ?? null,
           reasoningEffort: null,
           durationMs: null,
           nanoAiu: null
         })
+        const { agentDisplayName, agentName, agentDescription, model } = event.data
+        setRunningSubagents(active, (agents) =>
+          agents.some((agent) => agent.id === id)
+            ? agents
+            : [
+                ...agents,
+                {
+                  id,
+                  name: agentDisplayName || agentName || 'Sub-agent',
+                  description: agentDescription ?? '',
+                  model: model ?? null,
+                  startedAt: event.timestamp
+                }
+              ]
+        )
         return true
+      }
       case 'subagent.configured':
-        if (event.agentId)
-          updateSubagent(active, event.agentId, (agent) => ({
+        if (event.agentId) {
+          const id = event.agentId
+          updateSubagent(active, id, (agent) => ({
             ...agent,
             model: event.data.model || agent.model,
             reasoningEffort: event.data.reasoningEffort ?? agent.reasoningEffort
           }))
+          if (event.data.model)
+            setRunningSubagents(active, (agents) =>
+              agents.some((agent) => agent.id === id && agent.model !== event.data.model)
+                ? agents.map((agent) =>
+                    agent.id === id ? { ...agent, model: event.data.model } : agent
+                  )
+                : agents
+            )
+        }
         return true
       case 'subagent.completed':
       case 'subagent.failed': {
+        const id = event.agentId ?? event.data.toolCallId
         const { durationMs, model } = event.data
-        updateSubagent(active, event.agentId ?? event.data.toolCallId, (agent) => ({
+        updateSubagent(active, id, (agent) => ({
           ...agent,
           model: model ?? agent.model,
           // Teardown repeats completion with the same duration, so it is set rather than added.
@@ -775,6 +813,11 @@ export function createCopilotSessionService(dependencies: {
               ? durationMs
               : agent.durationMs
         }))
+        setRunningSubagents(active, (agents) =>
+          agents.some((agent) => agent.id === id)
+            ? agents.filter((agent) => agent.id !== id)
+            : agents
+        )
         return true
       }
       default:
@@ -1198,7 +1241,7 @@ export function createCopilotSessionService(dependencies: {
         finishActivity(active)
         cancelInteractions(active)
         completePrompt(active, event.timestamp)
-        updateSnapshot(active, { phase: 'idle', error: null })
+        updateSnapshot(active, { phase: 'idle', error: null, runningSubagents: [] })
         refreshQueue(active)
         break
       case 'pending_messages.modified':
@@ -1208,7 +1251,11 @@ export function createCopilotSessionService(dependencies: {
         finishActivity(active)
         cancelInteractions(active)
         completePrompt(active, event.timestamp)
-        updateSnapshot(active, { phase: 'error', error: event.data.message })
+        updateSnapshot(active, {
+          phase: 'error',
+          error: event.data.message,
+          runningSubagents: []
+        })
         break
       case 'session.mcp_servers_loaded':
         for (const name of active.mcpAuthRequired) {

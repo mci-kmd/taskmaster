@@ -20,6 +20,12 @@
     transform: scale(0.78) rotate(45deg);
   }
 }
+/* A running sub-agent's icon pulses. */
+@keyframes tm-session-agent-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
 @keyframes tm-prompt-rail-label-in {
   from {
     opacity: 0;
@@ -564,6 +570,47 @@
   }
   .tm-session-working-time {
     font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-fg-subtle);
+  }
+
+  /* Running sub-agents, one line each, indented under the working row's label. */
+  .tm-session-running-agents {
+    display: grid;
+    gap: 2px;
+    padding: 0 0 8px 22px;
+    font-size: 12px;
+  }
+  .tm-session-running-agent {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-fg-muted);
+    line-height: 18px;
+  }
+  .tm-session-running-agent-icon {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    color: var(--color-accent);
+    animation: tm-session-agent-pulse 1.6s ease-in-out infinite;
+  }
+  .tm-session-running-agent-name {
+    flex: none;
+    font-weight: 540;
+    color: var(--color-fg);
+  }
+  .tm-session-running-agent-description {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tm-session-running-agent-meta {
+    flex: none;
+    margin-left: auto;
+    padding-left: 6px;
     font-variant-numeric: tabular-nums;
     color: var(--color-fg-subtle);
   }

@@ -32,7 +32,7 @@ import SendButton from './copilot/SendButton'
 import CommitButton from './copilot/CommitButton'
 import PendingMessages from './copilot/PendingMessages'
 import AttachmentChips from './copilot/AttachmentChips'
-import { EmptyConversation, WorkingIndicator } from './copilot/ConversationStates'
+import { EmptyConversation, RunningSubagents, WorkingIndicator } from './copilot/ConversationStates'
 import { registerComposer, useSessionDraft } from './copilot/session-drafts'
 import {
   expandPastedText,
@@ -744,6 +744,9 @@ function SessionView({
                 waiting={Boolean(session?.pendingInteraction)}
                 since={session?.workingSince}
               />
+            </Presence>
+            <Presence show={(session?.runningSubagents?.length ?? 0) > 0} motion="collapse">
+              <RunningSubagents agents={session?.runningSubagents ?? []} />
             </Presence>
           </div>
         </div>

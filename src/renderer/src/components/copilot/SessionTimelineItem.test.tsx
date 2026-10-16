@@ -47,6 +47,9 @@ it('shows the sub-agent count with usage grouped by model and effort on hover', 
   fireEvent.mouseEnter(badge)
   const tooltip = screen.getByRole('tooltip')
   expect(badge.getAttribute('aria-describedby')).toBe(tooltip.id)
+  // Portaled out of the summary, whose entrance transform would offset the fixed tooltip.
+  expect(tooltip.parentElement).toBe(document.body)
+  expect(badge.contains(tooltip)).toBe(false)
   const rows = within(tooltip)
     .getAllByRole('row')
     .map((row) => [...row.querySelectorAll('th, td')].map((cell) => cell.textContent))

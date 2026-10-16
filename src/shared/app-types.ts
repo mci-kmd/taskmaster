@@ -1,4 +1,7 @@
 import type { ThemeId } from './themes'
+import type { ThreadWorkItem } from './work-items'
+
+export type { ThreadWorkItem } from './work-items'
 
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
 export type TerminalKind = 'shell'
@@ -148,6 +151,8 @@ export interface PersistedThread {
   lastUserMessage: string | null
   /** The model the latest prompt was sent to. Absent until the first prompt. */
   lastModel?: ThreadModel
+  /** Linked by the agent through the taskmaster_link_work_items tool. Absent when none. */
+  workItems?: ThreadWorkItem[]
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
@@ -518,6 +523,16 @@ export interface CopilotSubagentUsage {
   nanoAiu: number | null
 }
 
+export interface CopilotRunningSubagent {
+  /** Sub-agent instance id. */
+  id: string
+  /** The agent's display name, e.g. "Explore". */
+  name: string
+  description: string
+  model: string | null
+  startedAt: string
+}
+
 export type CopilotInteractionReplyMode = 'feedback' | 'steer'
 
 export type CopilotInteraction = (
@@ -589,6 +604,8 @@ export interface CopilotSessionSnapshot {
   steeringMessages: string[]
   /** When Copilot started working on the current prompt; null when idle. */
   workingSince?: string | null
+  /** Sub-agents running now, oldest first. Background ones may outlive the agent's turn. */
+  runningSubagents?: CopilotRunningSubagent[]
   error: string | null
 }
 

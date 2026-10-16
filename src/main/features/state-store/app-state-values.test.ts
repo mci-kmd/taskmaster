@@ -231,6 +231,43 @@ describe('generated thread titles', () => {
       'lastModel'
     )
   })
+
+  it('keeps valid work item links and drops invalid ones', () => {
+    const base = normalizePersistedThread({
+      id: 't',
+      repositoryId: 'r',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01',
+      lastActivityAt: '2026-01-01'
+    })
+    const linked = {
+      ...base,
+      workItems: [
+        {
+          provider: 'github' as const,
+          url: 'https://github.com/o/r/issues/1',
+          container: 'o/r',
+          number: 1
+        }
+      ]
+    }
+    expect(normalizePersistedThread(linked)).toBe(linked)
+    expect(
+      normalizePersistedThread({
+        ...linked,
+        workItems: [...linked.workItems, { url: 'x' } as never]
+      }).workItems
+    ).toEqual(linked.workItems)
+    expect(normalizePersistedThread({ ...base, workItems: 'x' as never })).not.toHaveProperty(
+      'workItems'
+    )
+  })
 })
 
 describe('theme persistence', () => {

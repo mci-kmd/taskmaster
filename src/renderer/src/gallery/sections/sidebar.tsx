@@ -101,7 +101,24 @@ function fixtureRepositories(): RepositorySnapshot[] {
         'Fix flaky worktree cleanup test',
         'fix/cleanup',
         2 * MINUTE,
-        { lastModel: { id: 'gpt-5.5', name: 'GPT-5.5' } }
+        {
+          lastModel: { id: 'gpt-5.5', name: 'GPT-5.5' },
+          workItems: [
+            {
+              provider: 'github',
+              url: 'https://github.com/mci-kmd/taskmaster/issues/42',
+              container: 'mci-kmd/taskmaster',
+              number: 42,
+              title: 'Worktree cleanup test fails on Windows'
+            },
+            {
+              provider: 'azure-devops',
+              url: 'https://dev.azure.com/contoso/Taskmaster/_workitems/edit/1873',
+              container: 'contoso/Taskmaster',
+              number: 1873
+            }
+          ]
+        }
       ),
       makeThread(
         'electron',

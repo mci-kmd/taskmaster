@@ -88,6 +88,52 @@ const callbacks = (): Record<
 afterEach(cleanup)
 
 describe('inbox', () => {
+  it('links the work items a thread is linked to from its card', () => {
+    const linked = {
+      ...thread('Linked', '2026-04-01'),
+      workItems: [
+        {
+          provider: 'github' as const,
+          url: 'https://github.com/octo/app/issues/12',
+          container: 'octo/app',
+          number: 12,
+          title: 'Crash on start'
+        },
+        {
+          provider: 'azure-devops' as const,
+          url: 'https://dev.azure.com/contoso/Web/_workitems/edit/345',
+          container: 'contoso/Web',
+          number: 345
+        }
+      ]
+    }
+    const projects = [repository('Alpha', [linked, thread('Plain', '2026-01-01')])]
+    const handlers = callbacks()
+    render(
+      <InboxThreads
+        repositories={projects}
+        selectedRepository={projects[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...handlers}
+      />
+    )
+    const links = within(screen.getByRole('list', { name: 'Linked work items' })).getAllByRole(
+      'link'
+    )
+    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['#12', 'https://github.com/octo/app/issues/12'],
+      ['#345', 'https://dev.azure.com/contoso/Web/_workitems/edit/345']
+    ])
+    expect(links[0].getAttribute('aria-label')).toBe('Open issue octo/app#12 · Crash on start')
+    expect(links[1].getAttribute('target')).toBe('_blank')
+    expect(screen.getAllByRole('list', { name: 'Linked work items' })).toHaveLength(1)
+    fireEvent.click(links[0])
+    expect(handlers.onSelectThread).not.toHaveBeenCalled()
+  })
+
   it('lists favorite projects first and toggles favorites from the project picker', () => {
     const onToggleRepositoryFavorite = vi.fn()
     const projects = [

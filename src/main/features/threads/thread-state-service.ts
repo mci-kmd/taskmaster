@@ -2,12 +2,14 @@ import type {
   AppSnapshot,
   PersistedAppState,
   PersistedThread,
+  ThreadWorkItem,
   UpdateThreadCopilotTitleInput,
   UpdateThreadInput,
   UpdateThreadLastUserMessageInput,
   UpdateThreadResumeSessionInput,
   MutationResult
 } from '../../../shared/app-types'
+import { normalizeThreadWorkItems, sameThreadWorkItems } from '../../../shared/work-items'
 
 type ThreadStateServiceDependencies = {
   ensureState: () => Pick<PersistedAppState, 'ui' | 'repositories' | 'threads'>
@@ -28,6 +30,8 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
   updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) => boolean
   updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) => boolean
   updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) => boolean
+  settleThreadFromAgent: (threadId: string) => boolean
+  setThreadWorkItems: (threadId: string, workItems: ThreadWorkItem[]) => boolean
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
 } {
@@ -126,6 +130,28 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       thread.lastActivityAt = dependencies.nowIso()
       thread.lastUserMessage = nextMessage
       if (input.model) thread.lastModel = { id: input.model.id, name: input.model.name }
+      dependencies.saveState()
+      return true
+    },
+
+    // Unlike settling from the UI, this keeps the selection so the user is not moved away
+    // from a thread whose agent is still finishing its turn.
+    settleThreadFromAgent: (threadId: string): boolean => {
+      const thread = dependencies.findThread(threadId)
+      if (!thread) return false
+      if (thread.settledAt) return true
+      thread.settledAt = dependencies.nowIso()
+      dependencies.saveState()
+      return true
+    },
+
+    setThreadWorkItems: (threadId: string, workItems: ThreadWorkItem[]): boolean => {
+      const thread = dependencies.findThread(threadId)
+      if (!thread) return false
+      const next = normalizeThreadWorkItems(workItems)
+      if (sameThreadWorkItems(next, thread.workItems)) return true
+      if (next) thread.workItems = next
+      else delete thread.workItems
       dependencies.saveState()
       return true
     },

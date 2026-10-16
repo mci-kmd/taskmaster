@@ -38,6 +38,7 @@ import { isHttpUrl } from '../shared/preview'
 import { normalizeCopilotTitle, threadDisplayName } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
 import { createProjectTaskTools } from './copilot/project-task-tools'
+import { createThreadTools } from './copilot/thread-tools'
 import { createRepositoryRemoveService } from './features/repositories/repository-remove-service'
 import { createRepositoryService } from './features/repositories/repository-service'
 import {
@@ -447,18 +448,27 @@ export function resolveCopilotThread(threadId: string): {
 }
 
 export function createCopilotSessionTools(threadId: string): Tool[] {
-  return createProjectTaskTools({
-    resolveRepository: () => {
-      const thread = findThread(threadId)
-      return thread ? findRepository(thread.repositoryId) : undefined
-    },
-    getAllowedTags: projectTaskService.getRepositoryTaskTags,
-    createTask: projectTaskService.createRepositoryTask,
-    updateTask: projectTaskService.updateRepositoryTask,
-    completeTask: projectTaskService.completeRepositoryTask,
-    // Makes open windows refresh their snapshot so task lists show the change.
-    onTasksChanged: () => electronUi.broadcastThreadRunState(threadId)
-  })
+  // Makes open windows refresh their snapshot so task lists and thread cards show the change.
+  const refresh = (): void => electronUi.broadcastThreadRunState(threadId)
+  return [
+    ...createProjectTaskTools({
+      resolveRepository: () => {
+        const thread = findThread(threadId)
+        return thread ? findRepository(thread.repositoryId) : undefined
+      },
+      getAllowedTags: projectTaskService.getRepositoryTaskTags,
+      createTask: projectTaskService.createRepositoryTask,
+      updateTask: projectTaskService.updateRepositoryTask,
+      completeTask: projectTaskService.completeRepositoryTask,
+      onTasksChanged: refresh
+    }),
+    ...createThreadTools({
+      resolveThread: () => findThread(threadId),
+      settleThread: () => threadStateService.settleThreadFromAgent(threadId),
+      setWorkItems: (workItems) => threadStateService.setThreadWorkItems(threadId, workItems),
+      onThreadChanged: refresh
+    })
+  ]
 }
 
 export function markCopilotSessionStarted(threadId: string, sessionId: string): void {

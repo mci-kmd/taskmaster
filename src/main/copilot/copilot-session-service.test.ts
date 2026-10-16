@@ -389,6 +389,40 @@ describe('prompt summaries', () => {
     )
   })
 
+  it('lists running sub-agents until they finish or the session goes idle', async () => {
+    const service = setup()
+    await service.start('thread')
+    const agent = (agentId: string, type: string, data: object): SessionEvent =>
+      event(type, data, { agentId, ...at(1) })
+    const running = (): unknown => service.getSession('thread')!.runningSubagents
+    harness.listener!(event('user.message', { content: 'Hi', messageId: 'u1' }, at(0)))
+    harness.listener!(
+      agent('a', 'subagent.started', {
+        toolCallId: 'c1',
+        agentName: 'explore',
+        agentDisplayName: 'Explore',
+        agentDescription: 'Finds code'
+      })
+    )
+    harness.listener!(agent('a', 'subagent.configured', { model: 'm2' }))
+    harness.listener!(
+      agent('b', 'subagent.started', { toolCallId: 'c2', agentName: 'task', agentDescription: '' })
+    )
+    harness.listener!(agent('b', 'subagent.started', { toolCallId: 'c2', agentName: 'task' }))
+    const startedAt = at(1).timestamp
+    expect(running()).toEqual([
+      { id: 'a', name: 'Explore', description: 'Finds code', model: 'm2', startedAt },
+      { id: 'b', name: 'task', description: '', model: null, startedAt }
+    ])
+    harness.listener!(agent('a', 'subagent.failed', { toolCallId: 'c1', error: 'x' }))
+    expect(running()).toEqual([expect.objectContaining({ id: 'b' })])
+    // Background agents outlive the agent's turn.
+    harness.listener!(event('assistant.idle', {}, at(5)))
+    expect(running()).toEqual([expect.objectContaining({ id: 'b' })])
+    harness.listener!(event('session.idle', {}, at(9)))
+    expect(running()).toEqual([])
+  })
+
   it('reports time only without billing data and splits queued prompts', async () => {
     const service = setup()
     await service.start('thread')
