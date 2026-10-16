@@ -33,12 +33,14 @@ import type {
 } from '../shared/app-types'
 import { SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN } from '../shared/app-types'
 import { parseTaskTagsInput } from '../shared/task-tags'
+import { isTaskmasterToolEnabled } from '../shared/copilot-tools'
 import { DEFAULT_THEME, type ThemeId } from '../shared/themes'
 import { isHttpUrl } from '../shared/preview'
 import { normalizeCopilotTitle, threadDisplayName } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
 import { createProjectTaskTools } from './copilot/project-task-tools'
 import { createThreadTools } from './copilot/thread-tools'
+import { withToolAvailability } from './copilot/tool-availability'
 import { createRepositoryRemoveService } from './features/repositories/repository-remove-service'
 import { createRepositoryService } from './features/repositories/repository-service'
 import {
@@ -208,7 +210,8 @@ const threadStateService = createThreadStateService({
   normalizeCustomTitle,
   normalizeTrackedText,
   normalizeCopilotTitle,
-  nowIso
+  nowIso,
+  isThreadWorking: (threadId) => isCopilotThreadWorking(threadId)
 })
 const threadGitContextService = createThreadGitContextService({
   ensureState,
@@ -399,6 +402,7 @@ export function registerAppStateIpc(): void {
       threadStateService.selectRepository(repositoryId),
     selectThread: (threadId: string | null) => threadStateService.selectThread(threadId),
     commitThreadChanges: (threadId: string) => threadCommitService.commitThreadChanges(threadId),
+    pushThreadChanges: (threadId: string) => threadCommitService.pushThreadChanges(threadId),
     regenerateThreadTitle: async (threadId: string): Promise<MutationResult> => {
       const result = await threadTitleService.regenerateTitle(threadId)
       return result.ok ? successResult() : failureResult(result.error ?? 'Could not write a title.')
@@ -447,7 +451,19 @@ export function resolveCopilotThread(threadId: string): {
   }
 }
 
+function isThreadToolEnabled(threadId: string, toolName: string): boolean {
+  const thread = findThread(threadId)
+  const repository = thread ? findRepository(thread.repositoryId) : undefined
+  return isTaskmasterToolEnabled(toolName, ensureState().settings, repository)
+}
+
 export function createCopilotSessionTools(threadId: string): Tool[] {
+  return withToolAvailability(createAllCopilotSessionTools(threadId), (toolName) =>
+    isThreadToolEnabled(threadId, toolName)
+  )
+}
+
+function createAllCopilotSessionTools(threadId: string): Tool[] {
   // Makes open windows refresh their snapshot so task lists and thread cards show the change.
   const refresh = (): void => electronUi.broadcastThreadRunState(threadId)
   return [

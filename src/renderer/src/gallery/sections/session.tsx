@@ -737,7 +737,7 @@ function Session(): React.JSX.Element {
           </div>
           <div className="mt-6">
             <Label>
-              Commit button: ready · writing message · hook · committing · pushing · blocked
+              Commit button: ready · writing message · hook · committing · pushing · blocked · push
             </Label>
             <div className="flex items-center gap-2">
               {([null, 'generating', 'hook', 'committing', 'pushing'] as const).map((phase) => (
@@ -754,6 +754,14 @@ function Session(): React.JSX.Element {
                 autoPush={false}
                 disabledReason="Resolve merge conflicts before committing"
                 onCommit={noop}
+              />
+              <CommitButton
+                phase={null}
+                action="push"
+                autoPush={false}
+                disabledReason={null}
+                onCommit={noop}
+                onPush={noop}
               />
             </div>
           </div>

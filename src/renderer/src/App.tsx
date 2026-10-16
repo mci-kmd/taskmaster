@@ -137,6 +137,16 @@ export default function App(): React.JSX.Element {
     },
     [applyMutation]
   )
+  const handleSuspendThread = useCallback(
+    async (threadId: string, suspended: boolean): Promise<void> => {
+      try {
+        await applyMutation(api.appState.updateThread({ threadId, suspended }))
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [applyMutation]
+  )
 
   const [regeneratingTitleIds, setRegeneratingTitleIds] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -779,6 +789,7 @@ export default function App(): React.JSX.Element {
           }}
           performanceOpen={performanceOpen}
           onSettleThread={(id, settled) => void handleSettleThread(id, settled)}
+          onSuspendThread={(id, suspended) => void handleSuspendThread(id, suspended)}
           onSelectRepository={(id) => void handleSelectRepository(id)}
           onSelectThread={(id) => void handleSelectThread(id)}
           selectedRepository={selectedRepository}
@@ -866,6 +877,7 @@ export default function App(): React.JSX.Element {
       />
 
       <EditRepositoryDialog
+        disabledTaskmasterTools={snapshot.settings.disabledTaskmasterTools}
         onBrowseFavicon={handleBrowseRepositoryFavicon}
         onBrowseSolutionFile={handleBrowseRepositorySolutionFile}
         onClose={handleCloseRepositoryEditor}

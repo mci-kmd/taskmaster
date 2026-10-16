@@ -29,7 +29,7 @@ import PromptRail from './copilot/PromptRail'
 import type { RailPrompt } from './copilot/prompt-rail'
 import SessionPromptInput from './copilot/SessionPromptInput'
 import SendButton from './copilot/SendButton'
-import CommitButton from './copilot/CommitButton'
+import CommitButton, { type CommitButtonAction } from './copilot/CommitButton'
 import PendingMessages from './copilot/PendingMessages'
 import AttachmentChips from './copilot/AttachmentChips'
 import { EmptyConversation, RunningSubagents, WorkingIndicator } from './copilot/ConversationStates'
@@ -595,16 +595,21 @@ function SessionView({
       }),
     [thread.id]
   )
-  const showCommit =
-    usesGit && (commitPhase !== null || (ready && !sharedCheckoutBusy && hasChanges(workingTree)))
+  const canCommit = usesGit && ready && !sharedCheckoutBusy && hasChanges(workingTree)
+  const canPush = usesGit && ready && !sharedCheckoutBusy && (workingTree?.ahead ?? 0) > 0
+  const [commitAction, setCommitAction] = useState<CommitButtonAction>('commit')
+  const shownAction: CommitButtonAction =
+    commitPhase !== null ? commitAction : canCommit ? 'commit' : 'push'
+  const showCommit = commitPhase !== null || canCommit || canPush
   const commitDisabledReason =
-    (workingTree?.conflicted ?? 0) > 0
+    (workingTree?.conflicted ?? 0) > 0 && shownAction === 'commit'
       ? 'Resolve merge conflicts before committing'
       : busy
         ? 'Wait for the current action to finish'
         : null
   const commit = (): void => {
-    if (!showCommit || commitPhase || commitDisabledReason || busyRef.current) return
+    if (!canCommit || commitPhase || commitDisabledReason || busyRef.current) return
+    setCommitAction('commit')
     commitActive.current = true
     setCommitPhase('generating')
     void run('commit', async () => {
@@ -620,22 +625,44 @@ function SessionView({
       }
     })
   }
+  const push = (): void => {
+    if (!canPush || commitPhase || busy || busyRef.current) return
+    setCommitAction('push')
+    commitActive.current = true
+    setCommitPhase('pushing')
+    void run('push', async () => {
+      try {
+        const result = await api.appState.pushThreadChanges(thread.id)
+        if (result.pushed && mounted.current) setWorkingTree(null)
+        if (!result.ok) throw new Error(result.error ?? 'Could not push the commits.')
+      } finally {
+        commitActive.current = false
+        if (mounted.current) setCommitPhase(null)
+        void refreshWorkingTree()
+      }
+    })
+  }
   const commitRef = useRef(commit)
   commitRef.current = commit
+  const pushRef = useRef(push)
+  pushRef.current = push
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
+      const key = event.key.toLowerCase()
       if (
         !(event.ctrlKey || event.metaKey) ||
         event.altKey ||
         event.shiftKey ||
-        event.key.toLowerCase() !== 's' ||
+        (key !== 's' && key !== 'd') ||
         document.querySelector('[role="dialog"][aria-modal="true"]') ||
         // A view that is crossfading out (or otherwise inert) no longer owns the shortcut.
         sectionRef.current?.closest('[data-state="closed"], [inert]')
       )
         return
       event.preventDefault()
-      if (!event.repeat) commitRef.current()
+      if (event.repeat) return
+      if (key === 's') commitRef.current()
+      else pushRef.current()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -1007,9 +1034,11 @@ function SessionView({
               <Presence show={showCommit} motion="pop">
                 <CommitButton
                   phase={commitPhase}
+                  action={shownAction}
                   autoPush={thread.commitAutoPush}
                   disabledReason={commitDisabledReason}
                   onCommit={commit}
+                  onPush={push}
                 />
               </Presence>
               <SendButton

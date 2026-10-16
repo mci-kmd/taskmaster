@@ -255,6 +255,38 @@ describe('thread commit service', () => {
     })
     expect(git(cwd, 'log', '-1', '--format=%s')).toBe('Update readme')
   })
+
+  it('pushes existing commits without committing', async () => {
+    const remote = tempDirectory()
+    execFileSync('git', ['init', '-q', '--bare', remote], { stdio: 'pipe' })
+    const cwd = createRepository()
+    git(cwd, 'remote', 'add', 'origin', remote)
+    writeFileSync(join(cwd, 'notes.txt'), 'uncommitted\n')
+    const { service, phases, generateCommitMessage, onFinished } = setup(cwd)
+
+    expect(await service.pushThreadChanges('thread')).toEqual({ ok: true, pushed: true })
+    expect(phases).toEqual(['pushing'])
+    expect(generateCommitMessage).not.toHaveBeenCalled()
+    expect(onFinished).toHaveBeenCalledWith('thread', cwd)
+    expect(bareGit(remote, 'rev-parse', 'main')).toBe(git(cwd, 'rev-parse', 'HEAD'))
+    expect(git(cwd, 'status', '--porcelain')).toBe('?? notes.txt')
+    expect(service.getCommitPhases().size).toBe(0)
+  })
+
+  it('reports push failures', async () => {
+    const cwd = createRepository()
+    const { service } = setup(cwd)
+
+    expect(await service.pushThreadChanges('thread')).toEqual({
+      ok: false,
+      pushed: false,
+      error: 'Push failed: This repository has no remote.'
+    })
+    expect(await service.pushThreadChanges('missing')).toEqual({
+      ok: false,
+      error: 'Thread not found.'
+    })
+  })
 })
 
 describe('cleanCommitMessage', () => {

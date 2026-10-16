@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import Select from './ui/Select'
-import ActionMenu from './ui/ActionMenu'
 import Menu, { type MenuItem } from './ui/Menu'
 import LeaveWith from './ui/LeaveWith'
 import Button from './ui/Button'
@@ -32,7 +31,7 @@ import {
   ThreadIcon,
   PencilIcon,
   GearIcon,
-  MoreIcon,
+  PauseIcon,
   PlayIcon,
   QuestionIcon,
   TasksIcon,
@@ -62,6 +61,7 @@ export default function InboxThreads({
   onOpenRepositoryTasks,
   onEditThread,
   onSettleThread,
+  onSuspendThread,
   onCloseThread,
   onConvertThreadToWorktree,
   convertingThread,
@@ -81,6 +81,7 @@ export default function InboxThreads({
   onOpenRepositoryTasks: (id: string) => void
   onEditThread: (id: string) => void
   onSettleThread: (id: string, settled: boolean) => void
+  onSuspendThread?: (id: string, suspended: boolean) => void
   onCloseThread: (id: string) => void
   onConvertThreadToWorktree: (id: string) => void
   convertingThread: boolean
@@ -140,6 +141,9 @@ export default function InboxThreads({
     const exiting = exitToken !== null
     const session = sessions.get(thread.id)
     const title = composeThreadTitle(thread, session?.runtimeTitle)
+    const suspended = Boolean(thread.suspendedAt) && !thread.settledAt
+    const status = session?.copilotStatus ?? 'idle'
+    const working = status === 'working' || status === 'connecting' || status === 'input'
     const subtitle =
       thread.projectKind === 'general'
         ? repository.name
@@ -149,6 +153,7 @@ export default function InboxThreads({
         key={key}
         className="tm-inbox-item"
         data-motion-key={key}
+        data-suspended={suspended ? '' : undefined}
         data-thread-id={thread.id}
         data-exiting={exiting ? '' : undefined}
         inert={exiting}
@@ -173,73 +178,117 @@ export default function InboxThreads({
               setContextMenu({ threadId: thread.id, x: event.clientX, y: event.clientY })
             }}
           >
-            <div className="tm-inbox-row-body">
-              <button
-                type="button"
-                onClick={() => onSelectThread(thread.id)}
-                className="tm-inbox-row-main"
-                data-has-work-items={thread.workItems?.length ? '' : undefined}
-                // The details tooltip is visual; this keeps them available to assistive technology.
-                aria-description={`${subtitle}\n${thread.cwd}`}
-              >
-                <span className="mt-px">
+            {suspended ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onSelectThread(thread.id)}
+                  className="tm-inbox-row-main"
+                  aria-description={`Suspended · ${subtitle}\n${thread.cwd}`}
+                >
                   <ProjectIcon repository={repository} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="tm-inbox-row-title">{title}</span>
-                  <span className="tm-inbox-row-subtitle">{subtitle}</span>
-                  <span className="tm-inbox-row-meta">
-                    <ThreadStatus
-                      commitPhase={thread.commitPhase}
-                      status={session?.copilotStatus ?? 'idle'}
-                    />
-                    <span className="text-fg-faint">·</span>
-                    <span className="tabular-nums">
-                      {formatRelativeTime(thread.lastActivityAt, now)}
+                  <span className="tm-inbox-row-title min-w-0 flex-1">{title}</span>
+                </button>
+                <div className="tm-inbox-side">
+                  <div className="tm-inbox-actions">
+                    <Button
+                      className="tm-inbox-action"
+                      data-action="unsuspend"
+                      iconOnly
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => onSuspendThread?.(thread.id, false)}
+                      aria-label={`Unsuspend ${title}`}
+                      title="Unsuspend thread"
+                    >
+                      <PlayIcon width={11} height={11} />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="tm-inbox-row-body">
+                  <button
+                    type="button"
+                    onClick={() => onSelectThread(thread.id)}
+                    className="tm-inbox-row-main"
+                    data-has-work-items={thread.workItems?.length ? '' : undefined}
+                    // The details tooltip is visual; this keeps them available to assistive technology.
+                    aria-description={`${subtitle}\n${thread.cwd}`}
+                  >
+                    <span className="mt-px">
+                      <ProjectIcon repository={repository} />
                     </span>
-                    <Presence show={thread.isRunCommandRunning} motion="fade">
-                      <span
-                        className="tm-inbox-app-running"
-                        role="img"
-                        aria-label="App running"
-                        title="App running"
-                      >
-                        <PlayIcon width={9} height={9} />
+                    <span className="min-w-0 flex-1">
+                      <span className="tm-inbox-row-title">{title}</span>
+                      <span className="tm-inbox-row-subtitle">{subtitle}</span>
+                      <span className="tm-inbox-row-meta">
+                        <ThreadStatus
+                          commitPhase={thread.commitPhase}
+                          status={session?.copilotStatus ?? 'idle'}
+                        />
+                        <span className="text-fg-faint">·</span>
+                        <span className="tabular-nums">
+                          {formatRelativeTime(thread.lastActivityAt, now)}
+                        </span>
+                        <Presence show={thread.isRunCommandRunning} motion="fade">
+                          <span
+                            className="tm-inbox-app-running"
+                            role="img"
+                            aria-label="App running"
+                            title="App running"
+                          >
+                            <PlayIcon width={9} height={9} />
+                          </span>
+                        </Presence>
                       </span>
-                    </Presence>
-                  </span>
-                </span>
-              </button>
-              {thread.workItems?.length ? <ThreadWorkItems items={thread.workItems} /> : null}
-            </div>
-            <div className="tm-inbox-side">
-              <ThreadIndicators thread={thread} />
-              <div className="tm-inbox-actions">
-                <Button
-                  className="tm-inbox-action"
-                  data-action={thread.settledAt ? 'unsettle' : 'settle'}
-                  iconOnly
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => onSettleThread(thread.id, !thread.settledAt)}
-                  aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
-                  title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
-                >
-                  {thread.settledAt ? (
-                    <UndoIcon width={12} height={12} strokeWidth={1.7} />
-                  ) : (
-                    <CheckIcon width={13} height={13} strokeWidth={1.8} />
-                  )}
-                </Button>
-                <ActionMenu
-                  label={`Thread actions for ${title}`}
-                  triggerClassName="tm-inbox-action"
-                  items={threadMenuItems(thread)}
-                >
-                  <MoreIcon width={13} height={13} />
-                </ActionMenu>
-              </div>
-            </div>
+                    </span>
+                  </button>
+                  {thread.workItems?.length ? <ThreadWorkItems items={thread.workItems} /> : null}
+                </div>
+                <div className="tm-inbox-side">
+                  <ThreadIndicators thread={thread} />
+                  <div className="tm-inbox-actions">
+                    <Button
+                      className="tm-inbox-action"
+                      data-action={thread.settledAt ? 'unsettle' : 'settle'}
+                      iconOnly
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => onSettleThread(thread.id, !thread.settledAt)}
+                      aria-label={`${thread.settledAt ? 'Unsettle' : 'Settle'} ${title}`}
+                      title={thread.settledAt ? 'Unsettle thread' : 'Settle thread'}
+                    >
+                      {thread.settledAt ? (
+                        <UndoIcon width={12} height={12} strokeWidth={1.7} />
+                      ) : (
+                        <CheckIcon width={13} height={13} strokeWidth={1.8} />
+                      )}
+                    </Button>
+                    {thread.settledAt ? null : (
+                      <Button
+                        className="tm-inbox-action"
+                        data-action="suspend"
+                        iconOnly
+                        size="xs"
+                        variant="ghost"
+                        disabled={working}
+                        onClick={() => onSuspendThread?.(thread.id, true)}
+                        aria-label={`Suspend ${title}`}
+                        title={
+                          working
+                            ? 'Wait for Copilot to finish before suspending'
+                            : 'Suspend thread'
+                        }
+                      >
+                        <PauseIcon width={12} height={12} strokeWidth={1.8} />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </LeaveWith>
       </li>

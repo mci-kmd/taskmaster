@@ -1,3 +1,4 @@
+import type { TaskmasterToolName, TaskmasterToolOverrides } from './copilot-tools'
 import type { ThemeId } from './themes'
 import type { ThreadWorkItem } from './work-items'
 
@@ -97,6 +98,8 @@ export interface PersistedSettings {
   theme?: ThemeId
   /** Shows the agent mode picker in the composer. Absent means hidden: sessions stay interactive. */
   showAgentModePicker?: boolean
+  /** Taskmaster tools turned off for every project unless a project overrides them. Absent means all on. */
+  disabledTaskmasterTools?: TaskmasterToolName[]
 }
 
 export type CopilotModelSelection = {
@@ -131,6 +134,8 @@ export interface PersistedRepository {
   autoPushAfterCommit?: boolean
   /** Listed first in project pickers. Absent means not a favorite. */
   favorite?: boolean
+  /** Taskmaster tools this project turns on or off. Absent tools follow the app setting. */
+  taskmasterToolOverrides?: TaskmasterToolOverrides
   addedAt: string
   tasks: PersistedProjectTask[]
   /** Completed tasks, most recently completed first. Absent until a task is completed. */
@@ -141,6 +146,8 @@ export type ThreadModel = { id: string; name: string }
 
 export interface PersistedThread {
   settledAt?: string | null
+  /** Set while the user has suspended the thread to the bottom of the inbox. */
+  suspendedAt?: string | null
   id: string
   repositoryId: string
   /** Set by the user; replaces any generated title. */
@@ -780,6 +787,8 @@ export interface UpdateSettingsInput {
   theme?: ThemeId
   /** Left unchanged when omitted. */
   showAgentModePicker?: boolean
+  /** Left unchanged when omitted. */
+  disabledTaskmasterTools?: TaskmasterToolName[]
 }
 
 export interface UpdateRepositoryInput {
@@ -798,6 +807,8 @@ export interface UpdateRepositoryInput {
   /** Null restores the default commit message model. */
   commitMessageModel?: CopilotModelSelection | null
   autoPushAfterCommit?: boolean
+  /** Left unchanged when omitted; an empty object makes every tool follow the app setting. */
+  taskmasterToolOverrides?: TaskmasterToolOverrides
 }
 
 export interface SetRepositoryFavoriteInput {
@@ -863,6 +874,7 @@ export interface UpdateThreadInput {
   threadId: string
   customTitle?: string | null
   settled?: boolean
+  suspended?: boolean
 }
 
 export interface UpdateUiInput {

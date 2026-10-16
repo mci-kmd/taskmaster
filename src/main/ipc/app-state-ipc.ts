@@ -81,6 +81,7 @@ type AppStateIpcHandlers = {
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
   commitThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
+  pushThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
   regenerateThreadTitle: (threadId: string) => Promise<MutationResult>
 }
 
@@ -201,6 +202,9 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.commitThreadChanges, (_event, threadId: string) =>
     handlers.commitThreadChanges(threadId)
+  )
+  handleIpc(IPC_CHANNELS.appState.pushThreadChanges, (_event, threadId: string) =>
+    handlers.pushThreadChanges(threadId)
   )
   handleIpc(IPC_CHANNELS.appState.regenerateThreadTitle, (_event, threadId: string) =>
     handlers.regenerateThreadTitle(threadId)

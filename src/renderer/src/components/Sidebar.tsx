@@ -24,6 +24,7 @@ type SidebarProps = {
   onOpenPerformance: () => void
   performanceOpen: boolean
   onSettleThread: (id: string, settled: boolean) => void
+  onSuspendThread?: (id: string, suspended: boolean) => void
   onConvertThreadToWorktree: (id: string) => void
   onCloseThread: (id: string) => void
   onToggleRepositoryFavorite: (id: string, favorite: boolean) => void
@@ -50,6 +51,7 @@ export default function Sidebar({
   onOpenPerformance,
   performanceOpen,
   onSettleThread,
+  onSuspendThread,
   onConvertThreadToWorktree,
   onCloseThread,
   onToggleRepositoryFavorite,
@@ -150,6 +152,7 @@ export default function Sidebar({
           onOpenRepositoryTasks={onOpenRepositoryTasks}
           onEditThread={onEditThread}
           onSettleThread={onSettleThread}
+          onSuspendThread={onSuspendThread}
           onCloseThread={onCloseThread}
           onConvertThreadToWorktree={onConvertThreadToWorktree}
           onToggleRepositoryFavorite={onToggleRepositoryFavorite}

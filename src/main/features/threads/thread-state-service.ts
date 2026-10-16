@@ -23,6 +23,8 @@ type ThreadStateServiceDependencies = {
   normalizeTrackedText: (value: string | null) => string | null
   normalizeCopilotTitle: (title: string | null | undefined) => string | null
   nowIso: () => string
+  /** Whether the thread's Copilot session is busy; such threads can't be suspended. */
+  isThreadWorking?: (threadId: string) => boolean
 }
 
 export function createThreadStateService(dependencies: ThreadStateServiceDependencies): {
@@ -43,11 +45,32 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       }
 
       const state = dependencies.ensureState()
+      // Suspending only reorders the inbox, so it leaves lastActivityAt alone.
+      if (input.suspended !== undefined) {
+        if (typeof input.suspended !== 'boolean') {
+          return dependencies.failureResult('Invalid suspension status.')
+        }
+        if (input.suspended && !thread.suspendedAt) {
+          if (thread.settledAt)
+            return dependencies.failureResult('Resolved threads cannot be suspended.')
+          if (dependencies.isThreadWorking?.(thread.id)) {
+            return dependencies.failureResult(
+              'Wait for Copilot to finish before suspending the thread.'
+            )
+          }
+          thread.suspendedAt = dependencies.nowIso()
+          dependencies.saveState()
+        } else if (!input.suspended && thread.suspendedAt) {
+          delete thread.suspendedAt
+          dependencies.saveState()
+        }
+      }
       if (input.settled !== undefined) {
         if (typeof input.settled !== 'boolean') {
           return dependencies.failureResult('Invalid settlement status.')
         }
         thread.settledAt = input.settled ? (thread.settledAt ?? dependencies.nowIso()) : null
+        if (input.settled) delete thread.suspendedAt
         if (input.settled && state.ui.selectedThreadId === thread.id) {
           const next = state.threads
             .filter(
@@ -129,6 +152,8 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       const nextMessage = dependencies.normalizeTrackedText(input.message)
       thread.lastActivityAt = dependencies.nowIso()
       thread.lastUserMessage = nextMessage
+      // A new prompt brings a suspended thread back.
+      delete thread.suspendedAt
       if (input.model) thread.lastModel = { id: input.model.id, name: input.model.name }
       dependencies.saveState()
       return true
@@ -141,6 +166,7 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       if (!thread) return false
       if (thread.settledAt) return true
       thread.settledAt = dependencies.nowIso()
+      delete thread.suspendedAt
       dependencies.saveState()
       return true
     },

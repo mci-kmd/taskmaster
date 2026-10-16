@@ -159,6 +159,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.selectThread, threadId),
     commitThreadChanges: (threadId: string) =>
       invokeIpc(IPC_CHANNELS.appState.commitThreadChanges, threadId),
+    pushThreadChanges: (threadId: string) =>
+      invokeIpc(IPC_CHANNELS.appState.pushThreadChanges, threadId),
     regenerateThreadTitle: (threadId: string) =>
       invokeIpc(IPC_CHANNELS.appState.regenerateThreadTitle, threadId),
     onCommitProgress: (callback: (payload: ThreadCommitProgressEvent) => void) =>

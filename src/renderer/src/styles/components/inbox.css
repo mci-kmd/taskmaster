@@ -140,6 +140,16 @@
     line-height: 17px;
   }
 
+  /* Suspended threads collapse to one quiet line at the bottom of the inbox. */
+  .tm-inbox-item[data-suspended] .tm-inbox-row-main {
+    align-items: center;
+    padding-block: 5px;
+  }
+  .tm-inbox-item[data-suspended] .tm-inbox-row-title {
+    color: var(--color-fg-subtle);
+    font-weight: 450;
+  }
+
   /* The card's side slot: at-rest indicators (model family, checkout mode) and the hover
      actions share one cell, and cross-fade in place on hover, focus or an open menu. */
   .tm-inbox-side {

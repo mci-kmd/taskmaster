@@ -184,7 +184,7 @@ describe('inbox', () => {
         onRegenerateTitle={onRegenerateTitle}
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Fix login' }))
+    fireEvent.contextMenu(screen.getByText('Fix login'))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Regenerate title' }))
     expect(onRegenerateTitle).toHaveBeenCalledWith('Generated')
     rerender(
@@ -199,7 +199,7 @@ describe('inbox', () => {
         regeneratingTitleIds={new Set(['Generated'])}
       />
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Fix login' }))
+    fireEvent.contextMenu(screen.getByText('Fix login'))
     expect(
       screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Writing title...' }).disabled
     ).toBe(true)
@@ -300,6 +300,64 @@ describe('inbox', () => {
     ])
   })
 
+  it('sinks suspended threads to one line and suspends or unsuspends from the row', () => {
+    const onSuspendThread = vi.fn()
+    const handlers = callbacks()
+    const projects = [
+      repository('Alpha', [
+        { ...thread('Parked', '2026-03-01'), suspendedAt: '2026-03-02' },
+        thread('Busy', '2026-02-01'),
+        thread('Quiet', '2026-01-01'),
+        { ...thread('Parked older', '2026-01-15'), suspendedAt: '2026-03-03' }
+      ])
+    ]
+    render(
+      <InboxThreads
+        repositories={projects}
+        selectedRepository={projects[0]}
+        selectedThread={null}
+        sessions={new Map([['Busy', { copilotStatus: 'working' } as never]])}
+        convertingThread={false}
+        closingThread={false}
+        {...handlers}
+        onSuspendThread={onSuspendThread}
+      />
+    )
+    const rows = within(screen.getByRole('list', { name: 'Active threads' })).getAllByRole(
+      'listitem'
+    )
+    expect(rows.map((row) => row.getAttribute('data-thread-id'))).toEqual([
+      'Busy',
+      'Quiet',
+      'Parked',
+      'Parked older'
+    ])
+    expect(rows.map((row) => row.hasAttribute('data-suspended'))).toEqual([
+      false,
+      false,
+      true,
+      true
+    ])
+    const parked = rows[2]
+    expect(
+      within(parked)
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label'))
+    ).toEqual([null, 'Unsuspend Parked'])
+    expect(parked.querySelector('.tm-inbox-row-subtitle')).toBeNull()
+    fireEvent.click(within(parked).getByText('Parked'))
+    expect(handlers.onSelectThread).toHaveBeenCalledWith('Parked')
+    fireEvent.click(within(parked).getByRole('button', { name: 'Unsuspend Parked' }))
+    expect(onSuspendThread).toHaveBeenCalledWith('Parked', false)
+
+    const busySuspend = screen.getByRole<HTMLButtonElement>('button', { name: 'Suspend Busy' })
+    expect(busySuspend.disabled).toBe(true)
+    expect(busySuspend.title).toBe('Wait for Copilot to finish before suspending')
+    fireEvent.click(screen.getByRole('button', { name: 'Suspend Quiet' }))
+    expect(onSuspendThread).toHaveBeenCalledWith('Quiet', true)
+    expect(screen.queryByRole('button', { name: /Thread actions for/ })).toBeNull()
+  })
+
   it('orders threads across projects, keeps settled threads collapsed, and supports restoring them', () => {
     const handlers = callbacks()
     render(
@@ -322,7 +380,7 @@ describe('inbox', () => {
     expect(screen.getByText('Finished').closest('[aria-hidden]')?.getAttribute('aria-hidden')).toBe(
       'true'
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Newest' }))
+    fireEvent.contextMenu(screen.getByText('Newest'))
     expect(handlers.onEditThread).not.toHaveBeenCalled()
     const menu = screen.getByRole('menu')
     expect(
@@ -338,6 +396,7 @@ describe('inbox', () => {
     fireEvent.click(screen.getByRole('button', { name: /Settled threads/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Unsettle Finished' }))
     expect(handlers.onSettleThread).toHaveBeenCalledWith('Finished', false)
+    expect(screen.queryByRole('button', { name: 'Suspend Finished' })).toBeNull()
     fireEvent.click(screen.getByText('Finished'))
     expect(handlers.onSelectThread).toHaveBeenCalledWith('Finished')
     fireEvent.click(screen.getByRole('button', { name: 'New thread' }))
@@ -371,7 +430,7 @@ describe('inbox', () => {
       />
     )
     const openMenu = (title: string): HTMLElement => {
-      fireEvent.click(screen.getByRole('button', { name: `Thread actions for ${title}` }))
+      fireEvent.contextMenu(screen.getByText(title))
       return screen.getByRole('menu')
     }
     // Right-clicking a thread opens the same menu where the pointer is.
@@ -424,7 +483,7 @@ describe('inbox', () => {
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
     ).toEqual(['Edit', 'Regenerate title', 'Settle thread', 'Close thread'])
-    fireEvent.click(screen.getByRole('button', { name: 'Thread actions for Worktree' }))
+    fireEvent.keyDown(menu, { key: 'Escape' })
     rerender(
       <InboxThreads
         repositories={repositories}
@@ -597,12 +656,6 @@ describe('inbox', () => {
         ...callbacks()
       }
       const { rerender } = render(<InboxThreads repositories={repositories} {...props} />)
-      // An open actions menu leaves with its row.
-      const menuButton = screen
-        .getByRole('list', { name: 'Active threads' })
-        .querySelector<HTMLElement>('[data-thread-id="Newest"] [aria-haspopup="menu"]')
-      fireEvent.click(menuButton!)
-      expect(document.querySelector('[role="menu"]')?.getAttribute('data-state')).toBe('open')
       const settledNewest = [
         repositories[0],
         repository('Beta', [{ ...repositories[1].threads[0], settledAt: '2026-03-03' }])
@@ -613,11 +666,9 @@ describe('inbox', () => {
       expect(leaving?.hasAttribute('data-exiting')).toBe(true)
       expect(leaving?.hasAttribute('inert')).toBe(true)
       expect(animate).toHaveBeenCalled()
-      expect(document.querySelector('[role="menu"]')?.getAttribute('data-state')).toBe('closed')
       act(() => {
         vi.advanceTimersByTime(500)
       })
-      expect(document.querySelector('[role="menu"]')).toBeNull()
       expect(activeList.querySelector('[data-thread-id="Newest"]')).toBeNull()
       expect(
         screen

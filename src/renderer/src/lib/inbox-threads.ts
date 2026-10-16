@@ -12,7 +12,11 @@ export function getInboxThreads(repositories: RepositorySnapshot[]): {
         a.thread.id.localeCompare(b.thread.id)
     )
   return {
-    active: threads.filter(({ thread }) => !thread.settledAt),
+    // Suspended threads sink below the rest but keep their activity order among themselves.
+    active: [
+      ...threads.filter(({ thread }) => !thread.settledAt && !thread.suspendedAt),
+      ...threads.filter(({ thread }) => !thread.settledAt && thread.suspendedAt)
+    ],
     settled: threads.filter(({ thread }) => thread.settledAt)
   }
 }

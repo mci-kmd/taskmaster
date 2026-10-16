@@ -191,6 +191,46 @@ it('defaults the commit model and saves each commit setting as it changes', asyn
   )
 })
 
+it('overrides Taskmaster tools per project, with Default following Settings', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog({
+    repository: { ...repository, taskmasterToolOverrides: { taskmaster_list_tasks: false } },
+    disabledTaskmasterTools: ['taskmaster_create_task']
+  })
+
+  await user.click(screen.getByRole('tab', { name: 'Copilot tools' }))
+  const list = screen.getByRole('radiogroup', { name: 'List tasks' })
+  expect(within(list).getByRole('radio', { name: 'Off' }).getAttribute('aria-checked')).toBe('true')
+  const create = screen.getByRole('radiogroup', { name: 'Create tasks' })
+  expect(within(create).getByRole('radio', { name: 'Default (off)' })).toBeTruthy()
+
+  await user.click(within(create).getByRole('radio', { name: 'On' }))
+  expect(props.onSave).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      taskmasterToolOverrides: { taskmaster_list_tasks: false, taskmaster_create_task: true }
+    })
+  )
+
+  await user.click(within(list).getByRole('radio', { name: 'Default (on)' }))
+  expect(props.onSave).toHaveBeenLastCalledWith(
+    expect.objectContaining({ taskmasterToolOverrides: { taskmaster_create_task: true } })
+  )
+})
+
+it('overrides Taskmaster tools for the built-in project', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog({ repository: { ...repository, kind: 'general', name: 'Computer' } })
+
+  const settle = screen.getByRole('radiogroup', { name: 'Settle threads' })
+  await user.click(within(settle).getByRole('radio', { name: 'Off' }))
+  expect(props.onSave).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      repositoryId: 'repo-1',
+      taskmasterToolOverrides: { taskmaster_settle_thread: false }
+    })
+  )
+})
+
 it('resets the commit model to the default', async () => {
   const user = userEvent.setup()
   const props = renderDialog({

@@ -18,6 +18,7 @@ import {
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
 import {
   COMMIT_SHORTCUT_LABEL,
+  PUSH_SHORTCUT_LABEL,
   DEFAULT_COMMIT_MESSAGE_MODEL,
   isSameModelSelection,
   resolveCommitMessageModel
@@ -34,6 +35,15 @@ import {
   Token,
   type SettingsSection
 } from '../settings/SettingsLayout'
+import { TaskmasterToolOverrideRows } from '../settings/TaskmasterToolSettings'
+import {
+  TASKMASTER_TOOL_KEYS,
+  TASKMASTER_TOOLS_HINT,
+  toolOverrideValues,
+  toolOverridesFromValues,
+  type TaskmasterToolKey,
+  type ToolOverrideChoice
+} from '../settings/taskmaster-tool-values'
 import { useAutoSave, type AutoSaveField, type AutoSaveResult } from '../settings/use-auto-save'
 import CommitModelPicker from './CommitModelPicker'
 import { useDialogSession, useOpenValue } from './use-dialog-session'
@@ -50,7 +60,11 @@ type EditRepositoryDialogProps = {
   /** Persists the project's settings; called automatically as settings change. */
   onSave: (input: UpdateRepositoryInput) => Promise<AutoSaveResult>
   onRemove: (repositoryId: string) => Promise<boolean>
+  /** Tools turned off in Settings, so a project's Default choice can say what it means. */
+  disabledTaskmasterTools?: readonly string[]
 }
+
+const TOOLS_DESCRIPTION = `Taskmaster tools Copilot can use in this project. Default follows Settings. ${TASKMASTER_TOOLS_HINT}`
 
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`
@@ -97,6 +111,7 @@ export default function EditRepositoryDialog({
   const key = `${repository.id}:${session.key}`
   return isGeneralProject(repository) ? (
     <GeneralProjectSettings
+      disabledTaskmasterTools={props.disabledTaskmasterTools}
       key={key}
       onClose={onClose}
       onSave={props.onSave}
@@ -114,7 +129,9 @@ export default function EditRepositoryDialog({
   )
 }
 
-type RepositoryValues = {
+type ToolOverrideValues = Record<TaskmasterToolKey, ToolOverrideChoice>
+
+type RepositoryValues = ToolOverrideValues & {
   icon: string
   iconColor: string
   faviconPath: string
@@ -140,7 +157,8 @@ function repositoryValues(repository: RepositorySnapshot): RepositoryValues {
     postWorktreeRemoveCommand: repository.postWorktreeRemoveCommand ?? '',
     taskTagsInput: repository.taskTagsInput ?? '',
     commitMessageModel: resolveCommitMessageModel(repository),
-    autoPushAfterCommit: repository.autoPushAfterCommit === true
+    autoPushAfterCommit: repository.autoPushAfterCommit === true,
+    ...toolOverrideValues(repository.taskmasterToolOverrides)
   }
 }
 
@@ -163,7 +181,8 @@ function toUpdateInput(repositoryId: string, values: RepositoryValues): UpdateRe
     )
       ? null
       : values.commitMessageModel,
-    autoPushAfterCommit: values.autoPushAfterCommit
+    autoPushAfterCommit: values.autoPushAfterCommit,
+    taskmasterToolOverrides: toolOverridesFromValues(values)
   }
 }
 
@@ -180,7 +199,8 @@ function RepositorySettings({
   onBrowseFavicon,
   onBrowseSolutionFile,
   onSave,
-  onRemove
+  onRemove,
+  disabledTaskmasterTools
 }: RepositorySettingsProps): React.JSX.Element {
   const [sectionId, setSectionId] = useState('general')
   const [confirmingRemoval, setConfirmingRemoval] = useState(false)
@@ -338,7 +358,7 @@ function RepositorySettings({
     {
       id: 'commits',
       label: 'Commits',
-      description: `For the commit button in Copilot threads (${COMMIT_SHORTCUT_LABEL}).`,
+      description: `For the commit button in Copilot threads (${COMMIT_SHORTCUT_LABEL}; push with ${PUSH_SHORTCUT_LABEL}).`,
       hasError: form.hasErrors(['commitMessageModel', 'autoPushAfterCommit']),
       content: (
         <>
@@ -372,6 +392,18 @@ function RepositorySettings({
             label="Push"
           />
         </>
+      )
+    },
+    {
+      id: 'tools',
+      label: 'Copilot tools',
+      description: TOOLS_DESCRIPTION,
+      hasError: form.hasErrors(TASKMASTER_TOOL_KEYS),
+      content: (
+        <TaskmasterToolOverrideRows
+          disabledByDefault={disabledTaskmasterTools}
+          field={(key) => form.field(key)}
+        />
       )
     },
     {
@@ -576,24 +608,27 @@ function ProjectIconPicker({
   )
 }
 
-type GeneralProjectValues = { name: string; icon: string; iconColor: string }
+type GeneralProjectValues = ToolOverrideValues & { name: string; icon: string; iconColor: string }
 
 function GeneralProjectSettings({
   open,
   repository,
   onClose,
-  onSave
+  onSave,
+  disabledTaskmasterTools
 }: {
   open: boolean
   repository: RepositorySnapshot
   onClose: () => void
   onSave: (input: UpdateRepositoryInput) => Promise<AutoSaveResult>
+  disabledTaskmasterTools?: readonly string[]
 }): React.JSX.Element {
   const form = useAutoSave<GeneralProjectValues>({
     initialValues: {
       name: repository.name,
       icon: repository.icon ?? GENERAL_PROJECT_DEFAULTS.icon,
-      iconColor: repository.iconColor ?? GENERAL_PROJECT_DEFAULTS.iconColor
+      iconColor: repository.iconColor ?? GENERAL_PROJECT_DEFAULTS.iconColor,
+      ...toolOverrideValues(repository.taskmasterToolOverrides)
     },
     save: async (values) => {
       const name = normalizeGeneralProjectName(values.name)
@@ -609,7 +644,8 @@ function GeneralProjectSettings({
         runCommand: null,
         solutionFilePath: null,
         newWorktreeSetupCommand: null,
-        postWorktreeRemoveCommand: null
+        postWorktreeRemoveCommand: null,
+        taskmasterToolOverrides: toolOverridesFromValues(values)
       })
     }
   })
@@ -669,6 +705,20 @@ function GeneralProjectSettings({
         }}
         showHeading={false}
       />
+      <div className="mt-6">
+        <SettingsSectionBody
+          section={{
+            label: 'Copilot tools',
+            description: TOOLS_DESCRIPTION,
+            content: (
+              <TaskmasterToolOverrideRows
+                disabledByDefault={disabledTaskmasterTools}
+                field={(key) => form.field(key)}
+              />
+            )
+          }}
+        />
+      </div>
       <div className="mt-2 flex justify-end">
         <Button
           disabled={isDefault}

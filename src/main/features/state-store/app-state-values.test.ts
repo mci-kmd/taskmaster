@@ -169,6 +169,57 @@ describe('commit settings persistence', () => {
   })
 })
 
+describe('Taskmaster tool settings persistence', () => {
+  it('keeps valid tool overrides and drops unknown or invalid ones', () => {
+    const value: PersistedRepository = {
+      ...repository('alpha'),
+      taskmasterToolOverrides: { taskmaster_create_task: false }
+    }
+    expect(normalizePersistedRepository(value)).toBe(value)
+    expect(
+      normalizePersistedRepository({
+        ...repository('alpha'),
+        taskmasterToolOverrides: { taskmaster_create_task: 'no', bogus: true } as never
+      })
+    ).not.toHaveProperty('taskmasterToolOverrides')
+
+    const general = ensureGeneralProject(
+      [
+        {
+          ...createGeneralProject(NOW(), '/home/me'),
+          taskmasterToolOverrides: { taskmaster_settle_thread: true }
+        }
+      ],
+      NOW,
+      '/home/me'
+    )[0]
+    expect(general.taskmasterToolOverrides).toEqual({ taskmaster_settle_thread: true })
+  })
+
+  it('keeps known disabled tools in catalog order', () => {
+    const settings = {
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: '',
+      disabledTaskmasterTools: ['taskmaster_list_tasks' as const]
+    }
+    expect(normalizePersistedSettings(settings)).toBe(settings)
+    expect(
+      normalizePersistedSettings({
+        ...settings,
+        disabledTaskmasterTools: [
+          'bogus',
+          'taskmaster_settle_thread',
+          'taskmaster_list_tasks'
+        ] as never
+      }).disabledTaskmasterTools
+    ).toEqual(['taskmaster_list_tasks', 'taskmaster_settle_thread'])
+    expect(
+      normalizePersistedSettings({ ...settings, disabledTaskmasterTools: [] })
+    ).not.toHaveProperty('disabledTaskmasterTools')
+  })
+})
+
 describe('favorite project persistence', () => {
   it('keeps favorites and drops invalid values', () => {
     const favorite: PersistedRepository = { ...repository('alpha'), favorite: true }

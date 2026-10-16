@@ -84,6 +84,7 @@ declare global {
     selectRepository: (repositoryId: string | null) => Promise<AppSnapshot>
     selectThread: (threadId: string | null) => Promise<AppSnapshot>
     commitThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
+    pushThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
     regenerateThreadTitle: (threadId: string) => Promise<MutationResult>
     onCommitProgress: (callback: (payload: ThreadCommitProgressEvent) => void) => () => void
     onThreadRunState: (callback: (payload: ThreadRunStateEvent) => void) => () => void

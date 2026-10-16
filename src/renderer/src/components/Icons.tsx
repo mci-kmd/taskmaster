@@ -47,6 +47,22 @@ export function GitCommitIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function GitPushIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M8 12.5V4M4.5 7.5 8 4l3.5 3.5M3.5 1.75h9" />
+    </svg>
+  )
+}
+
+export function PauseIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M5.75 3.5v9M10.25 3.5v9" />
+    </svg>
+  )
+}
+
 export function FolderIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

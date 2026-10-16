@@ -247,6 +247,7 @@ function GallerySidebar({
   sessions,
   onSelectThread = noop,
   onSettleThread = noop,
+  onSuspendThread = noop,
   onCloseThread = noop,
   onNewThread = noop,
   onAddRepository = noop
@@ -256,6 +257,7 @@ function GallerySidebar({
   sessions: SessionMap
   onSelectThread?: (id: string) => void
   onSettleThread?: (id: string, settled: boolean) => void
+  onSuspendThread?: (id: string, suspended: boolean) => void
   onCloseThread?: (id: string) => void
   onNewThread?: (repositoryId: string) => void
   onAddRepository?: () => void
@@ -293,6 +295,7 @@ function GallerySidebar({
         onOpenPerformance={() => setPerformanceOpen(!performanceOpen)}
         performanceOpen={performanceOpen}
         onSettleThread={onSettleThread}
+        onSuspendThread={onSuspendThread}
         onConvertThreadToWorktree={noop}
         onCloseThread={onCloseThread}
         onToggleRepositoryFavorite={noop}
@@ -372,7 +375,8 @@ function SidebarGallery(): React.JSX.Element {
           Reset
         </Button>
         <span className="text-[12px] text-fg-subtle">
-          Acts on the selected thread. Hover a row to settle, or use its menu to close it.
+          Acts on the selected thread. Hover a row to settle or suspend it, or right-click it to
+          close it.
         </span>
       </div>
 
@@ -383,7 +387,17 @@ function SidebarGallery(): React.JSX.Element {
           sessions={sessions}
           onSelectThread={setSelectedThreadId}
           onSettleThread={(id, settled) =>
-            updateThread(id, (thread) => ({ ...thread, settledAt: settled ? ago(0) : undefined }))
+            updateThread(id, (thread) => ({
+              ...thread,
+              settledAt: settled ? ago(0) : undefined,
+              suspendedAt: settled ? undefined : thread.suspendedAt
+            }))
+          }
+          onSuspendThread={(id, suspended) =>
+            updateThread(id, (thread) => ({
+              ...thread,
+              suspendedAt: suspended ? ago(0) : undefined
+            }))
           }
           onCloseThread={(id) =>
             setRepositories((current) =>

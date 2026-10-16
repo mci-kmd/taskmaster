@@ -8,6 +8,30 @@ import { parseBranchStatus } from './parse-branch-status'
 
 const BRANCH_STATUS_CACHE_TTL_MS = 1_500
 
+/** A branch without an upstream reports no ahead count; its commits still need pushing. */
+function needsUnpushedCount(statusOutput: string): boolean {
+  const lines = statusOutput.split(/\r?\n/)
+  return (
+    !lines.some((line) => line.startsWith('# branch.upstream ')) &&
+    lines.some(
+      (line) => line.startsWith('# branch.head ') && line !== '# branch.head (detached)'
+    ) &&
+    !lines.includes('# branch.oid (initial)')
+  )
+}
+
+async function countUnpushedCommits(cwd: string, backend: RepositoryBackend): Promise<number> {
+  const remotes = await tryGitAsync(cwd, ['remote'], backend)
+  if (!remotes.ok || !remotes.stdout.trim()) return 0
+  const count = await tryGitAsync(
+    cwd,
+    ['rev-list', '--count', 'HEAD', '--not', '--remotes'],
+    backend
+  )
+  const value = count.ok ? Number(count.stdout.trim()) : 0
+  return Number.isFinite(value) ? value : 0
+}
+
 export function createBranchStatusService(dependencies: {
   resolveBranchStatusContext: (
     input: BranchStatusRequest
@@ -53,6 +77,9 @@ export function createBranchStatusService(dependencies: {
           context.backend
         )
         const value = result.ok ? parseBranchStatus(result.stdout) : null
+        if (value && result.ok && needsUnpushedCount(result.stdout)) {
+          value.ahead = await countUnpushedCommits(context.cwd, context.backend)
+        }
 
         branchStatusCache.set(cacheKey, {
           value,

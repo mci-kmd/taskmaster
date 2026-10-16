@@ -1,32 +1,55 @@
 import type { ThreadCommitPhase } from '../../../../shared/app-types'
-import { COMMIT_PHASE_LABELS, COMMIT_SHORTCUT_LABEL } from '../../../../shared/commit'
-import { GitCommitIcon } from '../Icons'
+import {
+  COMMIT_PHASE_LABELS,
+  COMMIT_SHORTCUT_LABEL,
+  PUSH_SHORTCUT_LABEL
+} from '../../../../shared/commit'
+import { GitCommitIcon, GitPushIcon } from '../Icons'
 import Button from '../ui/Button'
 
-function commitButtonTitle(autoPush: boolean): string {
+/** `commit` while there are changes to commit; `push` once only unpushed commits remain. */
+export type CommitButtonAction = 'commit' | 'push'
+
+function commitButtonTitle(action: CommitButtonAction, autoPush: boolean): string {
+  if (action === 'push') return `Push commits to the remote (${PUSH_SHORTCUT_LABEL})`
   return autoPush
     ? `Commit and push all changes with an AI-written message (${COMMIT_SHORTCUT_LABEL})`
     : `Commit all changes with an AI-written message (${COMMIT_SHORTCUT_LABEL})`
 }
 
-/** Stages everything and commits with a Copilot-written message; shows each phase while it runs. */
+function commitButtonLabel(action: CommitButtonAction, autoPush: boolean): string {
+  if (action === 'push') return 'Push'
+  return autoPush ? 'Commit and push' : 'Commit'
+}
+
+/**
+ * Stages everything and commits with a Copilot-written message, or pushes when only unpushed
+ * commits remain; shows each phase while it runs.
+ */
 export default function CommitButton({
   phase,
+  action = 'commit',
   autoPush,
   disabledReason,
   onCommit,
+  onPush,
   ...rest
 }: {
   phase: ThreadCommitPhase | null
+  action?: CommitButtonAction
   autoPush: boolean
   disabledReason: string | null
   onCommit: () => void
+  onPush?: () => void
   /** Motion attributes from <Presence>. */
   'data-motion'?: string
   'data-state'?: string
 }): React.JSX.Element {
   const unavailable = Boolean(phase) || Boolean(disabledReason)
-  const title = phase ? COMMIT_PHASE_LABELS[phase] : (disabledReason ?? commitButtonTitle(autoPush))
+  const title = phase
+    ? COMMIT_PHASE_LABELS[phase]
+    : (disabledReason ?? commitButtonTitle(action, autoPush))
+  const Icon = action === 'push' ? GitPushIcon : GitCommitIcon
   return (
     <Button
       {...rest}
@@ -35,17 +58,20 @@ export default function CommitButton({
       iconOnly
       className="tm-commit"
       data-phase={phase ?? undefined}
+      data-action={action}
       // aria-disabled keeps the tooltip available while the button can't be used.
       aria-disabled={unavailable || undefined}
       aria-busy={Boolean(phase) || undefined}
-      aria-keyshortcuts="Control+S"
-      aria-label={phase ? COMMIT_PHASE_LABELS[phase] : autoPush ? 'Commit and push' : 'Commit'}
+      aria-keyshortcuts={action === 'push' ? 'Control+D' : 'Control+S'}
+      aria-label={phase ? COMMIT_PHASE_LABELS[phase] : commitButtonLabel(action, autoPush)}
       title={title}
       onClick={() => {
-        if (!unavailable) onCommit()
+        if (unavailable) return
+        if (action === 'push') onPush?.()
+        else onCommit()
       }}
     >
-      <GitCommitIcon className="tm-commit-icon" aria-hidden="true" />
+      <Icon key={action} className="tm-commit-icon tm-fade-in" aria-hidden="true" />
       <span className="tm-commit-ring" aria-hidden="true" />
     </Button>
   )

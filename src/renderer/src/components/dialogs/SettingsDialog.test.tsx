@@ -70,7 +70,8 @@ it('shows automatic approval enabled by default and saves a toggle immediately',
     taskTagsInput: 'bug',
     legacyCopilotModels: [],
     theme: 'graphite',
-    showAgentModePicker: false
+    showAgentModePicker: false,
+    disabledTaskmasterTools: []
   })
   expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Saved')
 })
@@ -147,7 +148,8 @@ it('shows a rejected value inline and keeps saving other settings from the last 
     taskTagsInput: 'bug',
     legacyCopilotModels: [],
     theme: 'graphite',
-    showAgentModePicker: false
+    showAgentModePicker: false,
+    disabledTaskmasterTools: []
   })
 })
 
@@ -161,6 +163,27 @@ it('saves the agent mode picker toggle', async () => {
   expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({ showAgentModePicker: true }))
 })
 
+it('saves Taskmaster tools turned off, one tool at a time', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog({
+    settings: { ...settings, disabledTaskmasterTools: ['taskmaster_settle_thread'] }
+  })
+  await user.click(screen.getByRole('tab', { name: 'Tools' }))
+  expect(screen.getByRole('checkbox', { name: 'Copilot can settle its thread' })).toHaveProperty(
+    'checked',
+    false
+  )
+  const create = screen.getByRole('checkbox', { name: 'Copilot can create tasks' })
+  expect(create).toHaveProperty('checked', true)
+
+  await user.click(create)
+  expect(props.onSave).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      disabledTaskmasterTools: ['taskmaster_create_task', 'taskmaster_settle_thread']
+    })
+  )
+})
+
 it('navigates sections with the arrow keys', async () => {
   const user = userEvent.setup()
   renderDialog()
@@ -171,6 +194,8 @@ it('navigates sections with the arrow keys', async () => {
 
   await user.keyboard('{ArrowDown}')
   expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Copilot' }))
+  await user.keyboard('{ArrowDown}')
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Tools' }))
   await user.keyboard('{ArrowDown}')
 
   const terminal = screen.getByRole('tab', { name: 'Terminal' })

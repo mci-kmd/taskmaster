@@ -163,4 +163,66 @@ describe('thread state service', () => {
     expect(thread).not.toHaveProperty('workItems')
     expect(saveState).toHaveBeenCalledTimes(3)
   })
+
+  it('suspends idle threads without touching their activity and unsuspends on a new prompt', () => {
+    const saveState = vi.fn()
+    let working = true
+    const thread: PersistedThread = {
+      id: 'thread-1',
+      repositoryId: 'repo-1',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActivityAt: '2026-01-01T00:00:00.000Z'
+    }
+    const service = createThreadStateService({
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: 'thread-1' }
+      }),
+      findThread: (id) => (id === thread.id ? thread : undefined),
+      saveState,
+      updateSelection: () => {},
+      buildSelectionSnapshot: () => ({}) as never,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      normalizeCustomTitle: (value) => value ?? null,
+      normalizeTrackedText: (value) => value ?? null,
+      normalizeCopilotTitle: (title) => title ?? null,
+      nowIso: () => '2026-01-02T00:00:00.000Z',
+      isThreadWorking: () => working
+    })
+
+    expect(service.updateThread({ threadId: 'thread-1', suspended: true })).toEqual({
+      ok: false,
+      error: 'Wait for Copilot to finish before suspending the thread.'
+    })
+    expect(thread).not.toHaveProperty('suspendedAt')
+    working = false
+    expect(service.updateThread({ threadId: 'thread-1', suspended: true }).ok).toBe(true)
+    expect(thread.suspendedAt).toBe('2026-01-02T00:00:00.000Z')
+    expect(thread.lastActivityAt).toBe('2026-01-01T00:00:00.000Z')
+    service.updateThread({ threadId: 'thread-1', suspended: false })
+    expect(thread).not.toHaveProperty('suspendedAt')
+    expect(thread.lastActivityAt).toBe('2026-01-01T00:00:00.000Z')
+    expect(saveState).toHaveBeenCalledTimes(2)
+
+    service.updateThread({ threadId: 'thread-1', suspended: true })
+    service.updateThreadLastUserMessage({ threadId: 'thread-1', message: 'continue' })
+    expect(thread).not.toHaveProperty('suspendedAt')
+
+    service.updateThread({ threadId: 'thread-1', suspended: true })
+    service.updateThread({ threadId: 'thread-1', settled: true })
+    expect(thread).not.toHaveProperty('suspendedAt')
+    expect(service.updateThread({ threadId: 'thread-1', suspended: true })).toEqual({
+      ok: false,
+      error: 'Resolved threads cannot be suspended.'
+    })
+  })
 })

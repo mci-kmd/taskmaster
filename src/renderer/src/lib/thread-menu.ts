@@ -1,6 +1,6 @@
 import type { ThreadSnapshot } from '../../../shared/app-types'
 
-/** What a thread's menu (its ··· button or right-click) can do. */
+/** What a thread's right-click menu can do. */
 export type ThreadMenuAction =
   | 'edit'
   | 'regenerate-title'

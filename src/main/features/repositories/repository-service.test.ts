@@ -309,6 +309,42 @@ describe('repository service', () => {
     expect(saveState).toHaveBeenCalledTimes(4)
   })
 
+  it('saves tool overrides, dropping unknown tools and storing none as absent', () => {
+    const saveState = vi.fn()
+    const repository = createTestRepository()
+    const general = createTestRepository({ kind: 'general', id: 'general' })
+    const service = createTestRepositoryService({
+      findRepository: (id) => (id === 'general' ? general : repository),
+      saveState
+    })
+    const input = {
+      repositoryId: repository.id,
+      faviconPath: null,
+      runCommand: null,
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null,
+      postWorktreeRemoveCommand: null
+    }
+
+    service.updateRepository({
+      ...input,
+      taskmasterToolOverrides: { taskmaster_create_task: false, bogus: true } as never
+    })
+    expect(repository.taskmasterToolOverrides).toEqual({ taskmaster_create_task: false })
+    service.updateRepository(input)
+    expect(saveState).toHaveBeenCalledTimes(1)
+    service.updateRepository({ ...input, taskmasterToolOverrides: {} })
+    expect(repository).not.toHaveProperty('taskmasterToolOverrides')
+
+    service.updateRepository({
+      ...input,
+      repositoryId: 'general',
+      taskmasterToolOverrides: { taskmaster_settle_thread: true }
+    })
+    expect(general.taskmasterToolOverrides).toEqual({ taskmaster_settle_thread: true })
+    expect(saveState).toHaveBeenCalledTimes(3)
+  })
+
   it('returns a validated solution path from the picker', async () => {
     const repository = createTestRepository()
 

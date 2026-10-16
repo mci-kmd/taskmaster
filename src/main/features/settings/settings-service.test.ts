@@ -39,6 +39,43 @@ describe('settings service', () => {
     expect(saveState).toHaveBeenCalledTimes(1)
   })
 
+  it('replaces disabled tools only when given, dropping unknown tools and empty lists', () => {
+    const settings: PersistedSettings = {
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: ''
+    }
+    const state = { settings, ui: { selectedRepositoryId: null, selectedThreadId: null } }
+    const service = createSettingsService({
+      ensureState: () => state,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      normalizeTerminalFontFamilyInput: (value) => value,
+      clampSidebarWidth: (value) => value
+    })
+    const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+
+    service.updateSettings({
+      ...base,
+      disabledTaskmasterTools: [
+        'taskmaster_settle_thread',
+        'bogus' as never,
+        'taskmaster_list_tasks'
+      ]
+    })
+    expect(settings.disabledTaskmasterTools).toEqual([
+      'taskmaster_list_tasks',
+      'taskmaster_settle_thread'
+    ])
+    service.updateSettings(base)
+    expect(settings.disabledTaskmasterTools).toEqual([
+      'taskmaster_list_tasks',
+      'taskmaster_settle_thread'
+    ])
+    service.updateSettings({ ...base, disabledTaskmasterTools: [] })
+    expect(settings).not.toHaveProperty('disabledTaskmasterTools')
+  })
+
   it('replaces legacy models only when given, dropping duplicates and empty lists, and reports changes', () => {
     const settings: PersistedSettings = {
       yoloEnabled: true,

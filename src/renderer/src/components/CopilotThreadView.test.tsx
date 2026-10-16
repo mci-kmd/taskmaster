@@ -33,6 +33,7 @@ const mock = vi.hoisted(() => ({
 const appState = vi.hoisted(() => ({
   getBranchStatus: vi.fn(),
   commitThreadChanges: vi.fn(),
+  pushThreadChanges: vi.fn(),
   onCommitProgress: vi.fn()
 }))
 vi.mock('../shared/api/client', () => ({ getRendererApi: () => ({ copilot: mock, appState }) }))
@@ -1534,6 +1535,61 @@ describe('AI commit button', () => {
     fireEvent.click(commitButton()!)
     fireEvent.keyDown(window, { key: 's', ctrlKey: true })
     expect(appState.commitThreadChanges).not.toHaveBeenCalled()
+  })
+
+  it('switches to a push button once only unpushed commits remain', async () => {
+    appState.getBranchStatus.mockResolvedValue({ ...clean, ahead: 2 })
+    const pending = deferred<{ ok: boolean; pushed?: boolean }>()
+    appState.pushThreadChanges.mockReturnValue(pending.promise)
+    const t = thread()
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    expect(commitButton()!.dataset.action).toBe('push')
+    expect(commitButton()!.title).toBe('Push commits to the remote (Ctrl+D)')
+    expect(commitButton()!.getAttribute('aria-keyshortcuts')).toBe('Control+D')
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(appState.commitThreadChanges).not.toHaveBeenCalled()
+    fireEvent.click(commitButton()!)
+    expect(appState.pushThreadChanges).toHaveBeenCalledWith(t.id)
+    expect(commitButton()!.dataset.phase).toBe('pushing')
+    expect(commitButton()!.dataset.action).toBe('push')
+
+    appState.getBranchStatus.mockResolvedValue(clean)
+    await act(async () => pending.resolve({ ok: true, pushed: true }))
+    await waitFor(() => expect(commitButton()).toBeNull())
+  })
+
+  it('pushes with Ctrl+D even with uncommitted changes and reports failures', async () => {
+    appState.getBranchStatus.mockResolvedValue({ ...dirty, ahead: 1 })
+    appState.pushThreadChanges.mockResolvedValue({
+      ok: false,
+      pushed: false,
+      error: 'Push failed: rejected'
+    })
+    const t = thread()
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    expect(commitButton()!.dataset.action).toBe('commit')
+
+    const event = new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, cancelable: true })
+    act(() => {
+      window.dispatchEvent(event)
+    })
+    expect(event.defaultPrevented).toBe(true)
+    expect(appState.pushThreadChanges).toHaveBeenCalledWith(t.id)
+    expect(await screen.findByText('Push failed: rejected')).toBeTruthy()
+  })
+
+  it('ignores Ctrl+D without unpushed commits', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    fireEvent.keyDown(window, { key: 'd', ctrlKey: true })
+    expect(appState.pushThreadChanges).not.toHaveBeenCalled()
   })
 })
 

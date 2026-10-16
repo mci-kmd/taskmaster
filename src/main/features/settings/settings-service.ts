@@ -4,6 +4,7 @@ import type {
   UpdateSettingsInput,
   UpdateUiInput
 } from '../../../shared/app-types'
+import { normalizeDisabledTaskmasterTools } from '../../../shared/copilot-tools'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import { DEFAULT_THEME, isThemeId, type ThemeId } from '../../../shared/themes'
 import { normalizeModelIds } from '../state-store/app-state-values'
@@ -41,6 +42,11 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
       if (input.showAgentModePicker !== undefined) {
         if (input.showAgentModePicker === true) state.settings.showAgentModePicker = true
         else delete state.settings.showAgentModePicker
+      }
+      if (input.disabledTaskmasterTools !== undefined) {
+        const disabled = normalizeDisabledTaskmasterTools(input.disabledTaskmasterTools)
+        if (disabled) state.settings.disabledTaskmasterTools = disabled
+        else delete state.settings.disabledTaskmasterTools
       }
       const themeChanged =
         input.theme !== undefined &&

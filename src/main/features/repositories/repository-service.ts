@@ -15,6 +15,10 @@ import {
   isSameModelSelection,
   normalizeCommitMessageModel
 } from '../../../shared/commit'
+import {
+  normalizeTaskmasterToolOverrides,
+  sameTaskmasterToolSettings
+} from '../../../shared/copilot-tools'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import { validateRepositoryPreviewUrlInput } from './repository-values'
 
@@ -183,6 +187,19 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         return dependencies.failureResult('Invalid project icon color.')
       }
 
+      const taskmasterToolOverrides =
+        input.taskmasterToolOverrides === undefined
+          ? repository.taskmasterToolOverrides
+          : normalizeTaskmasterToolOverrides(input.taskmasterToolOverrides)
+      const toolOverridesChanged = !sameTaskmasterToolSettings(
+        repository.taskmasterToolOverrides,
+        taskmasterToolOverrides
+      )
+      const applyToolOverrides = (): void => {
+        if (taskmasterToolOverrides) repository.taskmasterToolOverrides = taskmasterToolOverrides
+        else delete repository.taskmasterToolOverrides
+      }
+
       if (isGeneralProject(repository)) {
         const name =
           input.name === undefined ? repository.name : normalizeGeneralProjectName(input.name)
@@ -192,13 +209,15 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         if (
           name === repository.name &&
           (input.icon === undefined || input.icon === repository.icon) &&
-          (input.iconColor === undefined || input.iconColor === repository.iconColor)
+          (input.iconColor === undefined || input.iconColor === repository.iconColor) &&
+          !toolOverridesChanged
         ) {
           return dependencies.successResult()
         }
         repository.name = name
         if (input.icon !== undefined) repository.icon = input.icon
         if (input.iconColor !== undefined) repository.iconColor = input.iconColor
+        applyToolOverrides()
         dependencies.saveState()
         return dependencies.successResult()
       }
@@ -280,7 +299,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         (repository.taskTagsInput ?? '') === taskTagsInput &&
         (repository.previewUrl ?? null) === previewUrlValidation.url &&
         isSameModelSelection(repository.commitMessageModel, commitMessageModel) &&
-        (repository.autoPushAfterCommit === true) === autoPushAfterCommit
+        (repository.autoPushAfterCommit === true) === autoPushAfterCommit &&
+        !toolOverridesChanged
       ) {
         return dependencies.successResult()
       }
@@ -299,6 +319,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       else delete repository.commitMessageModel
       if (autoPushAfterCommit) repository.autoPushAfterCommit = true
       else delete repository.autoPushAfterCommit
+      applyToolOverrides()
       dependencies.saveState()
       return dependencies.successResult()
     },

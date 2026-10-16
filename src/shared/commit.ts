@@ -7,6 +7,7 @@ export const DEFAULT_COMMIT_MESSAGE_MODEL: CopilotModelSelection = {
 }
 
 export const COMMIT_SHORTCUT_LABEL = 'Ctrl+S'
+export const PUSH_SHORTCUT_LABEL = 'Ctrl+D'
 
 export const COMMIT_PHASE_LABELS: Record<ThreadCommitPhase, string> = {
   generating: 'Writing commit message…',

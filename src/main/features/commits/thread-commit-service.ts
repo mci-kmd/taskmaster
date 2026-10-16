@@ -79,7 +79,9 @@ export function createThreadCommitService(dependencies: {
   platform?: NodeJS.Platform
 }): {
   commitThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
-  /** The phase of each thread's in-progress commit. */
+  /** Pushes the thread's branch without committing. */
+  pushThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
+  /** The phase of each thread's in-progress commit or push. */
   getCommitPhases: () => ReadonlyMap<string, ThreadCommitPhase>
 } {
   const committing = new Set<string>()
@@ -226,5 +228,30 @@ export function createThreadCommitService(dependencies: {
     }
   }
 
-  return { commitThreadChanges: commit, getCommitPhases: () => phases }
+  const pushOnly = async (threadId: string): Promise<ThreadCommitResult> => {
+    const context = dependencies.resolveThreadContext(threadId)
+    if (!context.ok) return { ok: false, error: context.error }
+    const { cwd, repository } = context
+    const key = cwd.toLowerCase()
+    if (committing.has(key)) return { ok: false, error: 'A commit or push is already in progress.' }
+
+    committing.add(key)
+    try {
+      progress(threadId, 'pushing')
+      const pushed = await push(cwd, repository.backend)
+      if (!pushed.ok)
+        return {
+          ok: false,
+          pushed: false,
+          error: `Push failed: ${gitError(pushed, 'git push failed.')}`
+        }
+      return { ok: true, pushed: true }
+    } finally {
+      committing.delete(key)
+      phases.delete(threadId)
+      dependencies.onFinished?.(threadId, cwd)
+    }
+  }
+
+  return { commitThreadChanges: commit, pushThreadChanges: pushOnly, getCommitPhases: () => phases }
 }

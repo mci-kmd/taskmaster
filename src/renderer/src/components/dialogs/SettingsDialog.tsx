@@ -11,12 +11,24 @@ import {
   TextSetting,
   type SettingsSection
 } from '../settings/SettingsLayout'
+import { TaskmasterToolCheckboxes } from '../settings/TaskmasterToolSettings'
+import {
+  TASKMASTER_TOOL_KEYS,
+  TASKMASTER_TOOLS_HINT,
+  disabledToolsFromValues,
+  toolEnabledValues,
+  type TaskmasterToolKey
+} from '../settings/taskmaster-tool-values'
 import { useAutoSave, type AutoSaveResult } from '../settings/use-auto-save'
 import type { AppSettingsSnapshot, UpdateSettingsInput } from '../../../../shared/app-types'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
 import { DEFAULT_THEME } from '../../../../shared/themes'
 import LegacyModelsPicker from './LegacyModelsPicker'
 import { useDialogSession } from './use-dialog-session'
+
+type SettingsValues = Omit<UpdateSettingsInput, 'disabledTaskmasterTools'> & {
+  showAgentModePicker: boolean
+} & Record<TaskmasterToolKey, boolean>
 
 type SettingsDialogProps = {
   open: boolean
@@ -40,16 +52,26 @@ function SettingsDialogContent({
   onSave
 }: SettingsDialogProps): React.JSX.Element {
   const [sectionId, setSectionId] = useState('appearance')
-  const form = useAutoSave<UpdateSettingsInput & { showAgentModePicker: boolean }>({
+  const form = useAutoSave<SettingsValues>({
     initialValues: {
       yoloEnabled: settings.yoloEnabled,
       terminalFontFamilyInput: settings.terminalFontFamilyInput,
       taskTagsInput: settings.taskTagsInput,
       legacyCopilotModels: settings.legacyCopilotModels ?? [],
       theme: settings.theme ?? DEFAULT_THEME,
-      showAgentModePicker: settings.showAgentModePicker ?? false
+      showAgentModePicker: settings.showAgentModePicker ?? false,
+      ...toolEnabledValues(settings.disabledTaskmasterTools)
     },
-    save: (values) => onSave(values)
+    save: (values) =>
+      onSave({
+        yoloEnabled: values.yoloEnabled,
+        terminalFontFamilyInput: values.terminalFontFamilyInput,
+        taskTagsInput: values.taskTagsInput,
+        legacyCopilotModels: values.legacyCopilotModels,
+        theme: values.theme,
+        showAgentModePicker: values.showAgentModePicker,
+        disabledTaskmasterTools: disabledToolsFromValues(values)
+      })
   })
   const { values } = form
   const legacyModels = form.field('legacyCopilotModels')
@@ -111,6 +133,13 @@ function SettingsDialogContent({
           </SettingRow>
         </>
       )
+    },
+    {
+      id: 'tools',
+      label: 'Tools',
+      description: `Taskmaster tools Copilot can use. ${TASKMASTER_TOOLS_HINT} Projects can override them in Edit project.`,
+      hasError: form.hasErrors(TASKMASTER_TOOL_KEYS),
+      content: <TaskmasterToolCheckboxes field={(key) => form.field(key)} />
     },
     {
       id: 'terminal',

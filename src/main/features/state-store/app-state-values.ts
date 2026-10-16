@@ -8,6 +8,11 @@ import type {
 } from '../../../shared/app-types'
 import { isSameModelSelection, normalizeCommitMessageModel } from '../../../shared/commit'
 import {
+  normalizeDisabledTaskmasterTools,
+  normalizeTaskmasterToolOverrides,
+  sameTaskmasterToolSettings
+} from '../../../shared/copilot-tools'
+import {
   GENERAL_PROJECT_DEFAULTS,
   GENERAL_PROJECT_ID,
   isGeneralProject,
@@ -136,6 +141,9 @@ function normalizeGeneralProject(
       : [],
     normalizePersistedCompletedTasks(repository.completedTasks)
   )
+  const taskmasterToolOverrides = normalizeTaskmasterToolOverrides(
+    repository.taskmasterToolOverrides
+  )
   const normalized: PersistedRepository = {
     ...createGeneralProject(repository.addedAt, homePath),
     id: repository.id,
@@ -143,7 +151,8 @@ function normalizeGeneralProject(
     icon,
     iconColor,
     tasks,
-    ...(completedTasks ? { completedTasks } : {})
+    ...(completedTasks ? { completedTasks } : {}),
+    ...(taskmasterToolOverrides ? { taskmasterToolOverrides } : {})
   }
   return JSON.stringify(normalized) === JSON.stringify(repository) ? repository : normalized
 }
@@ -210,6 +219,15 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   const autoPushAfterCommit = rawAutoPush === true ? true : undefined
   const rawFavorite = (repository as { favorite?: unknown }).favorite
   const favorite = rawFavorite === true ? true : undefined
+  const rawToolOverrides = (repository as { taskmasterToolOverrides?: unknown })
+    .taskmasterToolOverrides
+  const normalizedToolOverrides = normalizeTaskmasterToolOverrides(rawToolOverrides)
+  const taskmasterToolOverrides = sameTaskmasterToolSettings(
+    normalizedToolOverrides,
+    rawToolOverrides
+  )
+    ? (rawToolOverrides as PersistedRepository['taskmasterToolOverrides'])
+    : normalizedToolOverrides
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const rawCompletedTasks = (repository as { completedTasks?: unknown }).completedTasks
   const { tasks, completedTasks } = assignTaskNumbers(
@@ -228,6 +246,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     commitMessageModel === rawCommitMessageModel &&
     autoPushAfterCommit === rawAutoPush &&
     favorite === rawFavorite &&
+    taskmasterToolOverrides === rawToolOverrides &&
     completedTasks === rawCompletedTasks &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
@@ -243,8 +262,10 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     autoPushAfterCommit: _autoPushAfterCommit,
     favorite: _favorite,
     completedTasks: _completedTasks,
+    taskmasterToolOverrides: _taskmasterToolOverrides,
     ...rest
   } = repository
+  void _taskmasterToolOverrides
   void _taskTagsInput
   void _previewUrl
   void _commitMessageModel
@@ -263,6 +284,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     ...(commitMessageModel === undefined ? {} : { commitMessageModel }),
     ...(autoPushAfterCommit === undefined ? {} : { autoPushAfterCommit }),
     ...(favorite === undefined ? {} : { favorite }),
+    ...(taskmasterToolOverrides === undefined ? {} : { taskmasterToolOverrides }),
     tasks,
     ...(completedTasks === undefined ? {} : { completedTasks })
   }
@@ -285,6 +307,13 @@ export function normalizePersistedSettings(
   const legacyCopilotModels = normalizeModelIds(settings.legacyCopilotModels)
   const theme = isThemeId(settings.theme) ? settings.theme : undefined
   const showAgentModePicker = settings.showAgentModePicker === true ? true : undefined
+  const normalizedDisabledTools = normalizeDisabledTaskmasterTools(settings.disabledTaskmasterTools)
+  const disabledTaskmasterTools = sameTaskmasterToolSettings(
+    normalizedDisabledTools,
+    settings.disabledTaskmasterTools
+  )
+    ? settings.disabledTaskmasterTools
+    : normalizedDisabledTools
 
   if (
     yoloEnabled === settings.yoloEnabled &&
@@ -293,7 +322,8 @@ export function normalizePersistedSettings(
     favoriteCopilotModels === settings.favoriteCopilotModels &&
     legacyCopilotModels === settings.legacyCopilotModels &&
     theme === settings.theme &&
-    showAgentModePicker === settings.showAgentModePicker
+    showAgentModePicker === settings.showAgentModePicker &&
+    disabledTaskmasterTools === settings.disabledTaskmasterTools
   ) {
     return settings
   }
@@ -310,6 +340,8 @@ export function normalizePersistedSettings(
   else delete normalized.theme
   if (showAgentModePicker) normalized.showAgentModePicker = true
   else delete normalized.showAgentModePicker
+  if (disabledTaskmasterTools) normalized.disabledTaskmasterTools = disabledTaskmasterTools
+  else delete normalized.disabledTaskmasterTools
   return normalized
 }
 
