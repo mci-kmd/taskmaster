@@ -147,7 +147,10 @@ async function listWorktrees(
     return [...remoteRefs].some((ref) => ref.replace(/^[^/]+\//u, '') === branchName)
   }
 
-  const repositoryThreads = state.threads.filter((thread) => thread.repositoryId === repository.id)
+  // Settled threads don't count as using a worktree, so it can be cleaned up.
+  const repositoryThreads = state.threads.filter(
+    (thread) => thread.repositoryId === repository.id && !thread.settledAt
+  )
   const entries = parseWorktreeList(listResult.stdout)
   const worktrees = await Promise.all(
     entries.map(async (entry, index): Promise<ListedWorktree> => {

@@ -149,6 +149,31 @@ describe('repository worktree service', () => {
     expect(refreshRepositoryGitState).toHaveBeenCalled()
   })
 
+  it('does not treat settled threads as using a worktree', async () => {
+    const { repo } = createRepository()
+    const path = addWorktree(repo, 'settled')
+    const thread = {
+      id: 't1',
+      repositoryId: 'repo-1',
+      customTitle: 'Done thread',
+      latestCopilotTitle: null,
+      branchName: 'settled',
+      worktreePath: path,
+      settledAt: '2026-01-02T00:00:00.000Z'
+    } as PersistedThread
+    const { service } = createService(repo, [thread])
+
+    const listed = await service.listRepositoryWorktrees('repo-1')
+    expect(
+      listed.ok && listed.worktrees.find((item) => item.branchName === 'settled')?.threadTitles
+    ).toEqual([])
+
+    await expect(
+      service.cleanupRepositoryWorktree({ repositoryId: 'repo-1', path })
+    ).resolves.toEqual({ ok: true })
+    expect(existsSync(path)).toBe(false)
+  })
+
   it('refuses to clean up worktrees that are pushed, dirty or the main checkout', async () => {
     const { repo } = createRepository()
     const pushed = addWorktree(repo, 'pushed')
