@@ -32,6 +32,8 @@ import type {
   UpdateThreadLastUserMessageInput,
   UpdateThreadResumeSessionInput,
   SetRepositoryFavoriteInput,
+  CleanupRepositoryWorktreeInput,
+  ListRepositoryWorktreesResult,
   UpdateRepositoryInput,
   UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
@@ -48,6 +50,8 @@ declare global {
     updateRepository: (input: UpdateRepositoryInput) => Promise<MutationResult>
     removeRepository: (repositoryId: string) => Promise<MutationResult>
     setRepositoryFavorite: (input: SetRepositoryFavoriteInput) => Promise<MutationResult>
+    listRepositoryWorktrees: (repositoryId: string) => Promise<ListRepositoryWorktreesResult>
+    cleanupRepositoryWorktree: (input: CleanupRepositoryWorktreeInput) => Promise<MutationResult>
     createRepositoryTask: (input: CreateRepositoryTaskInput) => Promise<MutationResult>
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) => Promise<MutationResult>
     reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => Promise<MutationResult>

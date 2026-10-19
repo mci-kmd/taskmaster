@@ -46,7 +46,7 @@ export class WorktreeCreationError extends Error {
   }
 }
 
-function worktreeGitArgs(backend: RepositoryBackend, args: string[]): string[] {
+export function worktreeGitArgs(backend: RepositoryBackend, args: string[]): string[] {
   return process.platform === 'win32' && backend.kind === 'native'
     ? ['-c', 'core.longpaths=true', ...args]
     : args

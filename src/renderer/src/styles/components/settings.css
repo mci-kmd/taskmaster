@@ -102,6 +102,32 @@
   .tm-setting-row[data-stacked='true'] {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  /* Project settings' worktree overview. */
+  .tm-worktree-list {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+  .tm-worktree-list[aria-busy='true'] {
+    opacity: 0.7;
+    transition: opacity var(--duration-fast) ease;
+  }
+  .tm-worktree-row {
+    padding: 10px 12px;
+  }
+  .tm-worktree-row + .tm-worktree-row {
+    border-top: 1px solid var(--color-border);
+  }
+  .tm-worktree-confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    background: var(--color-danger-soft);
+  }
   @media (max-width: 720px) {
     .tm-setting-row {
       grid-template-columns: minmax(0, 1fr);

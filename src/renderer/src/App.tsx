@@ -18,6 +18,7 @@ import {
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
   type AppSnapshot,
+  type CleanupRepositoryWorktreeInput,
   type ModelPerformanceSample,
   type MutationResult,
   type UsdDkkRate,
@@ -491,6 +492,15 @@ export default function App(): React.JSX.Element {
     [setSnapshot]
   )
 
+  const handleCleanupWorktree = useCallback(
+    async (input: CleanupRepositoryWorktreeInput): Promise<MutationResult> => {
+      const result = await api.appState.cleanupRepositoryWorktree(input)
+      if (result.snapshot) setSnapshot(result.snapshot)
+      return result
+    },
+    [setSnapshot]
+  )
+
   const handleRemoveRepository = useCallback(
     async (repositoryId: string): Promise<boolean> => {
       setBusyAction('remove-repository')
@@ -881,6 +891,8 @@ export default function App(): React.JSX.Element {
         onBrowseFavicon={handleBrowseRepositoryFavicon}
         onBrowseSolutionFile={handleBrowseRepositorySolutionFile}
         onClose={handleCloseRepositoryEditor}
+        onCleanupWorktree={handleCleanupWorktree}
+        onListWorktrees={api.appState.listRepositoryWorktrees}
         onRemove={handleRemoveRepository}
         onSave={handleSaveRepository}
         open={dialog === 'edit-repository'}

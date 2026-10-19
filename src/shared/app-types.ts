@@ -816,6 +816,33 @@ export interface SetRepositoryFavoriteInput {
   favorite: boolean
 }
 
+/** A git worktree of a project, as shown in the project settings' worktree overview. */
+export interface RepositoryWorktreeStatus {
+  path: string
+  /** Null when the worktree has a detached HEAD. */
+  branchName: string | null
+  /** The repository's own checkout, which can never be cleaned up. */
+  isMain: boolean
+  hasLocalBranch: boolean
+  /** The branch has a remote-tracking counterpart or a configured upstream. */
+  hasRemoteBranch: boolean
+  /** Null when the status could not be read. */
+  hasLocalChanges: boolean | null
+  locked: boolean
+  /** The worktree directory no longer exists; git reports it as prunable. */
+  missing: boolean
+  /** Titles of the threads working in this worktree. */
+  threadTitles: string[]
+}
+
+export type ListRepositoryWorktreesResult =
+  { ok: true; worktrees: RepositoryWorktreeStatus[] } | { ok: false; error: string }
+
+export interface CleanupRepositoryWorktreeInput {
+  repositoryId: string
+  path: string
+}
+
 export type ThreadCommitPhase = 'generating' | 'hook' | 'committing' | 'pushing'
 
 export interface ThreadCommitProgressEvent {

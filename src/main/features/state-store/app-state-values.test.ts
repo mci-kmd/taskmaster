@@ -228,6 +228,18 @@ describe('favorite project persistence', () => {
       normalizePersistedRepository({ ...repository('alpha'), favorite: 'yes' as never })
     ).not.toHaveProperty('favorite')
   })
+
+  it('keeps the general project favorite', () => {
+    const general: PersistedRepository = {
+      ...createGeneralProject(NOW(), '/home/me'),
+      favorite: true
+    }
+    const [normalized] = ensureGeneralProject([general], NOW, '/home/me')
+    expect(normalized).toBe(general)
+    expect(
+      ensureGeneralProject([{ ...general, favorite: 'yes' as never }], NOW, '/home/me')[0]
+    ).not.toHaveProperty('favorite')
+  })
 })
 
 describe('generated thread titles', () => {

@@ -19,10 +19,38 @@ import Button from '../../components/ui/Button'
 import type {
   AppSettingsSnapshot,
   RepositorySnapshot,
+  RepositoryWorktreeStatus,
   ThreadSnapshot
 } from '../../../../shared/app-types'
 import type { ThemeId } from '../../../../shared/themes'
 import type { GallerySection } from '../gallery-section'
+
+const worktree = (extra: Partial<RepositoryWorktreeStatus>): RepositoryWorktreeStatus => ({
+  path: 'C:\\Code\\taskmaster',
+  branchName: 'main',
+  isMain: false,
+  hasLocalBranch: true,
+  hasRemoteBranch: false,
+  hasLocalChanges: false,
+  locked: false,
+  missing: false,
+  threadTitles: [],
+  ...extra
+})
+
+const worktrees: RepositoryWorktreeStatus[] = [
+  worktree({ isMain: true, hasRemoteBranch: true, threadTitles: ['Restyle the settings dialog'] }),
+  worktree({
+    path: 'C:\\Code\\taskmaster.worktrees\\feature-theme-picker',
+    branchName: 'feature/theme-picker',
+    hasRemoteBranch: true,
+    hasLocalChanges: true
+  }),
+  worktree({
+    path: 'C:\\Code\\taskmaster.worktrees\\spike-sidebar',
+    branchName: 'spike/sidebar'
+  })
+]
 
 const settings: AppSettingsSnapshot = {
   yoloEnabled: true,
@@ -148,6 +176,11 @@ function Dialogs(): React.JSX.Element {
         onBrowseFavicon={async () => null}
         onBrowseSolutionFile={async () => null}
         onClose={close}
+        onCleanupWorktree={async () => ({ ok: false, error: 'Not available in the gallery.' })}
+        onListWorktrees={async () => {
+          await new Promise((resolve) => setTimeout(resolve, 400))
+          return { ok: true, worktrees }
+        }}
         onRemove={async () => false}
         onSave={async (input) =>
           input.previewUrl === 'localhost'

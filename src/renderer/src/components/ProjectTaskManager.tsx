@@ -173,6 +173,15 @@ export default function ProjectTaskManager({
   const [editingGithubIssue, setEditingGithubIssue] = useState('')
   const [optimisticOrder, setOptimisticOrder] = useState<OptimisticOrder | null>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  // Each view keeps its own scroll position across switches.
+  const scrollTopByView = useRef<Record<TaskView, number>>({ open: 0, completed: 0 })
+
+  useLayoutEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollTopByView.current[view]
+    }
+  }, [view])
 
   useEffect(() => {
     if (queryInput === query) {
@@ -233,8 +242,10 @@ export default function ProjectTaskManager({
   }
 
   const handleChangeView = (nextView: TaskView): void => {
+    if (scrollRef.current) {
+      scrollTopByView.current[view] = scrollRef.current.scrollTop
+    }
     setView(nextView)
-    setCompletedLimit(COMPLETED_PAGE_SIZE)
     setDragState(null)
     resetEditing()
   }
@@ -724,7 +735,7 @@ export default function ProjectTaskManager({
         : `${totalCount} completed · most recent first`
 
   return (
-    <div className="h-full overflow-y-auto p-5">
+    <div className="h-full overflow-y-auto p-5" ref={scrollRef}>
       <div className="mx-auto flex min-h-full w-full max-w-6xl flex-col gap-5">
         <div className="min-h-0 flex-1">
           <section>

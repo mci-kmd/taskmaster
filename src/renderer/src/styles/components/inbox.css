@@ -149,6 +149,9 @@
     color: var(--color-fg-subtle);
     font-weight: 450;
   }
+  .tm-inbox-item[data-suspended] .tm-inbox-actions {
+    flex-direction: row;
+  }
 
   /* The card's side slot: at-rest indicators (model family, checkout mode) and the hover
      actions share one cell, and cross-fade in place on hover, focus or an open menu. */

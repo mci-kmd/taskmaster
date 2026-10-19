@@ -39,6 +39,7 @@ import type {
   TerminalExitEvent,
   UpdateThreadLastUserMessageInput,
   SetRepositoryFavoriteInput,
+  CleanupRepositoryWorktreeInput,
   UpdateRepositoryInput,
   UpdateThreadInput,
   UpdateThreadCopilotTitleInput,
@@ -97,6 +98,10 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.removeRepository, repositoryId),
     setRepositoryFavorite: (input: SetRepositoryFavoriteInput) =>
       invokeIpc(IPC_CHANNELS.appState.setRepositoryFavorite, input),
+    listRepositoryWorktrees: (repositoryId: string) =>
+      invokeIpc(IPC_CHANNELS.appState.listRepositoryWorktrees, repositoryId),
+    cleanupRepositoryWorktree: (input: CleanupRepositoryWorktreeInput) =>
+      invokeIpc(IPC_CHANNELS.appState.cleanupRepositoryWorktree, input),
     createRepositoryTask: (input: CreateRepositoryTaskInput) =>
       invokeIpc(IPC_CHANNELS.appState.createRepositoryTask, input),
     completeRepositoryTask: (input: CompleteRepositoryTaskInput) =>

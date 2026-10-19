@@ -193,6 +193,18 @@ export default function InboxThreads({
                   <div className="tm-inbox-actions">
                     <Button
                       className="tm-inbox-action"
+                      data-action="settle"
+                      iconOnly
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => onSettleThread(thread.id, true)}
+                      aria-label={`Settle ${title}`}
+                      title="Settle thread"
+                    >
+                      <CheckIcon width={13} height={13} strokeWidth={1.8} />
+                    </Button>
+                    <Button
+                      className="tm-inbox-action"
                       data-action="unsuspend"
                       iconOnly
                       size="xs"

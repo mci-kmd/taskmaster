@@ -295,6 +295,25 @@ describe('ProjectTaskManager', () => {
     expect(screen.getByRole('heading', { name: 'Open tasks' })).toBeTruthy()
   })
 
+  it('keeps an independent scroll position for open and completed tasks', () => {
+    renderManager([task('open', 'Open task')], {}, [
+      completed('done', 'Done task', '2026-01-02T00:00:00.000Z')
+    ])
+    const scroller = screen.getByRole('heading', { name: 'Open tasks' }).closest('.overflow-y-auto')
+    if (!(scroller instanceof HTMLElement)) throw new Error('scroll container not found')
+
+    scroller.scrollTop = 120
+    fireEvent.click(screen.getByRole('button', { name: '1 completed task' }))
+    expect(scroller.scrollTop).toBe(0)
+
+    scroller.scrollTop = 40
+    fireEvent.click(screen.getByTitle('Back to open tasks'))
+    expect(scroller.scrollTop).toBe(120)
+
+    fireEvent.click(screen.getByRole('button', { name: '1 completed task' }))
+    expect(scroller.scrollTop).toBe(40)
+  })
+
   it('hides the completed tasks link when nothing has been completed', () => {
     renderManager([task('a', 'First')])
 

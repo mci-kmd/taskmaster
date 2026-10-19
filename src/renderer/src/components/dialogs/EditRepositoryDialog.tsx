@@ -47,6 +47,7 @@ import {
 import { useAutoSave, type AutoSaveField, type AutoSaveResult } from '../settings/use-auto-save'
 import CommitModelPicker from './CommitModelPicker'
 import { useDialogSession, useOpenValue } from './use-dialog-session'
+import WorktreeOverview, { type WorktreeOverviewProps } from './WorktreeOverview'
 
 type EditRepositoryDialogProps = {
   open: boolean
@@ -60,6 +61,8 @@ type EditRepositoryDialogProps = {
   /** Persists the project's settings; called automatically as settings change. */
   onSave: (input: UpdateRepositoryInput) => Promise<AutoSaveResult>
   onRemove: (repositoryId: string) => Promise<boolean>
+  onListWorktrees: WorktreeOverviewProps['onListWorktrees']
+  onCleanupWorktree: WorktreeOverviewProps['onCleanupWorktree']
   /** Tools turned off in Settings, so a project's Default choice can say what it means. */
   disabledTaskmasterTools?: readonly string[]
 }
@@ -200,6 +203,8 @@ function RepositorySettings({
   onBrowseSolutionFile,
   onSave,
   onRemove,
+  onListWorktrees,
+  onCleanupWorktree,
   disabledTaskmasterTools
 }: RepositorySettingsProps): React.JSX.Element {
   const [sectionId, setSectionId] = useState('general')
@@ -320,10 +325,15 @@ function RepositorySettings({
       id: 'worktrees',
       label: 'Worktrees',
       description:
-        "Optional scripts for worktree-backed threads. Both support the run command's tokens.",
+        "The project's git worktrees, and optional scripts for worktree-backed threads. Both scripts support the run command's tokens.",
       hasError: form.hasErrors(['newWorktreeSetupCommand', 'postWorktreeRemoveCommand']),
       content: (
         <>
+          <WorktreeOverview
+            onCleanupWorktree={onCleanupWorktree}
+            onListWorktrees={onListWorktrees}
+            repositoryId={repository.id}
+          />
           <TextAreaSetting
             field={form.field('newWorktreeSetupCommand')}
             hint="Runs in a new worktree once its branch and worktree are created."
@@ -332,7 +342,7 @@ function RepositorySettings({
           />
           <TextAreaSetting
             field={form.field('postWorktreeRemoveCommand')}
-            hint="Runs in the repository root after an owned worktree thread is closed and its branch deleted. Settling a thread never runs it."
+            hint="Runs in the repository root after an owned worktree thread is closed and its branch deleted, or after a worktree is cleaned up above. Settling a thread never runs it."
             label="Cleanup script"
             placeholder="docker volume rm myapp-{BRANCH-NAME-SAFE}-sql"
           />

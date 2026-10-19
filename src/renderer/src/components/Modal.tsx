@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { CloseIcon } from './Icons'
 import Button from './ui/Button'
 import { LeavingContext, useLastValue, usePresence } from '../lib/motion'
@@ -67,7 +68,9 @@ export default function Modal({
     return null
   }
 
-  return (
+  // Portaled to the body so no ancestor stacking context (e.g. the workspace card) can let
+  // app chrome such as the sidebar resize handle render or receive hover above the dialog.
+  return createPortal(
     <LeavingContext.Provider value={state === 'closed'}>
       <div
         aria-labelledby={titleId}
@@ -127,6 +130,7 @@ export default function Modal({
           ) : null}
         </div>
       </div>
-    </LeavingContext.Provider>
+    </LeavingContext.Provider>,
+    document.body
   )
 }

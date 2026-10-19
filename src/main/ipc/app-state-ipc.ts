@@ -25,6 +25,8 @@ import type {
   ThreadDiffSummaryResult,
   ThreadCommitResult,
   SetRepositoryFavoriteInput,
+  CleanupRepositoryWorktreeInput,
+  ListRepositoryWorktreesResult,
   UpdateRepositoryInput,
   UpdateRepositoryTaskInput,
   UpdateSettingsInput,
@@ -55,6 +57,8 @@ type AppStateIpcHandlers = {
   updateRepository: (input: UpdateRepositoryInput) => MutationResult
   removeRepository: (repositoryId: string) => Promise<MutationResult>
   setRepositoryFavorite: (input: SetRepositoryFavoriteInput) => MutationResult
+  listRepositoryWorktrees: (repositoryId: string) => Promise<ListRepositoryWorktreesResult>
+  cleanupRepositoryWorktree: (input: CleanupRepositoryWorktreeInput) => Promise<MutationResult>
   startThreadRun: (threadId: string) => MutationResult
   stopThreadRun: (threadId: string) => MutationResult
   updateThread: (input: UpdateThreadInput) => MutationResult
@@ -131,6 +135,13 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   handleIpc(
     IPC_CHANNELS.appState.setRepositoryFavorite,
     (_event, input: SetRepositoryFavoriteInput) => handlers.setRepositoryFavorite(input)
+  )
+  handleIpc(IPC_CHANNELS.appState.listRepositoryWorktrees, (_event, repositoryId: string) =>
+    handlers.listRepositoryWorktrees(repositoryId)
+  )
+  handleIpc(
+    IPC_CHANNELS.appState.cleanupRepositoryWorktree,
+    (_event, input: CleanupRepositoryWorktreeInput) => handlers.cleanupRepositoryWorktree(input)
   )
   handleIpc(IPC_CHANNELS.appState.startThreadRun, (_event, threadId: string) =>
     handlers.startThreadRun(threadId)

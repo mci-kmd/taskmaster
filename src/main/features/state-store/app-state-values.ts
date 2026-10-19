@@ -152,7 +152,8 @@ function normalizeGeneralProject(
     iconColor,
     tasks,
     ...(completedTasks ? { completedTasks } : {}),
-    ...(taskmasterToolOverrides ? { taskmasterToolOverrides } : {})
+    ...(taskmasterToolOverrides ? { taskmasterToolOverrides } : {}),
+    ...(repository.favorite === true ? { favorite: true } : {})
   }
   return JSON.stringify(normalized) === JSON.stringify(repository) ? repository : normalized
 }

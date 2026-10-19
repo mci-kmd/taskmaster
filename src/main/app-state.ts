@@ -3,6 +3,7 @@ import type { Tool } from '@github/copilot-sdk'
 import type {
   AppSnapshot,
   BranchStatusRequest,
+  CleanupRepositoryWorktreeInput,
   CompleteRepositoryTaskInput,
   ReopenRepositoryTaskInput,
   CopilotModelSelection,
@@ -43,6 +44,7 @@ import { createThreadTools } from './copilot/thread-tools'
 import { withToolAvailability } from './copilot/tool-availability'
 import { createRepositoryRemoveService } from './features/repositories/repository-remove-service'
 import { createRepositoryService } from './features/repositories/repository-service'
+import { createRepositoryWorktreeService } from './features/repositories/repository-worktree-service'
 import {
   buildRepositoryFaviconUrl,
   validateRepositoryFaviconAbsolutePath,
@@ -278,6 +280,15 @@ const repositoryRemoveService = createRepositoryRemoveService({
     threadRunService.stopThreadRunSession(threadId)
   }
 })
+const repositoryWorktreeService = createRepositoryWorktreeService({
+  ensureState,
+  findRepository,
+  successResult,
+  failureResult,
+  refreshRepositoryGitState: (repository) => {
+    repositoryGitStateService.getRepositoryGitState(repository, true)
+  }
+})
 const branchStatusService = createBranchStatusService({
   resolveBranchStatusContext: threadGitContextService.resolveBranchStatusContext
 })
@@ -364,6 +375,10 @@ export function registerAppStateIpc(): void {
       repositoryRemoveService.removeRepository(repositoryId),
     setRepositoryFavorite: (input: SetRepositoryFavoriteInput) =>
       repositoryService.setRepositoryFavorite(input),
+    listRepositoryWorktrees: (repositoryId: string) =>
+      repositoryWorktreeService.listRepositoryWorktrees(repositoryId),
+    cleanupRepositoryWorktree: (input: CleanupRepositoryWorktreeInput) =>
+      repositoryWorktreeService.cleanupRepositoryWorktree(input),
     startThreadRun: (threadId: string) => threadRunService.startThreadRun(threadId),
     stopThreadRun: (threadId: string) => threadRunService.stopThreadRun(threadId),
     updateThread: (input: UpdateThreadInput) => threadStateService.updateThread(input),

@@ -49,6 +49,8 @@ import type {
   TerminalExitEvent,
   TerminalLaunchResult,
   SetRepositoryFavoriteInput,
+  CleanupRepositoryWorktreeInput,
+  ListRepositoryWorktreesResult,
   UpdateRepositoryInput,
   UpdateRepositoryTaskInput,
   UpdateSettingsInput,
@@ -68,6 +70,8 @@ export const IPC_CHANNELS = {
     updateRepository: 'app-state:update-repository',
     removeRepository: 'app-state:remove-repository',
     setRepositoryFavorite: 'app-state:set-repository-favorite',
+    listRepositoryWorktrees: 'app-state:list-repository-worktrees',
+    cleanupRepositoryWorktree: 'app-state:cleanup-repository-worktree',
     createRepositoryTask: 'app-state:create-repository-task',
     completeRepositoryTask: 'app-state:complete-repository-task',
     reopenRepositoryTask: 'app-state:reopen-repository-task',
@@ -148,6 +152,14 @@ export type IpcInvokeDefinitions = {
   'app-state:remove-repository': { request: [string]; response: MutationResult }
   'app-state:set-repository-favorite': {
     request: [SetRepositoryFavoriteInput]
+    response: MutationResult
+  }
+  'app-state:list-repository-worktrees': {
+    request: [string]
+    response: ListRepositoryWorktreesResult
+  }
+  'app-state:cleanup-repository-worktree': {
+    request: [CleanupRepositoryWorktreeInput]
     response: MutationResult
   }
   'app-state:create-repository-task': {

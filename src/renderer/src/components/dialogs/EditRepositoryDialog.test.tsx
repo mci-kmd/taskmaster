@@ -99,6 +99,8 @@ function renderDialog(
     onBrowseSolutionFile: vi.fn(async () => null),
     onSave: vi.fn(async () => ({ ok: true })),
     onRemove: vi.fn(async () => true),
+    onListWorktrees: vi.fn(async () => ({ ok: true as const, worktrees: [] })),
+    onCleanupWorktree: vi.fn(async () => ({ ok: true })),
     ...props
   }
   render(<EditRepositoryDialog {...allProps} />)
