@@ -29,6 +29,8 @@ import type {
   UpdateThreadInput,
   UpdateThreadLastUserMessageInput,
   ThreadModel,
+  PersistedThread,
+  PersistedThreadAside,
   UpdateThreadResumeSessionInput,
   UpdateUiInput
 } from '../shared/app-types'
@@ -570,4 +572,77 @@ export function updateCopilotActivity(threadId: string): void {
   thread.lastActivityAt = nowIso()
   saveState()
   electronUi.broadcastThreadRunState(threadId)
+}
+
+export function getCopilotThreadAside(threadId: string): PersistedThreadAside | null {
+  return findThread(threadId)?.aside ?? null
+}
+
+export function setCopilotThreadAside(threadId: string, aside: PersistedThreadAside | null): void {
+  const thread = findThread(threadId)
+  if (!thread) return
+  if (aside) thread.aside = { ...aside }
+  else delete thread.aside
+  saveState()
+}
+
+function keepPinnedMessages(thread: PersistedThread, messageIds: string[] | null): void {
+  if (!thread.pinnedMessageIds || !messageIds) return
+  const kept = new Set(messageIds)
+  const pinned = thread.pinnedMessageIds.filter((id) => kept.has(id))
+  if (pinned.length) thread.pinnedMessageIds = pinned
+  else delete thread.pinnedMessageIds
+}
+
+/** Adds a thread continuing a fork of another thread's session, in the same checkout. */
+export function createForkedCopilotThread(input: {
+  sourceThreadId: string
+  sessionId: string
+  history: { lastUserMessage: string | null; messageIds: string[] } | null
+}): MutationResult {
+  const source = findThread(input.sourceThreadId)
+  if (!source) return failureResult('Thread not found.')
+  const createdAt = nowIso()
+  const thread: PersistedThread = {
+    id: randomUUID(),
+    repositoryId: source.repositoryId,
+    customTitle: `${threadDisplayName(source)} (fork)`,
+    latestCopilotTitle: source.latestCopilotTitle,
+    ...(source.generatedTitle ? { generatedTitle: source.generatedTitle } : {}),
+    lastUserMessage: input.history
+      ? normalizeTrackedText(input.history.lastUserMessage)
+      : source.lastUserMessage,
+    ...(source.lastModel ? { lastModel: { ...source.lastModel } } : {}),
+    mode: source.mode,
+    branchName: source.branchName,
+    worktreePath: source.worktreePath,
+    // The source thread keeps cleaning up the checkout; see the close service's hand-off.
+    ownsBranch: false,
+    ownsWorktree: false,
+    resumeSessionId: input.sessionId,
+    createdAt,
+    lastActivityAt: createdAt,
+    ...(source.pinnedMessageIds ? { pinnedMessageIds: [...source.pinnedMessageIds] } : {})
+  }
+  keepPinnedMessages(thread, input.history?.messageIds ?? null)
+  ensureState().threads.push(thread)
+  updateSelection(thread.repositoryId, thread.id)
+  saveState()
+  return successResult()
+}
+
+export function updateCopilotHistoryTruncated(
+  threadId: string,
+  history: { lastUserMessage: string | null; messageIds: string[] }
+): void {
+  const thread = findThread(threadId)
+  if (!thread) return
+  thread.lastUserMessage = normalizeTrackedText(history.lastUserMessage)
+  keepPinnedMessages(thread, history.messageIds)
+  saveState()
+  electronUi.broadcastThreadRunState(threadId)
+}
+
+export function confirmCopilotHistoryReset(): Promise<boolean> {
+  return electronUi.confirmResetConversation()
 }

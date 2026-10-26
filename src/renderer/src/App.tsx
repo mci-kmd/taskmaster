@@ -148,6 +148,28 @@ export default function App(): React.JSX.Element {
     },
     [applyMutation]
   )
+  const handleSetMessagePinned = useCallback(
+    async (threadId: string, messageId: string, pinned: boolean): Promise<void> => {
+      try {
+        await applyMutation(
+          api.appState.updateThread({ threadId, pinnedMessage: { messageId, pinned } })
+        )
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [applyMutation]
+  )
+  const handleForkThread = useCallback(
+    async (threadId: string, messageId?: string): Promise<void> => {
+      try {
+        await applyMutation(api.copilot.forkThread({ threadId, messageId }))
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [applyMutation]
+  )
 
   const [regeneratingTitleIds, setRegeneratingTitleIds] = useState<ReadonlySet<string>>(
     () => new Set()
@@ -782,6 +804,7 @@ export default function App(): React.JSX.Element {
           onConvertThreadToWorktree={(id) => void handleConvertThreadToWorktree(id)}
           onRegenerateTitle={(id) => void handleRegenerateTitle(id)}
           regeneratingTitleIds={regeneratingTitleIds}
+          onForkThread={(id) => void handleForkThread(id)}
           onToggleRepositoryFavorite={(repositoryId, favorite) =>
             void applyMutation(api.appState.setRepositoryFavorite({ repositoryId, favorite }))
           }
@@ -835,6 +858,8 @@ export default function App(): React.JSX.Element {
               onOpenSolutionInVisualStudio={() => void handleOpenSolutionInVisualStudio()}
               onRefresh={refreshSnapshot}
               onSessionsChange={handleSessionsChange}
+              onSetMessagePinned={handleSetMessagePinned}
+              onForkThread={handleForkThread}
               repositoryTaskBusy={
                 busyAction === 'create-task' ||
                 busyAction === 'complete-task' ||

@@ -331,6 +331,64 @@ describe('generated thread titles', () => {
       'workItems'
     )
   })
+
+  it('keeps valid pinned message ids and drops invalid ones', () => {
+    const base = normalizePersistedThread({
+      id: 't',
+      repositoryId: 'r',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01',
+      lastActivityAt: '2026-01-01'
+    })
+    const pinned = { ...base, pinnedMessageIds: ['assistant:a', 'assistant:b'] }
+    expect(normalizePersistedThread(pinned)).toBe(pinned)
+    expect(
+      normalizePersistedThread({
+        ...base,
+        pinnedMessageIds: ['assistant:a', '', 3, 'assistant:a', 'assistant:b'] as never
+      }).pinnedMessageIds
+    ).toEqual(['assistant:a', 'assistant:b'])
+    expect(
+      normalizePersistedThread({ ...base, pinnedMessageIds: 'x' as never })
+    ).not.toHaveProperty('pinnedMessageIds')
+    expect(normalizePersistedThread({ ...base, pinnedMessageIds: [] })).not.toHaveProperty(
+      'pinnedMessageIds'
+    )
+  })
+
+  it('keeps a valid aside and drops invalid ones', () => {
+    const base = normalizePersistedThread({
+      id: 't',
+      repositoryId: 'r',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01',
+      lastActivityAt: '2026-01-01'
+    })
+    const withAside = {
+      ...base,
+      aside: { sessionId: 's', baseEventId: 'e', createdAt: '2026-01-02' }
+    }
+    expect(normalizePersistedThread(withAside)).toBe(withAside)
+    expect(
+      normalizePersistedThread({ ...base, aside: { sessionId: 's', baseEventId: 3 } as never })
+        .aside
+    ).toEqual({ sessionId: 's', createdAt: new Date(0).toISOString() })
+    expect(
+      normalizePersistedThread({ ...base, aside: { sessionId: '' } as never })
+    ).not.toHaveProperty('aside')
+  })
 })
 
 describe('theme persistence', () => {

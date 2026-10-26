@@ -37,6 +37,8 @@ type SelectProps = {
   compact?: boolean
   /** Adds a star to each option, also toggled with `*` on the highlighted option. */
   onToggleFavorite?: (value: string, favorite: boolean) => void
+  /** Opens scrolled to the top (e.g. to show favorites) rather than at the selected option. */
+  opensAtTop?: boolean
 } & (
   | {
       value: string
@@ -63,7 +65,8 @@ export default function Select(props: SelectProps): React.JSX.Element {
     className = '',
     id,
     title,
-    onToggleFavorite
+    onToggleFavorite,
+    opensAtTop = false
   } = props
   const generatedId = useId()
   const listId = `${generatedId}-options`
@@ -75,6 +78,7 @@ export default function Select(props: SelectProps): React.JSX.Element {
   const [position, setPosition] = useState<CSSProperties>({})
   const [invalid, setInvalid] = useState(false)
   const search = useRef({ text: '', time: 0 })
+  const skipReveal = useRef(false)
   const values = Array.isArray(props.value) ? props.value : [props.value]
   const selected = options.filter((option) => values.includes(option.value))
   const query = props.editable ? String(props.value).toLowerCase() : ''
@@ -105,6 +109,7 @@ export default function Select(props: SelectProps): React.JSX.Element {
 
   function show(direction: 'first' | 'last' = 'first'): void {
     if (disabled || trigger.current?.matches(':disabled')) return
+    if (opensAtTop && !expanded) skipReveal.current = true
     setOpen(true)
     setActiveValue(
       selected.find((option) => !option.disabled)?.value ??
@@ -250,7 +255,16 @@ export default function Select(props: SelectProps): React.JSX.Element {
     }
   }, [expanded])
 
+  // A popup reopened while still fading out would otherwise keep its old scroll position.
+  useLayoutEffect(() => {
+    if (expanded && opensAtTop && popup.current) popup.current.scrollTop = 0
+  }, [expanded, opensAtTop])
+
   useEffect(() => {
+    if (skipReveal.current) {
+      skipReveal.current = false
+      return
+    }
     if (expanded && activeIndex >= 0)
       popup.current
         ?.querySelector(`[id="${listId}-${activeIndex}"]`)

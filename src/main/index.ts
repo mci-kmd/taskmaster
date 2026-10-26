@@ -17,7 +17,12 @@ import { excludeNetworkFromDiagnosticReports } from './diagnostic-reports'
 import { getTheme, type ThemeId } from '../shared/themes'
 import { registerTerminalIpc } from './terminal'
 import {
+  confirmCopilotHistoryReset,
   createCopilotSessionTools,
+  createForkedCopilotThread,
+  getCopilotThreadAside,
+  setCopilotThreadAside,
+  updateCopilotHistoryTruncated,
   getCommittingThreadNames,
   getThemeSetting,
   initializeAppState,
@@ -180,7 +185,12 @@ app.whenReady().then(() => {
     onTitleChanged: updateCopilotThreadTitle,
     onUserMessage: updateCopilotLastUserMessage,
     onActivity: updateCopilotActivity,
-    getSessionTools: createCopilotSessionTools
+    getSessionTools: createCopilotSessionTools,
+    getAside: getCopilotThreadAside,
+    setAside: setCopilotThreadAside,
+    createForkedThread: createForkedCopilotThread,
+    onHistoryTruncated: updateCopilotHistoryTruncated,
+    confirmReset: confirmCopilotHistoryReset
   })
   copilotSessionService = copilotService
   setLegacyModelsChangeListener(copilotService.refreshAllowedModels)

@@ -4,6 +4,7 @@ import { ChevronRightIcon } from '../Icons'
 import Presence from '../ui/Presence'
 import SessionTimelineItem, { SkillLine, ToolStatusDot } from './SessionTimelineItem'
 import { TOOL_STATUS_LABELS } from './tool-status'
+import { findTurnEnds } from './turn-ends'
 
 type ToolItem = Extract<CopilotTimelineItem, { type: 'tool' }>
 type SkillItem = Extract<CopilotTimelineItem, { type: 'skill' }>
@@ -113,7 +114,14 @@ const ToolGroup = memo(
 export default function SessionTimeline({
   items,
   animateInitial = false,
-  showAll = false
+  showAll = false,
+  pinnedIds,
+  onTogglePin,
+  onReset,
+  onFork,
+  running = false,
+  resetDisabled = false,
+  forkDisabled = false
 }: {
   items: CopilotTimelineItem[]
   /** Renders the whole history right away instead of filling older rows in while idle. */
@@ -123,7 +131,20 @@ export default function SessionTimeline({
    * history appears at once; only items that arrive afterwards animate.
    */
   animateInitial?: boolean
+  /** Ids of pinned Copilot messages. */
+  pinnedIds?: ReadonlySet<string>
+  /** Shows a pin toggle on Copilot messages; keep it stable so messages needn't re-render. */
+  onTogglePin?: (id: string, pinned: boolean) => void
+  /** Offers to cut the conversation back to the end of an earlier turn; keep it stable. */
+  onReset?: (id: string) => void
+  /** Offers to fork the conversation from the end of a turn; keep it stable. */
+  onFork?: (id: string) => void
+  /** Whether Copilot is working on the latest turn, which can't be forked from until it ends. */
+  running?: boolean
+  resetDisabled?: boolean
+  forkDisabled?: boolean
 }): React.JSX.Element {
+  const turnEnds = useMemo(() => findTurnEnds(items, running), [items, running])
   const rows = useMemo(() => {
     const result: TimelineRow[] = []
     for (const item of items) {
@@ -178,7 +199,17 @@ export default function SessionTimeline({
         ) : row.type === 'skills' ? (
           <SkillLine key={key} items={row.items} enter={enter} />
         ) : (
-          <SessionTimelineItem key={key} item={row.item} enter={enter} />
+          <SessionTimelineItem
+            key={key}
+            item={row.item}
+            enter={enter}
+            pinned={pinnedIds?.has(row.item.id) ?? false}
+            onTogglePin={onTogglePin}
+            onReset={turnEnds.get(row.item.id)?.reset ? onReset : undefined}
+            onFork={turnEnds.get(row.item.id)?.fork ? onFork : undefined}
+            resetDisabled={resetDisabled}
+            forkDisabled={forkDisabled}
+          />
         )
       })}
     </>

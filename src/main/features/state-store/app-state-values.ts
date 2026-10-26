@@ -4,6 +4,7 @@ import type {
   PersistedAppState,
   PersistedRepository,
   PersistedThread,
+  PersistedThreadAside,
   RepositoryBackend
 } from '../../../shared/app-types'
 import { isSameModelSelection, normalizeCommitMessageModel } from '../../../shared/commit'
@@ -39,7 +40,7 @@ import {
   normalizeRepositoryScript,
   normalizeRunCommand
 } from '../repositories/repository-values'
-import { normalizeTrackedText } from '../threads/thread-values'
+import { normalizePinnedMessageIds, normalizeTrackedText } from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
 export const STATE_VERSION = 17 as const
@@ -70,6 +71,8 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     typeof rawGeneratedTitle === 'string' ? normalizeCopilotTitle(rawGeneratedTitle) : null
   const lastModel = normalizeThreadModel(thread.lastModel)
   const workItems = normalizeThreadWorkItems(thread.workItems)
+  const pinnedMessageIds = normalizePinnedMessageIds(thread.pinnedMessageIds)
+  const aside = normalizeThreadAside(thread.aside)
 
   if (
     latestCopilotTitle === thread.latestCopilotTitle &&
@@ -79,25 +82,53 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     lastModel?.id === thread.lastModel?.id &&
     lastModel?.name === thread.lastModel?.name &&
     (workItems === undefined) === (thread.workItems === undefined) &&
-    sameThreadWorkItems(workItems, thread.workItems)
+    sameThreadWorkItems(workItems, thread.workItems) &&
+    (pinnedMessageIds === undefined
+      ? thread.pinnedMessageIds === undefined
+      : Array.isArray(thread.pinnedMessageIds) &&
+        thread.pinnedMessageIds.length === pinnedMessageIds.length &&
+        pinnedMessageIds.every((id, index) => thread.pinnedMessageIds?.[index] === id)) &&
+    (aside === undefined
+      ? thread.aside === undefined
+      : aside.sessionId === thread.aside?.sessionId &&
+        aside.baseEventId === thread.aside.baseEventId &&
+        aside.createdAt === thread.aside.createdAt &&
+        'baseEventId' in aside === 'baseEventId' in thread.aside)
   )
     return thread
   const {
     generatedTitle: _generatedTitle,
     lastModel: _lastModel,
     workItems: _workItems,
+    pinnedMessageIds: _pinnedMessageIds,
+    aside: _aside,
     ...rest
   } = thread
+  void _aside
   void _generatedTitle
   void _lastModel
   void _workItems
+  void _pinnedMessageIds
   return {
     ...rest,
     latestCopilotTitle,
     lastUserMessage,
     ...(generatedTitle ? { generatedTitle } : {}),
     ...(lastModel ? { lastModel } : {}),
-    ...(workItems ? { workItems } : {})
+    ...(workItems ? { workItems } : {}),
+    ...(pinnedMessageIds ? { pinnedMessageIds } : {}),
+    ...(aside ? { aside } : {})
+  }
+}
+
+function normalizeThreadAside(value: unknown): PersistedThreadAside | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const { sessionId, baseEventId, createdAt } = value as Record<string, unknown>
+  if (typeof sessionId !== 'string' || !sessionId.trim()) return undefined
+  return {
+    sessionId,
+    ...(typeof baseEventId === 'string' || baseEventId === null ? { baseEventId } : {}),
+    createdAt: typeof createdAt === 'string' ? createdAt : new Date(0).toISOString()
   }
 }
 

@@ -40,6 +40,8 @@ const harness = vi.hoisted(() => ({
   createSession: vi.fn(),
   ping: vi.fn(),
   forceStop: vi.fn(),
+  fork: vi.fn(),
+  truncate: vi.fn(),
   broadcast: vi.fn(),
   unsubscribe: vi.fn()
 }))
@@ -73,6 +75,7 @@ vi.mock('./copilot-sdk-manager', () => ({
           listModels = harness.listModels
           createSession = harness.createSession
           resumeSession = harness.createSession
+          rpc = { sessions: { fork: harness.fork } }
         }
       }
     })
@@ -158,6 +161,8 @@ beforeEach(() => {
   harness.listModels.mockResolvedValue([])
   harness.ping.mockResolvedValue({ message: 'pong', timestamp: '' })
   harness.forceStop.mockResolvedValue(undefined)
+  harness.fork.mockResolvedValue({ sessionId: 'forked-session' })
+  harness.truncate.mockResolvedValue({ eventsRemoved: 0 })
   harness.setModel.mockResolvedValue(undefined)
   harness.setAllowedModels.mockResolvedValue({})
   harness.send.mockResolvedValue('message-id')
@@ -178,7 +183,8 @@ beforeEach(() => {
         skills: { list: harness.listSkills },
         commands: { invoke: harness.invokeCommand },
         mcp: { list: harness.listMcpServers, oauth: { login: harness.mcpLogin } },
-        queue: { pendingItems: harness.pendingItems, removeAt: harness.removeAt }
+        queue: { pendingItems: harness.pendingItems, removeAt: harness.removeAt },
+        history: { truncate: harness.truncate }
       },
       on: (listener: (event: SessionEvent) => void) => {
         harness.listener = listener
@@ -1963,4 +1969,99 @@ it('expands multiple inline skills once each and preserves the surrounding reque
       displayPrompt: prompt
     })
   )
+})
+
+describe('resetting and forking conversations', () => {
+  const turns = (): SessionEvent[] => [
+    event('user.message', { content: 'First' }, { id: 'u1' }),
+    event('assistant.message', { messageId: 'a1', content: 'First answer' }, { id: 'e2' }),
+    event('session.idle', {}, { id: 'e3' }),
+    event('user.message', { content: 'Second' }, { id: 'u2' }),
+    event('assistant.message', { messageId: 'a2', content: 'Second answer' }, { id: 'e5' }),
+    event('session.idle', {}, { id: 'e6' })
+  ]
+
+  it('cuts the conversation after a turn once confirmed', async () => {
+    const history = turns()
+    harness.getEvents.mockResolvedValue(history)
+    const confirmReset = vi.fn(async () => false)
+    const onHistoryTruncated = vi.fn()
+    const service = setup(true, { confirmReset, onHistoryTruncated })
+    await service.start('thread')
+
+    const cancelled = await service.resetToMessage({
+      threadId: 'thread',
+      messageId: 'assistant:a1'
+    })
+    expect(cancelled).toMatchObject({ ok: false, cancelled: true })
+    expect(harness.truncate).not.toHaveBeenCalled()
+
+    confirmReset.mockResolvedValue(true)
+    harness.truncate.mockImplementation(async () => {
+      harness.getEvents.mockResolvedValue(history.slice(0, 3))
+    })
+    const result = await service.resetToMessage({ threadId: 'thread', messageId: 'assistant:a1' })
+    expect(harness.truncate).toHaveBeenCalledWith({ eventId: 'u2' })
+    expect(result.ok).toBe(true)
+    expect(result.snapshot?.timeline.map((item) => item.id)).toEqual(['user:u1', 'assistant:a1'])
+    expect(onHistoryTruncated).toHaveBeenCalledWith('thread', {
+      lastUserMessage: 'First',
+      messageIds: ['assistant:a1']
+    })
+  })
+
+  it("doesn't reset to the latest turn or while Copilot works", async () => {
+    harness.getEvents.mockResolvedValue(turns())
+    const service = setup(true, { confirmReset: async () => true })
+    await service.start('thread')
+    expect(
+      await service.resetToMessage({ threadId: 'thread', messageId: 'assistant:a2' })
+    ).toMatchObject({ ok: false, error: 'That message is already the latest one.' })
+    emit('assistant.turn_start', { turnId: 't' })
+    expect(service.getSession('thread')?.phase).toBe('running')
+    expect(
+      (await service.resetToMessage({ threadId: 'thread', messageId: 'assistant:a1' })).ok
+    ).toBe(false)
+    expect(harness.truncate).not.toHaveBeenCalled()
+  })
+
+  it('forks a thread from the end of a turn', async () => {
+    harness.getEvents.mockResolvedValue(turns())
+    const createForkedThread = vi.fn(() => ({ ok: true }))
+    const service = setup(true, { createForkedThread })
+    await service.start('thread')
+    expect(await service.forkThread({ threadId: 'thread', messageId: 'assistant:a1' })).toEqual({
+      ok: true
+    })
+    expect(harness.fork).toHaveBeenCalledWith({ sessionId: 'session-id', toEventId: 'u2' })
+    expect(createForkedThread).toHaveBeenCalledWith({
+      sourceThreadId: 'thread',
+      sessionId: 'forked-session',
+      history: { lastUserMessage: 'First', messageIds: ['assistant:a1'] }
+    })
+
+    await service.forkThread({ threadId: 'thread' })
+    expect(harness.fork).toHaveBeenLastCalledWith({ sessionId: 'session-id' })
+  })
+
+  it('starts an aside on a fork of the thread, leaving out what it inherited', async () => {
+    harness.getEvents.mockResolvedValue(turns())
+    let aside: PersistedThread['aside'] = undefined
+    const setAside = vi.fn((_threadId: string, value: PersistedThread['aside'] | null) => {
+      aside = value ?? undefined
+    })
+    const onSessionStarted = vi.fn()
+    const service = setup(true, { getAside: () => aside ?? null, setAside, onSessionStarted })
+    await service.start('thread')
+    harness.createSession.mockClear()
+
+    const result = await service.start('aside:thread')
+    expect(result.ok).toBe(true)
+    expect(harness.fork).toHaveBeenCalledWith({ sessionId: 'session-id' })
+    expect(aside).toMatchObject({ sessionId: 'session-id', baseEventId: 'e6' })
+    expect(result.snapshot?.timeline).toEqual([])
+    expect(result.snapshot?.title).toBeNull()
+    expect(onSessionStarted).toHaveBeenCalledTimes(1)
+    expect(harness.config?.tools).toBeUndefined()
+  })
 })

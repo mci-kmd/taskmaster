@@ -389,7 +389,14 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Regenerate title', 'Convert to work tree', 'Settle thread', 'Close thread'])
+    ).toEqual([
+      'Edit',
+      'Regenerate title',
+      'Fork thread',
+      'Convert to work tree',
+      'Settle thread',
+      'Close thread'
+    ])
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Edit' }))
     expect(handlers.onEditThread).toHaveBeenCalledWith('Newest')
     expect(screen.queryByRole('menu')).toBeNull()
@@ -460,6 +467,7 @@ describe('inbox', () => {
     ).toEqual([
       'Edit',
       'Regenerate title',
+      'Fork thread',
       'Convert to work tree',
       'Unsettle thread',
       'Close thread'
@@ -484,7 +492,7 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Regenerate title', 'Settle thread', 'Close thread'])
+    ).toEqual(['Edit', 'Regenerate title', 'Fork thread', 'Settle thread', 'Close thread'])
     fireEvent.keyDown(menu, { key: 'Escape' })
     rerender(
       <InboxThreads

@@ -68,7 +68,8 @@ export default function InboxThreads({
   closingThread,
   onToggleRepositoryFavorite,
   onRegenerateTitle,
-  regeneratingTitleIds
+  regeneratingTitleIds,
+  onForkThread
 }: {
   repositories: RepositorySnapshot[]
   selectedRepository: RepositorySnapshot | null
@@ -89,6 +90,7 @@ export default function InboxThreads({
   onToggleRepositoryFavorite?: (id: string, favorite: boolean) => void
   onRegenerateTitle?: (id: string) => void
   regeneratingTitleIds?: ReadonlySet<string>
+  onForkThread?: (id: string) => void
 }): React.JSX.Element {
   const [settledExpanded, setSettledExpanded] = useState(false)
 
@@ -106,6 +108,7 @@ export default function InboxThreads({
       onSelect: () => {
         if (action === 'edit') onEditThread(thread.id)
         else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
+        else if (action === 'fork-thread') onForkThread?.(thread.id)
         else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
         else if (action === 'settle-thread' || action === 'unsettle-thread')
           onSettleThread(thread.id, action === 'settle-thread')
@@ -318,6 +321,7 @@ export default function InboxThreads({
               value={selectedRepository?.id ?? repositories[0]?.id ?? ''}
               onChange={onSelectRepository}
               onToggleFavorite={onToggleRepositoryFavorite}
+              opensAtTop
               options={projectOptions(repositories).map((repository) => ({
                 value: repository.id,
                 label: repository.name,

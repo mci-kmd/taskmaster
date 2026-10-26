@@ -1,5 +1,13 @@
 import Select from './ui/Select'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState
+} from 'react'
 import { flushSync } from 'react-dom'
 import type {
   BranchStatusSnapshot,
@@ -17,7 +25,7 @@ import { getRendererApi } from '../shared/api/client'
 import type { ThreadSessionState } from './TerminalSessions'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
-import { PaperclipIcon } from './Icons'
+import { AsideIcon, CloseIcon, PaperclipIcon, RefreshIcon } from './Icons'
 import { canAnimate, usePresence } from '../lib/motion'
 import { usePresenceList } from '../lib/use-presence-list'
 import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
@@ -26,7 +34,7 @@ import SessionModelControls from './copilot/SessionModelControls'
 import SessionTimeline from './copilot/SessionTimeline'
 import { reconcileSessionSnapshot } from '../lib/session-snapshot'
 import PromptRail from './copilot/PromptRail'
-import type { RailPrompt } from './copilot/prompt-rail'
+import { messagePreview, type RailPrompt } from './copilot/prompt-rail'
 import SessionPromptInput from './copilot/SessionPromptInput'
 import SendButton from './copilot/SendButton'
 import CommitButton, { type CommitButtonAction } from './copilot/CommitButton'
@@ -44,6 +52,7 @@ import {
   type DraftAttachment
 } from './copilot/attachment-markers'
 import { stepReasoningEffort } from '../../../shared/reasoning-effort'
+import { asideSessionKey } from '../../../shared/aside'
 
 const api = getRendererApi()
 type Props = {
@@ -55,6 +64,17 @@ type Props = {
   legacyModels?: string[]
   /** Shows the agent mode picker; otherwise every message is sent in interactive mode. */
   showModePicker?: boolean
+  /** Pins or unpins a Copilot message; without it messages can't be pinned. */
+  onSetMessagePinned?: (messageId: string, pinned: boolean) => Promise<unknown> | void
+  /** Opens a new thread from the end of a message's turn, or from the latest turn without one. */
+  onForkThread?: (messageId?: string) => Promise<unknown> | void
+}
+type SessionViewProps = Props & {
+  /** The session shown: the thread's own by default, or its aside's. */
+  sessionKey: string
+  variant: 'thread' | 'aside'
+  /** The toggle for the thread's aside panel. */
+  aside?: { open: boolean; running: boolean; onToggle: () => void }
 }
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const WORKING_TREE_POLL_MS = 15_000
@@ -106,27 +126,212 @@ async function fileToAttachment(file: File): Promise<CopilotAttachment> {
   }
 }
 
+// Which threads have their aside panel open, so it stays open when switching threads and back.
+const openAsides = new Set<string>()
+
+/** Whether a thread's aside is working, for its toggle while the panel is closed. */
+function useAsideRunning(threadId: string, enabled: boolean): boolean {
+  const key = asideSessionKey(threadId)
+  const [state, setState] = useState<{ key: string; running: boolean } | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    let cancelled = false
+    let received = false
+    const unsubscribe = api.copilot.onSession(({ snapshot }) => {
+      if (snapshot.threadId !== key) return
+      received = true
+      setState({ key, running: snapshot.phase === 'running' })
+    })
+    void api.copilot
+      .getSession(key)
+      .then((snapshot) => {
+        if (!cancelled && !received) setState({ key, running: snapshot?.phase === 'running' })
+      })
+      .catch(() => {
+        /* Only the indicator depends on it. */
+      })
+    return () => {
+      cancelled = true
+      unsubscribe()
+    }
+  }, [key, enabled])
+  return enabled && state?.key === key && state.running
+}
+
 // Key the entire session lifecycle, including pending async work, to its thread.
 export default function CopilotThreadView(props: Props): React.JSX.Element {
-  return <SessionView key={props.thread.id} {...props} />
+  const threadId = props.thread.id
+  const [, rerender] = useReducer((count: number) => count + 1, 0)
+  const asideOpen = openAsides.has(threadId)
+  const setAsideOpen = useCallback(
+    (open: boolean) => {
+      if (open) openAsides.add(threadId)
+      else openAsides.delete(threadId)
+      rerender()
+    },
+    [threadId]
+  )
+  // Only a thread that has had an aside can have one working.
+  const asideRunning = useAsideRunning(threadId, Boolean(props.thread.aside))
+  return (
+    <div className="tm-session-host">
+      <SessionView
+        key={threadId}
+        {...props}
+        sessionKey={threadId}
+        variant="thread"
+        aside={{ open: asideOpen, running: asideRunning, onToggle: () => setAsideOpen(!asideOpen) }}
+      />
+      <AsidePanel
+        key={asideSessionKey(threadId)}
+        thread={props.thread}
+        open={asideOpen}
+        legacyModels={props.legacyModels}
+        onClose={() => setAsideOpen(false)}
+      />
+    </div>
+  )
+}
+
+const ignoreSessionChange = (): void => undefined
+
+/** A side conversation on a fork of the thread's session, sliding in over its right side. */
+function AsidePanel({
+  thread,
+  open,
+  legacyModels,
+  onClose
+}: {
+  thread: ThreadSnapshot
+  open: boolean
+  legacyModels?: string[]
+  onClose: () => void
+}): React.JSX.Element | null {
+  const presence = usePresence(open)
+  // Remounts the conversation once it starts over.
+  const [generation, setGeneration] = useState(0)
+  const [restarting, setRestarting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (!open) return
+    // Let the composer mount first.
+    const frame = requestAnimationFrame(() =>
+      panelRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
+    )
+    return () => cancelAnimationFrame(frame)
+  }, [open])
+  const startOver = (): void => {
+    if (restarting) return
+    setRestarting(true)
+    setError(null)
+    void api.copilot
+      .resetAside(thread.id)
+      .then((result) => {
+        if (!result.ok) setError(result.error ?? 'Could not start the aside over.')
+      })
+      .catch((cause) => setError(message(cause)))
+      .finally(() => {
+        setRestarting(false)
+        setGeneration((value) => value + 1)
+      })
+  }
+  if (!presence.mounted) return null
+  return (
+    <aside
+      ref={panelRef}
+      className="tm-aside"
+      data-state={presence.state}
+      aria-label="Aside"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && !event.defaultPrevented) {
+          event.preventDefault()
+          onClose()
+        }
+      }}
+    >
+      <header className="tm-aside-header">
+        <AsideIcon className="tm-aside-icon" aria-hidden="true" />
+        <div className="tm-aside-title">
+          <h2>Aside</h2>
+          <p>Talk about this thread without affecting it.</p>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          iconOnly
+          disabled={restarting}
+          aria-label="Start over"
+          title="Start over from the thread's conversation as it is now"
+          onClick={startOver}
+        >
+          <RefreshIcon aria-hidden="true" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          iconOnly
+          aria-label="Close aside"
+          title="Close aside (Esc)"
+          onClick={onClose}
+        >
+          <CloseIcon aria-hidden="true" />
+        </Button>
+      </header>
+      {error ? (
+        <div className="tm-aside-error" role="alert">
+          {error}
+        </div>
+      ) : null}
+      <div className="tm-aside-body">
+        {restarting ? (
+          <div className="tm-aside-restarting" role="status">
+            Starting over…
+          </div>
+        ) : (
+          <SessionView
+            key={generation}
+            thread={thread}
+            sessionKey={asideSessionKey(thread.id)}
+            variant="aside"
+            legacyModels={legacyModels}
+            onSessionChange={ignoreSessionChange}
+          />
+        )}
+      </div>
+    </aside>
+  )
 }
 
 function SessionView({
   thread,
+  sessionKey,
+  variant,
+  aside,
   onSessionChange,
   sharedCheckoutBusy = false,
   legacyModels,
-  showModePicker = false
-}: Props): React.JSX.Element {
+  showModePicker = false,
+  onSetMessagePinned,
+  onForkThread
+}: SessionViewProps): React.JSX.Element {
+  const isAside = variant === 'aside'
   const [session, setSession] = useState<CopilotSessionSnapshot | null>(null)
   const [sdk, setSdk] = useState<CopilotSdkStatus | null>(null)
   const [favoriteModels, setFavoriteModels] = useState<string[]>([])
-  const [draft, updateDraft] = useSessionDraft(thread.id)
+  const [draft, updateDraft] = useSessionDraft(sessionKey)
   const { prompt, attachments } = draft
   const agentMode = showModePicker
     ? (draft.agentMode ?? session?.agentMode ?? 'interactive')
     : 'interactive'
-  const [busy, setBusy] = useState<string | null>(null)
+  const [ownBusy, setBusy] = useState<string | null>(null)
+  // A commit or push started before this view opened (e.g. before switching threads away and
+  // back) keeps blocking the session just like one started here.
+  const [commitPhase, setCommitPhase] = useState<ThreadCommitPhase | null>(null)
+  const resumedCommitPhase = commitPhase === null ? (thread.commitPhase ?? null) : null
+  const busy = ownBusy ?? (resumedCommitPhase ? 'commit' : null)
+  const resumedCommitRef = useRef(false)
+  resumedCommitRef.current = resumedCommitPhase !== null
   const [delivery, setDelivery] = useState<CopilotSendDelivery>('steer')
   const [cancelling, setCancelling] = useState<string | null>(null)
   const busyRef = useRef(false)
@@ -148,11 +353,11 @@ function SessionView({
 
   const updateSession = useCallback(
     (next: CopilotSessionSnapshot): void => {
-      if (!mounted.current || next.threadId !== thread.id) return
+      if (!mounted.current || next.threadId !== sessionKey) return
       setSession((previous) => reconcileSessionSnapshot(previous, next))
-      onSessionChangeRef.current(thread.id, toCopilotThreadSessionState(next))
+      onSessionChangeRef.current(sessionKey, toCopilotThreadSessionState(next))
     },
-    [thread.id]
+    [sessionKey]
   )
 
   const acceptResult = useCallback(
@@ -166,7 +371,7 @@ function SessionView({
   )
 
   const run = useCallback(async (name: string, operation: () => Promise<void>): Promise<void> => {
-    if (busyRef.current) return
+    if (busyRef.current || resumedCommitRef.current) return
     busyRef.current = true
     setBusy(name)
     setError(null)
@@ -185,7 +390,7 @@ function SessionView({
     let cancelled = false
     let statusRevision = 0
     const unsubscribeSession = api.copilot.onSession(({ snapshot }) => {
-      if (snapshot.threadId !== thread.id) return
+      if (snapshot.threadId !== sessionKey) return
       sessionRevision.current++
       updateSession(snapshot)
     })
@@ -196,12 +401,12 @@ function SessionView({
     const revision = sessionRevision.current
     void (async () => {
       try {
-        const existing = await api.copilot.getSession(thread.id)
+        const existing = await api.copilot.getSession(sessionKey)
         if (cancelled) return
         if (existing && existing.phase !== 'disconnected') {
           if (revision === sessionRevision.current) updateSession(existing)
         } else {
-          const result = await api.copilot.start(thread.id)
+          const result = await api.copilot.start(sessionKey)
           if (!cancelled) acceptResult(result, revision)
         }
       } catch (cause) {
@@ -222,7 +427,7 @@ function SessionView({
       unsubscribeSession()
       unsubscribeStatus()
     }
-  }, [thread.id, updateSession, acceptResult])
+  }, [sessionKey, updateSession, acceptResult])
 
   useEffect(() => {
     let cancelled = false
@@ -264,19 +469,19 @@ function SessionView({
   // Whether this conversation started out empty, so its first items animate in. Loaded
   // history appears at once.
   const [startedEmptyThread, setStartedEmptyThread] = useState<string | null>(null)
-  if (historyLoaded && !hasTimeline && startedEmptyThread !== thread.id)
-    setStartedEmptyThread(thread.id)
-  const startedEmpty = startedEmptyThread === thread.id
+  if (historyLoaded && !hasTimeline && startedEmptyThread !== sessionKey)
+    setStartedEmptyThread(sessionKey)
+  const startedEmpty = startedEmptyThread === sessionKey
   // The prompt rail can jump to a prompt the progressive history hasn't rendered yet.
   const [revealedThread, setRevealedThread] = useState<string | null>(null)
   const revealHistory = useCallback(() => {
-    flushSync(() => setRevealedThread(thread.id))
-  }, [thread.id])
+    flushSync(() => setRevealedThread(sessionKey))
+  }, [sessionKey])
   const emptyState = usePresence(Boolean(session && session.phase !== 'connecting') && !hasTimeline)
   const mcpNotices = usePresenceList(
     session?.mcpServersNeedingAuth ?? NONE,
     (serverName: string) => serverName,
-    thread.id
+    sessionKey
   )
 
   const prompts = useMemo(
@@ -290,9 +495,75 @@ function SessionView({
   // thread opens with several (that would shift the whole history sideways).
   const [railAtLoad, setRailAtLoad] = useState<boolean | null>(null)
   if (session && railAtLoad === null) setRailAtLoad(prompts.length >= 2)
+
+  // Pins show at once and settle when the saved snapshot arrives.
+  const [pinOverrides, setPinOverrides] = useState<ReadonlyMap<string, boolean>>(() => new Map())
+  const savedPins = isAside ? undefined : thread.pinnedMessageIds
+  const pinnedIds = useMemo(() => {
+    const ids = new Set(savedPins ?? NONE)
+    for (const [id, pinned] of pinOverrides) {
+      if (pinned) ids.add(id)
+      else ids.delete(id)
+    }
+    return ids
+  }, [savedPins, pinOverrides])
+  const pins = useMemo(
+    () =>
+      (session?.timeline ?? []).filter(
+        (item): item is typeof item & RailPrompt =>
+          item.type === 'assistant' && pinnedIds.has(item.id)
+      ),
+    [session?.timeline, pinnedIds]
+  )
+  const [pinsAtLoad, setPinsAtLoad] = useState<boolean | null>(null)
+  if (session && pinsAtLoad === null) setPinsAtLoad(pins.length > 0)
+  const pinRef = useRef(onSetMessagePinned)
+  useLayoutEffect(() => {
+    pinRef.current = onSetMessagePinned
+  })
+  const togglePin = useCallback((messageId: string, pinned: boolean) => {
+    const save = pinRef.current
+    if (!save) return
+    setPinOverrides((current) => new Map(current).set(messageId, pinned))
+    const settle = (): void =>
+      setPinOverrides((current) => {
+        if (current.get(messageId) !== pinned) return current
+        const next = new Map(current)
+        next.delete(messageId)
+        return next
+      })
+    void (async () => {
+      try {
+        await save(messageId, pinned)
+      } finally {
+        settle()
+      }
+    })().catch(() => {})
+  }, [])
   const stopFollowing = useCallback(() => {
     followOutput.current = false
   }, [])
+  const resetToMessage = useCallback(
+    (messageId: string) =>
+      void run('reset', async () => {
+        const revision = sessionRevision.current
+        const result = await api.copilot.resetToMessage({ threadId: sessionKey, messageId })
+        if (result.cancelled) return
+        acceptResult(result, revision)
+      }),
+    [run, acceptResult, sessionKey]
+  )
+  const forkRef = useRef(onForkThread)
+  useLayoutEffect(() => {
+    forkRef.current = onForkThread
+  })
+  const forkFromMessage = useCallback(
+    (messageId: string) =>
+      void run('fork', async () => {
+        await forkRef.current?.(messageId)
+      }),
+    [run]
+  )
 
   // Following output glides towards the end a frame at a time; scroll events at the positions
   // it sets are its own, so they don't count as the user scrolling away.
@@ -411,7 +682,7 @@ function SessionView({
   }
   const attachRef = useRef(attach)
   attachRef.current = attach
-  useEffect(() => registerComposer(thread.id, (added) => attachRef.current(added)), [thread.id])
+  useEffect(() => registerComposer(sessionKey, (added) => attachRef.current(added)), [sessionKey])
   const addFiles = (files: File[], replaceSelection = false): void => {
     if (busyRef.current) {
       setError('Wait for the current action to finish, then attach your files again.')
@@ -440,7 +711,7 @@ function SessionView({
       const revision = sessionRevision.current
       const message = expandPastedText(prompt, attachments)
       const result = await api.copilot.send({
-        threadId: thread.id,
+        threadId: sessionKey,
         prompt: message.prompt.trim(),
         attachments: message.attachments,
         agentMode,
@@ -484,7 +755,7 @@ function SessionView({
     void (async () => {
       try {
         const revision = sessionRevision.current
-        acceptResult(await api.copilot.cancelQueued({ threadId: thread.id, queuedId }), revision)
+        acceptResult(await api.copilot.cancelQueued({ threadId: sessionKey, queuedId }), revision)
       } catch (cause) {
         if (mounted.current) setError(message(cause))
       } finally {
@@ -495,7 +766,7 @@ function SessionView({
   const start = (): void => {
     void run('start', async () => {
       const revision = sessionRevision.current
-      acceptResult(await api.copilot.start(thread.id), revision)
+      acceptResult(await api.copilot.start(sessionKey), revision)
     })
   }
   const respond = (response: CopilotInteractionResponse): void => {
@@ -508,7 +779,7 @@ function SessionView({
   const signInToMcpServer = (serverName: string): void => {
     void run(`mcp-auth:${serverName}`, async () => {
       const revision = sessionRevision.current
-      const result = await api.copilot.authenticateMcpServer({ threadId: thread.id, serverName })
+      const result = await api.copilot.authenticateMcpServer({ threadId: sessionKey, serverName })
       acceptResult(result, revision)
     })
   }
@@ -518,7 +789,7 @@ function SessionView({
     setStopping(true)
     setError(null)
     try {
-      if (!(await api.copilot.abort(thread.id)))
+      if (!(await api.copilot.abort(sessionKey)))
         throw new Error('This session is no longer running.')
     } catch (cause) {
       if (mounted.current) setError(message(cause))
@@ -531,7 +802,7 @@ function SessionView({
     void run('model', async () => {
       const revision = sessionRevision.current
       acceptResult(
-        await api.copilot.setModel({ threadId: thread.id, model, reasoningEffort }),
+        await api.copilot.setModel({ threadId: sessionKey, model, reasoningEffort }),
         revision
       )
     })
@@ -559,10 +830,9 @@ function SessionView({
     if (next) changeModel(model.id, next)
   }
 
-  const usesGit = thread.projectKind !== 'general'
+  const usesGit = !isAside && thread.projectKind !== 'general'
   const idle = session?.phase === 'idle'
   const [workingTree, setWorkingTree] = useState<BranchStatusSnapshot | null>(null)
-  const [commitPhase, setCommitPhase] = useState<ThreadCommitPhase | null>(null)
   const commitActive = useRef(false)
   const workingTreeRevision = useRef(0)
   const refreshWorkingTree = useCallback(async (): Promise<void> => {
@@ -595,12 +865,28 @@ function SessionView({
       }),
     [thread.id]
   )
+  // Once a resumed commit finishes, check what's left to commit or push.
+  const resumedCommit = resumedCommitPhase !== null
+  useEffect(() => {
+    if (!resumedCommit) return
+    return () => void refreshWorkingTree()
+  }, [resumedCommit, refreshWorkingTree])
   const canCommit = usesGit && ready && !sharedCheckoutBusy && hasChanges(workingTree)
   const canPush = usesGit && ready && !sharedCheckoutBusy && (workingTree?.ahead ?? 0) > 0
   const [commitAction, setCommitAction] = useState<CommitButtonAction>('commit')
+  const shownPhase = commitPhase ?? resumedCommitPhase
   const shownAction: CommitButtonAction =
-    commitPhase !== null ? commitAction : canCommit ? 'commit' : 'push'
-  const showCommit = commitPhase !== null || canCommit || canPush
+    commitPhase !== null
+      ? commitAction
+      : resumedCommitPhase !== null
+        ? // Pushing without auto-push can only be a plain push.
+          resumedCommitPhase === 'pushing' && !thread.commitAutoPush
+          ? 'push'
+          : 'commit'
+        : canCommit
+          ? 'commit'
+          : 'push'
+  const showCommit = shownPhase !== null || canCommit || canPush
   const commitDisabledReason =
     (workingTree?.conflicted ?? 0) > 0 && shownAction === 'commit'
       ? 'Resolve merge conflicts before committing'
@@ -608,7 +894,7 @@ function SessionView({
         ? 'Wait for the current action to finish'
         : null
   const commit = (): void => {
-    if (!canCommit || commitPhase || commitDisabledReason || busyRef.current) return
+    if (!canCommit || shownPhase || commitDisabledReason || busyRef.current) return
     setCommitAction('commit')
     commitActive.current = true
     setCommitPhase('generating')
@@ -626,7 +912,7 @@ function SessionView({
     })
   }
   const push = (): void => {
-    if (!canPush || commitPhase || busy || busyRef.current) return
+    if (!canPush || shownPhase || busy || busyRef.current) return
     setCommitAction('push')
     commitActive.current = true
     setCommitPhase('pushing')
@@ -647,6 +933,7 @@ function SessionView({
   const pushRef = useRef(push)
   pushRef.current = push
   useEffect(() => {
+    if (isAside) return
     const handler = (event: KeyboardEvent): void => {
       const key = event.key.toLowerCase()
       if (
@@ -666,7 +953,7 @@ function SessionView({
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [])
+  }, [isAside])
   const status = stopping
     ? 'Stopping…'
     : busy === 'start'
@@ -722,12 +1009,14 @@ function SessionView({
       </span>
       <div className="relative min-h-0 flex-1">
         <div
-          className={
-            prompts.length >= 2
-              ? 'tm-session-scroll tm-session-scroll--with-rail'
-              : 'tm-session-scroll'
-          }
-          data-rail-motion={railAtLoad === false || undefined}
+          className={[
+            'tm-session-scroll',
+            prompts.length >= 2 ? 'tm-session-scroll--with-rail' : '',
+            pins.length > 0 ? 'tm-session-scroll--with-pins' : ''
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          data-rail-motion={railAtLoad === false || pinsAtLoad === false || undefined}
           ref={timelineRef}
           role="region"
           aria-label="Conversation"
@@ -752,6 +1041,7 @@ function SessionView({
               <EmptyConversation
                 data-motion="fade"
                 data-state={emptyState.state}
+                variant={variant}
                 onSuggest={(suggestion) => {
                   updateDraft((current) => ({ ...current, prompt: suggestion }))
                   promptRef.current?.focus()
@@ -762,8 +1052,15 @@ function SessionView({
               <SessionTimeline
                 animateInitial={startedEmpty}
                 items={session.timeline}
-                key={thread.id}
-                showAll={revealedThread === thread.id}
+                key={sessionKey}
+                showAll={revealedThread === sessionKey}
+                pinnedIds={pinnedIds}
+                onTogglePin={!isAside && onSetMessagePinned ? togglePin : undefined}
+                running={running}
+                onReset={isAside ? undefined : resetToMessage}
+                onFork={!isAside && onForkThread ? forkFromMessage : undefined}
+                resetDisabled={!ready || Boolean(busy)}
+                forkDisabled={Boolean(busy) || stopping}
               />
             ) : null}
             <Presence show={running} motion="collapse">
@@ -783,6 +1080,18 @@ function SessionView({
           onNavigate={stopFollowing}
           onRevealHistory={revealHistory}
         />
+        <PromptRail
+          prompts={pins}
+          scrollRef={timelineRef}
+          onNavigate={stopFollowing}
+          onRevealHistory={revealHistory}
+          side="right"
+          label="Pinned messages"
+          itemName="Pinned message"
+          targetAttribute="data-message-id"
+          minItems={1}
+          preview={messagePreview}
+        />
         <Presence show={!atBottom} motion="rise">
           <Button size="sm" className="tm-session-jump" onClick={() => jumpToLatest('jump')}>
             ↓ Jump to latest
@@ -790,7 +1099,7 @@ function SessionView({
         </Presence>
       </div>
       <div className="tm-session-bottom">
-        <Presence show={Boolean(sdk?.updateAvailable)} motion="collapse">
+        <Presence show={!isAside && Boolean(sdk?.updateAvailable)} motion="collapse">
           <div className="tm-session-slot flex justify-end">
             <Button
               disabled={
@@ -813,7 +1122,7 @@ function SessionView({
                       `Finish or stop these sessions before updating: ${status.blockingThreads.map((item) => item.title).join(', ')}`
                     )
                   const revision = sessionRevision.current
-                  acceptResult(await api.copilot.start(thread.id), revision)
+                  acceptResult(await api.copilot.start(sessionKey), revision)
                 })
               }
             >
@@ -903,7 +1212,7 @@ function SessionView({
                   <div className="tm-fade-in" key={session.pendingInteraction.id}>
                     <InteractionPanel
                       interaction={session.pendingInteraction}
-                      threadId={thread.id}
+                      threadId={sessionKey}
                       onRespond={respond}
                       busy={Boolean(busy) || stopping}
                     />
@@ -929,7 +1238,7 @@ function SessionView({
             }
           />
           <SessionPromptInput
-            threadId={thread.id}
+            threadId={sessionKey}
             sessionId={session?.sessionId ?? null}
             connected={session?.phase === 'idle' || session?.phase === 'running'}
             inputRef={promptRef}
@@ -974,6 +1283,21 @@ function SessionView({
             >
               <PaperclipIcon aria-hidden="true" />
             </Button>
+            {aside ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                iconOnly
+                className="tm-aside-toggle"
+                aria-pressed={aside.open}
+                aria-label={aside.open ? 'Close aside' : 'Open aside'}
+                title="Aside: talk about this thread without affecting it"
+                data-running={aside.running || undefined}
+                onClick={aside.onToggle}
+              >
+                <AsideIcon aria-hidden="true" />
+              </Button>
+            ) : null}
             {showModePicker ? (
               <label className="tm-session-setting" title="Mode for your next message">
                 <span>Mode</span>
@@ -1033,7 +1357,7 @@ function SessionView({
               </Presence>
               <Presence show={showCommit} motion="pop">
                 <CommitButton
-                  phase={commitPhase}
+                  phase={shownPhase}
                   action={shownAction}
                   autoPush={thread.commitAutoPush}
                   disabledReason={commitDisabledReason}

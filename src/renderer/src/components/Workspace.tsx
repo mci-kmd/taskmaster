@@ -31,6 +31,7 @@ import {
 } from './Icons'
 import { composeThreadTitle } from '../lib/title'
 import { COPILOT_LABEL } from '../../../shared/copilot'
+import { isAsideSessionKey } from '../../../shared/aside'
 import { getRendererApi } from '../shared/api/client'
 import { useBranchStatus } from '../shared/hooks/use-branch-status'
 import {
@@ -72,6 +73,12 @@ type WorkspaceProps = {
   onOpenWorkingDirectoryInVscode: () => void
   onOpenSolutionInVisualStudio: () => void
   onSessionsChange: (sessions: SessionMap) => void
+  onSetMessagePinned?: (
+    threadId: string,
+    messageId: string,
+    pinned: boolean
+  ) => Promise<unknown> | void
+  onForkThread?: (threadId: string, messageId?: string) => Promise<unknown> | void
 }
 
 type ThreadWorkspaceViewId = 'copilot' | 'preview' | 'terminal' | 'diff'
@@ -300,7 +307,9 @@ export default function Workspace({
   onOpenWorkingDirectory,
   onOpenWorkingDirectoryInVscode,
   onOpenSolutionInVisualStudio,
-  onSessionsChange
+  onSessionsChange,
+  onSetMessagePinned,
+  onForkThread
 }: WorkspaceProps): React.JSX.Element {
   const terminalSessionsRef = useRef<TerminalSessionsHandle | null>(null)
   const [customCopilotSessions, setCustomCopilotSessions] = useState<SessionMap>(new Map())
@@ -334,6 +343,22 @@ export default function Workspace({
     setTerminalSessions(next)
   }, [])
 
+  const pinThreadId = selectedThread?.id ?? null
+  const handleSetMessagePinned = useMemo(
+    () =>
+      onSetMessagePinned && pinThreadId
+        ? (messageId: string, pinned: boolean) => onSetMessagePinned(pinThreadId, messageId, pinned)
+        : undefined,
+    [onSetMessagePinned, pinThreadId]
+  )
+  const handleForkThread = useMemo(
+    () =>
+      onForkThread && pinThreadId
+        ? (messageId?: string) => onForkThread(pinThreadId, messageId)
+        : undefined,
+    [onForkThread, pinThreadId]
+  )
+
   const handleCustomCopilotSessionChange = useCallback(
     (threadId: string, state: ThreadSessionState): void => {
       setCustomCopilotSessions((current) => {
@@ -357,6 +382,8 @@ export default function Workspace({
 
   useEffect(() => {
     return api.copilot.onSession(({ snapshot }) => {
+      // Asides are side conversations; they don't change their thread's status.
+      if (isAsideSessionKey(snapshot.threadId)) return
       handleCustomCopilotSessionChange(snapshot.threadId, toCopilotThreadSessionState(snapshot))
     })
   }, [handleCustomCopilotSessionChange])
@@ -630,6 +657,8 @@ export default function Workspace({
                   <LazyCopilotThreadView
                     legacyModels={settings.legacyCopilotModels}
                     onSessionChange={handleCustomCopilotSessionChange}
+                    onSetMessagePinned={handleSetMessagePinned}
+                    onForkThread={handleForkThread}
                     sharedCheckoutBusy={sharedCheckoutBusy}
                     showModePicker={settings.showAgentModePicker}
                     thread={selectedThread}
@@ -646,6 +675,8 @@ export default function Workspace({
                   <LazyThreadPreviewView
                     legacyModels={settings.legacyCopilotModels}
                     onSessionChange={handleCustomCopilotSessionChange}
+                    onSetMessagePinned={handleSetMessagePinned}
+                    onForkThread={handleForkThread}
                     previewUrl={selectedPreviewUrl}
                     sharedCheckoutBusy={sharedCheckoutBusy}
                     showModePicker={settings.showAgentModePicker}

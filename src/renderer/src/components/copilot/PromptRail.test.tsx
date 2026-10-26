@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { useRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import PromptRail from './PromptRail'
-import { promptPreview, type RailPrompt } from './prompt-rail'
+import { messagePreview, promptPreview, type RailPrompt } from './prompt-rail'
 
 afterEach(cleanup)
 
@@ -60,6 +60,52 @@ function layOut(scrollTop = 0): HTMLElement {
 it('hides the rail when the thread has fewer than two prompts', () => {
   render(<Harness items={prompts.slice(0, 1)} />)
   expect(screen.queryByRole('navigation')).toBeNull()
+})
+
+it('lists pinned messages at the right edge, even a single one', () => {
+  const content = '## **Plan**: use `foo`'
+  function Pins(): React.JSX.Element {
+    const scrollRef = useRef<HTMLDivElement>(null)
+    return (
+      <div>
+        <div data-testid="timeline" ref={scrollRef}>
+          <article data-message-id="m1">{content}</article>
+        </div>
+        <PromptRail
+          prompts={[{ id: 'm1', content }]}
+          scrollRef={scrollRef}
+          side="right"
+          label="Pinned messages"
+          itemName="Pinned message"
+          targetAttribute="data-message-id"
+          minItems={1}
+          preview={messagePreview}
+        />
+      </div>
+    )
+  }
+  const { container } = render(<Pins />)
+  expect(container.querySelector('.tm-prompt-rail')?.getAttribute('data-side')).toBe('right')
+  const timeline = layOut(0)
+  timeline.querySelector<HTMLElement>('[data-message-id]')!.getBoundingClientRect = () =>
+    rect(500, 100)
+  const scrollTo = vi.fn()
+  timeline.scrollTo = scrollTo as typeof timeline.scrollTo
+  fireEvent.click(
+    within(screen.getByRole('navigation', { name: 'Pinned messages' })).getByRole('button', {
+      name: 'Pinned message 1 of 1: Plan: use foo'
+    })
+  )
+  expect(scrollTo).toHaveBeenCalled()
+})
+
+it('previews Markdown messages without their syntax', () => {
+  expect(
+    messagePreview({
+      id: 'm',
+      content: '# Title\n\n- **Bold** item with [a link](https://x.y)\n```ts\nconst a = 1\n```'
+    })
+  ).toBe('Title Bold item with a link const a = 1')
 })
 
 it('previews prompts on one line with attachments named', () => {

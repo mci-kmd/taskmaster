@@ -3,6 +3,8 @@ import type {
   BranchStatusRequest,
   BranchStatusSnapshot,
   CopilotCancelQueuedInput,
+  CopilotForkThreadInput,
+  CopilotMessageActionInput,
   CopilotInteractionResponse,
   CopilotListModelsResult,
   CopilotMcpAuthInput,
@@ -127,6 +129,9 @@ export const IPC_CHANNELS = {
     listSkills: 'copilot:list-skills',
     send: 'copilot:send',
     cancelQueued: 'copilot:cancel-queued',
+    resetToMessage: 'copilot:reset-to-message',
+    forkThread: 'copilot:fork-thread',
+    resetAside: 'copilot:reset-aside',
     abort: 'copilot:abort',
     setModel: 'copilot:set-model',
     getFavoriteModels: 'copilot:get-favorite-models',
@@ -263,6 +268,9 @@ export type IpcInvokeDefinitions = {
   'copilot:list-skills': { request: [string]; response: CopilotSkillsResult }
   'copilot:send': { request: [CopilotSendInput]; response: CopilotStartResult }
   'copilot:cancel-queued': { request: [CopilotCancelQueuedInput]; response: CopilotStartResult }
+  'copilot:reset-to-message': { request: [CopilotMessageActionInput]; response: CopilotStartResult }
+  'copilot:fork-thread': { request: [CopilotForkThreadInput]; response: MutationResult }
+  'copilot:reset-aside': { request: [string]; response: CopilotStartResult }
   'copilot:abort': { request: [string]; response: boolean }
   'copilot:set-model': { request: [CopilotSetModelInput]; response: CopilotStartResult }
   'copilot:get-favorite-models': { request: []; response: string[] }

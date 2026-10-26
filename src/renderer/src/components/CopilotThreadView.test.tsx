@@ -27,6 +27,8 @@ const mock = vi.hoisted(() => ({
   updateSdk: vi.fn(),
   pickAttachments: vi.fn(),
   getPathForFile: vi.fn(),
+  resetToMessage: vi.fn(),
+  resetAside: vi.fn(),
   onSession: vi.fn(),
   onSdkStatus: vi.fn()
 }))
@@ -607,6 +609,122 @@ describe('Copilot session composer', () => {
     await act(async () => pending.resolve(snapshot(a.id)))
     expect(screen.getByText('Latest answer')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
+  })
+
+  it('pins Copilot messages and lists them in a rail at the right edge', async () => {
+    const a = { ...thread(), pinnedMessageIds: ['a1'] } as ThreadSnapshot
+    mock.getSession.mockImplementation(async (id) =>
+      snapshot(id, {
+        timeline: [
+          { id: 'u1', type: 'user', content: 'Question', timestamp: '' },
+          { id: 'a1', type: 'assistant', content: 'First answer', timestamp: '' },
+          { id: 'a2', type: 'assistant', content: '**Second** answer', timestamp: '' }
+        ]
+      })
+    )
+    const saved = deferred<void>()
+    const onSetMessagePinned = vi.fn(() => saved.promise)
+    const view = render(
+      <CopilotThreadView
+        thread={a}
+        onSessionChange={vi.fn()}
+        onSetMessagePinned={onSetMessagePinned}
+      />
+    )
+    await ready()
+    const rail = (): HTMLElement[] =>
+      within(screen.getByRole('navigation', { name: 'Pinned messages' })).getAllByRole('button')
+    expect(rail().map((bar) => bar.getAttribute('aria-label'))).toEqual([
+      'Pinned message 1 of 1: First answer'
+    ])
+    expect(screen.getByRole('region', { name: 'Conversation' }).className).toContain(
+      'tm-session-scroll--with-pins'
+    )
+
+    const pins = screen.getAllByRole('button', { name: /^(Pin|Unpin) message$/ })
+    expect(pins.map((pin) => pin.getAttribute('aria-pressed'))).toEqual(['true', 'false'])
+    fireEvent.click(pins[1])
+    expect(onSetMessagePinned).toHaveBeenCalledWith('a2', true)
+    // Shows at once, before the saved thread arrives.
+    expect(rail()).toHaveLength(2)
+    view.rerender(
+      <CopilotThreadView
+        thread={{ ...a, pinnedMessageIds: ['a1', 'a2'] }}
+        onSessionChange={vi.fn()}
+        onSetMessagePinned={onSetMessagePinned}
+      />
+    )
+    await act(async () => saved.resolve())
+    expect(rail()[1].getAttribute('aria-label')).toBe('Pinned message 2 of 2: Second answer')
+
+    // A failed save puts the pin back.
+    onSetMessagePinned.mockImplementationOnce(() => Promise.reject(new Error('nope')))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Unpin message' })[0])
+    expect(rail()).toHaveLength(1)
+    await waitFor(() => expect(rail()).toHaveLength(2))
+  })
+
+  it('offers no pins without a way to save them', async () => {
+    mock.getSession.mockImplementation(async (id) =>
+      snapshot(id, {
+        timeline: [{ id: 'a1', type: 'assistant', content: 'Answer', timestamp: '' }]
+      })
+    )
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    expect(screen.queryByRole('button', { name: 'Pin message' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Pinned messages' })).toBeNull()
+  })
+
+  it('resets to and forks from the end of a turn', async () => {
+    const a = thread()
+    const timeline = [
+      { id: 'u1', type: 'user' as const, content: 'First', timestamp: '' },
+      { id: 'a1', type: 'assistant' as const, content: 'Working on it', timestamp: '' },
+      { id: 'a2', type: 'assistant' as const, content: 'First answer', timestamp: '' },
+      { id: 'u2', type: 'user' as const, content: 'Second', timestamp: '' },
+      { id: 'a3', type: 'assistant' as const, content: 'Second answer', timestamp: '' }
+    ]
+    mock.getSession.mockImplementation(async (id) => snapshot(id, { timeline }))
+    const onForkThread = vi.fn(async () => {})
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} onForkThread={onForkThread} />)
+    await ready()
+    // Only the first turn's end can be reset to; both turns' ends can be forked from.
+    expect(screen.getAllByRole('button', { name: 'Reset to here' })).toHaveLength(1)
+    const forks = screen.getAllByRole('button', { name: 'Fork from here' })
+    expect(forks).toHaveLength(2)
+    fireEvent.click(forks[1])
+    await waitFor(() => expect(onForkThread).toHaveBeenCalledWith('a3'))
+
+    mock.resetToMessage.mockResolvedValueOnce({ ok: false, cancelled: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to here' }))
+    await waitFor(() =>
+      expect(mock.resetToMessage).toHaveBeenCalledWith({ threadId: a.id, messageId: 'a2' })
+    )
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    mock.resetToMessage.mockResolvedValueOnce({
+      ok: true,
+      snapshot: snapshot(a.id, { timeline: timeline.slice(0, 3) })
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to here' }))
+    await waitFor(() => expect(screen.queryByText('Second answer')).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Reset to here' })).toBeNull()
+  })
+
+  it('opens an aside over the thread and closes it with Escape', async () => {
+    const a = thread()
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Open aside' }))
+    const aside = await screen.findByRole('complementary', { name: 'Aside' })
+    await within(aside).findByText('Ask about this thread')
+    expect(mock.getSession).toHaveBeenCalledWith(`aside:${a.id}`)
+    expect(screen.getAllByRole('button', { name: 'Close aside' })).toHaveLength(2)
+    fireEvent.keyDown(within(aside).getByRole('combobox', { name: 'Message Copilot' }), {
+      key: 'Escape'
+    })
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Aside' })).toBeNull())
   })
 
   it('shows model and approval failures, without swallowing them', async () => {
@@ -1475,6 +1593,38 @@ describe('AI commit button', () => {
     appState.getBranchStatus.mockResolvedValue(clean)
     await act(async () => pending.resolve({ ok: true, committed: true }))
     await waitFor(() => expect(commitButton()).toBeNull())
+    expect(send().disabled).toBe(false)
+  })
+
+  it('keeps showing a commit started before the view opened', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    const t = { ...thread(), commitPhase: 'generating' as const }
+    const view = render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.change(input(), { target: { value: 'Next task' } })
+    await waitFor(() => expect(commitButton()).not.toBeNull())
+    expect(commitButton()!.dataset.phase).toBe('generating')
+    expect(commitButton()!.dataset.action).toBe('commit')
+    expect(commitButton()!.getAttribute('aria-busy')).toBe('true')
+    expect(send().disabled).toBe(true)
+    fireEvent.click(commitButton()!)
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(appState.commitThreadChanges).not.toHaveBeenCalled()
+    expect(mock.send).not.toHaveBeenCalled()
+
+    view.rerender(
+      <CopilotThreadView thread={{ ...t, commitPhase: 'pushing' }} onSessionChange={vi.fn()} />
+    )
+    expect(commitButton()!.dataset.phase).toBe('pushing')
+    expect(commitButton()!.dataset.action).toBe('push')
+
+    appState.getBranchStatus.mockClear()
+    appState.getBranchStatus.mockResolvedValue(clean)
+    view.rerender(
+      <CopilotThreadView thread={{ ...t, commitPhase: null }} onSessionChange={vi.fn()} />
+    )
+    await waitFor(() => expect(commitButton()).toBeNull())
+    expect(appState.getBranchStatus).toHaveBeenCalled()
     expect(send().disabled).toBe(false)
   })
 

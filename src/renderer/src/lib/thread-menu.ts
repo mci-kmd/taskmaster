@@ -4,6 +4,7 @@ import type { ThreadSnapshot } from '../../../shared/app-types'
 export type ThreadMenuAction =
   | 'edit'
   | 'regenerate-title'
+  | 'fork-thread'
   | 'convert-to-worktree'
   | 'close-thread'
   | 'settle-thread'
@@ -16,6 +17,8 @@ export type ThreadMenuOptions = {
   closeThreadEnabled: boolean
   /** False while a title is being written. */
   regenerateTitleEnabled?: boolean
+  /** Whether the thread has a Copilot conversation to fork. */
+  forkThreadEnabled?: boolean
 }
 
 export function threadMenuOptions(
@@ -29,7 +32,8 @@ export function threadMenuOptions(
     convertToWorktreeVisible: thread.mode !== 'worktree' && thread.projectKind !== 'general',
     convertToWorktreeEnabled: !convertingThread,
     closeThreadEnabled: !closingThread,
-    regenerateTitleEnabled: !regeneratingTitle
+    regenerateTitleEnabled: !regeneratingTitle,
+    forkThreadEnabled: Boolean(thread.resumeSessionId)
   }
 }
 
@@ -43,7 +47,8 @@ export function threadMenuActions(
       action: 'regenerate-title',
       label: regenerateTitleEnabled ? 'Regenerate title' : 'Writing title...',
       enabled: regenerateTitleEnabled
-    }
+    },
+    { action: 'fork-thread', label: 'Fork thread', enabled: options.forkThreadEnabled === true }
   ]
   if (options.convertToWorktreeVisible) {
     actions.push({

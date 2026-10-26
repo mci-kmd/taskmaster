@@ -53,6 +53,25 @@ export const electronUi = {
     return { confirmed: result.response === 0 }
   },
 
+  confirmResetConversation: async (): Promise<boolean> => {
+    const ownerWindow = BrowserWindow.getFocusedWindow() ?? null
+    const options = {
+      type: 'warning' as const,
+      buttons: ['Reset', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Reset conversation?',
+      message: 'Reset the conversation to this message?',
+      detail:
+        'Everything after it is removed from the session, so Copilot forgets it. Changes Copilot made to files are not reverted.',
+      noLink: true
+    }
+    const result = ownerWindow
+      ? await dialog.showMessageBox(ownerWindow, options)
+      : await dialog.showMessageBox(options)
+    return result.response === 0
+  },
+
   pickRepositoryFaviconFile: async (
     repository: PersistedRepository
   ): Promise<OpenDialogReturnValue> => {

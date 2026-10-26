@@ -31,13 +31,20 @@ const reducedMotion = (): boolean =>
 /**
  * A narrow stack of bars at the left edge of the transcript, one per user prompt. Hovering
  * magnifies the bars near the pointer and previews their prompts; clicking scrolls to one.
- * Only the newest {@link MAX_RAIL_PROMPTS} prompts are listed.
+ * Only the newest {@link MAX_RAIL_PROMPTS} prompts are listed. With `side="right"` it lists
+ * other transcript items (e.g. pinned messages) at the right edge instead.
  */
 export default function PromptRail({
   prompts: allPrompts,
   scrollRef,
   onNavigate,
-  onRevealHistory
+  onRevealHistory,
+  side = 'left',
+  label = 'Prompts in this thread',
+  itemName = 'Prompt',
+  targetAttribute = 'data-prompt-id',
+  minItems = 2,
+  preview = promptPreview
 }: {
   prompts: RailPrompt[]
   scrollRef: React.RefObject<HTMLElement | null>
@@ -45,6 +52,17 @@ export default function PromptRail({
   onNavigate?: () => void
   /** Renders the whole history synchronously when a target prompt isn't rendered yet. */
   onRevealHistory?: () => void
+  side?: 'left' | 'right'
+  /** Accessible name of the rail. */
+  label?: string
+  /** What each bar is called in its accessible name, e.g. "Prompt 2 of 5". */
+  itemName?: string
+  /** The attribute holding an item's id on its element in the transcript. */
+  targetAttribute?: string
+  /** The rail shows once this many items exist. */
+  minItems?: number
+  /** One line of text shown for an item. */
+  preview?: (item: RailPrompt) => string
 }): React.JSX.Element | null {
   const railRef = useRef<HTMLDivElement>(null)
   const bars = useRef<(HTMLButtonElement | null)[]>([])
@@ -59,9 +77,9 @@ export default function PromptRail({
   const prompts = useMemo(() => allPrompts.slice(offset), [allPrompts, offset])
   const [active, setActive] = useState(0)
   const [magnified, setMagnified] = useState<Magnification | null>(null)
-  const previews = useMemo(() => prompts.map(promptPreview), [prompts])
+  const previews = useMemo(() => prompts.map(preview), [prompts, preview])
   const ids = prompts.map((prompt) => prompt.id).join('\n')
-  const visible = allPrompts.length >= 2
+  const visible = allPrompts.length >= minItems
   const rail = usePresence(visible)
   const labels = usePresence(magnified !== null)
   // Labels keep their last positions while they fade out after the pointer leaves.
@@ -69,11 +87,12 @@ export default function PromptRail({
 
   const promptElements = useCallback((): Map<string, HTMLElement> => {
     const elements = new Map<string, HTMLElement>()
-    scrollRef.current?.querySelectorAll<HTMLElement>('[data-prompt-id]').forEach((element) => {
-      if (element.dataset.promptId) elements.set(element.dataset.promptId, element)
+    scrollRef.current?.querySelectorAll<HTMLElement>(`[${targetAttribute}]`).forEach((element) => {
+      const id = element.getAttribute(targetAttribute)
+      if (id) elements.set(id, element)
     })
     return elements
-  }, [scrollRef])
+  }, [scrollRef, targetAttribute])
 
   // Highlight the last prompt above the reading line, or the last visible one at the very end.
   useEffect(() => {
@@ -169,18 +188,20 @@ export default function PromptRail({
 
   if (!rail.mounted) return null
   const current = magnified?.nearest ?? Math.max(0, active)
+  const empty = `Empty ${itemName.toLowerCase()}`
 
   return (
     <div
       className="tm-prompt-rail"
       ref={railRef}
+      data-side={side}
       data-expanded={magnified ? '' : undefined}
       data-motion="fade"
       data-state={rail.state}
     >
       <nav
         className="tm-prompt-rail-list"
-        aria-label="Prompts in this thread"
+        aria-label={label}
         onPointerMove={(event) => {
           pointerY.current = event.clientY
           magnify()
@@ -207,7 +228,7 @@ export default function PromptRail({
             type="button"
             className="tm-prompt-rail-bar"
             tabIndex={index === current ? 0 : -1}
-            aria-label={`Prompt ${offset + index + 1} of ${allPrompts.length}: ${previews[index].slice(0, 160) || 'Empty prompt'}`}
+            aria-label={`${itemName} ${offset + index + 1} of ${allPrompts.length}: ${previews[index].slice(0, 160) || empty}`}
             aria-current={index === active ? 'location' : undefined}
             data-nearest={magnified?.nearest === index ? '' : undefined}
             style={
@@ -245,7 +266,7 @@ export default function PromptRail({
               style={{ top, opacity: weight }}
             >
               <span className="tm-prompt-rail-label-number">{offset + index + 1}</span>
-              <span className="tm-prompt-rail-label-text">{previews[index] || 'Empty prompt'}</span>
+              <span className="tm-prompt-rail-label-text">{previews[index] || empty}</span>
             </div>
           ))}
         </div>

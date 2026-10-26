@@ -286,6 +286,50 @@ export function StarIcon({
   )
 }
 
+export function PinIcon({ filled, ...props }: IconProps & { filled?: boolean }): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path
+        d="M6 2.5h4M6.75 2.5v3.6L4.5 9h7L9.25 6.1V2.5"
+        fill={filled ? 'currentColor' : 'none'}
+      />
+      <path d="M8 9v4.5" />
+    </svg>
+  )
+}
+
+/** A counter-clockwise clock: going back to an earlier point. */
+export function RewindIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M3.3 6A5 5 0 1 1 3 8" />
+      <path d="M3 3v3h3" />
+      <path d="M8 5.5V8l1.8 1.2" />
+    </svg>
+  )
+}
+
+export function ForkIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <circle cx="4" cy="3.5" r="1.3" />
+      <circle cx="12" cy="3.5" r="1.3" />
+      <circle cx="8" cy="12.5" r="1.3" />
+      <path d="M4 4.8v.7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-.7M8 7.5v3.7" />
+    </svg>
+  )
+}
+
+/** A conversation with a panel open at its side. */
+export function AsideIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <rect x="2" y="3" width="12" height="10" rx="1.6" />
+      <path d="M9.5 3v10M11.2 6h1M11.2 8h1" />
+    </svg>
+  )
+}
+
 export function BranchIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

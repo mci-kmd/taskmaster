@@ -111,6 +111,41 @@ describe('custom Select', () => {
     expect(submit).toHaveBeenCalledWith(['alpha', 'beta'])
   })
 
+  it('opens at the top instead of at the selected option when asked', () => {
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      const view = render(
+        <Select aria-label="Project" options={options} value="beta" onChange={vi.fn()} />
+      )
+      fireEvent.click(screen.getByRole('combobox'))
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+      view.unmount()
+
+      scrollIntoView.mockClear()
+      render(
+        <Select aria-label="Project" opensAtTop options={options} value="beta" onChange={vi.fn()} />
+      )
+      const trigger = screen.getByRole('combobox')
+      fireEvent.click(trigger)
+      const popup = screen.getByRole('listbox').parentElement!
+      popup.scrollTop = 40
+      expect(scrollIntoView).not.toHaveBeenCalled()
+      expect(trigger.getAttribute('aria-activedescendant')).toBe(
+        screen.getByRole('option', { name: 'Beta' }).id
+      )
+      fireEvent.keyDown(trigger, { key: 'ArrowUp' })
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(trigger)
+      fireEvent.click(trigger)
+      expect(screen.getByRole('listbox').parentElement!.scrollTop).toBe(0)
+      expect(scrollIntoView).toHaveBeenCalledTimes(1)
+    } finally {
+      delete (Element.prototype as Partial<Element>).scrollIntoView
+    }
+  })
+
   it('keeps unavailable selections visible and respects disabled state', () => {
     render(
       <Select aria-label="Model" disabled value="legacy-model" options={[]} onChange={vi.fn()} />

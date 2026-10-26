@@ -48,6 +48,25 @@ function ownsWorktree(thread: Pick<PersistedThread, 'mode' | 'ownsWorktree'>): b
   return thread.ownsWorktree ?? thread.mode === 'worktree'
 }
 
+/**
+ * Another thread working in the same checkout, e.g. a fork, which takes over cleaning it up
+ * so closing this thread doesn't remove it from under that one.
+ */
+function findCheckoutHeir(
+  threads: PersistedThread[],
+  thread: PersistedThread
+): PersistedThread | undefined {
+  if (!ownsWorktree(thread) && !ownsBranch(thread)) return undefined
+  return threads.find(
+    (other) =>
+      other.id !== thread.id &&
+      other.repositoryId === thread.repositoryId &&
+      other.mode === thread.mode &&
+      other.branchName === thread.branchName &&
+      (thread.mode !== 'worktree' || other.worktreePath === thread.worktreePath)
+  )
+}
+
 type BranchDeleteResult = { ok: true } | { ok: false; error: string }
 
 function ensureBranchNotCheckedOut(
@@ -263,6 +282,14 @@ export function createThreadCloseService(dependencies: {
           didStopThreadProcesses = true
           await dependencies.killSessionsForThread(threadId)
           dependencies.stopThreadRunSession(threadId)
+        }
+
+        const heir = findCheckoutHeir(state.threads, thread)
+        if (heir) {
+          heir.ownsBranch = ownsBranch(thread)
+          heir.ownsWorktree = ownsWorktree(thread)
+          thread.ownsBranch = false
+          thread.ownsWorktree = false
         }
 
         if (usesGit && thread.mode === 'worktree' && ownsWorktree(thread)) {

@@ -164,6 +164,73 @@ describe('thread state service', () => {
     expect(saveState).toHaveBeenCalledTimes(3)
   })
 
+  it('pins and unpins messages, and forgets pins when a new conversation starts', () => {
+    const saveState = vi.fn()
+    const thread: PersistedThread = {
+      id: 'thread-1',
+      repositoryId: 'repo-1',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: 'session-1',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActivityAt: '2026-01-01T00:00:00.000Z'
+    }
+    const service = createThreadStateService({
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: 'thread-1' }
+      }),
+      findThread: (id) => (id === thread.id ? thread : undefined),
+      saveState,
+      updateSelection: () => {},
+      buildSelectionSnapshot: () => ({}) as never,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      normalizeCustomTitle: (value) => value ?? null,
+      normalizeTrackedText: (value) => value ?? null,
+      normalizeCopilotTitle: (title) => title ?? null,
+      nowIso: () => '2026-01-02T00:00:00.000Z'
+    })
+    const pin = (messageId: string, pinned: boolean): ReturnType<typeof service.updateThread> =>
+      service.updateThread({ threadId: 'thread-1', pinnedMessage: { messageId, pinned } })
+
+    expect(pin('assistant:a', true).ok).toBe(true)
+    pin('assistant:b', true)
+    pin('assistant:a', true)
+    expect(thread.pinnedMessageIds).toEqual(['assistant:a', 'assistant:b'])
+    expect(saveState).toHaveBeenCalledTimes(2)
+    pin('assistant:a', false)
+    expect(thread.pinnedMessageIds).toEqual(['assistant:b'])
+    pin('assistant:b', false)
+    expect(thread).not.toHaveProperty('pinnedMessageIds')
+    expect(thread.lastActivityAt).toBe('2026-01-01T00:00:00.000Z')
+    expect(
+      service.updateThread({
+        threadId: 'thread-1',
+        pinnedMessage: { messageId: ' ', pinned: true }
+      })
+    ).toEqual({ ok: false, error: 'Invalid pinned message.' })
+
+    pin('assistant:c', true)
+    service.updateThreadResumeSession({
+      threadId: 'thread-1',
+      sessionId: 'session-1',
+      source: 'resume'
+    })
+    expect(thread.pinnedMessageIds).toEqual(['assistant:c'])
+    service.updateThreadResumeSession({
+      threadId: 'thread-1',
+      sessionId: 'session-2',
+      source: 'new'
+    })
+    expect(thread).not.toHaveProperty('pinnedMessageIds')
+  })
+
   it('suspends idle threads without touching their activity and unsuspends on a new prompt', () => {
     const saveState = vi.fn()
     let working = true

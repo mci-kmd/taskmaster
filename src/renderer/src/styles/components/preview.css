@@ -225,6 +225,9 @@
   .tm-preview-conversation .tm-session-scroll--with-rail {
     padding-left: 40px;
   }
+  .tm-preview-conversation .tm-session-scroll--with-pins {
+    padding-right: 40px;
+  }
 
   .tm-preview-conversation .tm-session-bottom {
     padding: 0 12px 10px;

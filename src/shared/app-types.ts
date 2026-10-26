@@ -160,6 +160,10 @@ export interface PersistedThread {
   lastModel?: ThreadModel
   /** Linked by the agent through the taskmaster_link_work_items tool. Absent when none. */
   workItems?: ThreadWorkItem[]
+  /** Timeline item ids of Copilot messages the user pinned, oldest pin first. Absent when none. */
+  pinnedMessageIds?: string[]
+  /** The side conversation forked from this thread's session. Absent until one is opened. */
+  aside?: PersistedThreadAside
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
@@ -168,6 +172,16 @@ export interface PersistedThread {
   resumeSessionId: string | null
   createdAt: string
   lastActivityAt: string
+}
+
+export interface PersistedThreadAside {
+  sessionId: string
+  /**
+   * The last event the aside inherited from the thread's conversation; it only shows what
+   * follows. Unset until the forked session first loads.
+   */
+  baseEventId?: string | null
+  createdAt: string
 }
 
 export interface PersistedAppState {
@@ -647,6 +661,20 @@ export interface CopilotStartResult {
   ok: boolean
   snapshot?: CopilotSessionSnapshot
   error?: string
+  /** The user cancelled the action, e.g. at a confirmation prompt. */
+  cancelled?: boolean
+}
+
+/** A Copilot message in a thread's conversation, by timeline item id. */
+export interface CopilotMessageActionInput {
+  threadId: string
+  messageId: string
+}
+
+export interface CopilotForkThreadInput {
+  threadId: string
+  /** Forks the conversation up to the end of this message's turn; otherwise all of it. */
+  messageId?: string
 }
 
 export interface CopilotSkill {
@@ -763,6 +791,9 @@ export interface CopilotApi {
   listSkills: (threadId: string) => Promise<CopilotSkillsResult>
   send: (input: CopilotSendInput) => Promise<CopilotStartResult>
   cancelQueued: (input: CopilotCancelQueuedInput) => Promise<CopilotStartResult>
+  resetToMessage: (input: CopilotMessageActionInput) => Promise<CopilotStartResult>
+  forkThread: (input: CopilotForkThreadInput) => Promise<MutationResult>
+  resetAside: (threadId: string) => Promise<CopilotStartResult>
   abort: (threadId: string) => Promise<boolean>
   setModel: (input: CopilotSetModelInput) => Promise<CopilotStartResult>
   getFavoriteModels: () => Promise<string[]>
@@ -902,6 +933,8 @@ export interface UpdateThreadInput {
   customTitle?: string | null
   settled?: boolean
   suspended?: boolean
+  /** Pins or unpins one Copilot message, identified by its timeline item id. */
+  pinnedMessage?: { messageId: string; pinned: boolean }
 }
 
 export interface UpdateUiInput {

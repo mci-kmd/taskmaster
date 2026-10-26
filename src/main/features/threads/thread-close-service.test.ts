@@ -146,6 +146,19 @@ describe('createThreadCloseService', () => {
     expect(harness.killSessionsForThread).toHaveBeenCalledWith('thread-1')
   })
 
+  it('hands an owned worktree over to a fork working in it instead of removing it', async () => {
+    const harness = createHarness(createThread({ ownsBranch: true, ownsWorktree: true }))
+    const fork = createThread({ id: 'thread-2', ownsBranch: false, ownsWorktree: false })
+    harness.state.threads.push(fork)
+
+    expect(await harness.closeThread('thread-1')).toEqual({ ok: true })
+    expect(harness.state.threads).toEqual([
+      expect.objectContaining({ id: 'thread-2', ownsBranch: true, ownsWorktree: true })
+    ])
+    expect(harness.showMessageBox).not.toHaveBeenCalled()
+    expect(removeWorktree).not.toHaveBeenCalled()
+  })
+
   it('closes general project threads without git cleanup', async () => {
     const harness = createHarness(
       createThread({

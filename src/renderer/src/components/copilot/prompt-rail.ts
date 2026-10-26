@@ -14,3 +14,14 @@ export function promptPreview({ content, attachments = [] }: RailPrompt): string
     .replace(/\s+/g, ' ')
     .trim()
 }
+
+/** One line of a Markdown message, without the most common Markdown syntax. */
+export function messagePreview({ content }: RailPrompt): string {
+  return content
+    .replace(/^\s*(```|~~~).*$/gm, '')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, '')
+    .replace(/\*\*|__|~~|`/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}

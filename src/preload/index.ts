@@ -3,6 +3,8 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type {
   BranchStatusRequest,
   CopilotCancelQueuedInput,
+  CopilotForkThreadInput,
+  CopilotMessageActionInput,
   CopilotInteractionResponse,
   CopilotMcpAuthInput,
   CopilotSendInput,
@@ -199,6 +201,11 @@ const api = {
     send: (input: CopilotSendInput) => invokeIpc(IPC_CHANNELS.copilot.send, input),
     cancelQueued: (input: CopilotCancelQueuedInput) =>
       invokeIpc(IPC_CHANNELS.copilot.cancelQueued, input),
+    resetToMessage: (input: CopilotMessageActionInput) =>
+      invokeIpc(IPC_CHANNELS.copilot.resetToMessage, input),
+    forkThread: (input: CopilotForkThreadInput) =>
+      invokeIpc(IPC_CHANNELS.copilot.forkThread, input),
+    resetAside: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.resetAside, threadId),
     abort: (threadId: string) => invokeIpc(IPC_CHANNELS.copilot.abort, threadId),
     setModel: (input: CopilotSetModelInput) => invokeIpc(IPC_CHANNELS.copilot.setModel, input),
     getFavoriteModels: () => invokeIpc(IPC_CHANNELS.copilot.getFavoriteModels),

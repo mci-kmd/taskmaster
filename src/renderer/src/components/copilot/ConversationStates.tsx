@@ -6,21 +6,32 @@ import { useLastValue } from '../../lib/motion'
 import { formatElapsed } from './prompt-cost'
 
 const SUGGESTIONS = ['Explain this project', 'Find and fix a bug', 'Plan a change']
+const ASIDE_SUGGESTIONS = ['Summarize the progress so far', 'What are the open questions?']
 
 type MotionProps = { 'data-motion'?: string; 'data-state'?: string }
 
 /** Shown in place of the transcript until the first message. */
 export function EmptyConversation({
   onSuggest,
+  variant = 'thread',
   ...motion
-}: { onSuggest: (prompt: string) => void } & MotionProps): React.JSX.Element {
+}: {
+  onSuggest: (prompt: string) => void
+  /** An aside talks about its thread rather than starting new work. */
+  variant?: 'thread' | 'aside'
+} & MotionProps): React.JSX.Element {
+  const aside = variant === 'aside'
   return (
     <div className="tm-session-empty" {...motion}>
       <SparkIcon className="tm-session-empty-icon" aria-hidden="true" />
-      <h2>What would you like to work on?</h2>
-      <p>Ask a question, plan a change, or build something together.</p>
+      <h2>{aside ? 'Ask about this thread' : 'What would you like to work on?'}</h2>
+      <p>
+        {aside
+          ? 'This side conversation knows the thread so far. Nothing here reaches the thread.'
+          : 'Ask a question, plan a change, or build something together.'}
+      </p>
       <div className="mt-5 flex flex-wrap justify-center gap-2">
-        {SUGGESTIONS.map((suggestion) => (
+        {(aside ? ASIDE_SUGGESTIONS : SUGGESTIONS).map((suggestion) => (
           <Button
             key={suggestion}
             size="sm"

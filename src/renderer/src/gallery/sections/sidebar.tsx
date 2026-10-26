@@ -301,6 +301,7 @@ function GallerySidebar({
         onToggleRepositoryFavorite={noop}
         onRegenerateTitle={noop}
         regeneratingTitleIds={new Set()}
+        onForkThread={noop}
       />
     </div>
   )

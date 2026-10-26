@@ -1,16 +1,24 @@
 import { expandSkillPrompt, listSessionSkills } from './copilot-skills'
 import { withPreviewElementContext } from './preview-element-context'
 import { resumeOrCreateSession } from './session-resume'
+import {
+  describeHistory,
+  eventsBefore,
+  findTurnEndBoundary,
+  latestTurnStart
+} from './session-branching'
 import { randomUUID } from 'crypto'
 import { basename } from 'path'
 import { app, BrowserWindow, dialog, nativeImage, shell } from 'electron'
 import type {
   CopilotAttachment,
   CopilotCancelQueuedInput,
+  CopilotForkThreadInput,
   CopilotInteraction,
   CopilotInteractionResponse,
   CopilotListModelsResult,
   CopilotMcpAuthInput,
+  CopilotMessageActionInput,
   CopilotModelOption,
   CopilotModelSelection,
   ModelPerformanceSample,
@@ -26,9 +34,12 @@ import type {
   CopilotRunningSubagent,
   CopilotSubagentUsage,
   CopilotTimelineItem,
+  MutationResult,
   PersistedThread,
+  PersistedThreadAside,
   ThreadModel
 } from '../../shared/app-types'
+import { asideParentThreadId, asideSessionKey, isAsideSessionKey } from '../../shared/aside'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
 import { resolveThreadTitle, threadDisplayName } from '../../shared/thread-title'
 import { sendIpc } from '../ipc/typed-ipc'
@@ -113,6 +124,13 @@ type ActiveSession = {
 type StartOperation = {
   cancelled: boolean
   promise: Promise<CopilotStartResult>
+}
+
+export type ForkedThreadInput = {
+  sourceThreadId: string
+  sessionId: string
+  /** What the fork kept of the conversation; null when unknown, i.e. all of it. */
+  history: { lastUserMessage: string | null; messageIds: string[] } | null
 }
 
 function errorMessage(error: unknown): string {
@@ -459,6 +477,15 @@ export function createCopilotSessionService(dependencies: {
   saveInteraction?: (record: InteractionRecord) => void
   /** Custom tools registered on every session started for the thread. */
   getSessionTools?: (threadId: string) => Tool[]
+  /** The thread's aside, or null when it has none. */
+  getAside?: (threadId: string) => PersistedThreadAside | null
+  setAside?: (threadId: string, aside: PersistedThreadAside | null) => void
+  /** Adds a thread that continues `sessionId`, a fork of the source thread's session, and selects it. */
+  createForkedThread?: (input: ForkedThreadInput) => MutationResult
+  /** The conversation was cut down to `history`. */
+  onHistoryTruncated?: (threadId: string, history: ReturnType<typeof describeHistory>) => void
+  /** Asks the user to confirm resetting a conversation. */
+  confirmReset?: () => Promise<boolean>
 }): {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
@@ -483,6 +510,12 @@ export function createCopilotSessionService(dependencies: {
     error?: string
   }>
   stopThread: (threadId: string) => Promise<void>
+  /** Cuts the conversation back to the end of a message's turn, once the user confirms. */
+  resetToMessage: (input: CopilotMessageActionInput) => Promise<CopilotStartResult>
+  /** Opens a new thread continuing a copy of the conversation. */
+  forkThread: (input: CopilotForkThreadInput) => Promise<MutationResult>
+  /** Discards the thread's aside and starts a new one from the conversation as it is now. */
+  resetAside: (threadId: string) => Promise<CopilotStartResult>
   hasSession: (threadId: string) => boolean
   isThreadWorking: (threadId: string) => boolean
   runningThreadNames: () => string[]
@@ -1192,7 +1225,7 @@ export function createCopilotSessionService(dependencies: {
 
     switch (event.type) {
       case 'user.message':
-        if (item) {
+        if (item && !isAsideSessionKey(active.snapshot.threadId)) {
           const model = active.snapshot.model
           const name = active.snapshot.models.find((option) => option.id === model)?.name
           dependencies.onUserMessage(
@@ -1203,7 +1236,8 @@ export function createCopilotSessionService(dependencies: {
         }
         break
       case 'session.title_changed':
-        dependencies.onTitleChanged(active.snapshot.threadId, event.data.title)
+        if (!isAsideSessionKey(active.snapshot.threadId))
+          dependencies.onTitleChanged(active.snapshot.threadId, event.data.title)
         updateSnapshot(active, { title: event.data.title })
         break
       case 'session.model_change':
@@ -1231,13 +1265,15 @@ export function createCopilotSessionService(dependencies: {
       // session.idle is deferred while background work (e.g. an async dev server shell)
       // is in flight; assistant.idle marks the end of the agent's turn regardless.
       case 'assistant.idle':
-        if (active.snapshot.phase === 'running') dependencies.onActivity?.(active.snapshot.threadId)
+        if (active.snapshot.phase === 'running' && !isAsideSessionKey(active.snapshot.threadId))
+          dependencies.onActivity?.(active.snapshot.threadId)
         completePrompt(active, event.timestamp)
         updateSnapshot(active, { phase: 'idle', error: null })
         refreshQueue(active)
         break
       case 'session.idle':
-        if (active.snapshot.phase === 'running') dependencies.onActivity?.(active.snapshot.threadId)
+        if (active.snapshot.phase === 'running' && !isAsideSessionKey(active.snapshot.threadId))
+          dependencies.onActivity?.(active.snapshot.threadId)
         finishActivity(active)
         cancelInteractions(active)
         completePrompt(active, event.timestamp)
@@ -1375,6 +1411,68 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  /** Copies a session, up to but excluding `toEventId`, into a new one and returns its id. */
+  const forkSession = async (
+    sdkClient: CopilotClient,
+    sessionId: string,
+    toEventId: string | null
+  ): Promise<string> => {
+    const result = await sdkClient.rpc.sessions.fork(
+      toEventId ? { sessionId, toEventId } : { sessionId }
+    )
+    return result.sessionId
+  }
+
+  /** The timeline of a session's history, leaving out events up to and including `baseEventId`. */
+  const buildTimeline = (
+    history: SessionEvent[],
+    sessionId: string,
+    baseEventId: string | null
+  ): CopilotTimelineItem[] => {
+    const baseIndex = baseEventId ? history.findIndex((event) => event.id === baseEventId) : -1
+    const timeline: CopilotTimelineItem[] = []
+    // Long sessions have thousands of events; index items by id instead of scanning.
+    const timelineIndex = new Map<string, number>()
+    for (const event of history.slice(baseIndex + 1)) {
+      if (event.agentId) continue
+      const item = timelineItemFromEvent(event)
+      if (!item) continue
+      const index = timelineIndex.get(item.id)
+      if (index !== undefined) {
+        timeline[index] = mergeTimelineItem(timeline[index], item)
+      } else {
+        timelineIndex.set(item.id, timeline.length)
+        timeline.push(item)
+      }
+    }
+    let interactions: InteractionRecord[] = []
+    try {
+      interactions = dependencies.getInteractions?.(sessionId) ?? []
+    } catch (error) {
+      console.error('Could not load interactions:', error)
+    }
+    // Before summaries, which may be anchored to an interaction.
+    for (const record of interactions) {
+      let index = timeline.findIndex((existingItem) => existingItem.id === record.anchorId)
+      if (index < 0 || timeline.some((existingItem) => existingItem.id === record.id)) continue
+      while (timeline[index + 1]?.type === 'interaction') index++
+      timeline.splice(index + 1, 0, interactionItem(record))
+    }
+    let summaries: PromptSummaryRecord[] = []
+    try {
+      summaries = dependencies.getPromptSummaries?.(sessionId) ?? []
+    } catch (error) {
+      console.error('Could not load prompt summaries:', error)
+    }
+    for (const record of summaries) {
+      let index = timeline.findIndex((existingItem) => existingItem.id === record.anchorId)
+      if (index < 0 || timeline.some((existingItem) => existingItem.id === record.id)) continue
+      while (timeline[index + 1]?.type === 'summary') index++
+      timeline.splice(index + 1, 0, summaryItem(record))
+    }
+    return timeline
+  }
+
   const startInternal = async (
     threadId: string,
     operation: StartOperation
@@ -1382,13 +1480,17 @@ export function createCopilotSessionService(dependencies: {
     const existing = sessions.get(threadId)
     if (existing) return { ok: true, snapshot: existing.snapshot }
 
-    const context = dependencies.resolveThread(threadId)
+    // An aside runs in its thread's context, on a fork of its thread's session.
+    const parentThreadId = asideParentThreadId(threadId)
+    const context = dependencies.resolveThread(parentThreadId ?? threadId)
     if (!context) return { ok: false, error: 'Thread not found.' }
+    let aside = parentThreadId ? (dependencies.getAside?.(parentThreadId) ?? null) : null
+    let resumedAside = false
 
     const snapshot: CopilotSessionSnapshot = {
       threadId,
-      sessionId: context.thread.resumeSessionId,
-      title: context.thread.latestCopilotTitle,
+      sessionId: parentThreadId ? (aside?.sessionId ?? null) : context.thread.resumeSessionId,
+      title: parentThreadId ? null : context.thread.latestCopilotTitle,
       phase: 'connecting',
       model: null,
       reasoningEffort: null,
@@ -1417,7 +1519,7 @@ export function createCopilotSessionService(dependencies: {
         // Keep MCP sign-ins in the OS keychain so they survive session restarts.
         mcpOAuthTokenStorage: 'persistent'
       }
-      const tools = dependencies.getSessionTools?.(threadId)
+      const tools = parentThreadId ? undefined : dependencies.getSessionTools?.(threadId)
       if (tools?.length) config.tools = tools
       const placeholder: ActiveSession = {
         session: null as unknown as CopilotSession,
@@ -1442,9 +1544,30 @@ export function createCopilotSessionService(dependencies: {
       config.onExitPlanModeRequest = exitPlanModeHandler(placeholder)
       config.onAutoModeSwitchRequest = autoModeSwitchHandler(placeholder)
 
+      if (parentThreadId && !aside) {
+        const parentSessionId =
+          sessions.get(parentThreadId)?.session.sessionId ?? context.thread.resumeSessionId
+        if (parentSessionId) {
+          const parent = sessions.get(parentThreadId)
+          // Leave out a turn still in progress.
+          const toEventId =
+            parent?.snapshot.phase === 'running'
+              ? latestTurnStart(await parent.session.getEvents())
+              : null
+          aside = {
+            sessionId: await forkSession(sdkClient, parentSessionId, toEventId),
+            createdAt: new Date().toISOString()
+          }
+          dependencies.setAside?.(parentThreadId, aside)
+        }
+      }
+      if (operation.cancelled) return { ok: false, error: 'Copilot session start was cancelled.' }
+      resumedAside = Boolean(aside)
       const session = await resumeOrCreateSession(
         sdkClient,
-        context.thread,
+        parentThreadId
+          ? { ...context.thread, id: threadId, resumeSessionId: aside?.sessionId ?? null }
+          : context.thread,
         config,
         () => operation.cancelled,
         dependencies.getModelDefaults?.() ?? undefined
@@ -1467,53 +1590,23 @@ export function createCopilotSessionService(dependencies: {
         else bufferedEvents.push(event)
       })
       sessions.set(threadId, placeholder)
-      dependencies.onSessionStarted(threadId, session.sessionId)
+      if (!parentThreadId) dependencies.onSessionStarted(threadId, session.sessionId)
+      else if (aside?.sessionId !== session.sessionId) {
+        aside = { sessionId: session.sessionId, createdAt: new Date().toISOString() }
+        dependencies.setAside?.(parentThreadId, aside)
+      }
 
       const [history, currentModel, currentMode] = await Promise.all([
         session.getEvents(),
         session.rpc.model.getCurrent(),
         session.rpc.mode.get()
       ])
-      const timeline: CopilotTimelineItem[] = []
-      // Long sessions have thousands of events; index items by id instead of scanning.
-      const timelineIndex = new Map<string, number>()
-      for (const event of history) {
-        if (event.agentId) continue
-        const item = timelineItemFromEvent(event)
-        if (!item) continue
-        const index = timelineIndex.get(item.id)
-        if (index !== undefined) {
-          timeline[index] = mergeTimelineItem(timeline[index], item)
-        } else {
-          timelineIndex.set(item.id, timeline.length)
-          timeline.push(item)
-        }
+      if (parentThreadId && aside && aside.baseEventId === undefined) {
+        // A new aside: what it inherited from the thread stays out of its timeline.
+        aside = { ...aside, baseEventId: history.at(-1)?.id ?? null }
+        dependencies.setAside?.(parentThreadId, aside)
       }
-      let interactions: InteractionRecord[] = []
-      try {
-        interactions = dependencies.getInteractions?.(session.sessionId) ?? []
-      } catch (error) {
-        console.error('Could not load interactions:', error)
-      }
-      // Before summaries, which may be anchored to an interaction.
-      for (const record of interactions) {
-        let index = timeline.findIndex((existingItem) => existingItem.id === record.anchorId)
-        if (index < 0 || timeline.some((existingItem) => existingItem.id === record.id)) continue
-        while (timeline[index + 1]?.type === 'interaction') index++
-        timeline.splice(index + 1, 0, interactionItem(record))
-      }
-      let summaries: PromptSummaryRecord[] = []
-      try {
-        summaries = dependencies.getPromptSummaries?.(session.sessionId) ?? []
-      } catch (error) {
-        console.error('Could not load prompt summaries:', error)
-      }
-      for (const record of summaries) {
-        let index = timeline.findIndex((existingItem) => existingItem.id === record.anchorId)
-        if (index < 0 || timeline.some((existingItem) => existingItem.id === record.id)) continue
-        while (timeline[index + 1]?.type === 'summary') index++
-        timeline.splice(index + 1, 0, summaryItem(record))
-      }
+      const timeline = buildTimeline(history, session.sessionId, aside?.baseEventId ?? null)
       placeholder.snapshot = {
         ...placeholder.snapshot,
         phase: 'idle',
@@ -1579,6 +1672,9 @@ export function createCopilotSessionService(dependencies: {
         await active.session.disconnect().catch(() => undefined)
         sessions.delete(threadId)
       }
+      // Its session is gone; the next start forks a new one.
+      if (parentThreadId && resumedAside && !active && /not found/i.test(errorMessage(error)))
+        dependencies.setAside?.(parentThreadId, null)
       const message = errorMessage(error)
       const failed = { ...snapshot, phase: 'error' as const, error: message }
       broadcastSession(failed)
@@ -1752,10 +1848,7 @@ export function createCopilotSessionService(dependencies: {
       const blockers = collectCopilotSdkUpdateBlockers(
         [...sessions.values()].map((active) => active.snapshot),
         startingThreads.keys(),
-        (threadId) => {
-          const thread = dependencies.resolveThread(threadId)?.thread
-          return thread ? threadDisplayName(thread) : `Thread ${threadId}`
-        }
+        (threadId) => sessionDisplayName(threadId, null) ?? `Thread ${threadId}`
       )
       if (blockers.length > 0) {
         return sdkManager.reportUpdateBlocked(blockers)
@@ -1764,7 +1857,7 @@ export function createCopilotSessionService(dependencies: {
       sdkUpdateInProgress = true
       try {
         for (const threadId of new Set([...sessions.keys(), ...startingThreads.keys()])) {
-          await stopThread(threadId)
+          await stopSession(threadId)
         }
         await stopClient()
         return await sdkManager.installLatest()
@@ -1773,7 +1866,7 @@ export function createCopilotSessionService(dependencies: {
       }
     },
     start: async (threadId) => {
-      if (sessions.get(threadId)?.snapshot.phase === 'error') await stopThread(threadId)
+      if (sessions.get(threadId)?.snapshot.phase === 'error') await stopSession(threadId)
       return start(threadId)
     },
     getSession: (threadId) => sessions.get(threadId)?.snapshot ?? null,
@@ -1974,7 +2067,13 @@ export function createCopilotSessionService(dependencies: {
       }
     },
     stopThread,
-    hasSession: (threadId) => sessions.has(threadId) || startingThreads.has(threadId),
+    resetToMessage,
+    forkThread,
+    resetAside,
+    hasSession: (threadId) =>
+      [threadId, asideSessionKey(threadId)].some(
+        (key) => sessions.has(key) || startingThreads.has(key)
+      ),
     isThreadWorking: (threadId) => {
       if (startingThreads.has(threadId)) return true
       const phase = sessions.get(threadId)?.snapshot.phase
@@ -1983,12 +2082,12 @@ export function createCopilotSessionService(dependencies: {
     runningThreadNames: () =>
       [...sessions.values()]
         .filter((active) => active.snapshot.phase === 'running')
-        .map((active) => {
-          const thread = dependencies.resolveThread(active.snapshot.threadId)?.thread
-          return thread
-            ? (resolveThreadTitle(thread, active.snapshot.title) ?? threadDisplayName(thread))
-            : (active.snapshot.title ?? 'Untitled thread')
-        }),
+        .map(
+          (active) =>
+            sessionDisplayName(active.snapshot.threadId, active.snapshot.title) ??
+            active.snapshot.title ??
+            'Untitled thread'
+        ),
     getUserPrompts: (threadId) =>
       (sessions.get(threadId)?.snapshot.timeline ?? []).flatMap((item) =>
         item.type === 'user' ? [item.content] : []
@@ -2046,7 +2145,111 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  async function resetToMessage(input: CopilotMessageActionInput): Promise<CopilotStartResult> {
+    if (isAsideSessionKey(input.threadId))
+      return { ok: false, error: 'An aside cannot be reset to a message.' }
+    const active = sessions.get(input.threadId)
+    if (!active) return { ok: false, error: 'Connect to Copilot to reset the conversation.' }
+    const busy = (): string | null =>
+      active.snapshot.phase !== 'idle' ||
+      active.pending.length ||
+      active.snapshot.queuedMessages.length ||
+      active.modelChangePending
+        ? 'Wait for Copilot to finish before resetting the conversation.'
+        : null
+    const busyError = busy()
+    if (busyError) return { ok: false, error: busyError, snapshot: active.snapshot }
+    try {
+      const boundary = findTurnEndBoundary(await active.session.getEvents(), input.messageId)
+      if (!boundary) throw new Error('That message is no longer in the conversation.')
+      if (!boundary.eventId) throw new Error('That message is already the latest one.')
+      const revision = active.sendRevision
+      const confirmed = (await dependencies.confirmReset?.()) ?? true
+      if (!confirmed) return { ok: false, cancelled: true, snapshot: active.snapshot }
+      if (sessions.get(input.threadId) !== active)
+        throw new Error('The Copilot session closed before the conversation was reset.')
+      const stillBusy = busy()
+      if (stillBusy || active.sendRevision !== revision)
+        throw new Error(stillBusy ?? 'The conversation changed. Try again.')
+      await active.session.rpc.history.truncate({ eventId: boundary.eventId })
+      const history = await active.session.getEvents()
+      active.prompt = null
+      active.lastSummary = null
+      updateSnapshot(active, {
+        timeline: buildTimeline(history, active.session.sessionId, null),
+        error: null
+      })
+      dependencies.onHistoryTruncated?.(input.threadId, describeHistory(history))
+      return { ok: true, snapshot: active.snapshot }
+    } catch (error) {
+      return { ok: false, error: errorMessage(error), snapshot: active.snapshot }
+    }
+  }
+
+  async function forkThread(input: CopilotForkThreadInput): Promise<MutationResult> {
+    if (isAsideSessionKey(input.threadId)) return { ok: false, error: 'An aside cannot be forked.' }
+    try {
+      const active = sessions.get(input.threadId)
+      const sessionId =
+        active?.session.sessionId ??
+        dependencies.resolveThread(input.threadId)?.thread.resumeSessionId
+      if (!sessionId) throw new Error('This thread has no Copilot conversation to fork yet.')
+      const events = active ? await active.session.getEvents() : null
+      let boundary: string | null = null
+      if (input.messageId) {
+        if (!events) throw new Error('Connect to Copilot to fork from a message.')
+        const found = findTurnEndBoundary(events, input.messageId)
+        if (!found) throw new Error('That message is no longer in the conversation.')
+        if (!found.eventId && active?.snapshot.phase === 'running')
+          throw new Error('Wait for Copilot to finish this turn before forking from it.')
+        boundary = found.eventId
+      } else if (events && active?.snapshot.phase === 'running') {
+        boundary = latestTurnStart(events)
+      }
+      const forkedSessionId = await forkSession(await ensureClient(), sessionId, boundary)
+      const result = dependencies.createForkedThread?.({
+        sourceThreadId: input.threadId,
+        sessionId: forkedSessionId,
+        history: events ? describeHistory(eventsBefore(events, boundary)) : null
+      })
+      return result ?? { ok: false, error: 'Forking threads is not supported.' }
+    } catch (error) {
+      return { ok: false, error: errorMessage(error) }
+    }
+  }
+
+  async function resetAside(threadId: string): Promise<CopilotStartResult> {
+    if (isAsideSessionKey(threadId)) return { ok: false, error: 'Expected a thread id.' }
+    const key = asideSessionKey(threadId)
+    await stopSession(key)
+    const previous = dependencies.getAside?.(threadId)
+    dependencies.setAside?.(threadId, null)
+    if (previous) {
+      try {
+        await (await ensureClient()).deleteSession(previous.sessionId)
+      } catch (error) {
+        console.warn('Could not delete the previous aside session:', error)
+      }
+    }
+    return start(key)
+  }
+
+  /** The name of the thread a session belongs to, or null when the thread is gone. */
+  function sessionDisplayName(key: string, title: string | null): string | null {
+    const parentThreadId = asideParentThreadId(key)
+    const thread = dependencies.resolveThread(parentThreadId ?? key)?.thread
+    if (!thread) return null
+    if (parentThreadId) return `${threadDisplayName(thread)} (aside)`
+    return resolveThreadTitle(thread, title) ?? threadDisplayName(thread)
+  }
+
+  /** Stops a thread's session and its aside's. */
   async function stopThread(threadId: string): Promise<void> {
+    await stopSession(threadId)
+    if (!isAsideSessionKey(threadId)) await stopSession(asideSessionKey(threadId))
+  }
+
+  async function stopSession(threadId: string): Promise<void> {
     const starting = startingThreads.get(threadId)
     if (starting) {
       starting.cancelled = true

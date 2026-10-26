@@ -10,6 +10,7 @@ import type {
   MutationResult
 } from '../../../shared/app-types'
 import { normalizeThreadWorkItems, sameThreadWorkItems } from '../../../shared/work-items'
+import { normalizePinnedMessageIds } from './thread-values'
 
 type ThreadStateServiceDependencies = {
   ensureState: () => Pick<PersistedAppState, 'ui' | 'repositories' | 'threads'>
@@ -84,6 +85,21 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
         }
         dependencies.saveState()
       }
+      if (input.pinnedMessage !== undefined) {
+        const { messageId, pinned } = input.pinnedMessage ?? {}
+        if (typeof messageId !== 'string' || !messageId.trim() || typeof pinned !== 'boolean') {
+          return dependencies.failureResult('Invalid pinned message.')
+        }
+        const current = thread.pinnedMessageIds ?? []
+        if (current.includes(messageId) !== pinned) {
+          const next = normalizePinnedMessageIds(
+            pinned ? [...current, messageId] : current.filter((id) => id !== messageId)
+          )
+          if (next) thread.pinnedMessageIds = next
+          else delete thread.pinnedMessageIds
+          dependencies.saveState()
+        }
+      }
       if (input.customTitle === undefined) return dependencies.successResult()
       const customTitle = dependencies.normalizeCustomTitle(input.customTitle)
       if (thread.customTitle === customTitle) {
@@ -138,6 +154,8 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       thread.resumeSessionId = nextSessionId
       if (shouldClearTitle) {
         thread.latestCopilotTitle = null
+        // Pins refer to messages of the previous conversation.
+        delete thread.pinnedMessageIds
       }
       dependencies.saveState()
       return true

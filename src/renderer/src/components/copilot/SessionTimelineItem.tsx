@@ -1,7 +1,16 @@
 import { memo } from 'react'
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
 import SessionMarkdown, { CopyButton } from './SessionMarkdown'
-import { ChevronRightIcon, PaperclipIcon, QuestionIcon, SparkIcon } from '../Icons'
+import {
+  ChevronRightIcon,
+  ForkIcon,
+  PaperclipIcon,
+  PinIcon,
+  QuestionIcon,
+  RewindIcon,
+  SparkIcon
+} from '../Icons'
+import Button from '../ui/Button'
 import { splitAttachmentMarkers } from './attachment-markers'
 import {
   PROMPT_COST_BASIS,
@@ -60,11 +69,27 @@ export function SkillLine({
 
 export default memo(function SessionTimelineItem({
   item,
-  enter = false
+  enter = false,
+  pinned = false,
+  onTogglePin,
+  onReset,
+  onFork,
+  resetDisabled = false,
+  forkDisabled = false
 }: {
   item: CopilotTimelineItem
   /** Rise into place: set for items that arrive while the conversation is open. */
   enter?: boolean
+  /** Whether this Copilot message is pinned to the pin rail. */
+  pinned?: boolean
+  /** Shows a pin toggle on Copilot messages. */
+  onTogglePin?: (id: string, pinned: boolean) => void
+  /** Shows a button that cuts the conversation back to the end of this message's turn. */
+  onReset?: (id: string) => void
+  /** Shows a button that opens a new thread from the end of this message's turn. */
+  onFork?: (id: string) => void
+  resetDisabled?: boolean
+  forkDisabled?: boolean
 }): React.JSX.Element {
   const motion = enter ? ' tm-rise-in' : ''
   if (item.type === 'tool') {
@@ -166,6 +191,8 @@ export default memo(function SessionTimelineItem({
       className={`${user ? 'tm-session-message tm-session-message--user' : 'tm-session-message'}${motion}`}
       aria-label={user ? 'Your message' : 'Copilot message'}
       data-prompt-id={user ? item.id : undefined}
+      data-message-id={user ? undefined : item.id}
+      data-pinned={pinned || undefined}
     >
       {user ? (
         <div className="tm-session-bubble">
@@ -209,6 +236,48 @@ export default memo(function SessionTimelineItem({
           <span>{item.model}</span>
         ) : null}
         <CopyButton text={item.content} label="Copy message" iconOnly />
+        {!user && onTogglePin ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            iconOnly
+            className="tm-session-pin"
+            aria-pressed={pinned}
+            aria-label={pinned ? 'Unpin message' : 'Pin message'}
+            title={pinned ? 'Unpin message' : 'Pin message for later reference'}
+            onClick={() => onTogglePin(item.id, !pinned)}
+          >
+            <PinIcon filled={pinned} aria-hidden="true" />
+          </Button>
+        ) : null}
+        {!user && onReset ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            iconOnly
+            className="tm-session-message-action"
+            aria-label="Reset to here"
+            title="Reset to here: remove everything after this message"
+            disabled={resetDisabled}
+            onClick={() => onReset(item.id)}
+          >
+            <RewindIcon aria-hidden="true" />
+          </Button>
+        ) : null}
+        {!user && onFork ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            iconOnly
+            className="tm-session-message-action"
+            aria-label="Fork from here"
+            title="Fork from here: continue the conversation up to this message in a new thread"
+            disabled={forkDisabled}
+            onClick={() => onFork(item.id)}
+          >
+            <ForkIcon aria-hidden="true" />
+          </Button>
+        ) : null}
       </div>
     </article>
   )

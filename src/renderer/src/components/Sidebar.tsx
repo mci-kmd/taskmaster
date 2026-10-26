@@ -30,6 +30,7 @@ type SidebarProps = {
   onToggleRepositoryFavorite: (id: string, favorite: boolean) => void
   onRegenerateTitle: (id: string) => void
   regeneratingTitleIds: ReadonlySet<string>
+  onForkThread?: (id: string) => void
   convertingThread: boolean
   closingThread: boolean
 }
@@ -57,6 +58,7 @@ export default function Sidebar({
   onToggleRepositoryFavorite,
   onRegenerateTitle,
   regeneratingTitleIds,
+  onForkThread,
   convertingThread,
   closingThread
 }: SidebarProps): React.JSX.Element {
@@ -158,6 +160,7 @@ export default function Sidebar({
           onToggleRepositoryFavorite={onToggleRepositoryFavorite}
           onRegenerateTitle={onRegenerateTitle}
           regeneratingTitleIds={regeneratingTitleIds}
+          onForkThread={onForkThread}
           convertingThread={convertingThread}
           closingThread={closingThread}
         />

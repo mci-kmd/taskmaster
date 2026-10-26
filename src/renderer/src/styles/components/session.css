@@ -32,6 +32,12 @@
     transform: translate(-6px, -50%);
   }
 }
+@keyframes tm-prompt-rail-label-in-right {
+  from {
+    opacity: 0;
+    transform: translate(6px, -50%);
+  }
+}
 
 @layer components {
   .tm-session {
@@ -54,10 +60,15 @@
     padding: 20px 24px 32px;
   }
   .tm-session-scroll[data-rail-motion] {
-    transition: padding-left var(--duration-slow) var(--ease-out);
+    transition:
+      padding-left var(--duration-slow) var(--ease-out),
+      padding-right var(--duration-slow) var(--ease-out);
   }
   .tm-session-scroll--with-rail {
     padding-left: 40px;
+  }
+  .tm-session-scroll--with-pins {
+    padding-right: 40px;
   }
   .tm-session-transcript {
     position: relative;
@@ -109,9 +120,14 @@
   .tm-session-copy {
     font-weight: 500;
   }
-  .tm-session-copy svg {
+  .tm-session-copy svg,
+  .tm-session-pin svg,
+  .tm-session-message-action svg {
     width: 13px;
     height: 13px;
+  }
+  .tm-session-pin[aria-pressed='true'] {
+    color: var(--color-accent);
   }
   /* Reasoning: a quiet heading over indented, hairlined text. */
   .tm-session-reasoning {
@@ -918,6 +934,24 @@
     text-overflow: ellipsis;
   }
 
+  /* The pinned-message rail mirrors the prompt rail at the right edge, clear of the scrollbar. */
+  .tm-prompt-rail[data-side='right'] {
+    right: 10px;
+    justify-content: flex-end;
+  }
+  .tm-prompt-rail[data-side='right'] .tm-prompt-rail-bar {
+    justify-content: flex-end;
+    padding: 0 12px 0 0;
+  }
+  .tm-prompt-rail[data-side='right'] .tm-prompt-rail-labels {
+    inset: 0 56px 0 24px;
+  }
+  .tm-prompt-rail[data-side='right'] .tm-prompt-rail-label {
+    left: auto;
+    right: 0;
+    animation-name: tm-prompt-rail-label-in-right;
+  }
+
   /* --------------------------------------------------------------------- composer */
 
   .tm-session-bottom {
@@ -1707,6 +1741,9 @@
     .tm-session-scroll--with-rail {
       padding-left: 34px;
     }
+    .tm-session-scroll--with-pins {
+      padding-right: 34px;
+    }
     .tm-session-bottom {
       padding: 4px 10px 8px;
     }
@@ -1716,5 +1753,125 @@
     .tm-session-empty {
       margin-top: 4vh;
     }
+  }
+}
+
+/* ---------------------------------------------------------------- aside */
+
+/* The aside slides in over the right of the conversation, which stays put underneath. */
+@keyframes tm-aside-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+@keyframes tm-aside-out {
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@layer components {
+  .tm-session-host {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .tm-aside {
+    position: absolute;
+    inset-block: 0;
+    right: 0;
+    z-index: 20;
+    display: flex;
+    width: min(440px, 45%);
+    min-width: 300px;
+    flex-direction: column;
+    border-left: 1px solid var(--color-border);
+    background: var(--color-panel);
+    box-shadow: -12px 0 32px -18px color-mix(in srgb, var(--color-shadow) 45%, transparent);
+  }
+  .tm-aside[data-state='open'] {
+    animation: tm-aside-in var(--duration-slow) var(--ease-out) both;
+  }
+  .tm-aside[data-state='closed'] {
+    animation: tm-aside-out var(--duration-exit) var(--ease-in) both;
+  }
+  .tm-aside-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 8px 8px 14px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .tm-aside-icon {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    color: var(--color-accent);
+  }
+  .tm-aside-title {
+    min-width: 0;
+    flex: 1;
+  }
+  .tm-aside-title h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-fg);
+  }
+  .tm-aside-title p {
+    overflow: hidden;
+    font-size: 11.5px;
+    color: var(--color-fg-subtle);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tm-aside-error {
+    flex: none;
+    margin: 8px 12px 0;
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--color-danger-soft);
+    font-size: 12px;
+    color: var(--color-danger);
+  }
+  .tm-aside-body {
+    position: relative;
+    min-height: 0;
+    flex: 1;
+  }
+  .tm-aside-restarting {
+    display: grid;
+    height: 100%;
+    place-items: center;
+    font-size: 12.5px;
+    color: var(--color-fg-subtle);
+  }
+  /* The panel is narrow: tighten the conversation's gutters. */
+  .tm-aside .tm-session-scroll {
+    padding-inline: 16px;
+  }
+  .tm-aside .tm-session-empty {
+    margin-top: 6vh;
+  }
+  .tm-aside-toggle {
+    position: relative;
+  }
+  .tm-aside-toggle[aria-pressed='true'] {
+    color: var(--color-accent);
+  }
+  /* A dot shows the aside working while the panel is closed. */
+  .tm-aside-toggle[data-running]::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-accent);
+    animation: tm-pulse 1.4s var(--ease-in-out) infinite;
   }
 }
