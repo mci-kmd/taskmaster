@@ -45,6 +45,7 @@ import { resolveThreadTitle, threadDisplayName } from '../../shared/thread-title
 import { sendIpc } from '../ipc/typed-ipc'
 import type {
   CopilotClient,
+  CopilotClientOptions,
   CopilotSession,
   AutoModeSwitchRequest,
   AutoModeSwitchResponse,
@@ -81,6 +82,11 @@ export type CopilotGenerateTextInput = {
 }
 
 const GENERATE_TEXT_TIMEOUT_MS = 120_000
+
+// Newer runtimes no longer default an Entra app, so MCP servers behind Entra (e.g. Azure DevOps)
+// can't sign in or renew tokens without one. This is the app the runtime used before, so
+// existing sign-ins keep working.
+const ENTRA_CLIENT_ID = 'aebc6443-996d-45c2-90f0-388ff96faa56'
 
 type UserInputRequest = {
   question: string
@@ -1361,18 +1367,21 @@ export function createCopilotSessionService(dependencies: {
       await stopClient()
       const runtimeEnv = buildCopilotRuntimeEnv(process.env)
       if (loaded.runtimePath) runtimeEnv.COPILOT_CLI_PATH = loaded.runtimePath
-      const nextClient = new loaded.module.CopilotClient({
+      // `entra` is missing from the bundled SDK's types but honored by newer runtimes.
+      const clientOptions: CopilotClientOptions & { entra: { clientId: string } } = {
         mode: 'copilot-cli',
         useLoggedInUser: true,
         logLevel: 'warning',
         env: runtimeEnv,
+        entra: { clientId: ENTRA_CLIENT_ID },
         clientInfo: {
           applicationName: 'Taskmaster',
           applicationVersion: app.getVersion(),
           integrationName: 'copilot-sdk',
           integrationVersion: loaded.version
         }
-      })
+      }
+      const nextClient = new loaded.module.CopilotClient(clientOptions)
 
       try {
         await nextClient.start()

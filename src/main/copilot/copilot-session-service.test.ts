@@ -976,6 +976,15 @@ describe('Copilot session interactions', () => {
     expect(env?.COPILOT_CLI_PATH).toBe('C:\\runtime\\copilot-runtime.exe')
   })
 
+  it('configures an Entra app so Entra-backed MCP servers can sign in and renew tokens', async () => {
+    const service = setup()
+    await service.start('thread')
+
+    expect(harness.clientOptions).toMatchObject({
+      entra: { clientId: 'aebc6443-996d-45c2-90f0-388ff96faa56' }
+    })
+  })
+
   it('replaces a dead SDK client when reconnecting after startup fails', async () => {
     harness.createSession.mockRejectedValueOnce(
       new Error('fatal: Cannot prompt because user interactivity has been disabled.')
