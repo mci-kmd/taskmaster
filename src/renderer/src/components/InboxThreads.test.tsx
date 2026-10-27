@@ -649,6 +649,47 @@ describe('inbox', () => {
     expect(broken.querySelector('[data-selected]')).toBeNull()
   })
 
+  it('marks only working threads for de-emphasis', () => {
+    const live = repository('Live', [
+      thread('Busy', '2026-03-01'),
+      thread('Asking', '2026-02-01'),
+      thread('Quiet', '2026-01-01')
+    ])
+    const status = (copilotStatus: 'working' | 'input') =>
+      ({
+        phase: 'running',
+        exitCode: null,
+        errorMessage: null,
+        runtimeTitle: null,
+        lastUserMessage: null,
+        copilotStatus
+      }) as const
+    render(
+      <InboxThreads
+        repositories={[live]}
+        selectedRepository={live}
+        selectedThread={null}
+        sessions={
+          new Map([
+            ['Busy', status('working')],
+            ['Asking', status('input')]
+          ])
+        }
+        convertingThread={false}
+        closingThread={false}
+        {...callbacks()}
+      />
+    )
+    const rows = within(screen.getByRole('list', { name: 'Active threads' })).getAllByRole(
+      'listitem'
+    )
+    expect(rows.map((row) => Boolean(row.querySelector('[data-working]')))).toEqual([
+      true,
+      false,
+      false
+    ])
+  })
+
   it('animates a settled thread out of the active list before removing it', () => {
     vi.useFakeTimers()
     const animate = vi.fn(() => ({ cancel: vi.fn() }))

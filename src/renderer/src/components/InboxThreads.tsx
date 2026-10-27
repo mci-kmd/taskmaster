@@ -176,6 +176,7 @@ export default function InboxThreads({
               'right'
             )}
             data-selected={selectedThread?.id === thread.id || undefined}
+            data-working={status === 'working' || undefined}
             onContextMenu={(event) => {
               event.preventDefault()
               setContextMenu({ threadId: thread.id, x: event.clientX, y: event.clientY })

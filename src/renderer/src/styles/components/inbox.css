@@ -55,6 +55,14 @@
     opacity: 1;
     transform: none;
   }
+  /* Threads Copilot is busy with need no attention, so they recede until hovered.
+     Only the content dims, keeping the card surface and selection marker intact. */
+  .tm-inbox-row > * {
+    transition: opacity var(--duration-base) ease;
+  }
+  .tm-inbox-row[data-working]:not(:hover) > * {
+    opacity: 0.4;
+  }
 
   .tm-inbox-row-main {
     display: flex;
