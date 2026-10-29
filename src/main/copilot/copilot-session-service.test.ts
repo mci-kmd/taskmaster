@@ -1651,6 +1651,46 @@ describe('messages sent while Copilot works', () => {
     })
   })
 
+  it('keeps readable option titles from elicitation schemas', async () => {
+    const service = setup(false)
+    await service.start('thread')
+    await service.send(message('Clean up'))
+    void harness.config!.onElicitationRequest!({
+      sessionId: 'session-id',
+      message: 'Which should I remove?',
+      requestedSchema: {
+        type: 'object',
+        properties: {
+          remove: {
+            type: 'array',
+            items: {
+              anyOf: [
+                { const: 'admin-cert', title: 'Admin certificate column' },
+                { const: 'redirect-uris', title: 'redirect-uris' }
+              ]
+            }
+          },
+          mode: {
+            type: 'string',
+            oneOf: [{ const: 'drop', title: 'Drop the columns now' }]
+          },
+          speed: { type: 'string', enum: ['fast', 'safe'], enumNames: ['Fast', ''] }
+        }
+      }
+    })
+    const pending = service.getSession('thread')!.pendingInteraction!
+    expect(pending.kind === 'elicitation' && pending.schema?.properties).toMatchObject({
+      remove: {
+        options: [
+          { value: 'admin-cert', label: 'Admin certificate column' },
+          { value: 'redirect-uris' }
+        ]
+      },
+      mode: { options: [{ value: 'drop', label: 'Drop the columns now' }] },
+      speed: { options: [{ value: 'fast', label: 'Fast' }, { value: 'safe' }] }
+    })
+  })
+
   it('records answered requests in the timeline and saves them', async () => {
     const saveInteraction = vi.fn()
     const service = setup(false, { saveInteraction })

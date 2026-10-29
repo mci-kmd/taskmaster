@@ -595,7 +595,8 @@ export type CopilotInteraction = (
             title?: string
             description?: string
             default?: string | number | boolean | string[]
-            options?: string[]
+            /** `label` is the agent's readable title for the option, when it gave one. */
+            options?: { value: string; label?: string }[]
           }
         >
         required: string[]

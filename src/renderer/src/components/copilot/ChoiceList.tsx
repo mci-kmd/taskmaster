@@ -3,7 +3,7 @@ import Presence from '../ui/Presence'
 
 type ChoiceListProps = {
   label: string
-  options: string[]
+  options: { value: string; label?: string }[]
   /** Adds an "Other" choice with a text field for an answer outside the options. */
   allowOther: boolean
   required: boolean
@@ -16,7 +16,8 @@ const OTHER_PLACEHOLDER = 'Type your own answer…'
 
 /** Radio or checkbox list for elicitation choices, so every option is visible at once. */
 export default function ChoiceList(props: ChoiceListProps): React.JSX.Element {
-  const { label, options, allowOther, required } = props
+  const { label, allowOther, required } = props
+  const options = props.options.map((option) => option.value)
   const name = useId()
   const otherInput = useRef<HTMLInputElement>(null)
   const initialOther = props.multiple
@@ -89,7 +90,7 @@ export default function ChoiceList(props: ChoiceListProps): React.JSX.Element {
       data-multiple={props.multiple || undefined}
       role={props.multiple ? 'group' : 'radiogroup'}
     >
-      {options.map((option) => {
+      {props.options.map(({ value: option, label: optionLabel }) => {
         const checked = selected.includes(option) && !(otherSelected && !props.multiple)
         return (
           <label className="tm-choice" data-selected={checked || undefined} key={option}>
@@ -103,7 +104,7 @@ export default function ChoiceList(props: ChoiceListProps): React.JSX.Element {
               value={option}
             />
             {renderMark(checked)}
-            <span className="tm-choice__label">{option}</span>
+            <span className="tm-choice__label">{optionLabel ?? option}</span>
           </label>
         )
       })}

@@ -257,7 +257,11 @@ const QUESTION: CopilotInteraction = {
         type: 'string',
         title: 'Accent',
         description: 'Applies to Send, focus rings and the selected thread.',
-        options: ['Cobalt', 'Coral', 'Teal']
+        options: [
+          { value: 'cobalt', label: 'Cobalt (current blue)' },
+          { value: 'coral', label: 'Coral (matches the needs-you badge)' },
+          { value: 'teal', label: 'Teal' }
+        ]
       }
     },
     required: ['accent']

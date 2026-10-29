@@ -402,6 +402,11 @@ function mergeTimelineItem(
   return next
 }
 
+function choiceOption(value: string, label?: string): { value: string; label?: string } {
+  const trimmed = label?.trim()
+  return trimmed && trimmed !== value ? { value, label: trimmed } : { value }
+}
+
 function normalizeElicitationSchema(
   context: ElicitationContext
 ): Extract<CopilotInteraction, { kind: 'elicitation' }>['schema'] {
@@ -410,11 +415,12 @@ function normalizeElicitationSchema(
   return {
     properties: Object.fromEntries(
       Object.entries(context.requestedSchema.properties).map(([name, field]) => {
-        let options: string[] | undefined
+        let options: { value: string; label?: string }[] | undefined
         if ('enum' in field && Array.isArray(field.enum)) {
-          options = field.enum
+          const labels = 'enumNames' in field ? field.enumNames : undefined
+          options = field.enum.map((value, index) => choiceOption(value, labels?.[index]))
         } else if ('oneOf' in field && Array.isArray(field.oneOf)) {
-          options = field.oneOf.map((option) => option.const)
+          options = field.oneOf.map((option) => choiceOption(option.const, option.title))
         } else if (
           field.type === 'array' &&
           'items' in field &&
@@ -422,9 +428,9 @@ function normalizeElicitationSchema(
           typeof field.items === 'object'
         ) {
           if ('enum' in field.items && Array.isArray(field.items.enum)) {
-            options = field.items.enum
+            options = field.items.enum.map((value) => choiceOption(value))
           } else if ('anyOf' in field.items && Array.isArray(field.items.anyOf)) {
-            options = field.items.anyOf.map((option) => option.const)
+            options = field.items.anyOf.map((option) => choiceOption(option.const, option.title))
           }
         }
 

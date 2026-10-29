@@ -21,7 +21,10 @@ it('validates required choices, accepts decimals, and submits unchecked booleans
         schema: {
           required: ['choice', 'enabled', 'amount'],
           properties: {
-            choice: { type: 'string', options: ['A', 'B'] },
+            choice: {
+              type: 'string',
+              options: [{ value: 'A' }, { value: 'B', label: 'Option B' }]
+            },
             enabled: { type: 'boolean' },
             amount: { type: 'number' },
             optional: { type: 'integer', default: 10 }
@@ -32,7 +35,7 @@ it('validates required choices, accepts decimals, and submits unchecked booleans
   )
   const form = screen.getByRole('button', { name: 'Continue' }).closest('form')!
   expect(form.checkValidity()).toBe(false)
-  fireEvent.click(screen.getByRole('radio', { name: 'B' }))
+  fireEvent.click(screen.getByRole('radio', { name: 'Option B' }))
   expect(screen.queryByRole('textbox', { name: 'choice: your own answer' })).toBeNull()
   fireEvent.change(screen.getByLabelText('amount'), { target: { value: '2.5' } })
   fireEvent.change(screen.getByLabelText('optional'), { target: { value: '' } })
@@ -100,8 +103,16 @@ it('lets the user answer Copilot choice questions in their own words', () => {
         schema: {
           required: ['approach', 'targets'],
           properties: {
-            approach: { type: 'string', title: 'Approach', options: ['Fast', 'Safe'] },
-            targets: { type: 'array', title: 'Targets', options: ['web', 'desktop'] }
+            approach: {
+              type: 'string',
+              title: 'Approach',
+              options: [{ value: 'Fast' }, { value: 'Safe' }]
+            },
+            targets: {
+              type: 'array',
+              title: 'Targets',
+              options: [{ value: 'web' }, { value: 'desktop' }]
+            }
           }
         }
       }}
@@ -143,7 +154,12 @@ it('requires a multi-select answer when the field is required', () => {
         mode: 'form',
         schema: {
           required: ['targets'],
-          properties: { targets: { type: 'array', options: ['web', 'desktop'] } }
+          properties: {
+            targets: {
+              type: 'array',
+              options: [{ value: 'web' }, { value: 'desktop', label: 'Desktop app' }]
+            }
+          }
         }
       }}
     />
@@ -151,7 +167,7 @@ it('requires a multi-select answer when the field is required', () => {
   const form = screen.getByRole('button', { name: 'Continue' }).closest('form')!
   expect(screen.queryByRole('checkbox', { name: 'Other' })).toBeNull()
   expect(form.checkValidity()).toBe(false)
-  fireEvent.click(screen.getByRole('checkbox', { name: 'desktop' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Desktop app' }))
   expect(form.checkValidity()).toBe(true)
 })
 it('renders readable markdown and code without enabling unsafe links or remote images', () => {
