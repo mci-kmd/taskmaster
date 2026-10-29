@@ -445,7 +445,7 @@ function SessionFrame({
         <div
           ref={scroll}
           className={
-            railPrompts.length >= 2
+            railPrompts.length > 0
               ? 'tm-session-scroll tm-session-scroll--with-rail'
               : 'tm-session-scroll'
           }

@@ -360,6 +360,17 @@ describe('generated thread titles', () => {
     expect(normalizePersistedThread({ ...base, pinnedMessageIds: [] })).not.toHaveProperty(
       'pinnedMessageIds'
     )
+    const titled = { ...pinned, pinnedMessageTitles: { 'assistant:a': 'Plan' } }
+    expect(normalizePersistedThread(titled)).toBe(titled)
+    expect(
+      normalizePersistedThread({
+        ...pinned,
+        pinnedMessageTitles: { 'assistant:a': ' Plan ', 'assistant:b': 3, gone: 'Old' } as never
+      }).pinnedMessageTitles
+    ).toEqual({ 'assistant:a': 'Plan' })
+    expect(
+      normalizePersistedThread({ ...base, pinnedMessageTitles: { 'assistant:a': 'Plan' } })
+    ).not.toHaveProperty('pinnedMessageTitles')
   })
 
   it('keeps a valid aside and drops invalid ones', () => {

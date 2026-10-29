@@ -527,6 +527,8 @@ export function createCopilotSessionService(dependencies: {
   runningThreadNames: () => string[]
   /** User messages in the thread's connected session, oldest first. */
   getUserPrompts: (threadId: string) => string[]
+  /** The text of a message in the thread's connected session, or null when it isn't there. */
+  getMessageContent: (threadId: string, messageId: string) => string | null
   listModels: () => Promise<CopilotListModelsResult>
   generateText: (input: CopilotGenerateTextInput) => Promise<string>
   shutdown: () => Promise<void>
@@ -2101,6 +2103,10 @@ export function createCopilotSessionService(dependencies: {
       (sessions.get(threadId)?.snapshot.timeline ?? []).flatMap((item) =>
         item.type === 'user' ? [item.content] : []
       ),
+    getMessageContent: (threadId, messageId) => {
+      const item = sessions.get(threadId)?.snapshot.timeline.find((entry) => entry.id === messageId)
+      return item && (item.type === 'assistant' || item.type === 'user') ? item.content : null
+    },
     listModels: async () => {
       try {
         const sdkClient = await ensureClient()

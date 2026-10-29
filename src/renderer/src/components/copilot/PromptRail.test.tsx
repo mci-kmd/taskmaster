@@ -57,9 +57,15 @@ function layOut(scrollTop = 0): HTMLElement {
   return timeline
 }
 
-it('hides the rail when the thread has fewer than two prompts', () => {
-  render(<Harness items={prompts.slice(0, 1)} />)
+it('hides the rail without prompts and shows it from the first prompt', () => {
+  const { rerender } = render(<Harness items={[]} />)
   expect(screen.queryByRole('navigation')).toBeNull()
+  rerender(<Harness items={prompts.slice(0, 1)} />)
+  expect(
+    within(screen.getByRole('navigation', { name: 'Prompts in this thread' })).getByRole('button', {
+      name: 'Prompt 1 of 1: Explain the project layout'
+    })
+  ).toBeTruthy()
 })
 
 it('lists pinned messages at the right edge, even a single one', () => {

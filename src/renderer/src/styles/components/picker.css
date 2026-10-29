@@ -226,8 +226,19 @@
     color: var(--color-fg-faint);
   }
   .tm-action-menu-item:not(:disabled):hover,
-  .tm-action-menu-item:not(:disabled):focus-visible {
+  .tm-action-menu-item:not(:disabled):focus-visible,
+  .tm-action-menu-item[aria-expanded='true'] {
     background: var(--color-control-hover);
+  }
+  .tm-action-menu-item[data-submenu] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .tm-action-menu-item[data-submenu] svg {
+    flex: none;
+    color: var(--color-fg-subtle);
   }
 
   .tm-picker-group + .tm-picker-group {

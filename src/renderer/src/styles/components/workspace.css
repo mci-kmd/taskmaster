@@ -74,6 +74,14 @@
   .tm-workspace-done:hover {
     background: color-mix(in oklab, var(--color-positive) 22%, var(--color-panel));
   }
+  .tm-workspace-done[data-tone='awakened'] {
+    background: var(--color-warning-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-warning) 28%, transparent);
+    color: var(--color-warning);
+  }
+  .tm-workspace-done[data-tone='awakened']:hover {
+    background: color-mix(in oklab, var(--color-warning) 22%, var(--color-panel));
+  }
 
   /* A placeholder while a view's code loads. */
   .tm-workspace-loading {

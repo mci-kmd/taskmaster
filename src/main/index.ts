@@ -198,7 +198,8 @@ app.whenReady().then(() => {
     stop: copilotService.stopThread,
     has: copilotService.hasSession,
     isWorking: copilotService.isThreadWorking,
-    getUserPrompts: copilotService.getUserPrompts
+    getUserPrompts: copilotService.getUserPrompts,
+    getMessageContent: copilotService.getMessageContent
   })
   setCommitMessageGenerator(copilotService.generateText)
   const usdDkkRate = createUsdDkkRate()

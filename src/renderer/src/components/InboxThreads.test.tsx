@@ -360,6 +360,98 @@ describe('inbox', () => {
     expect(screen.queryByRole('button', { name: /Thread actions for/ })).toBeNull()
   })
 
+  it('snoozes from a submenu, stacks snoozed threads above settled ones, and marks awakened threads', () => {
+    const handlers = callbacks()
+    const onSnoozeThread = vi.fn()
+    const onCustomSnoozeThread = vi.fn()
+    const projects = [
+      repository('Alpha', [
+        thread('Quiet', '2026-01-01'),
+        { ...thread('Woken', '2025-12-01'), awakenedAt: '2026-02-01T00:00:00.000Z' },
+        { ...thread('Later', '2026-03-01'), snoozedUntil: '2099-01-02T08:00:00.000Z' },
+        { ...thread('Sooner', '2026-03-02'), snoozedUntil: '2099-01-01T08:00:00.000Z' },
+        thread('Finished', '2026-03-01', '2026-03-02')
+      ])
+    ]
+    render(
+      <InboxThreads
+        repositories={projects}
+        selectedRepository={projects[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...handlers}
+        onSnoozeThread={onSnoozeThread}
+        onCustomSnoozeThread={onCustomSnoozeThread}
+      />
+    )
+    // Waking from a snooze counts as activity, so the awakened thread comes first.
+    const active = within(screen.getByRole('list', { name: 'Active threads' })).getAllByRole(
+      'listitem'
+    )
+    expect(active.map((row) => row.getAttribute('data-thread-id'))).toEqual(['Woken', 'Quiet'])
+    const badge = active[0].querySelector('[data-status="awakened"]')
+    expect(badge?.textContent).toBe('Awakened')
+
+    const toggles = screen
+      .getAllByRole('button', { expanded: false })
+      .filter((button) => button.className.includes('tm-inbox-shelf-toggle'))
+    expect(toggles.map((button) => button.textContent)).toEqual([
+      'Snoozed threads 2',
+      'Settled threads 1'
+    ])
+    const snoozed = screen.getByRole('list', { name: 'Snoozed threads', hidden: true })
+    expect(
+      within(snoozed)
+        .getAllByRole('listitem', { hidden: true })
+        .map((row) => row.getAttribute('data-thread-id'))
+    ).toEqual(['Sooner', 'Later'])
+    fireEvent.click(toggles[0])
+    fireEvent.click(within(snoozed).getByRole('button', { name: 'Unsnooze Later' }))
+    expect(onSnoozeThread).toHaveBeenCalledWith('Later', null)
+
+    fireEvent.contextMenu(screen.getByText('Quiet'))
+    const menu = screen.getByRole('menu', { name: 'Thread actions for Quiet' })
+    const snooze = within(menu).getByRole('menuitem', { name: 'Snooze' })
+    expect(snooze.getAttribute('aria-haspopup')).toBe('menu')
+    fireEvent.keyDown(snooze, { key: 'ArrowRight' })
+    const submenu = screen.getByRole('menu', { name: 'Snooze' })
+    expect(
+      within(submenu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['1 hour', 'Tomorrow', 'Next week', 'Custom...'])
+    expect(document.activeElement).toBe(within(submenu).getByRole('menuitem', { name: '1 hour' }))
+    fireEvent.keyDown(submenu, { key: 'ArrowLeft' })
+    expect(screen.queryByRole('menu', { name: 'Snooze' })).toBeNull()
+    expect(document.activeElement).toBe(snooze)
+
+    fireEvent.click(snooze)
+    const before = Date.now()
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Snooze' })).getByRole('menuitem', {
+        name: '1 hour'
+      })
+    )
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(onSnoozeThread).toHaveBeenCalledWith('Quiet', expect.any(String))
+    const until = Date.parse(onSnoozeThread.mock.calls.at(-1)?.[1] as string)
+    expect(until - before).toBeGreaterThanOrEqual(60 * 60 * 1000 - 1000)
+    expect(until - before).toBeLessThanOrEqual(60 * 60 * 1000 + 1000)
+
+    fireEvent.contextMenu(screen.getByText('Quiet'))
+    fireEvent.pointerEnter(screen.getByRole('menuitem', { name: 'Snooze' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Custom...' }))
+    expect(onCustomSnoozeThread).toHaveBeenCalledWith('Quiet')
+
+    fireEvent.contextMenu(screen.getByText('Later'))
+    const snoozedMenu = screen.getByRole('menu', { name: 'Thread actions for Later' })
+    expect(within(snoozedMenu).getByRole('menuitem', { name: 'Snooze again' })).toBeTruthy()
+    fireEvent.click(within(snoozedMenu).getByRole('menuitem', { name: 'Unsnooze' }))
+    expect(onSnoozeThread).toHaveBeenLastCalledWith('Later', null)
+  })
+
   it('orders threads across projects, keeps settled threads collapsed, and supports restoring them', () => {
     const handlers = callbacks()
     render(
@@ -394,6 +486,7 @@ describe('inbox', () => {
       'Regenerate title',
       'Fork thread',
       'Convert to work tree',
+      'Snooze',
       'Settle thread',
       'Close thread'
     ])
@@ -492,7 +585,14 @@ describe('inbox', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Edit', 'Regenerate title', 'Fork thread', 'Settle thread', 'Close thread'])
+    ).toEqual([
+      'Edit',
+      'Regenerate title',
+      'Fork thread',
+      'Snooze',
+      'Settle thread',
+      'Close thread'
+    ])
     fireEvent.keyDown(menu, { key: 'Escape' })
     rerender(
       <InboxThreads

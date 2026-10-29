@@ -40,7 +40,11 @@ import {
   normalizeRepositoryScript,
   normalizeRunCommand
 } from '../repositories/repository-values'
-import { normalizePinnedMessageIds, normalizeTrackedText } from '../threads/thread-values'
+import {
+  normalizePinnedMessageIds,
+  normalizePinnedMessageTitles,
+  normalizeTrackedText
+} from '../threads/thread-values'
 
 export const STORE_FILENAME = 'taskmaster-state.json'
 export const STATE_VERSION = 17 as const
@@ -72,6 +76,10 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
   const lastModel = normalizeThreadModel(thread.lastModel)
   const workItems = normalizeThreadWorkItems(thread.workItems)
   const pinnedMessageIds = normalizePinnedMessageIds(thread.pinnedMessageIds)
+  const pinnedMessageTitles = normalizePinnedMessageTitles(
+    thread.pinnedMessageTitles,
+    pinnedMessageIds
+  )
   const aside = normalizeThreadAside(thread.aside)
 
   if (
@@ -88,6 +96,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
       : Array.isArray(thread.pinnedMessageIds) &&
         thread.pinnedMessageIds.length === pinnedMessageIds.length &&
         pinnedMessageIds.every((id, index) => thread.pinnedMessageIds?.[index] === id)) &&
+    samePinnedMessageTitles(pinnedMessageTitles, thread.pinnedMessageTitles) &&
     (aside === undefined
       ? thread.aside === undefined
       : aside.sessionId === thread.aside?.sessionId &&
@@ -101,6 +110,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     lastModel: _lastModel,
     workItems: _workItems,
     pinnedMessageIds: _pinnedMessageIds,
+    pinnedMessageTitles: _pinnedMessageTitles,
     aside: _aside,
     ...rest
   } = thread
@@ -109,6 +119,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
   void _lastModel
   void _workItems
   void _pinnedMessageIds
+  void _pinnedMessageTitles
   return {
     ...rest,
     latestCopilotTitle,
@@ -117,8 +128,22 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     ...(lastModel ? { lastModel } : {}),
     ...(workItems ? { workItems } : {}),
     ...(pinnedMessageIds ? { pinnedMessageIds } : {}),
+    ...(pinnedMessageTitles ? { pinnedMessageTitles } : {}),
     ...(aside ? { aside } : {})
   }
+}
+
+function samePinnedMessageTitles(
+  normalized: Record<string, string> | undefined,
+  value: unknown
+): boolean {
+  if (normalized === undefined) return value === undefined
+  if (!value || typeof value !== 'object') return false
+  const entries = Object.entries(value)
+  return (
+    entries.length === Object.keys(normalized).length &&
+    entries.every(([id, title]) => normalized[id] === title)
+  )
 }
 
 function normalizeThreadAside(value: unknown): PersistedThreadAside | undefined {

@@ -6,12 +6,28 @@ export type ThreadMenuAction =
   | 'regenerate-title'
   | 'fork-thread'
   | 'convert-to-worktree'
+  | 'snooze'
+  | 'snooze-hour'
+  | 'snooze-tomorrow'
+  | 'snooze-next-week'
+  | 'snooze-custom'
+  | 'unsnooze'
   | 'close-thread'
   | 'settle-thread'
   | 'unsettle-thread'
 
+/** A menu entry; one with `children` is a submenu. */
+export type ThreadMenuEntry = {
+  action: ThreadMenuAction
+  label: string
+  enabled: boolean
+  children?: ThreadMenuEntry[]
+}
+
 export type ThreadMenuOptions = {
   settled?: boolean
+  /** Whether the thread is snoozed. */
+  snoozed?: boolean
   convertToWorktreeVisible: boolean
   convertToWorktreeEnabled: boolean
   closeThreadEnabled: boolean
@@ -29,6 +45,7 @@ export function threadMenuOptions(
 ): ThreadMenuOptions {
   return {
     settled: Boolean(thread.settledAt),
+    snoozed: Boolean(thread.snoozedUntil) && !thread.settledAt,
     convertToWorktreeVisible: thread.mode !== 'worktree' && thread.projectKind !== 'general',
     convertToWorktreeEnabled: !convertingThread,
     closeThreadEnabled: !closingThread,
@@ -37,11 +54,9 @@ export function threadMenuOptions(
   }
 }
 
-export function threadMenuActions(
-  options: ThreadMenuOptions
-): Array<{ action: ThreadMenuAction; label: string; enabled: boolean }> {
+export function threadMenuActions(options: ThreadMenuOptions): ThreadMenuEntry[] {
   const regenerateTitleEnabled = options.regenerateTitleEnabled !== false
-  const actions: Array<{ action: ThreadMenuAction; label: string; enabled: boolean }> = [
+  const actions: ThreadMenuEntry[] = [
     { action: 'edit', label: 'Edit', enabled: true },
     {
       action: 'regenerate-title',
@@ -56,6 +71,20 @@ export function threadMenuActions(
       label: options.convertToWorktreeEnabled ? 'Convert to work tree' : 'Converting...',
       enabled: options.convertToWorktreeEnabled
     })
+  }
+  if (!options.settled) {
+    actions.push({
+      action: 'snooze',
+      label: options.snoozed ? 'Snooze again' : 'Snooze',
+      enabled: true,
+      children: [
+        { action: 'snooze-hour', label: '1 hour', enabled: true },
+        { action: 'snooze-tomorrow', label: 'Tomorrow', enabled: true },
+        { action: 'snooze-next-week', label: 'Next week', enabled: true },
+        { action: 'snooze-custom', label: 'Custom...', enabled: true }
+      ]
+    })
+    if (options.snoozed) actions.push({ action: 'unsnooze', label: 'Unsnooze', enabled: true })
   }
   actions.push(
     {

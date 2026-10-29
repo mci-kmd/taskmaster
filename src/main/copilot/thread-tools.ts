@@ -119,12 +119,15 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
     description:
       'Link the Taskmaster thread this conversation belongs to with the GitHub issues or pull ' +
       'requests and Azure DevOps work items being worked on in it. Taskmaster shows the links on ' +
-      "the thread's card, and the user cannot edit them by hand. Call this automatically, " +
-      'without being asked, as soon as you notice that a specific work item is being worked on ' +
-      'in this thread, for example when the user refers to one or you start working on one; ' +
-      'there is no need to ask first. Also call it when the user asks to change the links. ' +
-      'Only link items that are actually being worked on, not ones merely mentioned for ' +
-      'context. Returns the current links. ' +
+      "the thread's card, and the user cannot edit them by hand, so this tool is the only way " +
+      'they get linked. ALWAYS call this automatically, without being asked and without asking ' +
+      'first, whenever this thread works on a specific work item: when the user asks you to ' +
+      'implement, fix, review or investigate an issue, pull request or work item; when you ' +
+      'create a pull request or issue for the work; or when you pick up a Taskmaster task that ' +
+      'is linked to a GitHub issue. Do it as soon as you know the URL, before or while starting ' +
+      'the work, not as an afterthought. Linking an item twice is harmless, so when in doubt, ' +
+      'link it. Also call it when the user asks to change the links. Do not link items that ' +
+      'are merely mentioned for context and not worked on. Returns the current links. ' +
       WORK_ITEM_INPUT_HINT,
     parameters: {
       type: 'object',

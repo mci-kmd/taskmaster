@@ -78,7 +78,7 @@ describe('thread tools', () => {
   it('tells the agent to link work items automatically', () => {
     const { tools } = setup()
     const link = tools.find((tool) => tool.name === THREAD_TOOL_NAMES.linkWorkItems)!
-    expect(link.description).toContain('automatically')
+    expect(link.description).toContain('ALWAYS call this automatically')
     expect(link.description).toContain('cannot edit them by hand')
   })
 

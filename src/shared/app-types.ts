@@ -148,6 +148,10 @@ export interface PersistedThread {
   settledAt?: string | null
   /** Set while the user has suspended the thread to the bottom of the inbox. */
   suspendedAt?: string | null
+  /** Set while the thread is snoozed; it returns to the inbox, awakened, at this time. */
+  snoozedUntil?: string | null
+  /** When the thread returned from a snooze; cleared once the user attends to it. */
+  awakenedAt?: string | null
   id: string
   repositoryId: string
   /** Set by the user; replaces any generated title. */
@@ -162,6 +166,8 @@ export interface PersistedThread {
   workItems?: ThreadWorkItem[]
   /** Timeline item ids of Copilot messages the user pinned, oldest pin first. Absent when none. */
   pinnedMessageIds?: string[]
+  /** Generated headings of pinned messages by message id. Absent until one is written. */
+  pinnedMessageTitles?: Record<string, string>
   /** The side conversation forked from this thread's session. Absent until one is opened. */
   aside?: PersistedThreadAside
   mode: ThreadMode
@@ -933,6 +939,10 @@ export interface UpdateThreadInput {
   customTitle?: string | null
   settled?: boolean
   suspended?: boolean
+  /** Snoozes the thread until this ISO time; null wakes it without marking it awakened. */
+  snoozedUntil?: string | null
+  /** Clears the awakened state of a thread that returned from a snooze. */
+  dismissAwakened?: boolean
   /** Pins or unpins one Copilot message, identified by its timeline item id. */
   pinnedMessage?: { messageId: string; pinned: boolean }
 }

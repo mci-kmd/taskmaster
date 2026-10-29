@@ -10,7 +10,7 @@ import type {
   MutationResult
 } from '../../../shared/app-types'
 import { normalizeThreadWorkItems, sameThreadWorkItems } from '../../../shared/work-items'
-import { normalizePinnedMessageIds } from './thread-values'
+import { normalizePinnedMessageIds, prunePinnedMessageTitles } from './thread-values'
 
 type ThreadStateServiceDependencies = {
   ensureState: () => Pick<PersistedAppState, 'ui' | 'repositories' | 'threads'>
@@ -26,6 +26,8 @@ type ThreadStateServiceDependencies = {
   nowIso: () => string
   /** Whether the thread's Copilot session is busy; such threads can't be suspended. */
   isThreadWorking?: (threadId: string) => boolean
+  /** Called after a message is newly pinned, e.g. to title it. */
+  onMessagePinned?: (threadId: string, messageId: string) => void
 }
 
 export function createThreadStateService(dependencies: ThreadStateServiceDependencies): {
@@ -34,6 +36,10 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
   updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) => boolean
   updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) => boolean
   settleThreadFromAgent: (threadId: string) => boolean
+  /** Returns snoozed threads whose time has come to the inbox, awakened; returns their ids. */
+  wakeSnoozedThreads: () => string[]
+  /** The earliest snooze end in ms since the epoch, or null when nothing is snoozed. */
+  nextSnoozeWakeAt: () => number | null
   setThreadWorkItems: (threadId: string, workItems: ThreadWorkItem[]) => boolean
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
@@ -66,12 +72,41 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
           dependencies.saveState()
         }
       }
+      if (input.snoozedUntil !== undefined) {
+        if (input.snoozedUntil === null) {
+          if (thread.snoozedUntil) {
+            delete thread.snoozedUntil
+            dependencies.saveState()
+          }
+        } else {
+          const until =
+            typeof input.snoozedUntil === 'string' ? Date.parse(input.snoozedUntil) : Number.NaN
+          if (!Number.isFinite(until)) return dependencies.failureResult('Invalid snooze time.')
+          if (until <= Date.parse(dependencies.nowIso())) {
+            return dependencies.failureResult('Pick a snooze time in the future.')
+          }
+          if (thread.settledAt)
+            return dependencies.failureResult('Resolved threads cannot be snoozed.')
+          thread.snoozedUntil = new Date(until).toISOString()
+          delete thread.suspendedAt
+          delete thread.awakenedAt
+          dependencies.saveState()
+        }
+      }
+      if (input.dismissAwakened === true && thread.awakenedAt) {
+        delete thread.awakenedAt
+        dependencies.saveState()
+      }
       if (input.settled !== undefined) {
         if (typeof input.settled !== 'boolean') {
           return dependencies.failureResult('Invalid settlement status.')
         }
         thread.settledAt = input.settled ? (thread.settledAt ?? dependencies.nowIso()) : null
-        if (input.settled) delete thread.suspendedAt
+        if (input.settled) {
+          delete thread.suspendedAt
+          delete thread.snoozedUntil
+          delete thread.awakenedAt
+        }
         if (input.settled && state.ui.selectedThreadId === thread.id) {
           const next = state.threads
             .filter(
@@ -97,7 +132,9 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
           )
           if (next) thread.pinnedMessageIds = next
           else delete thread.pinnedMessageIds
+          prunePinnedMessageTitles(thread)
           dependencies.saveState()
+          if (pinned) dependencies.onMessagePinned?.(thread.id, messageId)
         }
       }
       if (input.customTitle === undefined) return dependencies.successResult()
@@ -156,6 +193,7 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
         thread.latestCopilotTitle = null
         // Pins refer to messages of the previous conversation.
         delete thread.pinnedMessageIds
+        delete thread.pinnedMessageTitles
       }
       dependencies.saveState()
       return true
@@ -170,8 +208,10 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       const nextMessage = dependencies.normalizeTrackedText(input.message)
       thread.lastActivityAt = dependencies.nowIso()
       thread.lastUserMessage = nextMessage
-      // A new prompt brings a suspended thread back.
+      // A new prompt brings a suspended or snoozed thread back, and attends to an awakened one.
       delete thread.suspendedAt
+      delete thread.snoozedUntil
+      delete thread.awakenedAt
       if (input.model) thread.lastModel = { id: input.model.id, name: input.model.name }
       dependencies.saveState()
       return true
@@ -185,8 +225,38 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       if (thread.settledAt) return true
       thread.settledAt = dependencies.nowIso()
       delete thread.suspendedAt
+      delete thread.snoozedUntil
+      delete thread.awakenedAt
       dependencies.saveState()
       return true
+    },
+
+    wakeSnoozedThreads: (): string[] => {
+      const now = dependencies.nowIso()
+      const nowMs = Date.parse(now)
+      const woken: string[] = []
+      for (const thread of dependencies.ensureState().threads) {
+        if (!thread.snoozedUntil) continue
+        const until = Date.parse(thread.snoozedUntil)
+        if (Number.isFinite(until) && until > nowMs) continue
+        delete thread.snoozedUntil
+        if (!thread.settledAt) thread.awakenedAt = now
+        woken.push(thread.id)
+      }
+      if (woken.length) dependencies.saveState()
+      return woken
+    },
+
+    nextSnoozeWakeAt: (): number | null => {
+      let next: number | null = null
+      for (const thread of dependencies.ensureState().threads) {
+        if (!thread.snoozedUntil) continue
+        const until = Date.parse(thread.snoozedUntil)
+        // Unreadable times wake at once.
+        const at = Number.isFinite(until) ? until : 0
+        if (next === null || at < next) next = at
+      }
+      return next
     },
 
     setThreadWorkItems: (threadId: string, workItems: ThreadWorkItem[]): boolean => {

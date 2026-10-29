@@ -47,6 +47,17 @@ describe('thread menu actions', () => {
       { action: 'regenerate-title', label: 'Regenerate title', enabled: true },
       { action: 'fork-thread', label: 'Fork thread', enabled: false },
       { action: 'convert-to-worktree', label: 'Converting...', enabled: false },
+      {
+        action: 'snooze',
+        label: 'Snooze',
+        enabled: true,
+        children: [
+          { action: 'snooze-hour', label: '1 hour', enabled: true },
+          { action: 'snooze-tomorrow', label: 'Tomorrow', enabled: true },
+          { action: 'snooze-next-week', label: 'Next week', enabled: true },
+          { action: 'snooze-custom', label: 'Custom...', enabled: true }
+        ]
+      },
       { action: 'settle-thread', label: 'Settle thread', enabled: true },
       { action: 'close-thread', label: 'Closing...', enabled: false }
     ])
@@ -67,5 +78,18 @@ describe('thread menu actions', () => {
       { action: 'unsettle-thread', label: 'Unsettle thread', enabled: true },
       { action: 'close-thread', label: 'Close thread', enabled: true }
     ])
+  })
+
+  it('offers unsnoozing a snoozed thread', () => {
+    const thread = { mode: 'worktree', projectKind: 'repository', settledAt: null }
+    const options = threadMenuOptions(
+      { ...thread, snoozedUntil: '2026-01-02T08:00:00.000Z' } as unknown as ThreadSnapshot,
+      false,
+      false
+    )
+    expect(options.snoozed).toBe(true)
+    const actions = threadMenuActions(options).map(({ action, label }) => [action, label])
+    expect(actions).toContainEqual(['snooze', 'Snooze again'])
+    expect(actions).toContainEqual(['unsnooze', 'Unsnooze'])
   })
 })

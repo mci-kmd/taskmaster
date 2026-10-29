@@ -40,7 +40,7 @@ export function buildTitlePrompt(prompts: string[]): string {
   ].join('\n\n')
 }
 
-export function cleanGeneratedTitle(reply: string): string | null {
+export function cleanGeneratedTitle(reply: string, maxChars = MAX_TITLE_CHARS): string | null {
   const line = reply
     .split(/\r?\n/u)
     .map((text) => text.trim())
@@ -53,7 +53,7 @@ export function cleanGeneratedTitle(reply: string): string | null {
     .replace(/^["'“‘`]+|["'”’`]+$/gu, '')
     .replace(/[.!]+$/u, '')
     .trim()
-  return normalizeCopilotTitle(truncate(title, MAX_TITLE_CHARS))
+  return normalizeCopilotTitle(truncate(title, maxChars))
 }
 
 /**

@@ -7,6 +7,7 @@ import EditRepositoryDialog from './components/dialogs/EditRepositoryDialog'
 import EditThreadDialog from './components/dialogs/EditThreadDialog'
 import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
+import SnoozeThreadDialog from './components/dialogs/SnoozeThreadDialog'
 import ResizeHandle from './components/ResizeHandle'
 import Presence from './components/ui/Presence'
 import TooltipLayer from './components/ui/TooltipLayer'
@@ -33,8 +34,10 @@ import {
 import { isGeneralProject } from '../../shared/general-project'
 import { DEFAULT_THEME } from '../../shared/themes'
 import { setTheme } from './lib/theme'
+import { composeThreadTitle } from './lib/title'
 
-type DialogKey = 'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | null
+type DialogKey =
+  'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | 'snooze-thread' | null
 
 const api = getRendererApi()
 
@@ -95,6 +98,7 @@ export default function App(): React.JSX.Element {
   const [dialog, setDialog] = useState<DialogKey>(null)
   const [editingRepositoryId, setEditingRepositoryId] = useState<string | null>(null)
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null)
+  const [snoozingThreadId, setSnoozingThreadId] = useState<string | null>(null)
   const [inboxProjectId, setInboxProjectId] = useState<string | null>(null)
   const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
   const [newThreadError, setNewThreadError] = useState<string | null>(null)
@@ -144,6 +148,31 @@ export default function App(): React.JSX.Element {
         await applyMutation(api.appState.updateThread({ threadId, suspended }))
       } catch (error) {
         setToastError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [applyMutation]
+  )
+  const handleSnoozeThread = useCallback(
+    async (threadId: string, snoozedUntil: string | null): Promise<void> => {
+      try {
+        await applyMutation(api.appState.updateThread({ threadId, snoozedUntil }))
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [applyMutation]
+  )
+  const dismissingAwakenedIds = useRef(new Set<string>())
+  const handleDismissAwakened = useCallback(
+    async (threadId: string): Promise<void> => {
+      if (dismissingAwakenedIds.current.has(threadId)) return
+      dismissingAwakenedIds.current.add(threadId)
+      try {
+        await applyMutation(api.appState.updateThread({ threadId, dismissAwakened: true }))
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      } finally {
+        dismissingAwakenedIds.current.delete(threadId)
       }
     },
     [applyMutation]
@@ -237,6 +266,10 @@ export default function App(): React.JSX.Element {
     return snapshot.repositories.find((repository) => repository.id === editingRepositoryId) ?? null
   }, [editingRepositoryId, snapshot])
 
+  const snoozingThread = useMemo(
+    () => (snapshot && snoozingThreadId ? findThreadById(snapshot, snoozingThreadId) : null),
+    [snapshot, snoozingThreadId]
+  )
   const editingThread = useMemo(() => {
     if (!snapshot || !editingThreadId) {
       return null
@@ -823,6 +856,11 @@ export default function App(): React.JSX.Element {
           performanceOpen={performanceOpen}
           onSettleThread={(id, settled) => void handleSettleThread(id, settled)}
           onSuspendThread={(id, suspended) => void handleSuspendThread(id, suspended)}
+          onSnoozeThread={(id, until) => void handleSnoozeThread(id, until)}
+          onCustomSnoozeThread={(id) => {
+            setSnoozingThreadId(id)
+            setDialog('snooze-thread')
+          }}
           onSelectRepository={(id) => void handleSelectRepository(id)}
           onSelectThread={(id) => void handleSelectThread(id)}
           selectedRepository={selectedRepository}
@@ -860,6 +898,7 @@ export default function App(): React.JSX.Element {
               onSessionsChange={handleSessionsChange}
               onSetMessagePinned={handleSetMessagePinned}
               onForkThread={handleForkThread}
+              onDismissAwakened={handleDismissAwakened}
               repositoryTaskBusy={
                 busyAction === 'create-task' ||
                 busyAction === 'complete-task' ||
@@ -933,6 +972,20 @@ export default function App(): React.JSX.Element {
         open={dialog === 'edit-thread'}
         runtimeTitle={editingThread ? (sessions.get(editingThread.id)?.runtimeTitle ?? null) : null}
         thread={editingThread}
+      />
+
+      <SnoozeThreadDialog
+        onClose={() => setDialog(null)}
+        onSubmit={(until) => {
+          setDialog(null)
+          if (snoozingThreadId) void handleSnoozeThread(snoozingThreadId, until)
+        }}
+        open={dialog === 'snooze-thread'}
+        threadTitle={
+          snoozingThread
+            ? composeThreadTitle(snoozingThread, sessions.get(snoozingThread.id)?.runtimeTitle)
+            : null
+        }
       />
 
       <Toast message={toastError} onDismiss={() => setToastError(null)} />

@@ -25,6 +25,7 @@ import {
   FolderIcon,
   PlayIcon,
   RefreshIcon,
+  SnoozeIcon,
   StopIcon,
   VisualStudioIcon,
   WorktreeIcon
@@ -79,6 +80,8 @@ type WorkspaceProps = {
     pinned: boolean
   ) => Promise<unknown> | void
   onForkThread?: (threadId: string, messageId?: string) => Promise<unknown> | void
+  /** Clears the awakened state of a thread back from a snooze once the user attends to it. */
+  onDismissAwakened?: (threadId: string) => Promise<unknown> | void
 }
 
 type ThreadWorkspaceViewId = 'copilot' | 'preview' | 'terminal' | 'diff'
@@ -309,7 +312,8 @@ export default function Workspace({
   onOpenSolutionInVisualStudio,
   onSessionsChange,
   onSetMessagePinned,
-  onForkThread
+  onForkThread,
+  onDismissAwakened
 }: WorkspaceProps): React.JSX.Element {
   const terminalSessionsRef = useRef<TerminalSessionsHandle | null>(null)
   const [customCopilotSessions, setCustomCopilotSessions] = useState<SessionMap>(new Map())
@@ -449,9 +453,11 @@ export default function Workspace({
       : selectedRepository?.currentBranch
   const selectedThreadId = selectedThread?.id ?? null
   const selectedDone = selectedCopilotSession.copilotStatus === 'done'
+  const selectedAwakened = Boolean(selectedThread?.awakenedAt && !selectedThread.settledAt)
   const handleWorkspacePointerDown = useCallback((): void => {
     if (selectedThreadId && selectedDone) dismissDone(selectedThreadId)
-  }, [dismissDone, selectedDone, selectedThreadId])
+    if (selectedThreadId && selectedAwakened) void onDismissAwakened?.(selectedThreadId)
+  }, [dismissDone, onDismissAwakened, selectedAwakened, selectedDone, selectedThreadId])
   const handleWorkspaceKeyDown = useCallback(
     (event: React.KeyboardEvent): void => {
       if (isDoneDismissKey(event.key)) handleWorkspacePointerDown()
@@ -535,6 +541,21 @@ export default function Workspace({
               >
                 <CheckIcon width={11} height={11} />
                 Done
+              </button>
+            </Presence>
+            <Presence
+              motion="rise"
+              show={Boolean(selectedThread && selectedAwakened && !selectedDone)}
+            >
+              <button
+                type="button"
+                className="tm-workspace-done"
+                data-tone="awakened"
+                title="Back from a snooze — click or interact with the thread to dismiss"
+                aria-label="Dismiss awakened state"
+              >
+                <SnoozeIcon width={11} height={11} />
+                Awakened
               </button>
             </Presence>
           </div>

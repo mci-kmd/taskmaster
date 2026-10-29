@@ -656,6 +656,19 @@ describe('Copilot session composer', () => {
     )
     await act(async () => saved.resolve())
     expect(rail()[1].getAttribute('aria-label')).toBe('Pinned message 2 of 2: Second answer')
+    // The generated heading replaces the message's start once it arrives.
+    view.rerender(
+      <CopilotThreadView
+        thread={{
+          ...a,
+          pinnedMessageIds: ['a1', 'a2'],
+          pinnedMessageTitles: { a2: 'Bolded follow-up' }
+        }}
+        onSessionChange={vi.fn()}
+        onSetMessagePinned={onSetMessagePinned}
+      />
+    )
+    expect(rail()[1].getAttribute('aria-label')).toBe('Pinned message 2 of 2: Bolded follow-up')
 
     // A failed save puts the pin back.
     onSetMessagePinned.mockImplementationOnce(() => Promise.reject(new Error('nope')))

@@ -85,7 +85,12 @@ import { createThreadGitContextService } from './features/threads/thread-git-con
 import { getThreadExecutionCwd, getThreadUiCwd } from './features/threads/thread-paths'
 import { createThreadRunService } from './features/threads/thread-run-service'
 import { createThreadStateService } from './features/threads/thread-state-service'
-import { normalizeCustomTitle, normalizeTrackedText } from './features/threads/thread-values'
+import {
+  normalizeCustomTitle,
+  normalizeTrackedText,
+  prunePinnedMessageTitles
+} from './features/threads/thread-values'
+import { createPinnedMessageTitleService } from './features/threads/pinned-message-title-service'
 import { createThreadWorkspaceService } from './features/threads/thread-workspace-service'
 import { createThreadTitleService } from './features/threads/thread-title-service'
 import { applyThreadBranchTokens } from './features/threads/thread-worktree-utils'
@@ -126,6 +131,7 @@ let stopCopilotThread: (threadId: string) => Promise<void> = async () => undefin
 let hasCopilotSession: (threadId: string) => boolean = () => false
 let isCopilotThreadWorking: (threadId: string) => boolean = () => false
 let getCopilotUserPrompts: (threadId: string) => string[] = () => []
+let getCopilotMessageContent: (threadId: string, messageId: string) => string | null = () => null
 
 const snapshotService = createSnapshotService({
   ensureState,
@@ -215,7 +221,9 @@ const threadStateService = createThreadStateService({
   normalizeTrackedText,
   normalizeCopilotTitle,
   nowIso,
-  isThreadWorking: (threadId) => isCopilotThreadWorking(threadId)
+  isThreadWorking: (threadId) => isCopilotThreadWorking(threadId),
+  onMessagePinned: (threadId, messageId) =>
+    void pinnedMessageTitleService.generatePinTitle(threadId, messageId)
 })
 const threadGitContextService = createThreadGitContextService({
   ensureState,
@@ -346,15 +354,50 @@ const threadTitleService = createThreadTitleService({
   saveState,
   onTitleChanged: (threadId) => electronUi.broadcastThreadRunState(threadId)
 })
+const pinnedMessageTitleService = createPinnedMessageTitleService({
+  resolveThreadContext: threadGitContextService.resolveThreadGitContext,
+  getMessageContent: (threadId, messageId) => getCopilotMessageContent(threadId, messageId),
+  generateText: (request) => {
+    if (!generateCommitMessage) return Promise.reject(new Error('Copilot is not available.'))
+    return generateCommitMessage(request)
+  },
+  saveState,
+  onTitleChanged: (threadId) => electronUi.broadcastThreadRunState(threadId)
+})
+
+// Wakes snoozed threads on time; long waits are re-checked so clock jumps and sleep are caught.
+const MAX_SNOOZE_TIMER_MS = 60_000
+let snoozeTimer: ReturnType<typeof setTimeout> | null = null
+
+function scheduleSnoozeWake(): void {
+  if (snoozeTimer) clearTimeout(snoozeTimer)
+  snoozeTimer = null
+  const next = threadStateService.nextSnoozeWakeAt()
+  if (next === null) return
+  const delay = Math.min(Math.max(next - Date.now(), 0), MAX_SNOOZE_TIMER_MS)
+  snoozeTimer = setTimeout(() => {
+    snoozeTimer = null
+    for (const threadId of threadStateService.wakeSnoozedThreads()) {
+      electronUi.broadcastThreadRunState(threadId)
+    }
+    scheduleSnoozeWake()
+  }, delay)
+}
 
 export function initializeAppState(): void {
   ensureState()
+  threadStateService.wakeSnoozedThreads()
   saveState()
+  scheduleSnoozeWake()
 }
 
 export function registerAppStateIpc(): void {
   registerAppStateIpcHandlers({
-    beforeQuit: () => threadRunService.shutdown(),
+    beforeQuit: () => {
+      if (snoozeTimer) clearTimeout(snoozeTimer)
+      snoozeTimer = null
+      return threadRunService.shutdown()
+    },
     getSnapshot: () => buildSelectionSnapshot(),
     refresh: () => buildSnapshotAsync({ refreshGit: true }),
     addRepository: () => repositoryService.addRepository(),
@@ -383,7 +426,11 @@ export function registerAppStateIpc(): void {
       repositoryWorktreeService.cleanupRepositoryWorktree(input),
     startThreadRun: (threadId: string) => threadRunService.startThreadRun(threadId),
     stopThreadRun: (threadId: string) => threadRunService.stopThreadRun(threadId),
-    updateThread: (input: UpdateThreadInput) => threadStateService.updateThread(input),
+    updateThread: (input: UpdateThreadInput) => {
+      const result = threadStateService.updateThread(input)
+      if (input.snoozedUntil !== undefined || input.settled !== undefined) scheduleSnoozeWake()
+      return result
+    },
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
       repositoryService.pickRepositoryFavicon(repositoryId),
     pickRepositorySolutionFile: (repositoryId: string) =>
@@ -445,11 +492,13 @@ export function setCopilotThreadController(controller: {
   has: (threadId: string) => boolean
   isWorking: (threadId: string) => boolean
   getUserPrompts: (threadId: string) => string[]
+  getMessageContent: (threadId: string, messageId: string) => string | null
 }): void {
   stopCopilotThread = controller.stop
   hasCopilotSession = controller.has
   isCopilotThreadWorking = controller.isWorking
   getCopilotUserPrompts = controller.getUserPrompts
+  getCopilotMessageContent = controller.getMessageContent
 }
 
 export function resolveCopilotThread(threadId: string): {
@@ -592,6 +641,7 @@ function keepPinnedMessages(thread: PersistedThread, messageIds: string[] | null
   const pinned = thread.pinnedMessageIds.filter((id) => kept.has(id))
   if (pinned.length) thread.pinnedMessageIds = pinned
   else delete thread.pinnedMessageIds
+  prunePinnedMessageTitles(thread)
 }
 
 /** Adds a thread continuing a fork of another thread's session, in the same checkout. */
@@ -622,7 +672,10 @@ export function createForkedCopilotThread(input: {
     resumeSessionId: input.sessionId,
     createdAt,
     lastActivityAt: createdAt,
-    ...(source.pinnedMessageIds ? { pinnedMessageIds: [...source.pinnedMessageIds] } : {})
+    ...(source.pinnedMessageIds ? { pinnedMessageIds: [...source.pinnedMessageIds] } : {}),
+    ...(source.pinnedMessageTitles
+      ? { pinnedMessageTitles: { ...source.pinnedMessageTitles } }
+      : {})
   }
   keepPinnedMessages(thread, input.history?.messageIds ?? null)
   ensureState().threads.push(thread)

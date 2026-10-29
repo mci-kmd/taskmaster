@@ -77,6 +77,9 @@
   .tm-tooltip-row[data-tone='danger'] {
     color: var(--color-danger);
   }
+  .tm-tooltip-row[data-tone='warning'] {
+    color: var(--color-warning);
+  }
   .tm-tooltip-row[data-tone] > svg {
     color: currentColor;
   }

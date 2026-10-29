@@ -34,6 +34,7 @@ import {
   PauseIcon,
   PlayIcon,
   QuestionIcon,
+  SnoozeIcon,
   TasksIcon,
   UndoIcon,
   WorkItemIcon
@@ -43,7 +44,13 @@ import { composeThreadTitle } from '../lib/title'
 import { formatRelativeTime } from '../lib/time'
 import { useNow } from '../lib/useNow'
 import { getInboxThreads } from '../lib/inbox-threads'
-import { threadMenuOptions, threadMenuActions } from '../lib/thread-menu'
+import {
+  threadMenuOptions,
+  threadMenuActions,
+  type ThreadMenuAction,
+  type ThreadMenuEntry
+} from '../lib/thread-menu'
+import { formatSnoozeUntil, snoozeUntil } from '../lib/snooze'
 
 type InboxEntry = ReturnType<typeof getInboxThreads>['active'][number]
 
@@ -62,6 +69,8 @@ export default function InboxThreads({
   onEditThread,
   onSettleThread,
   onSuspendThread,
+  onSnoozeThread,
+  onCustomSnoozeThread,
   onCloseThread,
   onConvertThreadToWorktree,
   convertingThread,
@@ -83,6 +92,10 @@ export default function InboxThreads({
   onEditThread: (id: string) => void
   onSettleThread: (id: string, settled: boolean) => void
   onSuspendThread?: (id: string, suspended: boolean) => void
+  /** Snoozes a thread until an ISO time, or wakes it with null. */
+  onSnoozeThread?: (id: string, until: string | null) => void
+  /** Asks for a custom snooze time. */
+  onCustomSnoozeThread?: (id: string) => void
   onCloseThread: (id: string) => void
   onConvertThreadToWorktree: (id: string) => void
   convertingThread: boolean
@@ -93,6 +106,31 @@ export default function InboxThreads({
   onForkThread?: (id: string) => void
 }): React.JSX.Element {
   const [settledExpanded, setSettledExpanded] = useState(false)
+  const [snoozedExpanded, setSnoozedExpanded] = useState(false)
+
+  const runThreadMenuAction = (thread: ThreadSnapshot, action: ThreadMenuAction): void => {
+    if (action === 'edit') onEditThread(thread.id)
+    else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
+    else if (action === 'fork-thread') onForkThread?.(thread.id)
+    else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
+    else if (action === 'snooze-hour')
+      onSnoozeThread?.(thread.id, snoozeUntil('hour').toISOString())
+    else if (action === 'snooze-tomorrow')
+      onSnoozeThread?.(thread.id, snoozeUntil('tomorrow').toISOString())
+    else if (action === 'snooze-next-week')
+      onSnoozeThread?.(thread.id, snoozeUntil('next-week').toISOString())
+    else if (action === 'snooze-custom') onCustomSnoozeThread?.(thread.id)
+    else if (action === 'unsnooze') onSnoozeThread?.(thread.id, null)
+    else if (action === 'settle-thread' || action === 'unsettle-thread')
+      onSettleThread(thread.id, action === 'settle-thread')
+    else if (action === 'close-thread') onCloseThread(thread.id)
+  }
+  const toMenuItem =
+    (thread: ThreadSnapshot) =>
+    ({ action, label, enabled, children }: ThreadMenuEntry): MenuItem =>
+      children
+        ? { label, disabled: !enabled, items: children.map(toMenuItem(thread)) }
+        : { label, disabled: !enabled, onSelect: () => runThreadMenuAction(thread, action) }
 
   const threadMenuItems = (thread: ThreadSnapshot): MenuItem[] =>
     threadMenuActions(
@@ -102,21 +140,9 @@ export default function InboxThreads({
         closingThread,
         regeneratingTitleIds?.has(thread.id)
       )
-    ).map(({ action, label, enabled }) => ({
-      label,
-      disabled: !enabled,
-      onSelect: () => {
-        if (action === 'edit') onEditThread(thread.id)
-        else if (action === 'regenerate-title') onRegenerateTitle?.(thread.id)
-        else if (action === 'fork-thread') onForkThread?.(thread.id)
-        else if (action === 'convert-to-worktree') onConvertThreadToWorktree(thread.id)
-        else if (action === 'settle-thread' || action === 'unsettle-thread')
-          onSettleThread(thread.id, action === 'settle-thread')
-        else if (action === 'close-thread') onCloseThread(thread.id)
-      }
-    }))
+    ).map(toMenuItem(thread))
   const now = useNow(30_000)
-  const { active, settled } = useMemo(() => getInboxThreads(repositories), [repositories])
+  const { active, snoozed, settled } = useMemo(() => getInboxThreads(repositories), [repositories])
   // A right-clicked thread's menu, opened where the pointer is. It keeps only the thread's id
   // and reads the thread afresh, so its items follow the thread (e.g. a finished conversion),
   // and it closes when the thread leaves the list.
@@ -124,7 +150,8 @@ export default function InboxThreads({
     null
   )
   const contextThread = contextMenu
-    ? [...active, ...settled].find((entry) => entry.thread.id === contextMenu.threadId)?.thread
+    ? [...active, ...snoozed, ...settled].find((entry) => entry.thread.id === contextMenu.threadId)
+        ?.thread
     : undefined
   if (contextMenu && !contextThread) setContextMenu(null)
   const contextMenuOpen = useMemo(
@@ -134,8 +161,10 @@ export default function InboxThreads({
   const contextMenuShown = useLastValue(contextMenuOpen)
   // Rows that leave a list (settled, restored, closed) stay mounted while they animate out.
   const activeEntries = usePresenceList(active, entryKey, 'inbox')
+  const snoozedEntries = usePresenceList(snoozed, entryKey, 'inbox')
   const settledEntries = usePresenceList(settled, entryKey, 'inbox')
   const activeList = useAnimatedListMotion<HTMLUListElement>('inbox')
+  const snoozedList = useAnimatedListMotion<HTMLUListElement>('inbox')
   const settledList = useAnimatedListMotion<HTMLUListElement>('inbox')
   const hasFavorites = repositories.some((repository) => repository.favorite)
 
@@ -144,7 +173,9 @@ export default function InboxThreads({
     const exiting = exitToken !== null
     const session = sessions.get(thread.id)
     const title = composeThreadTitle(thread, session?.runtimeTitle)
-    const suspended = Boolean(thread.suspendedAt) && !thread.settledAt
+    const suspended = Boolean(thread.suspendedAt) && !thread.settledAt && !thread.snoozedUntil
+    const snoozedUntil = thread.settledAt ? null : (thread.snoozedUntil ?? null)
+    const awakened = Boolean(thread.awakenedAt) && !thread.settledAt && !snoozedUntil
     const status = session?.copilotStatus ?? 'idle'
     const working = status === 'working' || status === 'connecting' || status === 'input'
     const subtitle =
@@ -166,6 +197,7 @@ export default function InboxThreads({
             className="tm-inbox-row group"
             ref={richTooltip(
               <ThreadTooltip
+                awakened={awakened}
                 commitPhase={thread.commitPhase}
                 lastActivity={formatRelativeTime(thread.lastActivityAt, now)}
                 repository={repository}
@@ -240,10 +272,27 @@ export default function InboxThreads({
                       <span className="tm-inbox-row-title">{title}</span>
                       <span className="tm-inbox-row-subtitle">{subtitle}</span>
                       <span className="tm-inbox-row-meta">
-                        <ThreadStatus
-                          commitPhase={thread.commitPhase}
-                          status={session?.copilotStatus ?? 'idle'}
-                        />
+                        {snoozedUntil ? (
+                          <span
+                            className="tm-thread-status"
+                            data-status="snoozed"
+                            title={new Date(snoozedUntil).toLocaleString()}
+                          >
+                            <SnoozeIcon
+                              width={11}
+                              height={11}
+                              strokeWidth={1.7}
+                              aria-hidden="true"
+                            />
+                            Until {formatSnoozeUntil(snoozedUntil, new Date(now))}
+                          </span>
+                        ) : (
+                          <ThreadStatus
+                            awakened={awakened}
+                            commitPhase={thread.commitPhase}
+                            status={session?.copilotStatus ?? 'idle'}
+                          />
+                        )}
                         <span className="text-fg-faint">·</span>
                         <span className="tabular-nums">
                           {formatRelativeTime(thread.lastActivityAt, now)}
@@ -282,7 +331,20 @@ export default function InboxThreads({
                         <CheckIcon width={13} height={13} strokeWidth={1.8} />
                       )}
                     </Button>
-                    {thread.settledAt ? null : (
+                    {thread.settledAt ? null : snoozedUntil ? (
+                      <Button
+                        className="tm-inbox-action"
+                        data-action="unsnooze"
+                        iconOnly
+                        size="xs"
+                        variant="ghost"
+                        onClick={() => onSnoozeThread?.(thread.id, null)}
+                        aria-label={`Unsnooze ${title}`}
+                        title="Unsnooze thread"
+                      >
+                        <PlayIcon width={11} height={11} />
+                      </Button>
+                    ) : (
                       <Button
                         className="tm-inbox-action"
                         data-action="suspend"
@@ -379,12 +441,50 @@ export default function InboxThreads({
           <p className="px-2 py-5 text-[12px] leading-5 text-fg-subtle">
             {repositories.length === 0
               ? 'Add a repository to start a thread.'
-              : settled.length > 0
+              : settled.length > 0 || snoozed.length > 0
                 ? 'All caught up. Start a new thread or revisit a settled one.'
                 : 'Create a thread to start your inbox.'}
           </p>
         </Presence>
       </div>
+      <Presence show={snoozed.length > 0} motion="collapse">
+        <div className="tm-inbox-shelf" data-shelf="snoozed">
+          <button
+            type="button"
+            aria-expanded={snoozedExpanded}
+            aria-controls="snoozed-threads"
+            onClick={() => setSnoozedExpanded(!snoozedExpanded)}
+            className="tm-inbox-shelf-toggle"
+          >
+            <ChevronRightIcon
+              className="tm-inbox-shelf-chevron"
+              data-expanded={snoozedExpanded}
+              width={12}
+              height={12}
+              strokeWidth={1.8}
+            />
+            Snoozed threads{' '}
+            <span key={snoozed.length} className="tm-inbox-shelf-count tm-fade-in">
+              {snoozed.length}
+            </span>
+          </button>
+          <div
+            className="tm-inbox-settled-body"
+            data-expanded={snoozedExpanded}
+            inert={!snoozedExpanded}
+            aria-hidden={!snoozedExpanded}
+          >
+            <ul
+              ref={snoozedList}
+              id="snoozed-threads"
+              aria-label="Snoozed threads"
+              className="relative pb-1"
+            >
+              {snoozedEntries.map(row)}
+            </ul>
+          </div>
+        </div>
+      </Presence>
       <div className="tm-inbox-shelf">
         <button
           type="button"
@@ -450,9 +550,12 @@ export default function InboxThreads({
  * swaps in the new badge with an entrance instead of an instant replacement.
  */
 function ThreadStatus({
+  awakened = false,
   commitPhase,
   status
 }: {
+  /** Whether the thread returned from a snooze and hasn't been attended to yet. */
+  awakened?: boolean
   commitPhase: ThreadSnapshot['commitPhase']
   status: CopilotThreadStatus
 }): React.JSX.Element {
@@ -467,6 +570,14 @@ function ThreadStatus({
       >
         <GitCommitIcon className="tm-blink" width={11} height={11} strokeWidth={1.7} />
         {label}
+      </span>
+    )
+  }
+  if (awakened && !isBusyStatus(status)) {
+    return (
+      <span key="awakened" className="tm-status-badge tm-fade-in" data-status="awakened">
+        <SnoozeIcon width={11} height={11} strokeWidth={1.8} />
+        Awakened
       </span>
     )
   }
@@ -494,6 +605,11 @@ function ThreadStatus({
       {STATUS_LABELS[status]}
     </span>
   )
+}
+
+/** Statuses that outrank the awakened badge: the thread is busy or needs an answer. */
+function isBusyStatus(status: CopilotThreadStatus): boolean {
+  return status === 'working' || status === 'connecting' || status === 'input'
 }
 
 const STATUS_LABELS: Record<CopilotThreadStatus, string> = {
@@ -565,9 +681,11 @@ function ThreadTooltip({
   title,
   repository,
   status,
+  awakened,
   commitPhase,
   lastActivity
 }: {
+  awakened: boolean
   thread: ThreadSnapshot
   title: string
   repository: RepositorySnapshot
@@ -575,8 +693,10 @@ function ThreadTooltip({
   commitPhase: ThreadSnapshot['commitPhase']
   lastActivity: string
 }): React.JSX.Element {
-  const tone =
-    status === 'working' || status === 'connecting'
+  const showAwakened = awakened && !isBusyStatus(status)
+  const tone = showAwakened
+    ? 'warning'
+    : status === 'working' || status === 'connecting'
       ? 'accent'
       : status === 'done'
         ? 'positive'
@@ -616,8 +736,12 @@ function ThreadTooltip({
         <li className="tm-tooltip-row" data-tone={commitPhase ? 'accent' : tone}>
           {commitPhase ? <GitCommitIcon /> : <ThreadIcon />}
           <span>
-            {commitPhase ? COMMIT_PHASE_LABELS[commitPhase] : STATUS_LABELS[status]} ·{' '}
-            {lastActivity}
+            {commitPhase
+              ? COMMIT_PHASE_LABELS[commitPhase]
+              : showAwakened
+                ? 'Awakened'
+                : STATUS_LABELS[status]}{' '}
+            · {lastActivity}
           </span>
         </li>
         {thread.isRunCommandRunning ? (

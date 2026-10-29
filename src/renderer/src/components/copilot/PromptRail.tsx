@@ -43,7 +43,7 @@ export default function PromptRail({
   label = 'Prompts in this thread',
   itemName = 'Prompt',
   targetAttribute = 'data-prompt-id',
-  minItems = 2,
+  minItems = 1,
   preview = promptPreview
 }: {
   prompts: RailPrompt[]

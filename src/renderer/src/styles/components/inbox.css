@@ -279,6 +279,11 @@
     background: var(--color-accent-soft);
     color: var(--color-accent);
   }
+  /* A thread back from a snooze: like Done, but yellow. */
+  .tm-status-badge[data-status='awakened'] {
+    background: var(--color-warning-soft);
+    color: var(--color-warning);
+  }
 
   .tm-inbox-app-running {
     display: inline-grid;
@@ -296,6 +301,10 @@
     flex-shrink: 0;
     margin-top: 8px;
     border-top: 1px solid var(--color-border);
+  }
+  /* Snoozed threads sit directly above the settled ones. */
+  .tm-inbox-shelf + .tm-inbox-shelf {
+    margin-top: 0;
   }
   .tm-inbox-shelf-toggle {
     display: flex;

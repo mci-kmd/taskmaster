@@ -491,10 +491,10 @@ function SessionView({
       ),
     [session?.timeline]
   )
-  // The rail's gutter eases open when a conversation reaches its second prompt, but not when a
-  // thread opens with several (that would shift the whole history sideways).
+  // The rail's gutter eases open when a conversation gets its first prompt, but not when a
+  // thread opens with prompts (that would shift the whole history sideways).
   const [railAtLoad, setRailAtLoad] = useState<boolean | null>(null)
-  if (session && railAtLoad === null) setRailAtLoad(prompts.length >= 2)
+  if (session && railAtLoad === null) setRailAtLoad(prompts.length > 0)
 
   // Pins show at once and settle when the saved snapshot arrives.
   const [pinOverrides, setPinOverrides] = useState<ReadonlyMap<string, boolean>>(() => new Map())
@@ -517,6 +517,12 @@ function SessionView({
   )
   const [pinsAtLoad, setPinsAtLoad] = useState<boolean | null>(null)
   if (session && pinsAtLoad === null) setPinsAtLoad(pins.length > 0)
+  // Generated headings arrive a moment after pinning; until then the message's start shows.
+  const pinTitles = isAside ? undefined : thread.pinnedMessageTitles
+  const pinPreview = useCallback(
+    (item: RailPrompt) => pinTitles?.[item.id] ?? messagePreview(item),
+    [pinTitles]
+  )
   const pinRef = useRef(onSetMessagePinned)
   useLayoutEffect(() => {
     pinRef.current = onSetMessagePinned
@@ -1011,7 +1017,7 @@ function SessionView({
         <div
           className={[
             'tm-session-scroll',
-            prompts.length >= 2 ? 'tm-session-scroll--with-rail' : '',
+            prompts.length > 0 ? 'tm-session-scroll--with-rail' : '',
             pins.length > 0 ? 'tm-session-scroll--with-pins' : ''
           ]
             .filter(Boolean)
@@ -1090,7 +1096,7 @@ function SessionView({
           itemName="Pinned message"
           targetAttribute="data-message-id"
           minItems={1}
-          preview={messagePreview}
+          preview={pinPreview}
         />
         <Presence show={!atBottom} motion="rise">
           <Button size="sm" className="tm-session-jump" onClick={() => jumpToLatest('jump')}>

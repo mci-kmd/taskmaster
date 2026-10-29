@@ -166,6 +166,7 @@ describe('thread state service', () => {
 
   it('pins and unpins messages, and forgets pins when a new conversation starts', () => {
     const saveState = vi.fn()
+    const onMessagePinned = vi.fn()
     const thread: PersistedThread = {
       id: 'thread-1',
       repositoryId: 'repo-1',
@@ -194,7 +195,8 @@ describe('thread state service', () => {
       normalizeCustomTitle: (value) => value ?? null,
       normalizeTrackedText: (value) => value ?? null,
       normalizeCopilotTitle: (title) => title ?? null,
-      nowIso: () => '2026-01-02T00:00:00.000Z'
+      nowIso: () => '2026-01-02T00:00:00.000Z',
+      onMessagePinned
     })
     const pin = (messageId: string, pinned: boolean): ReturnType<typeof service.updateThread> =>
       service.updateThread({ threadId: 'thread-1', pinnedMessage: { messageId, pinned } })
@@ -204,10 +206,18 @@ describe('thread state service', () => {
     pin('assistant:a', true)
     expect(thread.pinnedMessageIds).toEqual(['assistant:a', 'assistant:b'])
     expect(saveState).toHaveBeenCalledTimes(2)
+    expect(onMessagePinned.mock.calls).toEqual([
+      ['thread-1', 'assistant:a'],
+      ['thread-1', 'assistant:b']
+    ])
+    thread.pinnedMessageTitles = { 'assistant:a': 'Plan A', 'assistant:b': 'Plan B' }
     pin('assistant:a', false)
     expect(thread.pinnedMessageIds).toEqual(['assistant:b'])
+    expect(thread.pinnedMessageTitles).toEqual({ 'assistant:b': 'Plan B' })
     pin('assistant:b', false)
     expect(thread).not.toHaveProperty('pinnedMessageIds')
+    expect(thread).not.toHaveProperty('pinnedMessageTitles')
+    expect(onMessagePinned).toHaveBeenCalledTimes(2)
     expect(thread.lastActivityAt).toBe('2026-01-01T00:00:00.000Z')
     expect(
       service.updateThread({
@@ -291,5 +301,84 @@ describe('thread state service', () => {
       ok: false,
       error: 'Resolved threads cannot be suspended.'
     })
+  })
+
+  it('snoozes threads and wakes them, awakened, when their time comes', () => {
+    const saveState = vi.fn()
+    let now = '2026-01-02T00:00:00.000Z'
+    const thread: PersistedThread = {
+      id: 'thread-1',
+      repositoryId: 'repo-1',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActivityAt: '2026-01-01T00:00:00.000Z',
+      suspendedAt: '2026-01-01T12:00:00.000Z'
+    }
+    const service = createThreadStateService({
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: null }
+      }),
+      findThread: (id) => (id === thread.id ? thread : undefined),
+      saveState,
+      updateSelection: () => {},
+      buildSelectionSnapshot: () => ({}) as never,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      normalizeCustomTitle: (value) => value ?? null,
+      normalizeTrackedText: (value) => value ?? null,
+      normalizeCopilotTitle: (title) => title ?? null,
+      nowIso: () => now
+    })
+
+    expect(service.updateThread({ threadId: 'thread-1', snoozedUntil: 'soon' })).toEqual({
+      ok: false,
+      error: 'Invalid snooze time.'
+    })
+    expect(
+      service.updateThread({ threadId: 'thread-1', snoozedUntil: '2026-01-01T00:00:00.000Z' })
+    ).toEqual({ ok: false, error: 'Pick a snooze time in the future.' })
+    expect(service.nextSnoozeWakeAt()).toBeNull()
+
+    expect(
+      service.updateThread({ threadId: 'thread-1', snoozedUntil: '2026-01-02T08:00:00.000Z' }).ok
+    ).toBe(true)
+    expect(thread.snoozedUntil).toBe('2026-01-02T08:00:00.000Z')
+    expect(thread).not.toHaveProperty('suspendedAt')
+    expect(service.nextSnoozeWakeAt()).toBe(Date.parse('2026-01-02T08:00:00.000Z'))
+    expect(service.wakeSnoozedThreads()).toEqual([])
+
+    now = '2026-01-02T08:00:00.000Z'
+    expect(service.wakeSnoozedThreads()).toEqual(['thread-1'])
+    expect(thread).not.toHaveProperty('snoozedUntil')
+    expect(thread.awakenedAt).toBe(now)
+    expect(service.nextSnoozeWakeAt()).toBeNull()
+
+    service.updateThread({ threadId: 'thread-1', dismissAwakened: true })
+    expect(thread).not.toHaveProperty('awakenedAt')
+
+    // Unsnoozing wakes the thread without marking it awakened.
+    service.updateThread({ threadId: 'thread-1', snoozedUntil: '2026-01-03T08:00:00.000Z' })
+    service.updateThread({ threadId: 'thread-1', snoozedUntil: null })
+    expect(thread).not.toHaveProperty('snoozedUntil')
+    expect(thread).not.toHaveProperty('awakenedAt')
+
+    // A new prompt or settling ends a snooze.
+    service.updateThread({ threadId: 'thread-1', snoozedUntil: '2026-01-03T08:00:00.000Z' })
+    service.updateThreadLastUserMessage({ threadId: 'thread-1', message: 'continue' })
+    expect(thread).not.toHaveProperty('snoozedUntil')
+    service.updateThread({ threadId: 'thread-1', snoozedUntil: '2026-01-03T08:00:00.000Z' })
+    service.updateThread({ threadId: 'thread-1', settled: true })
+    expect(thread).not.toHaveProperty('snoozedUntil')
+    expect(
+      service.updateThread({ threadId: 'thread-1', snoozedUntil: '2026-01-03T08:00:00.000Z' })
+    ).toEqual({ ok: false, error: 'Resolved threads cannot be snoozed.' })
   })
 })

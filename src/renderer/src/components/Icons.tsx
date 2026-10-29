@@ -63,6 +63,15 @@ export function PauseIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+/** "Zzz": a snoozed or awakened thread. */
+export function SnoozeIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M2 8.25h5l-5 5.25h5M9.25 2.5h4.25l-4.25 4.5h4.25" />
+    </svg>
+  )
+}
+
 export function FolderIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

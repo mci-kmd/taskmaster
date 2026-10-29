@@ -164,3 +164,19 @@ it('keeps the open thread done until the user interacts with it', async () => {
   expect(screen.queryByRole('button', { name: 'Dismiss done state' })).toBeNull()
   expect(onSessionsChange.mock.lastCall?.[0].get('thread').copilotStatus).toBe('idle')
 })
+
+it('marks a thread back from a snooze awakened until the user interacts with it', async () => {
+  const onDismissAwakened = vi.fn()
+  render(
+    <Workspace
+      {...props({ awakenedAt: '2026-01-02T08:00:00.000Z' })}
+      onDismissAwakened={onDismissAwakened}
+    />
+  )
+  const conversation = await screen.findByText('Conversation')
+  expect(screen.getByRole('button', { name: 'Dismiss awakened state' })).toBeTruthy()
+  fireEvent.keyDown(conversation, { key: 'Alt' })
+  expect(onDismissAwakened).not.toHaveBeenCalled()
+  fireEvent.pointerDown(conversation)
+  expect(onDismissAwakened).toHaveBeenCalledWith('thread')
+})
