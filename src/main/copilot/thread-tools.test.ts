@@ -6,6 +6,7 @@ import { createThreadTools, THREAD_TOOL_NAMES } from './thread-tools'
 function setup(workItems?: ThreadWorkItem[]): {
   thread: PersistedThread
   onThreadChanged: ReturnType<typeof vi.fn>
+  snoozeThread: ReturnType<typeof vi.fn>
   call: (name: string, args: unknown) => ToolResultObject
   tools: Tool[]
 } {
@@ -24,25 +25,32 @@ function setup(workItems?: ThreadWorkItem[]): {
     ...(workItems ? { workItems } : {})
   }
   const onThreadChanged = vi.fn()
+  const snoozeThread = vi.fn((until: Date): string | null => {
+    thread.snoozedUntil = until.toISOString()
+    return null
+  })
   const tools = createThreadTools({
     resolveThread: () => thread,
     settleThread: () => {
       thread.settledAt = '2026-02-01T00:00:00.000Z'
       return true
     },
+    snoozeThread,
     setWorkItems: (items) => {
       if (items.length > 0) thread.workItems = items
       else delete thread.workItems
       return true
     },
-    onThreadChanged
+    onThreadChanged,
+    // Wednesday 2026-01-14, 15:20 local time.
+    now: () => new Date(2026, 0, 14, 15, 20)
   })
   const call = (name: string, args: unknown): ToolResultObject =>
     tools.find((tool) => tool.name === name)!.handler!(
       args,
       {} as ToolInvocation
     ) as ToolResultObject
-  return { thread, onThreadChanged, call, tools }
+  return { thread, onThreadChanged, snoozeThread, call, tools }
 }
 
 function parse(result: ToolResultObject): Record<string, unknown> {
@@ -73,6 +81,44 @@ describe('thread tools', () => {
       'This thread is already resolved.'
     )
     expect(onThreadChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('snoozes only when asked, using the menu presets or a custom time', () => {
+    const { tools, thread, call, onThreadChanged, snoozeThread } = setup()
+    const snooze = tools.find((tool) => tool.name === THREAD_TOOL_NAMES.snooze)!
+    expect(snooze.description).toContain('NEVER call this on your own initiative')
+    expect(snooze.description).toContain('next Monday at 08:00')
+
+    const nextWeek = parse(call(THREAD_TOOL_NAMES.snooze, { preset: 'next-week' }))
+    expect(nextWeek.snoozedUntil).toBe(new Date(2026, 0, 19, 8, 0).toISOString())
+    expect(thread.snoozedUntil).toBe(new Date(2026, 0, 19, 8, 0).toISOString())
+    expect(onThreadChanged).toHaveBeenCalledTimes(1)
+
+    parse(call(THREAD_TOOL_NAMES.snooze, { preset: 'tomorrow' }))
+    expect(thread.snoozedUntil).toBe(new Date(2026, 0, 15, 8, 0).toISOString())
+    parse(call(THREAD_TOOL_NAMES.snooze, { preset: 'hour' }))
+    expect(thread.snoozedUntil).toBe(new Date(2026, 0, 14, 16, 20).toISOString())
+    parse(call(THREAD_TOOL_NAMES.snooze, { until: '2026-01-16T14:30' }))
+    expect(thread.snoozedUntil).toBe(new Date(2026, 0, 16, 14, 30).toISOString())
+    expect(snoozeThread).toHaveBeenCalledTimes(4)
+
+    for (const args of [
+      {},
+      { preset: 'later' },
+      { until: 'soon' },
+      { preset: 'hour', until: '2026-01-16T14:30' }
+    ]) {
+      expect(call(THREAD_TOOL_NAMES.snooze, args).resultType).toBe('failure')
+    }
+    snoozeThread.mockReturnValueOnce('Pick a snooze time in the future.')
+    const past = call(THREAD_TOOL_NAMES.snooze, { until: '2020-01-01T00:00' })
+    expect(past.textResultForLlm).toBe('Pick a snooze time in the future.')
+    expect(snoozeThread).toHaveBeenCalledTimes(5)
+    expect(onThreadChanged).toHaveBeenCalledTimes(4)
+
+    thread.settledAt = '2026-01-14T00:00:00.000Z'
+    expect(call(THREAD_TOOL_NAMES.snooze, { preset: 'hour' }).resultType).toBe('failure')
+    expect(snoozeThread).toHaveBeenCalledTimes(5)
   })
 
   it('tells the agent to link work items automatically', () => {

@@ -31,6 +31,12 @@ export const TASKMASTER_TOOLS = [
     description: 'Settles the thread when you ask it to.'
   },
   {
+    name: 'taskmaster_snooze_thread',
+    label: 'Snooze threads',
+    allowLabel: 'Copilot can snooze its thread',
+    description: 'Snoozes the thread when you ask it to, using the same choices as its menu.'
+  },
+  {
     name: 'taskmaster_link_work_items',
     label: 'Link work items',
     allowLabel: 'Copilot can link work items',

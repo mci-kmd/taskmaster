@@ -381,4 +381,42 @@ describe('thread state service', () => {
       service.updateThread({ threadId: 'thread-1', snoozedUntil: '2026-01-03T08:00:00.000Z' })
     ).toEqual({ ok: false, error: 'Resolved threads cannot be snoozed.' })
   })
+
+  it('unsettles a settled thread on a new prompt', () => {
+    const thread: PersistedThread = {
+      id: 'thread-1',
+      repositoryId: 'repo-1',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActivityAt: '2026-01-01T00:00:00.000Z',
+      settledAt: '2026-01-01T12:00:00.000Z'
+    }
+    const service = createThreadStateService({
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: 'thread-1' }
+      }),
+      findThread: (id) => (id === thread.id ? thread : undefined),
+      saveState: vi.fn(),
+      updateSelection: () => {},
+      buildSelectionSnapshot: () => ({}) as never,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      normalizeCustomTitle: (value) => value ?? null,
+      normalizeTrackedText: (value) => value ?? null,
+      normalizeCopilotTitle: (title) => title ?? null,
+      nowIso: () => '2026-01-02T00:00:00.000Z'
+    })
+
+    service.updateThreadLastUserMessage({ threadId: 'thread-1', message: 'one more thing' })
+    expect(thread.settledAt).toBeNull()
+    expect(thread.lastActivityAt).toBe('2026-01-02T00:00:00.000Z')
+  })
 })

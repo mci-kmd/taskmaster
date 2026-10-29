@@ -547,6 +547,14 @@ function createAllCopilotSessionTools(threadId: string): Tool[] {
     ...createThreadTools({
       resolveThread: () => findThread(threadId),
       settleThread: () => threadStateService.settleThreadFromAgent(threadId),
+      snoozeThread: (until) => {
+        const result = threadStateService.updateThread({
+          threadId,
+          snoozedUntil: until.toISOString()
+        })
+        scheduleSnoozeWake()
+        return result.ok ? null : (result.error ?? 'The thread could not be snoozed.')
+      },
       setWorkItems: (workItems) => threadStateService.setThreadWorkItems(threadId, workItems),
       onThreadChanged: refresh
     })

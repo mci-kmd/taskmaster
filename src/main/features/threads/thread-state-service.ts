@@ -208,7 +208,9 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       const nextMessage = dependencies.normalizeTrackedText(input.message)
       thread.lastActivityAt = dependencies.nowIso()
       thread.lastUserMessage = nextMessage
-      // A new prompt brings a suspended or snoozed thread back, and attends to an awakened one.
+      // A new prompt brings a settled, suspended or snoozed thread back, and attends to an
+      // awakened one.
+      if (thread.settledAt) thread.settledAt = null
       delete thread.suspendedAt
       delete thread.snoozedUntil
       delete thread.awakenedAt

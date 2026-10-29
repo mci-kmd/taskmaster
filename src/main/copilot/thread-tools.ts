@@ -1,5 +1,6 @@
 import type { Tool, ToolResultObject } from '@github/copilot-sdk'
 import type { PersistedThread, ThreadWorkItem } from '../../shared/app-types'
+import { SNOOZE_PRESETS, isSnoozePreset, snoozeUntil } from '../../shared/snooze'
 import {
   MAX_THREAD_WORK_ITEMS,
   WORK_ITEM_INPUT_HINT,
@@ -12,13 +13,17 @@ export type ThreadToolDependencies = {
   /** The session's thread, looked up on every call. */
   resolveThread: () => PersistedThread | undefined
   settleThread: () => boolean
+  /** Snoozes the thread until the given time; returns an error message on failure. */
+  snoozeThread: (until: Date) => string | null
   setWorkItems: (workItems: ThreadWorkItem[]) => boolean
   /** Makes open windows refresh their snapshot. */
   onThreadChanged: () => void
+  now?: () => Date
 }
 
 export const THREAD_TOOL_NAMES = {
   settle: 'taskmaster_settle_thread',
+  snooze: 'taskmaster_snooze_thread',
   linkWorkItems: 'taskmaster_link_work_items'
 } as const
 
@@ -114,6 +119,73 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
     })
   }
 
+  const snoozeThread: Tool = {
+    name: THREAD_TOOL_NAMES.snooze,
+    description:
+      "Snooze the Taskmaster thread this conversation belongs to: it leaves the user's inbox " +
+      'of active threads until the chosen time, then returns to the top marked Awakened. ' +
+      'NEVER call this on your own initiative. Only call it when the user has explicitly asked ' +
+      'you to snooze this thread, for example "remind me about this tomorrow" or "snooze ' +
+      'yourself until next week". When asked to do so after some work, finish all of that work ' +
+      'first and call this as the very last step. Any time can be given with "until" (e.g. ' +
+      '"Friday at 14:00" or "in 3 hours"). The presets exist so that common vague phrases mean ' +
+      'the same as in the thread menu instead of being reinterpreted each time: "hour" is one ' +
+      'hour from now, "tomorrow" is tomorrow at 08:00, and "next-week" is next Monday at 08:00 ' +
+      '(a full week ahead on a Monday). ALWAYS use the matching preset when the user asks for ' +
+      'one of these (e.g. "next week" means preset "next-week", not a date you work out ' +
+      'yourself); use "until" for everything else. A new prompt from the user ends the snooze.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        preset: {
+          type: 'string',
+          enum: [...SNOOZE_PRESETS],
+          description:
+            '"hour": in one hour; "tomorrow": tomorrow at 08:00; "next-week": next Monday at 08:00.'
+        },
+        until: {
+          type: 'string',
+          description:
+            'A custom end time as an ISO 8601 date-time, e.g. "2026-03-05T14:30" (local time) ' +
+            'or with an offset. Must be in the future. Do not combine with "preset".'
+        }
+      }
+    },
+    // Reversible from the UI, and a prompt would defeat "do X, then snooze yourself".
+    skipPermission: true,
+    handler: run((args, thread) => {
+      const { preset, until } = args
+      const hasPreset = preset !== undefined && preset !== null
+      const hasUntil = until !== undefined && until !== null
+      if (hasPreset === hasUntil) {
+        throw new ToolInputError('Pass exactly one of "preset" or "until".')
+      }
+      if (thread.settledAt) return failure('Resolved threads cannot be snoozed.')
+      const now = dependencies.now?.() ?? new Date()
+      let end: Date
+      if (hasPreset) {
+        if (!isSnoozePreset(preset)) {
+          throw new ToolInputError(`"preset" must be one of: ${SNOOZE_PRESETS.join(', ')}.`)
+        }
+        end = snoozeUntil(preset, now)
+      } else {
+        end = new Date(typeof until === 'string' ? until : Number.NaN)
+        if (Number.isNaN(end.getTime())) {
+          throw new ToolInputError('"until" must be an ISO 8601 date-time.')
+        }
+      }
+      const error = dependencies.snoozeThread(end)
+      if (error) return failure(error)
+      dependencies.onThreadChanged()
+      return success({
+        message: 'Snoozed this thread.',
+        snoozedUntil: end.toISOString(),
+        snoozedUntilLocal: end.toString()
+      })
+    })
+  }
+
   const linkWorkItems: Tool = {
     name: THREAD_TOOL_NAMES.linkWorkItems,
     description:
@@ -197,5 +269,5 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
     })
   }
 
-  return [settleThread, linkWorkItems]
+  return [settleThread, snoozeThread, linkWorkItems]
 }
