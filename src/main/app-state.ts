@@ -556,6 +556,16 @@ function createAllCopilotSessionTools(threadId: string): Tool[] {
         return result.ok ? null : (result.error ?? 'The thread could not be snoozed.')
       },
       setWorkItems: (workItems) => threadStateService.setThreadWorkItems(threadId, workItems),
+      findTask: (number) => {
+        const thread = findThread(threadId)
+        const repository = thread ? findRepository(thread.repositoryId) : undefined
+        const open = repository?.tasks.find((task) => task.number === number)
+        if (open) return { title: open.title, status: 'open' }
+        const completed = repository?.completedTasks?.find((task) => task.number === number)
+        return completed ? { title: completed.title, status: 'completed' } : undefined
+      },
+      setTaskNumbers: (taskNumbers) =>
+        threadStateService.setThreadTaskNumbers(threadId, taskNumbers),
       onThreadChanged: refresh
     })
   ]

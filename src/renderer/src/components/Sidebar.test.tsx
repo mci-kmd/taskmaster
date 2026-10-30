@@ -45,7 +45,8 @@ it('shows only the unified thread view without a mode switch', () => {
       regeneratingTitleIds={new Set()}
     />
   )
-  expect(screen.getByText('Threads')).toBeTruthy()
+  expect(screen.queryByText('Threads')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Add repository' })).toBeTruthy()
   expect(screen.getByText('Add a repository to start a thread.')).toBeTruthy()
   expect(screen.queryByRole('button', { name: /switch to (projects|inbox) view/i })).toBeNull()
 })

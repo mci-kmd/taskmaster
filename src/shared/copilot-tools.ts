@@ -40,7 +40,8 @@ export const TASKMASTER_TOOLS = [
     name: 'taskmaster_link_work_items',
     label: 'Link work items',
     allowLabel: 'Copilot can link work items',
-    description: 'Links the issues, pull requests and work items the thread works on to its card.'
+    description:
+      'Links the issues, pull requests, work items and tasks the thread works on to its card.'
   }
 ] as const
 

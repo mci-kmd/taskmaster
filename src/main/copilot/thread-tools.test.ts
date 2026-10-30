@@ -41,6 +41,17 @@ function setup(workItems?: ThreadWorkItem[]): {
       else delete thread.workItems
       return true
     },
+    findTask: (number) =>
+      number === 12
+        ? { title: 'Fix login', status: 'open' }
+        : number === 3
+          ? { title: 'Old work', status: 'completed' }
+          : undefined,
+    setTaskNumbers: (numbers) => {
+      if (numbers.length > 0) thread.taskNumbers = numbers
+      else delete thread.taskNumbers
+      return true
+    },
     onThreadChanged,
     // Wednesday 2026-01-14, 15:20 local time.
     now: () => new Date(2026, 0, 14, 15, 20)
@@ -183,5 +194,33 @@ describe('thread tools', () => {
     expect(call(THREAD_TOOL_NAMES.linkWorkItems, { replace: 'yes' }).resultType).toBe('failure')
     expect(thread.workItems).toEqual([issue])
     expect(onThreadChanged).not.toHaveBeenCalled()
+  })
+
+  it('links and unlinks Taskmaster tasks of the project by id', () => {
+    const { thread, call, onThreadChanged } = setup([issue])
+    const link = call(THREAD_TOOL_NAMES.linkWorkItems, {})
+    expect(parse(link).tasks).toEqual([])
+
+    const linked = parse(call(THREAD_TOOL_NAMES.linkWorkItems, { tasks: [12, '#3', 12] }))
+    expect(linked.tasks).toEqual([
+      { id: 12, title: 'Fix login', status: 'open' },
+      { id: 3, title: 'Old work', status: 'completed' }
+    ])
+    expect(thread.taskNumbers).toEqual([12, 3])
+    expect(thread.workItems).toEqual([issue])
+    expect(onThreadChanged).toHaveBeenCalledTimes(1)
+
+    const unknown = call(THREAD_TOOL_NAMES.linkWorkItems, { tasks: [99] })
+    expect(unknown.resultType).toBe('failure')
+    expect(unknown.textResultForLlm).toContain('#99')
+    expect(call(THREAD_TOOL_NAMES.linkWorkItems, { tasks: ['x'] }).resultType).toBe('failure')
+    expect(thread.taskNumbers).toEqual([12, 3])
+
+    parse(call(THREAD_TOOL_NAMES.linkWorkItems, { unlinkTasks: [3] }))
+    expect(thread.taskNumbers).toEqual([12])
+
+    parse(call(THREAD_TOOL_NAMES.linkWorkItems, { replace: true }))
+    expect(thread).not.toHaveProperty('taskNumbers')
+    expect(thread).not.toHaveProperty('workItems')
   })
 })

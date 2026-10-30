@@ -9,7 +9,12 @@ import type {
   UpdateThreadResumeSessionInput,
   MutationResult
 } from '../../../shared/app-types'
-import { normalizeThreadWorkItems, sameThreadWorkItems } from '../../../shared/work-items'
+import {
+  normalizeThreadTaskNumbers,
+  normalizeThreadWorkItems,
+  sameThreadTaskNumbers,
+  sameThreadWorkItems
+} from '../../../shared/work-items'
 import { normalizePinnedMessageIds, prunePinnedMessageTitles } from './thread-values'
 
 type ThreadStateServiceDependencies = {
@@ -41,6 +46,7 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
   /** The earliest snooze end in ms since the epoch, or null when nothing is snoozed. */
   nextSnoozeWakeAt: () => number | null
   setThreadWorkItems: (threadId: string, workItems: ThreadWorkItem[]) => boolean
+  setThreadTaskNumbers: (threadId: string, taskNumbers: number[]) => boolean
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
 } {
@@ -268,6 +274,17 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       if (sameThreadWorkItems(next, thread.workItems)) return true
       if (next) thread.workItems = next
       else delete thread.workItems
+      dependencies.saveState()
+      return true
+    },
+
+    setThreadTaskNumbers: (threadId: string, taskNumbers: number[]): boolean => {
+      const thread = dependencies.findThread(threadId)
+      if (!thread) return false
+      const next = normalizeThreadTaskNumbers(taskNumbers)
+      if (sameThreadTaskNumbers(next, thread.taskNumbers)) return true
+      if (next) thread.taskNumbers = next
+      else delete thread.taskNumbers
       dependencies.saveState()
       return true
     },

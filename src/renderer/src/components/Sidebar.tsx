@@ -1,7 +1,6 @@
-import { useMemo } from 'react'
 import type { AppSnapshot, RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import type { SessionMap } from './TerminalSessions'
-import { GearIcon, LogoMark, PerformanceIcon, PlusIcon } from './Icons'
+import { FolderPlusIcon, GearIcon, LogoMark, PerformanceIcon } from './Icons'
 import InboxThreads from './InboxThreads'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
@@ -17,7 +16,7 @@ type SidebarProps = {
   onSelectThread: (id: string) => void
   onAddRepository: () => void
   onEditRepository: (id: string) => void
-  onOpenRepositoryTasks: (id: string) => void
+  onOpenRepositoryTasks: (id: string, taskNumber?: number) => void
   onEditThread: (id: string) => void
   onNewThread: (repositoryId: string) => void
   onOpenSettings: () => void
@@ -68,11 +67,6 @@ export default function Sidebar({
   convertingThread,
   closingThread
 }: SidebarProps): React.JSX.Element {
-  const totalThreads = useMemo(
-    () => snapshot.repositories.reduce((count, repository) => count + repository.threads.length, 0),
-    [snapshot.repositories]
-  )
-
   return (
     <aside className="flex min-h-0 w-full min-w-0 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-2 pr-2 pl-4">
@@ -84,6 +78,17 @@ export default function Sidebar({
           </span>
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
+          <Button
+            aria-label="Add repository"
+            disabled={busyAddRepository}
+            iconOnly
+            onClick={onAddRepository}
+            size="sm"
+            title="Add repository"
+            variant="ghost"
+          >
+            <FolderPlusIcon width={15} height={15} />
+          </Button>
           <Button
             aria-label="Model performance"
             aria-pressed={performanceOpen}
@@ -109,28 +114,6 @@ export default function Sidebar({
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col overflow-hidden px-2 pb-2">
-        <div className="flex h-8 shrink-0 items-center pr-0.5 pl-2 text-[10.5px] font-semibold tracking-[0.09em] text-fg-subtle uppercase">
-          <span>Threads</span>
-          <span
-            key={totalThreads}
-            className="tm-fade-in ml-1.5 font-mono tracking-normal text-fg-subtle"
-          >
-            · {totalThreads}
-          </span>
-          <Button
-            aria-label="Add repository"
-            className="ml-auto"
-            disabled={busyAddRepository}
-            iconOnly
-            onClick={onAddRepository}
-            size="xs"
-            title="Add repository"
-            variant="ghost"
-          >
-            <PlusIcon width={13} height={13} strokeWidth={1.6} />
-          </Button>
-        </div>
-
         <Presence show={snapshot.repositories.length === 0} motion="collapse">
           <div className="shrink-0">
             <div className="mt-1 mb-2 rounded-lg border border-dashed border-border-strong bg-surface px-3 py-5 text-center text-[12.5px] leading-5 text-fg-muted">

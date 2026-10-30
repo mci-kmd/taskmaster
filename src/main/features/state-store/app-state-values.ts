@@ -22,7 +22,12 @@ import {
 import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../shared/project-icons'
 import { normalizeCopilotTitle } from '../../../shared/thread-title'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
-import { normalizeThreadWorkItems, sameThreadWorkItems } from '../../../shared/work-items'
+import {
+  normalizeThreadTaskNumbers,
+  normalizeThreadWorkItems,
+  sameThreadTaskNumbers,
+  sameThreadWorkItems
+} from '../../../shared/work-items'
 import {
   assignTaskNumbers,
   normalizePersistedCompletedTasks,
@@ -75,6 +80,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     typeof rawGeneratedTitle === 'string' ? normalizeCopilotTitle(rawGeneratedTitle) : null
   const lastModel = normalizeThreadModel(thread.lastModel)
   const workItems = normalizeThreadWorkItems(thread.workItems)
+  const taskNumbers = normalizeThreadTaskNumbers(thread.taskNumbers)
   const pinnedMessageIds = normalizePinnedMessageIds(thread.pinnedMessageIds)
   const pinnedMessageTitles = normalizePinnedMessageTitles(
     thread.pinnedMessageTitles,
@@ -91,6 +97,8 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     lastModel?.name === thread.lastModel?.name &&
     (workItems === undefined) === (thread.workItems === undefined) &&
     sameThreadWorkItems(workItems, thread.workItems) &&
+    (taskNumbers === undefined) === (thread.taskNumbers === undefined) &&
+    sameThreadTaskNumbers(taskNumbers, thread.taskNumbers) &&
     (pinnedMessageIds === undefined
       ? thread.pinnedMessageIds === undefined
       : Array.isArray(thread.pinnedMessageIds) &&
@@ -109,6 +117,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     generatedTitle: _generatedTitle,
     lastModel: _lastModel,
     workItems: _workItems,
+    taskNumbers: _taskNumbers,
     pinnedMessageIds: _pinnedMessageIds,
     pinnedMessageTitles: _pinnedMessageTitles,
     aside: _aside,
@@ -118,6 +127,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
   void _generatedTitle
   void _lastModel
   void _workItems
+  void _taskNumbers
   void _pinnedMessageIds
   void _pinnedMessageTitles
   return {
@@ -127,6 +137,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     ...(generatedTitle ? { generatedTitle } : {}),
     ...(lastModel ? { lastModel } : {}),
     ...(workItems ? { workItems } : {}),
+    ...(taskNumbers ? { taskNumbers } : {}),
     ...(pinnedMessageIds ? { pinnedMessageIds } : {}),
     ...(pinnedMessageTitles ? { pinnedMessageTitles } : {}),
     ...(aside ? { aside } : {})

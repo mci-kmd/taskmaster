@@ -164,6 +164,8 @@ export interface PersistedThread {
   lastModel?: ThreadModel
   /** Linked by the agent through the taskmaster_link_work_items tool. Absent when none. */
   workItems?: ThreadWorkItem[]
+  /** Numbers of the project's tasks the agent linked through taskmaster_link_work_items. */
+  taskNumbers?: number[]
   /** Timeline item ids of Copilot messages the user pinned, oldest pin first. Absent when none. */
   pinnedMessageIds?: string[]
   /** Generated headings of pinned messages by message id. Absent until one is written. */

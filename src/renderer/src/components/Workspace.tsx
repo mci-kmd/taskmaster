@@ -52,6 +52,8 @@ type WorkspaceProps = {
   selectedThread: ThreadSnapshot | null
   selectedRepository: RepositorySnapshot | null
   showRepositoryTasks?: boolean
+  /** Opens the task list filtered to this task; a new token refocuses it. */
+  taskFocus?: { number: number; token: number } | null
   settings: AppSettingsSnapshot
   hasRepositories: boolean
   repositoryTaskBusy: boolean
@@ -293,6 +295,7 @@ export default function Workspace({
   selectedThread,
   selectedRepository,
   showRepositoryTasks = true,
+  taskFocus = null,
   settings,
   hasRepositories,
   repositoryTaskBusy,
@@ -736,7 +739,8 @@ export default function Workspace({
             <div className="absolute inset-0">
               <ProjectTaskManager
                 busy={repositoryTaskBusy}
-                key={selectedRepository.id}
+                focusTaskNumber={taskFocus?.number}
+                key={`${selectedRepository.id}:${taskFocus?.token ?? ''}`}
                 onCompleteTask={onCompleteRepositoryTask}
                 onCreateTask={onCreateRepositoryTask}
                 onReopenTask={onReopenRepositoryTask}

@@ -88,7 +88,7 @@ export default function InboxThreads({
   onSelectThread: (id: string) => void
   onNewThread: (id: string) => void
   onEditRepository: (id: string) => void
-  onOpenRepositoryTasks: (id: string) => void
+  onOpenRepositoryTasks: (id: string, taskNumber?: number) => void
   onEditThread: (id: string) => void
   onSettleThread: (id: string, settled: boolean) => void
   onSuspendThread?: (id: string, suspended: boolean) => void
@@ -178,6 +178,7 @@ export default function InboxThreads({
     const awakened = Boolean(thread.awakenedAt) && !thread.settledAt && !snoozedUntil
     const status = session?.copilotStatus ?? 'idle'
     const working = status === 'working' || status === 'connecting' || status === 'input'
+    const linkedTasks = findLinkedTasks(thread, repository)
     const subtitle =
       thread.projectKind === 'general'
         ? repository.name
@@ -261,7 +262,9 @@ export default function InboxThreads({
                     type="button"
                     onClick={() => onSelectThread(thread.id)}
                     className="tm-inbox-row-main"
-                    data-has-work-items={thread.workItems?.length ? '' : undefined}
+                    data-has-work-items={
+                      thread.workItems?.length || linkedTasks.length ? '' : undefined
+                    }
                     // The details tooltip is visual; this keeps them available to assistive technology.
                     aria-description={`${subtitle}\n${thread.cwd}`}
                   >
@@ -310,7 +313,13 @@ export default function InboxThreads({
                       </span>
                     </span>
                   </button>
-                  {thread.workItems?.length ? <ThreadWorkItems items={thread.workItems} /> : null}
+                  {thread.workItems?.length || linkedTasks.length ? (
+                    <ThreadWorkItems
+                      items={thread.workItems ?? []}
+                      tasks={linkedTasks}
+                      onOpenTask={(number) => onOpenRepositoryTasks(repository.id, number)}
+                    />
+                  ) : null}
                 </div>
                 <div className="tm-inbox-side">
                   <ThreadIndicators thread={thread} />
@@ -750,6 +759,12 @@ function ThreadTooltip({
             <span>App running</span>
           </li>
         ) : null}
+        {findLinkedTasks(thread, repository).map((task) => (
+          <li key={`task-${task.number}`} className="tm-tooltip-row">
+            <TasksIcon />
+            <span>{describeTask(task)}</span>
+          </li>
+        ))}
         {thread.workItems?.map((item) => (
           <li key={item.url} className="tm-tooltip-row">
             <WorkItemKindIcon item={item} />
@@ -778,10 +793,50 @@ function describeWorkItem(item: ThreadWorkItem): string {
   return item.title ? `${reference} · ${item.title}` : reference
 }
 
-/** The work items the agent linked the thread to, as links under the card's text. */
-function ThreadWorkItems({ items }: { items: ThreadWorkItem[] }): React.JSX.Element {
+type LinkedTask = { number: number; title: string; completed: boolean }
+
+/** The project's tasks the agent linked the thread to; ones that no longer exist are skipped. */
+function findLinkedTasks(thread: ThreadSnapshot, repository: RepositorySnapshot): LinkedTask[] {
+  return (thread.taskNumbers ?? []).flatMap((number): LinkedTask[] => {
+    const open = repository.tasks.find((task) => task.number === number)
+    if (open) return [{ number, title: open.title, completed: false }]
+    const completed = repository.completedTasks?.find((task) => task.number === number)
+    return completed ? [{ number, title: completed.title, completed: true }] : []
+  })
+}
+
+function describeTask(task: LinkedTask): string {
+  return `Task #${task.number} · ${task.title}${task.completed ? ' (completed)' : ''}`
+}
+
+/** The tasks and work items the agent linked the thread to, as links under the card's text. */
+function ThreadWorkItems({
+  items,
+  tasks,
+  onOpenTask
+}: {
+  items: ThreadWorkItem[]
+  tasks: LinkedTask[]
+  onOpenTask: (number: number) => void
+}): React.JSX.Element {
   return (
     <ul className="tm-inbox-work-items" aria-label="Linked work items">
+      {tasks.map((task) => (
+        <li key={`task-${task.number}`}>
+          <button
+            type="button"
+            className="tm-inbox-work-item"
+            data-provider="taskmaster"
+            data-completed={task.completed ? '' : undefined}
+            onClick={() => onOpenTask(task.number)}
+            title={describeTask(task)}
+            aria-label={`Open ${describeTask(task)}`}
+          >
+            <TasksIcon width={11} height={11} aria-hidden="true" />
+            <span>#{task.number}</span>
+          </button>
+        </li>
+      ))}
       {items.map((item) => {
         const kind =
           item.provider === 'azure-devops'

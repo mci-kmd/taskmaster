@@ -2,12 +2,16 @@ import type { Tool, ToolResultObject } from '@github/copilot-sdk'
 import type { PersistedThread, ThreadWorkItem } from '../../shared/app-types'
 import { SNOOZE_PRESETS, isSnoozePreset, snoozeUntil } from '../../shared/snooze'
 import {
+  MAX_THREAD_TASKS,
   MAX_THREAD_WORK_ITEMS,
   WORK_ITEM_INPUT_HINT,
   formatWorkItemReference,
   normalizeWorkItemTitle,
   parseWorkItemReference
 } from '../../shared/work-items'
+
+/** A task of the thread's project, as the link tool reports it. */
+export type LinkableTask = { title: string; status: 'open' | 'completed' }
 
 export type ThreadToolDependencies = {
   /** The session's thread, looked up on every call. */
@@ -16,6 +20,9 @@ export type ThreadToolDependencies = {
   /** Snoozes the thread until the given time; returns an error message on failure. */
   snoozeThread: (until: Date) => string | null
   setWorkItems: (workItems: ThreadWorkItem[]) => boolean
+  /** Looks up a task of the thread's project by its number. */
+  findTask: (number: number) => LinkableTask | undefined
+  setTaskNumbers: (taskNumbers: number[]) => boolean
   /** Makes open windows refresh their snapshot. */
   onThreadChanged: () => void
   now?: () => Date
@@ -83,6 +90,24 @@ function readUnlinks(args: Args): string[] {
   if (value === undefined || value === null) return []
   if (!Array.isArray(value)) throw new ToolInputError('"unlink" must be an array of strings.')
   return value.map((entry, index) => parseOrThrow(entry, `unlink[${index}]`).url)
+}
+
+function readTaskNumbers(args: Args, key: 'tasks' | 'unlinkTasks'): number[] {
+  const value = args[key]
+  if (value === undefined || value === null) return []
+  if (!Array.isArray(value)) throw new ToolInputError(`"${key}" must be an array of task ids.`)
+  return value.map((entry, index) => {
+    const number =
+      typeof entry === 'number'
+        ? entry
+        : typeof entry === 'string' && /^\s*#?\d+\s*$/.test(entry)
+          ? Number(entry.replace('#', ''))
+          : NaN
+    if (!Number.isSafeInteger(number) || number <= 0) {
+      throw new ToolInputError(`${key}[${index}] must be a task id, e.g. 12 for task #12.`)
+    }
+    return number
+  })
 }
 
 export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] {
@@ -186,20 +211,30 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
     })
   }
 
+  const currentLinks = (thread: PersistedThread): Record<string, unknown> => ({
+    workItems: (thread.workItems ?? []).map(toView),
+    tasks: (thread.taskNumbers ?? []).map((number) => {
+      const task = dependencies.findTask(number)
+      return task ? { id: number, title: task.title, status: task.status } : { id: number }
+    })
+  })
+
   const linkWorkItems: Tool = {
     name: THREAD_TOOL_NAMES.linkWorkItems,
     description:
       'Link the Taskmaster thread this conversation belongs to with the GitHub issues or pull ' +
-      'requests and Azure DevOps work items being worked on in it. Taskmaster shows the links on ' +
-      "the thread's card, and the user cannot edit them by hand, so this tool is the only way " +
-      'they get linked. ALWAYS call this automatically, without being asked and without asking ' +
-      'first, whenever this thread works on a specific work item: when the user asks you to ' +
-      'implement, fix, review or investigate an issue, pull request or work item; when you ' +
-      'create a pull request or issue for the work; or when you pick up a Taskmaster task that ' +
-      'is linked to a GitHub issue. Do it as soon as you know the URL, before or while starting ' +
-      'the work, not as an afterthought. Linking an item twice is harmless, so when in doubt, ' +
-      'link it. Also call it when the user asks to change the links. Do not link items that ' +
-      'are merely mentioned for context and not worked on. Returns the current links. ' +
+      'requests, Azure DevOps work items and Taskmaster tasks being worked on in it. Taskmaster ' +
+      "shows the links on the thread's card, and the user cannot edit them by hand, so this tool " +
+      'is the only way they get linked. ALWAYS call this automatically, without being asked and ' +
+      'without asking first, whenever this thread works on a specific work item or task: when ' +
+      'the user asks you to implement, fix, review or investigate an issue, pull request, work ' +
+      'item or Taskmaster task (e.g. "implement #12"); when you create a pull request or issue ' +
+      'for the work; or when you pick up a Taskmaster task. Link Taskmaster tasks by their id ' +
+      'in "tasks", and also link the GitHub issue a task is linked to, if any. Do it as soon as ' +
+      'you know the URL or task id, before or while starting the work, not as an afterthought. ' +
+      'Linking an item twice is harmless, so when in doubt, link it. Also call it when the user ' +
+      'asks to change the links. Do not link items that are merely mentioned for context and ' +
+      'not worked on. Returns the current links. ' +
       WORK_ITEM_INPUT_HINT,
     parameters: {
       type: 'object',
@@ -219,16 +254,26 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
             required: ['url']
           }
         },
+        tasks: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description: "Ids of this project's Taskmaster tasks to link (12 for task #12)."
+        },
         unlink: {
           type: 'array',
           items: { type: 'string' },
           description: 'URLs of linked work items to remove.'
         },
+        unlinkTasks: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          description: 'Ids of linked Taskmaster tasks to remove.'
+        },
         replace: {
           type: 'boolean',
           description:
-            'Replace all current links with "workItems" instead of adding to them. ' +
-            'Pass true with an empty "workItems" to remove every link.'
+            'Replace all current links with "workItems" and "tasks" instead of adding to them. ' +
+            'Pass true with nothing else to remove every link.'
         }
       }
     },
@@ -244,8 +289,20 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
       const replace = args.replace === true
       const links = readLinks(args)
       const unlinks = new Set(readUnlinks(args))
-      if (!replace && links.length === 0 && unlinks.size === 0) {
-        return success({ workItems: (thread.workItems ?? []).map(toView) })
+      const taskLinks = readTaskNumbers(args, 'tasks')
+      const taskUnlinks = new Set(readTaskNumbers(args, 'unlinkTasks'))
+      if (
+        !replace &&
+        links.length === 0 &&
+        unlinks.size === 0 &&
+        taskLinks.length === 0 &&
+        taskUnlinks.size === 0
+      ) {
+        return success(currentLinks(thread))
+      }
+      const unknownTask = taskLinks.find((number) => !dependencies.findTask(number))
+      if (unknownTask !== undefined) {
+        return failure(`There is no task #${unknownTask} in this project.`)
       }
 
       const next = new Map<string, ThreadWorkItem>()
@@ -261,13 +318,21 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
       if (workItems.length > MAX_THREAD_WORK_ITEMS) {
         return failure(`A thread can be linked to at most ${MAX_THREAD_WORK_ITEMS} work items.`)
       }
+      const taskNumbers = [
+        ...new Set([...(replace ? [] : (thread.taskNumbers ?? [])), ...taskLinks])
+      ].filter((number) => !taskUnlinks.has(number))
+      if (taskNumbers.length > MAX_THREAD_TASKS) {
+        return failure(`A thread can be linked to at most ${MAX_THREAD_TASKS} tasks.`)
+      }
       if (!dependencies.setWorkItems(workItems)) {
         return failure('The work items could not be saved.')
       }
+      if (!dependencies.setTaskNumbers(taskNumbers)) {
+        return failure('The tasks could not be saved.')
+      }
       dependencies.onThreadChanged()
-      return success({ workItems: (thread.workItems ?? []).map(toView) })
+      return success(currentLinks(thread))
     })
   }
-
   return [settleThread, snoozeThread, linkWorkItems]
 }

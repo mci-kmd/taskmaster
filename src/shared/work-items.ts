@@ -149,3 +149,26 @@ export function formatWorkItemReference(
 ): string {
   return `${item.container}#${item.number}`
 }
+
+export const MAX_THREAD_TASKS = 20
+
+/** Numbers of the project's Taskmaster tasks, without duplicates. Absent when none remain. */
+export function normalizeThreadTaskNumbers(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const numbers: number[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'number' || !Number.isSafeInteger(entry) || entry <= 0) continue
+    if (numbers.includes(entry)) continue
+    numbers.push(entry)
+    if (numbers.length === MAX_THREAD_TASKS) break
+  }
+  return numbers.length > 0 ? numbers : undefined
+}
+
+export function sameThreadTaskNumbers(
+  left: readonly number[] | undefined,
+  right: readonly number[] | undefined
+): boolean {
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) return false
+  return (left ?? []).every((number, index) => right![index] === number)
+}

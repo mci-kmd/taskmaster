@@ -99,6 +99,15 @@ describe('ProjectTaskManager', () => {
     expect(screen.getByText('#42')).toBeTruthy()
   })
 
+  it('starts filtered to a focused task, in the view it is in', () => {
+    renderManager([{ ...task('a', 'Open one'), number: 1 }], { focusTaskNumber: 9 }, [
+      { ...completed('b', 'Done one', '2026-02-01T00:00:00.000Z'), number: 9 }
+    ])
+
+    expect(taskTitles()).toEqual(['Done one'])
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('#9')
+  })
+
   it('reorders tasks with the keyboard on the drag handle', () => {
     const props = renderManager([task('a', 'First'), task('b', 'Second'), task('c', 'Third')])
 

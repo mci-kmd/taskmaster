@@ -134,6 +134,57 @@ describe('inbox', () => {
     expect(handlers.onSelectThread).not.toHaveBeenCalled()
   })
 
+  it('shows linked tasks of the project and opens them in the task list', () => {
+    const linked = { ...thread('Linked', '2026-04-01'), taskNumbers: [7, 99, 3] }
+    const project = {
+      ...repository('Alpha', [linked]),
+      tasks: [
+        {
+          id: 't7',
+          number: 7,
+          title: 'Fix login',
+          description: '',
+          tags: [],
+          createdAt: '2026-01-01'
+        }
+      ],
+      completedTasks: [
+        {
+          id: 't3',
+          number: 3,
+          title: 'Old work',
+          description: '',
+          tags: [],
+          createdAt: '2026-01-01',
+          completedAt: '2026-02-01'
+        }
+      ]
+    }
+    const handlers = callbacks()
+    render(
+      <InboxThreads
+        repositories={[project]}
+        selectedRepository={project}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...handlers}
+      />
+    )
+    const chips = within(screen.getByRole('list', { name: 'Linked work items' })).getAllByRole(
+      'button'
+    )
+    expect(chips.map((chip) => chip.getAttribute('aria-label'))).toEqual([
+      'Open Task #7 · Fix login',
+      'Open Task #3 · Old work (completed)'
+    ])
+    expect(chips[1].hasAttribute('data-completed')).toBe(true)
+    fireEvent.click(chips[0])
+    expect(handlers.onOpenRepositoryTasks).toHaveBeenCalledWith('Alpha', 7)
+    expect(handlers.onSelectThread).not.toHaveBeenCalled()
+  })
+
   it('lists favorite projects first and toggles favorites from the project picker', () => {
     const onToggleRepositoryFavorite = vi.fn()
     const projects = [

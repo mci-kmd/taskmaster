@@ -116,6 +116,9 @@
     background: var(--color-accent-soft);
     color: var(--color-accent);
   }
+  .tm-inbox-work-item[data-completed] > span {
+    text-decoration: line-through;
+  }
   .tm-inbox-row-title {
     display: block;
     overflow: hidden;

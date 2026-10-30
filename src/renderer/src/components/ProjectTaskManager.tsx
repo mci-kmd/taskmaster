@@ -46,6 +46,8 @@ type ProjectTaskManagerProps = {
   onReopenTask: (taskId: string) => Promise<void>
   onUpdateTask: (input: Omit<UpdateRepositoryTaskInput, 'repositoryId'>) => Promise<boolean>
   onReorderTasks: (taskIds: string[]) => Promise<void>
+  /** Starts filtered to this task, in the view it is in. */
+  focusTaskNumber?: number
 }
 
 type TaskView = 'open' | 'completed'
@@ -153,12 +155,20 @@ export default function ProjectTaskManager({
   onCompleteTask,
   onReopenTask,
   onUpdateTask,
-  onReorderTasks
+  onReorderTasks,
+  focusTaskNumber
 }: ProjectTaskManagerProps): React.JSX.Element {
   const now = useNow(30_000)
-  const [view, setView] = useState<TaskView>('open')
-  const [queryInput, setQueryInput] = useState('')
-  const [query, setQuery] = useState('')
+  const focusQuery = focusTaskNumber === undefined ? '' : `#${focusTaskNumber}`
+  const [view, setView] = useState<TaskView>(() =>
+    focusTaskNumber !== undefined &&
+    !repository.tasks.some((task) => task.number === focusTaskNumber) &&
+    (repository.completedTasks ?? []).some((task) => task.number === focusTaskNumber)
+      ? 'completed'
+      : 'open'
+  )
+  const [queryInput, setQueryInput] = useState(focusQuery)
+  const [query, setQuery] = useState(focusQuery)
   const [selectedLabels, setSelectedLabels] = useState<ProjectTaskTag[]>([])
   const [completedLimit, setCompletedLimit] = useState(COMPLETED_PAGE_SIZE)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)

@@ -101,6 +101,7 @@ export default function App(): React.JSX.Element {
   const [snoozingThreadId, setSnoozingThreadId] = useState<string | null>(null)
   const [inboxProjectId, setInboxProjectId] = useState<string | null>(null)
   const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
+  const [taskFocus, setTaskFocus] = useState<{ number: number; token: number } | null>(null)
   const [newThreadError, setNewThreadError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
   const [performanceOpen, setPerformanceOpen] = useState(false)
@@ -842,8 +843,13 @@ export default function App(): React.JSX.Element {
             void applyMutation(api.appState.setRepositoryFavorite({ repositoryId, favorite }))
           }
           onEditRepository={handleOpenRepositoryEditor}
-          onOpenRepositoryTasks={(id) => {
+          onOpenRepositoryTasks={(id, taskNumber) => {
             setRepositoryViewId(id)
+            setTaskFocus((current) =>
+              taskNumber === undefined
+                ? null
+                : { number: taskNumber, token: (current?.token ?? 0) + 1 }
+            )
             setPerformanceOpen(false)
           }}
           onEditThread={handleOpenThreadEditor}
@@ -914,6 +920,7 @@ export default function App(): React.JSX.Element {
                   : selectedRepository
               }
               showRepositoryTasks={repositoryViewId !== null}
+              taskFocus={taskFocus}
               selectedThread={selectedThread}
               settings={snapshot.settings}
               threads={allThreads}

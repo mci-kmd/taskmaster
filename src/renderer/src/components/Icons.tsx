@@ -80,6 +80,15 @@ export function FolderIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function FolderPlusIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M2.5 4.5a1 1 0 0 1 1-1H6l1.5 1.5h5a1 1 0 0 1 1 1V11.5a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-7Z" />
+      <path d="M8 6.75v4M6 8.75h4" />
+    </svg>
+  )
+}
+
 export function CodeIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>
