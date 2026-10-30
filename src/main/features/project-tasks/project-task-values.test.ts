@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   normalizePersistedCompletedTasks,
   normalizePersistedTask,
+  normalizeTaskAttachments,
   normalizeTaskDescription,
   normalizeTaskTitle,
+  parseTaskAttachmentInputs,
   sameTaskTags,
   validateRepositoryTaskValues
 } from './project-task-values'
@@ -107,5 +109,72 @@ describe('project task values', () => {
     expect(
       normalizePersistedCompletedTasks([{ ...task, title: ' Task ', completedAt: undefined }])
     ).toEqual([{ ...task, completedAt: task.createdAt }])
+  })
+
+  it('normalizes stored attachments', () => {
+    const image = {
+      id: 'a1',
+      displayName: 'shot.png',
+      path: 'C:\\data\\shot.png',
+      mimeType: 'image/png'
+    }
+    const file = { id: 'a2', displayName: 'notes.txt', path: 'C:\\data\\notes.txt' }
+    const valid = [image, file]
+    expect(normalizeTaskAttachments(valid)).toBe(valid)
+    expect(normalizeTaskAttachments(undefined)).toBeUndefined()
+    expect(normalizeTaskAttachments([])).toBeUndefined()
+    expect(normalizeTaskAttachments('nope')).toBeUndefined()
+    expect(
+      normalizeTaskAttachments([image, { ...image }, { id: 'a3', path: 5 }, null, file])
+    ).toEqual([image, file])
+
+    const task = {
+      id: 'task-1',
+      number: 1,
+      title: 'Task',
+      description: '',
+      tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z'
+    }
+    const withAttachments = { ...task, attachments: valid }
+    expect(normalizePersistedTask(task)).toBe(task)
+    expect(normalizePersistedTask(withAttachments)).toBe(withAttachments)
+    expect(normalizePersistedTask({ ...task, attachments: [] })).toEqual(task)
+    expect(normalizePersistedTask({ ...task, attachments: [file, file] })).toEqual({
+      ...task,
+      attachments: [file]
+    })
+  })
+
+  it('parses attachment inputs', () => {
+    expect(parseTaskAttachmentInputs(undefined)).toBeUndefined()
+    expect(parseTaskAttachmentInputs(null)).toBeUndefined()
+    expect(
+      parseTaskAttachmentInputs([
+        { kind: 'existing', id: 'a1' },
+        { kind: 'file', path: 'C:\\shot.png', displayName: ' shot.png ' },
+        { kind: 'blob', data: 'aGk=', mimeType: 'image/png', displayName: 'Pasted image' }
+      ])
+    ).toEqual([
+      { kind: 'existing', id: 'a1' },
+      { kind: 'file', path: 'C:\\shot.png', displayName: 'shot.png' },
+      { kind: 'blob', data: 'aGk=', mimeType: 'image/png', displayName: 'Pasted image' }
+    ])
+    expect(parseTaskAttachmentInputs('nope')).toBeNull()
+    expect(parseTaskAttachmentInputs([{ kind: 'file', path: '' }])).toBeNull()
+    expect(parseTaskAttachmentInputs([{ kind: 'link', url: 'x' }])).toBeNull()
+
+    const base = { title: 'Task', description: '', tags: [], allowedTags: [] }
+    expect(validateRepositoryTaskValues({ ...base, attachments: [{ kind: 'nope' }] })).toEqual({
+      ok: false,
+      error: 'Invalid attachments.'
+    })
+    const valid = validateRepositoryTaskValues({
+      ...base,
+      attachments: [{ kind: 'existing', id: 'a1' }]
+    })
+    expect(valid.ok && valid.attachments).toEqual([{ kind: 'existing', id: 'a1' }])
+    const omitted = validateRepositoryTaskValues(base)
+    expect(omitted.ok && omitted.attachments).toBeUndefined()
   })
 })

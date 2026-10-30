@@ -21,6 +21,7 @@ import type {
   CopilotMessageActionInput,
   CopilotModelOption,
   CopilotModelSelection,
+  CopilotPastedText,
   ModelPerformanceSample,
   CopilotReasoningEffort,
   CopilotSdkStatus,
@@ -220,6 +221,23 @@ function toSdkAttachments(attachments: CopilotAttachment[]): MessageOptions['att
           displayName: attachment.displayName
         }
   )
+}
+
+/** The pasted texts found in `prompt` in order, trimmed where the prompt was trimmed. */
+function pastedTextsIn(prompt: string, pastedTexts: CopilotPastedText[] = []): CopilotPastedText[] {
+  const found: CopilotPastedText[] = []
+  let index = 0
+  for (const pasted of pastedTexts) {
+    if (typeof pasted?.name !== 'string' || typeof pasted.text !== 'string') continue
+    for (const text of [pasted.text, pasted.text.trim()]) {
+      const start = text ? prompt.indexOf(text, index) : -1
+      if (start < 0) continue
+      found.push({ name: pasted.name, text })
+      index = start + text.length
+      break
+    }
+  }
+  return found
 }
 
 function attachmentNames(value: unknown): string[] {
@@ -487,6 +505,9 @@ export function createCopilotSessionService(dependencies: {
   savePromptSummary?: (record: PromptSummaryRecord) => void
   getInteractions?: (sessionId: string) => InteractionRecord[]
   saveInteraction?: (record: InteractionRecord) => void
+  /** Long text pasted into the user message with this content, or null. */
+  getPastedTexts?: (content: string) => CopilotPastedText[] | null
+  savePastedTexts?: (sessionId: string, content: string, pastedTexts: CopilotPastedText[]) => void
   /** Custom tools registered on every session started for the thread. */
   getSessionTools?: (threadId: string) => Tool[]
   /** The thread's aside, or null when it has none. */
@@ -892,6 +913,39 @@ export function createCopilotSessionService(dependencies: {
   }
 
   // The runtime owns the queue; mirror it so queued messages can be shown and cancelled.
+  const pastedTextsFor = (content: string): CopilotPastedText[] | null => {
+    try {
+      return dependencies.getPastedTexts?.(content) ?? null
+    } catch (error) {
+      console.error('Could not load pasted text:', error)
+      return null
+    }
+  }
+
+  const withPastedTexts = (item: CopilotTimelineItem): CopilotTimelineItem => {
+    if (item.type !== 'user') return item
+    const pastedTexts = pastedTextsFor(item.content)
+    return pastedTexts?.length ? { ...item, pastedTexts } : item
+  }
+
+  /** Waiting messages show their pasted text as its name, like the sent message's pills. */
+  const collapsePastedTexts = (content: string): string =>
+    (pastedTextsFor(content) ?? []).reduce(
+      (text, pasted) => text.replace(pasted.text, () => `[📎 ${pasted.name}]`),
+      content
+    )
+
+  /** Saved before sending, so the message shows its pills as soon as it arrives. */
+  const rememberPastedTexts = (active: ActiveSession, input: CopilotSendInput): void => {
+    const pastedTexts = pastedTextsIn(input.prompt, input.pastedTexts)
+    if (!pastedTexts.length) return
+    try {
+      dependencies.savePastedTexts?.(active.session.sessionId, input.prompt, pastedTexts)
+    } catch (error) {
+      console.error('Could not save pasted text:', error)
+    }
+  }
+
   const refreshQueue = (active: ActiveSession): void => {
     const revision = ++active.queueRevision
     void Promise.resolve()
@@ -905,8 +959,10 @@ export function createCopilotSessionService(dependencies: {
             return
           const queuedMessages = result.items
             .filter((item) => item.kind === 'message')
-            .map((item) => ({ id: item.id, text: item.displayText }))
-          const steeringMessages = result.steeringMessages.slice(result.inFlightSteeringCount ?? 0)
+            .map((item) => ({ id: item.id, text: collapsePastedTexts(item.displayText) }))
+          const steeringMessages = result.steeringMessages
+            .slice(result.inFlightSteeringCount ?? 0)
+            .map(collapsePastedTexts)
           if (
             JSON.stringify([queuedMessages, steeringMessages]) ===
             JSON.stringify([active.snapshot.queuedMessages, active.snapshot.steeringMessages])
@@ -1236,7 +1292,8 @@ export function createCopilotSessionService(dependencies: {
       return
     }
 
-    const item = timelineItemFromEvent(event)
+    const eventItem = timelineItemFromEvent(event)
+    const item = eventItem && withPastedTexts(eventItem)
     // A new (non-steering) prompt ends the previous one, e.g. when a queued message starts.
     if (item?.type === 'user' && !item.steered) {
       completePrompt(active, event.timestamp)
@@ -1460,8 +1517,9 @@ export function createCopilotSessionService(dependencies: {
     const timelineIndex = new Map<string, number>()
     for (const event of history.slice(baseIndex + 1)) {
       if (event.agentId) continue
-      const item = timelineItemFromEvent(event)
-      if (!item) continue
+      const eventItem = timelineItemFromEvent(event)
+      if (!eventItem) continue
+      const item = withPastedTexts(eventItem)
       const index = timelineIndex.get(item.id)
       if (index !== undefined) {
         timeline[index] = mergeTimelineItem(timeline[index], item)
@@ -1835,6 +1893,7 @@ export function createCopilotSessionService(dependencies: {
       )
       if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active)
         return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
+      rememberPastedTexts(active, input)
       await active.session.send({
         ...expanded,
         attachments: toSdkAttachments(input.attachments),
@@ -1995,6 +2054,7 @@ export function createCopilotSessionService(dependencies: {
         if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active) {
           return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
         }
+        rememberPastedTexts(active, input)
         await active.session.send({
           ...expanded,
           attachments: toSdkAttachments(input.attachments),

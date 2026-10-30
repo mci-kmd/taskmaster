@@ -11,7 +11,8 @@ import {
   SparkIcon
 } from '../Icons'
 import Button from '../ui/Button'
-import { splitAttachmentMarkers } from './attachment-markers'
+import { splitUserMessage } from './attachment-markers'
+import { PastedTextPill } from './PastedTextDialog'
 import {
   PROMPT_COST_BASIS,
   formatPromptCredits,
@@ -183,7 +184,7 @@ export default memo(function SessionTimelineItem({
   }
   const user = item.type === 'user'
   const names = user ? (item.attachments ?? []) : []
-  const parts = user ? splitAttachmentMarkers(item.content, names) : []
+  const parts = user ? splitUserMessage(item.content, names, item.pastedTexts) : []
   const inline = new Set(parts.flatMap((part) => ('attachment' in part ? [part.attachment] : [])))
   const unplaced = names.filter((name) => !inline.has(name))
   return (
@@ -200,6 +201,8 @@ export default memo(function SessionTimelineItem({
             {parts.map((part, index) =>
               'text' in part ? (
                 part.text
+              ) : 'pasted' in part ? (
+                <PastedTextPill pasted={part.pasted} key={index} />
               ) : (
                 <span
                   className="tm-session-inline-attachment"

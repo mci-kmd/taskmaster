@@ -117,6 +117,13 @@ it('previews Markdown messages without their syntax', () => {
 it('previews prompts on one line with attachments named', () => {
   expect(promptPreview(prompts[0])).toBe('Explain the project layout')
   expect(promptPreview(prompts[1])).toBe('Fix the bug in 📎 log.txt please')
+  expect(
+    promptPreview({
+      id: 'p',
+      content: 'Explain\na\nb\nplease',
+      pastedTexts: [{ name: 'Pasted text, 2 lines', text: 'a\nb' }]
+    })
+  ).toBe('Explain 📎 Pasted text, 2 lines please')
 })
 
 it('labels a bar per prompt and highlights the prompt in view as you scroll', () => {

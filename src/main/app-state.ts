@@ -42,6 +42,11 @@ import { isHttpUrl } from '../shared/preview'
 import { resolveCommitMessageModel } from '../shared/commit'
 import { normalizeCopilotTitle, threadDisplayName } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
+import { createTaskAttachmentStore } from './features/project-tasks/project-task-attachments'
+import {
+  createTaskAttachmentFileHandlers,
+  getTaskAttachmentsRoot
+} from './features/project-tasks/project-task-attachment-files'
 import { createProjectTaskTools } from './copilot/project-task-tools'
 import { createThreadTools } from './copilot/thread-tools'
 import { withToolAvailability } from './copilot/tool-availability'
@@ -172,6 +177,12 @@ const successResult = (): MutationResult => snapshotService.successResult()
 const failureResult = (error: string, cancelled = false): MutationResult =>
   snapshotService.failureResult(error, cancelled)
 
+const taskAttachmentStore = createTaskAttachmentStore(getTaskAttachmentsRoot)
+const taskAttachmentFiles = createTaskAttachmentFileHandlers({
+  store: taskAttachmentStore,
+  selectFiles: electronUi.selectTaskAttachmentFiles,
+  openPath: electronUi.openPath
+})
 const projectTaskService = createProjectTaskService({
   ensureState,
   findRepository,
@@ -179,7 +190,8 @@ const projectTaskService = createProjectTaskService({
   successResult,
   failureResult,
   nowIso,
-  createId: randomUUID
+  createId: randomUUID,
+  attachments: taskAttachmentStore
 })
 const settingsService = createSettingsService({
   ensureState,
@@ -438,13 +450,23 @@ export function registerAppStateIpc(): void {
       projectTaskService.updateRepositoryTask(input),
     reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) =>
       projectTaskService.reorderRepositoryTasks(input),
+    pickTaskAttachments: () => taskAttachmentFiles.pickTaskAttachments(),
+    getTaskAttachmentPreview: (request) => taskAttachmentFiles.getTaskAttachmentPreview(request),
+    openTaskAttachment: (path: string) => taskAttachmentFiles.openTaskAttachment(path),
     createThread: (input: CreateThreadInput) => threadCreateService.createThread(input),
     convertThreadToWorktree: (threadId: string) =>
       threadConvertService.convertThreadToWorktree(threadId),
     closeThread: (threadId: string) => threadCloseService.closeThread(threadId),
     updateRepository: (input: UpdateRepositoryInput) => repositoryService.updateRepository(input),
-    removeRepository: (repositoryId: string) =>
-      repositoryRemoveService.removeRepository(repositoryId),
+    removeRepository: async (repositoryId: string) => {
+      const repository = findRepository(repositoryId)
+      const taskIds = [...(repository?.tasks ?? []), ...(repository?.completedTasks ?? [])].map(
+        (task) => task.id
+      )
+      const result = await repositoryRemoveService.removeRepository(repositoryId)
+      if (result.ok && !findRepository(repositoryId)) taskAttachmentStore.removeTasks(taskIds)
+      return result
+    },
     setRepositoryFavorite: (input: SetRepositoryFavoriteInput) =>
       repositoryService.setRepositoryFavorite(input),
     listRepositoryWorktrees: (repositoryId: string) =>
@@ -580,10 +602,10 @@ function createAllCopilotSessionTools(threadId: string): Tool[] {
       resolveThread: () => findThread(threadId),
       settleThread: () => threadStateService.settleThreadFromAgent(threadId),
       snoozeThread: (until) => {
-        const result = threadStateService.updateThread({
-          threadId,
-          snoozedUntil: until.toISOString()
-        })
+        const result = threadStateService.updateThread(
+          { threadId, snoozedUntil: until.toISOString() },
+          { fromAgent: true }
+        )
         scheduleSnoozeWake()
         return result.ok ? null : (result.error ?? 'The thread could not be snoozed.')
       },
@@ -669,6 +691,7 @@ export function updateCopilotActivity(threadId: string): void {
   const thread = findThread(threadId)
   if (!thread) return
   thread.lastActivityAt = nowIso()
+  threadStateService.finishAgentTurn(threadId)
   saveState()
   electronUi.broadcastThreadRunState(threadId)
 }

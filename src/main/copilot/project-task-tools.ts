@@ -49,7 +49,11 @@ type TaskView = {
   completedAt?: string
   /** URL of the linked GitHub issue. */
   githubIssue?: string
+  /** Files attached by the user, stored by Taskmaster. Open them with the absolute `path`. */
+  attachments?: TaskAttachmentView[]
 }
+
+type TaskAttachmentView = { name: string; path: string; mimeType?: string }
 
 type Args = Record<string, unknown>
 
@@ -67,7 +71,16 @@ function toTaskView(
     status,
     createdAt: task.createdAt,
     ...('completedAt' in task ? { completedAt: task.completedAt } : {}),
-    ...(task.githubIssueUrl ? { githubIssue: task.githubIssueUrl } : {})
+    ...(task.githubIssueUrl ? { githubIssue: task.githubIssueUrl } : {}),
+    ...(task.attachments?.length
+      ? {
+          attachments: task.attachments.map((attachment) => ({
+            name: attachment.displayName,
+            path: attachment.path,
+            ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {})
+          }))
+        }
+      : {})
   }
 }
 
@@ -187,15 +200,17 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
       `List and search the user's tasks for this project. ${OWNERSHIP_NOTE} ` +
       "Open tasks are returned in the user's priority order (highest first), completed tasks " +
       'most recently completed first. The result also lists the labels available in this project. ' +
-      'Tasks linked to a GitHub issue include its URL as "githubIssue".',
+      'Tasks linked to a GitHub issue include its URL as "githubIssue". Tasks with attached ' +
+      'files or images include them as "attachments" with the absolute file path, which you can ' +
+      'read or view.',
     parameters: {
       ...OBJECT_SCHEMA,
       properties: {
         query: {
           type: 'string',
           description:
-            'Case-insensitive text to find in the title, description or linked GitHub issue ' +
-            '(e.g. "owner/repo#34"), or "#12" to match a task id.'
+            'Case-insensitive text to find in the title, description, linked GitHub issue ' +
+            '(e.g. "owner/repo#34") or attachment names, or "#12" to match a task id.'
         },
         labels: {
           type: 'array',
@@ -244,7 +259,10 @@ export function createProjectTaskTools(dependencies: ProjectTaskToolDependencies
             title: task.title,
             description: task.description,
             tags: task.labels,
-            githubIssueUrl: task.githubIssue
+            githubIssueUrl: task.githubIssue,
+            attachments: task.attachments?.map((attachment) => ({
+              displayName: attachment.name
+            }))
           },
           filter
         )

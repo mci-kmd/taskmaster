@@ -13,6 +13,7 @@ export function createSessionRecordStore<T extends SessionRecord>(
   label: string
 ): {
   getRecords: (sessionId: string) => T[]
+  getRecord: (id: string) => T | undefined
   saveRecord: (record: T) => void
 } {
   let records: Map<string, T> | null = null
@@ -59,6 +60,7 @@ export function createSessionRecordStore<T extends SessionRecord>(
   return {
     getRecords: (sessionId) =>
       [...load().values()].filter((record) => record.sessionId === sessionId),
+    getRecord: (id) => load().get(id),
     saveRecord: (record) => {
       if (!isRecord(record)) throw new Error(`The ${label} is invalid.`)
       const current = load()

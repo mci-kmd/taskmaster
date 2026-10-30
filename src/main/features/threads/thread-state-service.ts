@@ -39,11 +39,20 @@ type ThreadStateServiceDependencies = {
 }
 
 export function createThreadStateService(dependencies: ThreadStateServiceDependencies): {
-  updateThread: (input: UpdateThreadInput) => MutationResult
+  /**
+   * Settling or snoozing the open thread closes it; with `fromAgent` it stays open until the
+   * agent's turn ends (see {@link finishAgentTurn}).
+   */
+  updateThread: (input: UpdateThreadInput, options?: { fromAgent?: boolean }) => MutationResult
   updateThreadCopilotTitle: (input: UpdateThreadCopilotTitleInput) => boolean
   updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) => boolean
   updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) => boolean
   settleThreadFromAgent: (threadId: string) => boolean
+  /**
+   * Closes the thread if its agent settled or snoozed it during the turn that just ended and
+   * it is still open; returns whether the selection changed.
+   */
+  finishAgentTurn: (threadId: string) => boolean
   /** Returns snoozed threads whose time has come to the inbox, awakened; returns their ids. */
   wakeSnoozedThreads: () => string[]
   /** The earliest snooze end in ms since the epoch, or null when nothing is snoozed. */
@@ -53,14 +62,23 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
   selectRepository: (repositoryId: string | null) => AppSnapshot
   selectThread: (threadId: string | null) => AppSnapshot
 } {
+  // Threads the agent settled or snoozed while open, closed once its turn ends.
+  const closeAfterTurn = new Set<string>()
+  const closeThread = (threadId: string, fromAgent: boolean): void => {
+    const state = dependencies.ensureState()
+    if (state.ui.selectedThreadId !== threadId) return
+    if (fromAgent) closeAfterTurn.add(threadId)
+    else state.ui.selectedThreadId = null
+  }
+
   return {
-    updateThread: (input: UpdateThreadInput): MutationResult => {
+    updateThread: (input: UpdateThreadInput, options = {}): MutationResult => {
       const thread = dependencies.findThread(input.threadId)
       if (!thread) {
         return dependencies.failureResult('Thread not found.')
       }
 
-      const state = dependencies.ensureState()
+      const fromAgent = options.fromAgent === true
       // Suspending only reorders the inbox, so it leaves lastActivityAt alone.
       if (input.suspended !== undefined) {
         if (typeof input.suspended !== 'boolean') {
@@ -99,6 +117,7 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
           thread.snoozedUntil = new Date(until).toISOString()
           delete thread.suspendedAt
           delete thread.awakenedAt
+          closeThread(thread.id, fromAgent)
           dependencies.saveState()
         }
       }
@@ -115,17 +134,7 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
           delete thread.suspendedAt
           delete thread.snoozedUntil
           delete thread.awakenedAt
-        }
-        if (input.settled && state.ui.selectedThreadId === thread.id) {
-          const next = state.threads
-            .filter(
-              (item) =>
-                !item.settledAt &&
-                item.id !== thread.id &&
-                item.repositoryId === thread.repositoryId
-            )
-            .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0]
-          dependencies.updateSelection(thread.repositoryId, next?.id ?? null)
+          closeThread(thread.id, fromAgent)
         }
         dependencies.saveState()
       }
@@ -240,8 +249,8 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       return true
     },
 
-    // Unlike settling from the UI, this keeps the selection so the user is not moved away
-    // from a thread whose agent is still finishing its turn.
+    // Unlike settling from the UI, this keeps the thread open until the agent finishes its
+    // turn, so the user is not moved away while it is still working.
     settleThreadFromAgent: (threadId: string): boolean => {
       const thread = dependencies.findThread(threadId)
       if (!thread) return false
@@ -250,6 +259,18 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       delete thread.suspendedAt
       delete thread.snoozedUntil
       delete thread.awakenedAt
+      closeThread(thread.id, true)
+      dependencies.saveState()
+      return true
+    },
+
+    finishAgentTurn: (threadId: string): boolean => {
+      if (!closeAfterTurn.delete(threadId)) return false
+      const thread = dependencies.findThread(threadId)
+      const state = dependencies.ensureState()
+      if (!thread || state.ui.selectedThreadId !== threadId) return false
+      if (!thread.settledAt && !thread.snoozedUntil) return false
+      state.ui.selectedThreadId = null
       dependencies.saveState()
       return true
     },
@@ -311,6 +332,8 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
     },
 
     selectThread: (threadId: string | null): AppSnapshot => {
+      // Opening a thread again keeps it open past its agent's turn.
+      if (threadId) closeAfterTurn.delete(threadId)
       if (!threadId) {
         const state = dependencies.ensureState()
         state.ui.selectedThreadId = null

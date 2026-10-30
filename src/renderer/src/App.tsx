@@ -540,7 +540,8 @@ export default function App(): React.JSX.Element {
           title: input.title,
           description: input.description,
           tags: input.tags,
-          githubIssue: input.githubIssue
+          githubIssue: input.githubIssue,
+          ...(input.attachments ? { attachments: input.attachments } : {})
         })
       )
       setBusyAction(null)
@@ -615,7 +616,8 @@ export default function App(): React.JSX.Element {
           title: input.title,
           description: input.description,
           tags: input.tags,
-          githubIssue: input.githubIssue
+          githubIssue: input.githubIssue,
+          ...(input.attachments ? { attachments: input.attachments } : {})
         })
       )
       setBusyAction(null)

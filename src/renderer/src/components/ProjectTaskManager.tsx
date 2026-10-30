@@ -28,7 +28,13 @@ import { getTaskTagTone } from '../lib/task-tag-tone'
 import { formatRelativeTime } from '../lib/time'
 import { useAnimatedListMotion, usePresenceList } from '../lib/use-presence-list'
 import { useNow } from '../lib/useNow'
+import {
+  savedAttachmentDraft,
+  toAttachmentInputs,
+  type TaskAttachmentDraft
+} from '../lib/task-attachments'
 import Modal from './Modal'
+import { TaskAttachmentEditor, TaskAttachmentList } from './TaskAttachments'
 import TaskFilterBar from './TaskFilterBar'
 import Button from './ui/Button'
 import Checkbox from './ui/Checkbox'
@@ -176,11 +182,13 @@ export default function ProjectTaskManager({
   const [description, setDescription] = useState('')
   const [tags, setTags] = useState<ProjectTaskTag[]>([])
   const [githubIssue, setGithubIssue] = useState('')
+  const [attachments, setAttachments] = useState<TaskAttachmentDraft[]>([])
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [editingDescription, setEditingDescription] = useState('')
   const [editingTags, setEditingTags] = useState<ProjectTaskTag[]>([])
   const [editingGithubIssue, setEditingGithubIssue] = useState('')
+  const [editingAttachments, setEditingAttachments] = useState<TaskAttachmentDraft[]>([])
   const [optimisticOrder, setOptimisticOrder] = useState<OptimisticOrder | null>(null)
   const [dragState, setDragState] = useState<DragState | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -377,6 +385,7 @@ export default function ProjectTaskManager({
     setDescription('')
     setTags([])
     setGithubIssue('')
+    setAttachments([])
   }
 
   const handleCloseCreateDialog = (): void => {
@@ -390,6 +399,7 @@ export default function ProjectTaskManager({
     setEditingDescription('')
     setEditingTags([])
     setEditingGithubIssue('')
+    setEditingAttachments([])
   }
 
   const handleStartEditing = (task: ProjectTaskSnapshot): void => {
@@ -398,6 +408,7 @@ export default function ProjectTaskManager({
     setEditingDescription(task.description)
     setEditingTags(sortTaskTags(task.tags, taskTags))
     setEditingGithubIssue(task.githubIssueUrl ?? '')
+    setEditingAttachments((task.attachments ?? []).map(savedAttachmentDraft))
   }
 
   const handleToggleEditingTag = (tag: ProjectTaskTag, checked: boolean): void => {
@@ -420,7 +431,8 @@ export default function ProjectTaskManager({
       title,
       description,
       tags: sortTaskTags(tags, taskTags),
-      githubIssue: githubIssue.trim()
+      githubIssue: githubIssue.trim(),
+      ...(attachments.length > 0 ? { attachments: toAttachmentInputs(attachments) } : {})
     })
     if (!ok) {
       return
@@ -443,7 +455,8 @@ export default function ProjectTaskManager({
       title: editingTitle,
       description: editingDescription,
       tags: sortTaskTags(editingTags, taskTags),
-      githubIssue: editingGithubIssue.trim()
+      githubIssue: editingGithubIssue.trim(),
+      attachments: toAttachmentInputs(editingAttachments)
     })
     if (!ok) {
       return
@@ -543,6 +556,7 @@ export default function ProjectTaskManager({
           <HighlightedText query={query} text={task.description} />
         </p>
       ) : null}
+      {task.attachments?.length ? <TaskAttachmentList attachments={task.attachments} /> : null}
       <p className="mt-2 text-[11.5px] text-fg-subtle">{meta}</p>
     </div>
   )
@@ -585,11 +599,18 @@ export default function ProjectTaskManager({
       </Field>
 
       <Field htmlFor={`edit-task-description-${task.id}`} label="Description">
-        <TextArea
-          id={`edit-task-description-${task.id}`}
-          onChange={(event) => setEditingDescription(event.target.value)}
-          value={editingDescription}
-        />
+        <TaskAttachmentEditor
+          attachments={editingAttachments}
+          disabled={busy}
+          onChange={setEditingAttachments}
+          resetKey={task.id}
+        >
+          <TextArea
+            id={`edit-task-description-${task.id}`}
+            onChange={(event) => setEditingDescription(event.target.value)}
+            value={editingDescription}
+          />
+        </TaskAttachmentEditor>
       </Field>
 
       <Field label="Tags">
@@ -886,8 +907,8 @@ export default function ProjectTaskManager({
       <Modal
         description={
           createTagOptions.length > 0
-            ? 'Add an optional title, description, tags, and GitHub issue link.'
-            : 'Add an optional title, description, and GitHub issue link.'
+            ? 'Add an optional title, description, attachments, tags, and GitHub issue link.'
+            : 'Add an optional title, description, attachments, and GitHub issue link.'
         }
         onClose={handleCloseCreateDialog}
         open={createDialogOpen}
@@ -906,12 +927,19 @@ export default function ProjectTaskManager({
           </Field>
 
           <Field htmlFor="project-task-description" label="Description">
-            <TextArea
-              id="project-task-description"
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="What needs to be done?"
-              value={description}
-            />
+            <TaskAttachmentEditor
+              attachments={attachments}
+              disabled={busy}
+              onChange={setAttachments}
+              resetKey={createDialogOpen ? 'open' : 'closed'}
+            >
+              <TextArea
+                id="project-task-description"
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="What needs to be done?"
+                value={description}
+              />
+            </TaskAttachmentEditor>
           </Field>
 
           <Field label="Tags">{renderTagChecklist(createTagOptions, tags, handleToggleTag)}</Field>

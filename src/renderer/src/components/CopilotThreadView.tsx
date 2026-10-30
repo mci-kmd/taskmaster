@@ -733,6 +733,7 @@ function SessionView({
         threadId: sessionKey,
         prompt: message.prompt.trim(),
         attachments: message.attachments,
+        ...(message.pastedTexts.length ? { pastedTexts: message.pastedTexts } : {}),
         agentMode,
         ...(replying && replyTo
           ? { replyToInteractionId: replyTo.id }

@@ -27,6 +27,9 @@ import type {
   SetRepositoryFavoriteInput,
   CleanupRepositoryWorktreeInput,
   ListRepositoryWorktreesResult,
+  OpenTaskAttachmentResult,
+  PickTaskAttachmentsResult,
+  TaskAttachmentPreviewRequest,
   UpdateRepositoryInput,
   UpdateRepositoryTaskInput,
   UpdateSettingsInput,
@@ -51,6 +54,9 @@ type AppStateIpcHandlers = {
   reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => MutationResult
   updateRepositoryTask: (input: UpdateRepositoryTaskInput) => MutationResult
   reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => MutationResult
+  pickTaskAttachments: () => Promise<PickTaskAttachmentsResult>
+  getTaskAttachmentPreview: (request: TaskAttachmentPreviewRequest) => Promise<string | null>
+  openTaskAttachment: (path: string) => Promise<OpenTaskAttachmentResult>
   createThread: (input: CreateThreadInput) => MutationResult
   convertThreadToWorktree: (threadId: string) => MutationResult
   closeThread: (threadId: string) => Promise<MutationResult>
@@ -116,6 +122,14 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   handleIpc(
     IPC_CHANNELS.appState.reorderRepositoryTasks,
     (_event, input: ReorderRepositoryTasksInput) => handlers.reorderRepositoryTasks(input)
+  )
+  handleIpc(IPC_CHANNELS.appState.pickTaskAttachments, () => handlers.pickTaskAttachments())
+  handleIpc(
+    IPC_CHANNELS.appState.getTaskAttachmentPreview,
+    (_event, request: TaskAttachmentPreviewRequest) => handlers.getTaskAttachmentPreview(request)
+  )
+  handleIpc(IPC_CHANNELS.appState.openTaskAttachment, (_event, path: string) =>
+    handlers.openTaskAttachment(path)
   )
   handleIpc(IPC_CHANNELS.appState.createThread, (_event, input: CreateThreadInput) =>
     handlers.createThread(input)

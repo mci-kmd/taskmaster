@@ -8,6 +8,7 @@ import type {
 } from '@github/copilot-sdk'
 import type {
   CopilotModelSelection,
+  CopilotPastedText,
   CopilotSendInput,
   CopilotSessionSnapshot,
   PersistedThread
@@ -1350,6 +1351,67 @@ it('does not claim a model selection took effect when the runtime kept the exist
   expect(result.ok).toBe(false)
   expect(result.error).toContain('not applied')
   expect(result.snapshot).toMatchObject({ model: 'model', reasoningEffort: 'low' })
+})
+
+it('shows long pasted text in sent messages as pills, live, in history and in the queue', async () => {
+  const saved = new Map<string, CopilotPastedText[]>()
+  const savePastedTexts = vi.fn((_sessionId: string, content: string, texts: CopilotPastedText[]) =>
+    saved.set(content, texts)
+  )
+  const service = setup(true, {
+    getPastedTexts: (content) => saved.get(content) ?? null,
+    savePastedTexts
+  })
+  await service.start('thread')
+  const log = 'line 1\nline 2\n'
+  const result = await service.send({
+    threadId: 'thread',
+    prompt: `Fix this:\n${log}`.trim(),
+    attachments: [],
+    agentMode: 'interactive',
+    pastedTexts: [
+      { name: 'Pasted text, 2 lines', text: log },
+      { name: 'Deleted', text: 'not in the prompt' }
+    ]
+  })
+  expect(result.ok).toBe(true)
+  const pastedTexts = [{ name: 'Pasted text, 2 lines', text: 'line 1\nline 2' }]
+  expect(savePastedTexts).toHaveBeenCalledWith(
+    'session-id',
+    'Fix this:\nline 1\nline 2',
+    pastedTexts
+  )
+  emit('user.message', { content: 'Fix this:\nline 1\nline 2' })
+  expect(service.getSession('thread')?.timeline.at(-1)).toMatchObject({ type: 'user', pastedTexts })
+
+  harness.pendingItems.mockResolvedValue({
+    items: [
+      {
+        id: '1',
+        kind: 'message',
+        displayText: 'Fix this:\nline 1\nline 2',
+        agentMode: 'interactive'
+      }
+    ],
+    steeringMessages: []
+  })
+  emit('pending_messages.modified', {})
+  await vi.waitFor(() =>
+    expect(service.getSession('thread')?.queuedMessages).toEqual([
+      { id: '1', text: 'Fix this:\n[📎 Pasted text, 2 lines]' }
+    ])
+  )
+
+  await service.stopThread('thread')
+  harness.getEvents.mockResolvedValue([
+    event('user.message', { content: 'Fix this:\nline 1\nline 2' }),
+    event('user.message', { content: 'Plain' })
+  ])
+  const restarted = await service.start('thread')
+  expect(restarted.snapshot?.timeline).toEqual([
+    expect.objectContaining({ content: 'Fix this:\nline 1\nline 2', pastedTexts }),
+    expect.not.objectContaining({ pastedTexts: expect.anything() })
+  ])
 })
 
 it('prevents sending while model settings are still being applied', async () => {

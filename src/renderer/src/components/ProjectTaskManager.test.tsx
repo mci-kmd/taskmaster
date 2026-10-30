@@ -159,6 +159,133 @@ describe('ProjectTaskManager', () => {
     )
   })
 
+  describe('attachments', () => {
+    const image = {
+      id: 'att-image',
+      displayName: 'crash.png',
+      path: 'C:\\data\\task-attachments\\a\\crash.png',
+      mimeType: 'image/png'
+    }
+    const log = {
+      id: 'att-log',
+      displayName: 'trace.log',
+      path: 'C:\\data\\task-attachments\\a\\trace.log'
+    }
+
+    function mockApi(): {
+      getTaskAttachmentPreview: ReturnType<typeof vi.fn>
+      openTaskAttachment: ReturnType<typeof vi.fn>
+      pickTaskAttachments: ReturnType<typeof vi.fn>
+    } {
+      const appState = {
+        getTaskAttachmentPreview: vi.fn(
+          async ({ size }: { size: string }) => `data:image/png;base64,${size}`
+        ),
+        openTaskAttachment: vi.fn(async () => ({ ok: true })),
+        pickTaskAttachments: vi.fn(async () => ({
+          ok: true,
+          files: [
+            { path: 'C:\\Users\\me\\spec.pdf', displayName: 'spec.pdf' },
+            {
+              path: 'C:\\Users\\me\\mock.png',
+              displayName: 'mock.png',
+              previewUrl: 'data:image/webp;base64,mock'
+            }
+          ]
+        }))
+      }
+      Object.assign(window, {
+        api: { appState, copilot: { getPathForFile: () => '' } }
+      })
+      return appState
+    }
+
+    afterEach(() => {
+      delete (window as { api?: unknown }).api
+    })
+
+    it('shows image thumbnails that open a preview, and files that open with the OS', async () => {
+      const api = mockApi()
+      renderManager([{ ...task('a', 'First'), attachments: [image, log] }])
+
+      const imageChip = screen.getByTitle('Preview crash.png')
+      await vi.waitFor(() =>
+        expect(imageChip.querySelector('img')?.getAttribute('src')).toBe(
+          'data:image/png;base64,thumbnail'
+        )
+      )
+      expect(api.getTaskAttachmentPreview).toHaveBeenCalledWith({
+        path: image.path,
+        size: 'thumbnail'
+      })
+
+      fireEvent.click(screen.getByTitle('Open trace.log'))
+      expect(api.openTaskAttachment).toHaveBeenCalledWith(log.path)
+
+      fireEvent.click(imageChip)
+      const preview = await screen.findByRole('img', { name: 'crash.png' })
+      await vi.waitFor(() => expect(preview.getAttribute('src')).toBe('data:image/png;base64,full'))
+      fireEvent.click(screen.getByTitle('Open with the default app'))
+      expect(api.openTaskAttachment).toHaveBeenLastCalledWith(image.path)
+    })
+
+    it('keeps, removes and adds attachments when editing', async () => {
+      const api = mockApi()
+      const props = renderManager([{ ...task('a', 'First'), attachments: [image, log] }])
+
+      fireEvent.click(screen.getByTitle('Edit task'))
+      fireEvent.click(screen.getByRole('button', { name: 'Remove crash.png' }))
+      fireEvent.click(screen.getByTitle(/^Attach files/))
+      await screen.findByRole('button', { name: 'Remove mock.png' })
+      expect(api.pickTaskAttachments).toHaveBeenCalledTimes(1)
+
+      fireEvent.click(screen.getByTitle('Save task changes'))
+      await vi.waitFor(() =>
+        expect(props.onUpdateTask).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            taskId: 'a',
+            attachments: [
+              { kind: 'existing', id: 'att-log' },
+              { kind: 'file', path: 'C:\\Users\\me\\spec.pdf', displayName: 'spec.pdf' },
+              { kind: 'file', path: 'C:\\Users\\me\\mock.png', displayName: 'mock.png' }
+            ]
+          })
+        )
+      )
+    })
+
+    it('attaches pasted images when creating a task, and forgets them on cancel', async () => {
+      mockApi()
+      const props = renderManager([])
+
+      fireEvent.click(screen.getByRole('button', { name: /Add task/ }))
+      const paste = (): void => {
+        fireEvent.paste(screen.getByPlaceholderText('What needs to be done?'), {
+          clipboardData: { files: [new File(['hi'], '', { type: 'image/png' })] }
+        })
+      }
+      paste()
+      await screen.findByRole('button', { name: 'Remove Pasted image' })
+      fireEvent.click(screen.getByTitle('Cancel'))
+
+      fireEvent.click(screen.getByRole('button', { name: /Add task/ }))
+      expect(screen.queryByRole('button', { name: 'Remove Pasted image' })).toBeNull()
+      paste()
+      await screen.findByRole('button', { name: 'Remove Pasted image' })
+      fireEvent.click(screen.getByTitle('Create task'))
+
+      await vi.waitFor(() =>
+        expect(props.onCreateTask).toHaveBeenCalledWith(
+          expect.objectContaining({
+            attachments: [
+              { kind: 'blob', data: 'aGk=', mimeType: 'image/png', displayName: 'Pasted image' }
+            ]
+          })
+        )
+      )
+    })
+  })
+
   it('shows a linked GitHub issue that opens in the browser', () => {
     renderManager([
       { ...task('a', 'First'), githubIssueUrl: 'https://github.com/octo/app/issues/34' }

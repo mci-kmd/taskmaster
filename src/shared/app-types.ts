@@ -41,7 +41,52 @@ export interface PersistedProjectTask {
   tags: ProjectTaskTag[]
   /** Canonical URL of the linked GitHub issue, if any. */
   githubIssueUrl?: string
+  /** Files attached to the task. Absent means none. */
+  attachments?: ProjectTaskAttachment[]
   createdAt: string
+}
+
+/** A file attached to a task, copied into Taskmaster's app data folder. */
+export interface ProjectTaskAttachment {
+  id: string
+  displayName: string
+  /** Absolute path of Taskmaster's copy of the file. */
+  path: string
+  mimeType?: string
+}
+
+/**
+ * An attachment in a task form: one the task already has (by id), or a new file or pasted data
+ * that is copied into Taskmaster's app data folder when the task is saved.
+ */
+export type ProjectTaskAttachmentInput =
+  | { kind: 'existing'; id: string }
+  | { kind: 'file'; path: string; displayName: string }
+  | { kind: 'blob'; data: string; mimeType: string; displayName: string }
+
+export interface PickedTaskAttachment {
+  path: string
+  displayName: string
+  /** Small image data URL for the form's chip. */
+  previewUrl?: string
+}
+
+export interface PickTaskAttachmentsResult {
+  ok: boolean
+  cancelled?: boolean
+  error?: string
+  files?: PickedTaskAttachment[]
+}
+
+export interface TaskAttachmentPreviewRequest {
+  path: string
+  /** A small thumbnail for chips, or the whole image for a preview dialog. */
+  size: 'thumbnail' | 'full'
+}
+
+export interface OpenTaskAttachmentResult {
+  ok: boolean
+  error?: string
 }
 
 export interface PersistedCompletedProjectTask extends PersistedProjectTask {
@@ -507,6 +552,8 @@ export type CopilotTimelineItem =
       streaming?: boolean
       model?: string
       attachments?: string[]
+      /** Long text pasted into a user message, shown as pills instead of inline. */
+      pastedTexts?: CopilotPastedText[]
       /** A user message sent into a turn that was already running. */
       steered?: boolean
     }
@@ -727,6 +774,14 @@ export interface CopilotSendInput {
   delivery?: CopilotSendDelivery
   /** Replies to this pending interaction instead of answering its form. */
   replyToInteractionId?: string
+  /** Long pasted text included in `prompt`, in the order it appears. */
+  pastedTexts?: CopilotPastedText[]
+}
+
+/** Long text pasted into a message; the message content includes it in full. */
+export interface CopilotPastedText {
+  name: string
+  text: string
 }
 
 export interface CopilotCancelQueuedInput {
@@ -929,6 +984,8 @@ export interface CreateRepositoryTaskInput {
   tags: ProjectTaskTag[]
   /** GitHub issue URL or `owner/repo#123`; empty or omitted for none. */
   githubIssue?: string
+  /** New files or pasted data to attach. */
+  attachments?: ProjectTaskAttachmentInput[]
 }
 
 export interface CompleteRepositoryTaskInput {
@@ -954,6 +1011,8 @@ export interface UpdateRepositoryTaskInput {
   tags: ProjectTaskTag[]
   /** GitHub issue URL or `owner/repo#123`; "" clears the link, omitted keeps it. */
   githubIssue?: string
+  /** The complete new list of attachments; omitted keeps the current ones. */
+  attachments?: ProjectTaskAttachmentInput[]
 }
 
 export interface ThreadRunStateEvent {

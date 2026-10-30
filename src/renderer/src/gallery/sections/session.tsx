@@ -84,6 +84,11 @@ const tool = (
   detail = 'src/renderer/src/styles/tokens.css\nsrc/renderer/src/styles/themes.css'
 ): CopilotTimelineItem => ({ id, type: 'tool', title, detail, status, timestamp: at })
 
+const BUILD_LOG = Array.from(
+  { length: 18 },
+  (_, line) => `[12:00:${String(line).padStart(2, '0')}] build step ${line + 1} ok`
+).join('\n')
+
 const TIMELINE: CopilotTimelineItem[] = [
   {
     id: 'u1',
@@ -148,7 +153,8 @@ const TIMELINE: CopilotTimelineItem[] = [
   {
     id: 'u2',
     type: 'user',
-    content: 'Also tint the scrollbars and focus rings with the accent.',
+    content: `Also tint the scrollbars and focus rings with the accent. The build log:\n${BUILD_LOG}`,
+    pastedTexts: [{ name: 'Pasted text, 18 lines', text: BUILD_LOG }],
     steered: true,
     model: 'Opus 5.5',
     timestamp: at
@@ -295,10 +301,7 @@ const PASTED_TEXT: PastedText = {
   id: 't1',
   type: 'text',
   displayName: 'Pasted text, 18 lines',
-  text: Array.from(
-    { length: 18 },
-    (_, line) => `[12:00:${String(line).padStart(2, '0')}] build step ${line + 1} ok`
-  ).join('\n')
+  text: BUILD_LOG
 }
 
 const QUEUED: CopilotQueuedMessage[] = [

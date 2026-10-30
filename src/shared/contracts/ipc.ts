@@ -26,14 +26,17 @@ import type {
   CreateRepositoryTaskInput,
   CreateThreadInput,
   MutationResult,
+  OpenTaskAttachmentResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  PickTaskAttachmentsResult,
   PreviewCaptureRequest,
   PreviewCaptureResult,
   ReorderRepositoryTasksInput,
+  TaskAttachmentPreviewRequest,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -79,6 +82,9 @@ export const IPC_CHANNELS = {
     reopenRepositoryTask: 'app-state:reopen-repository-task',
     updateRepositoryTask: 'app-state:update-repository-task',
     reorderRepositoryTasks: 'app-state:reorder-repository-tasks',
+    pickTaskAttachments: 'app-state:pick-task-attachments',
+    getTaskAttachmentPreview: 'app-state:get-task-attachment-preview',
+    openTaskAttachment: 'app-state:open-task-attachment',
     startThreadRun: 'app-state:start-thread-run',
     stopThreadRun: 'app-state:stop-thread-run',
     updateThread: 'app-state:update-thread',
@@ -187,6 +193,12 @@ export type IpcInvokeDefinitions = {
     request: [ReorderRepositoryTasksInput]
     response: MutationResult
   }
+  'app-state:pick-task-attachments': { request: []; response: PickTaskAttachmentsResult }
+  'app-state:get-task-attachment-preview': {
+    request: [TaskAttachmentPreviewRequest]
+    response: string | null
+  }
+  'app-state:open-task-attachment': { request: [string]; response: OpenTaskAttachmentResult }
   'app-state:start-thread-run': { request: [string]; response: MutationResult }
   'app-state:stop-thread-run': { request: [string]; response: MutationResult }
   'app-state:update-thread': { request: [UpdateThreadInput]; response: MutationResult }

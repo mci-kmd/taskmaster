@@ -25,6 +25,7 @@ import type {
   PickRepositorySolutionFileResult,
   PreviewCaptureRequest,
   ReorderRepositoryTasksInput,
+  TaskAttachmentPreviewRequest,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -114,6 +115,10 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.updateRepositoryTask, input),
     reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) =>
       invokeIpc(IPC_CHANNELS.appState.reorderRepositoryTasks, input),
+    pickTaskAttachments: () => invokeIpc(IPC_CHANNELS.appState.pickTaskAttachments),
+    getTaskAttachmentPreview: (request: TaskAttachmentPreviewRequest) =>
+      invokeIpc(IPC_CHANNELS.appState.getTaskAttachmentPreview, request),
+    openTaskAttachment: (path: string) => invokeIpc(IPC_CHANNELS.appState.openTaskAttachment, path),
     startThreadRun: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.startThreadRun, threadId),
     stopThreadRun: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.stopThreadRun, threadId),
     updateThread: (input: UpdateThreadInput) =>

@@ -34,6 +34,12 @@ export const electronUi = {
       properties: ['openDirectory']
     }),
 
+  selectTaskAttachmentFiles: (): Promise<OpenDialogReturnValue> =>
+    dialog.showOpenDialog({
+      title: 'Attach files to task',
+      properties: ['openFile', 'multiSelections']
+    }),
+
   confirmInitializeRepository: async (path: string): Promise<{ confirmed: boolean }> => {
     const ownerWindow = BrowserWindow.getFocusedWindow() ?? null
     const options = {

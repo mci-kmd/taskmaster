@@ -9,13 +9,16 @@ import type {
   CompleteRepositoryTaskInput,
   ReopenRepositoryTaskInput,
   MutationResult,
+  OpenTaskAttachmentResult,
   OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
   OpenThreadWorkspaceInVscodeResult,
   PickRepositoryFaviconResult,
   PickRepositorySolutionFileResult,
+  PickTaskAttachmentsResult,
   PreviewApi,
   ReorderRepositoryTasksInput,
+  TaskAttachmentPreviewRequest,
   ThreadDiffFileContentRequest,
   ThreadDiffFileContentResult,
   ThreadDiffFileSaveRequest,
@@ -57,6 +60,9 @@ declare global {
     reopenRepositoryTask: (input: ReopenRepositoryTaskInput) => Promise<MutationResult>
     updateRepositoryTask: (input: UpdateRepositoryTaskInput) => Promise<MutationResult>
     reorderRepositoryTasks: (input: ReorderRepositoryTasksInput) => Promise<MutationResult>
+    pickTaskAttachments: () => Promise<PickTaskAttachmentsResult>
+    getTaskAttachmentPreview: (request: TaskAttachmentPreviewRequest) => Promise<string | null>
+    openTaskAttachment: (path: string) => Promise<OpenTaskAttachmentResult>
     startThreadRun: (threadId: string) => Promise<MutationResult>
     stopThreadRun: (threadId: string) => Promise<MutationResult>
     updateThread: (input: UpdateThreadInput) => Promise<MutationResult>

@@ -1,15 +1,19 @@
-import { splitAttachmentMarkers } from './attachment-markers'
+import type { CopilotPastedText } from '../../../../shared/app-types'
+import { splitUserMessage } from './attachment-markers'
 
 export interface RailPrompt {
   id: string
   content: string
   attachments?: string[]
+  pastedTexts?: CopilotPastedText[]
 }
 
-/** One line of prompt text, with attachment markers shown as `📎 name`. */
-export function promptPreview({ content, attachments = [] }: RailPrompt): string {
-  return splitAttachmentMarkers(content, attachments)
-    .map((part) => ('text' in part ? part.text : `📎 ${part.attachment}`))
+/** One line of prompt text, with attachments and pasted text shown as `📎 name`. */
+export function promptPreview({ content, attachments = [], pastedTexts = [] }: RailPrompt): string {
+  return splitUserMessage(content, attachments, pastedTexts)
+    .map((part) =>
+      'text' in part ? part.text : `📎 ${'pasted' in part ? part.pasted.name : part.attachment}`
+    )
     .join('')
     .replace(/\s+/g, ' ')
     .trim()

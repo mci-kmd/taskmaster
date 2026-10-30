@@ -2,15 +2,51 @@ import { useState } from 'react'
 import ProjectTaskManager from '../../components/ProjectTaskManager'
 import type {
   CompletedProjectTaskSnapshot,
+  ProjectTaskAttachment,
+  ProjectTaskAttachmentInput,
   ProjectTaskSnapshot,
   RepositorySnapshot
 } from '../../../../shared/app-types'
+import { setApiFixture } from '../api-stub'
 import type { GallerySection } from '../gallery-section'
 
 const DAY = 86_400_000
 
 function ago(ms: number): string {
   return new Date(Date.now() - ms).toISOString()
+}
+
+const SCREENSHOT_PREVIEW =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200">' +
+      '<rect width="320" height="200" fill="#1f2937"/>' +
+      '<rect x="24" y="24" width="272" height="28" rx="6" fill="#ef4444"/>' +
+      '<rect x="24" y="72" width="200" height="12" rx="4" fill="#6b7280"/>' +
+      '<rect x="24" y="96" width="240" height="12" rx="4" fill="#6b7280"/></svg>'
+  )
+
+setApiFixture('appState.getTaskAttachmentPreview', ({ path }: { path: string }) =>
+  path.startsWith('/gallery/') && /\.(png|jpe?g)$/.test(path) ? SCREENSHOT_PREVIEW : undefined
+)
+
+/** What the main process would store for the form's attachments. */
+function toGalleryAttachments(
+  inputs: ProjectTaskAttachmentInput[] | undefined,
+  current: ProjectTaskAttachment[] = []
+): ProjectTaskAttachment[] {
+  if (!inputs) return current
+  return inputs.flatMap((input, index) => {
+    if (input.kind === 'existing') return current.filter((item) => item.id === input.id)
+    return [
+      {
+        id: `gallery-${Date.now()}-${index}`,
+        displayName: input.displayName,
+        path: `/gallery/${input.displayName}`,
+        ...(input.kind === 'blob' ? { mimeType: input.mimeType } : {})
+      }
+    ]
+  })
 }
 
 const openTasks: ProjectTaskSnapshot[] = [
@@ -22,6 +58,15 @@ const openTasks: ProjectTaskSnapshot[] = [
       'The session view throws after the login refresh fails. Repro: leave the app open overnight.',
     tags: ['bug'],
     githubIssueUrl: 'https://github.com/octo/taskmaster/issues/34',
+    attachments: [
+      {
+        id: 'a1',
+        displayName: 'crash.png',
+        path: '/gallery/crash.png',
+        mimeType: 'image/png'
+      },
+      { id: 'a2', displayName: 'session.log', path: '/gallery/session.log' }
+    ],
     createdAt: ago(2 * DAY)
   },
   {
@@ -139,6 +184,7 @@ function LiveTasks({
                 title: input.title,
                 description: input.description,
                 tags: input.tags ?? [],
+                attachments: toGalleryAttachments(input.attachments),
                 createdAt: new Date().toISOString()
               }
             ],
@@ -168,7 +214,8 @@ function LiveTasks({
                     ...task,
                     title: input.title,
                     description: input.description,
-                    tags: input.tags ?? task.tags
+                    tags: input.tags ?? task.tags,
+                    attachments: toGalleryAttachments(input.attachments, task.attachments)
                   }
                 : task
             ),

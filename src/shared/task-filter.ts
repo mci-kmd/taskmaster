@@ -24,12 +24,14 @@ function matchesGitHubIssue(url: string | undefined, query: string): boolean {
 }
 
 /**
- * Matches the query against the number (`#12`), title, description or linked GitHub issue
- * (`owner/repo#34` or its URL), and any selected label.
+ * Matches the query against the number (`#12`), title, description, linked GitHub issue
+ * (`owner/repo#34` or its URL) or attachment names, and any selected label.
  */
 export function matchesTaskFilter(
   task: Pick<ProjectTaskSnapshot, 'title' | 'description' | 'tags'> &
-    Partial<Pick<ProjectTaskSnapshot, 'number' | 'githubIssueUrl'>>,
+    Partial<Pick<ProjectTaskSnapshot, 'number' | 'githubIssueUrl'>> & {
+      attachments?: ReadonlyArray<{ displayName: string }>
+    },
   filter: TaskFilter
 ): boolean {
   const query = normalizeTaskQuery(filter.query)
@@ -39,7 +41,10 @@ export function matchesTaskFilter(
     !(numberQuery && task.number === Number(numberQuery[1])) &&
     !task.title.toLowerCase().includes(query) &&
     !task.description.toLowerCase().includes(query) &&
-    !(!numberQuery && matchesGitHubIssue(task.githubIssueUrl, query))
+    !(!numberQuery && matchesGitHubIssue(task.githubIssueUrl, query)) &&
+    !(task.attachments ?? []).some((attachment) =>
+      attachment.displayName.toLowerCase().includes(query)
+    )
   ) {
     return false
   }

@@ -1,4 +1,4 @@
-import type { CopilotAttachment } from '../../../../shared/app-types'
+import type { CopilotAttachment, CopilotPastedText } from '../../../../shared/app-types'
 
 export const attachmentMarker = (name: string): string => `[📎 ${name}]`
 
@@ -27,19 +27,48 @@ export function collapsePastedText(text: string): PastedText | null {
 export function expandPastedText(
   prompt: string,
   attachments: DraftAttachment[]
-): { prompt: string; attachments: CopilotAttachment[] } {
+): { prompt: string; attachments: CopilotAttachment[]; pastedTexts: CopilotPastedText[] } {
   const pasted = attachments.filter((item): item is PastedText => item.type === 'text')
   const files = attachments.filter((item): item is CopilotAttachment => item.type !== 'text')
-  if (!pasted.length) return { prompt, attachments: files }
+  if (!pasted.length) return { prompt, attachments: files, pastedTexts: [] }
+  const pastedTexts: CopilotPastedText[] = []
   const expanded = splitAttachmentMarkers(
     prompt,
     pasted.map((item) => item.displayName)
   )
-    .map((part) =>
-      'text' in part ? part.text : pasted.find((item) => item.displayName === part.attachment)!.text
-    )
+    .map((part) => {
+      if ('text' in part) return part.text
+      const text = pasted.find((item) => item.displayName === part.attachment)!.text
+      pastedTexts.push({ name: part.attachment, text })
+      return text
+    })
     .join('')
-  return { prompt: expanded, attachments: files }
+  return { prompt: expanded, attachments: files, pastedTexts }
+}
+
+export type MessagePart = MarkerPart | { pasted: CopilotPastedText }
+
+/** A sent message split into text, attachment markers and the long text pasted into it. */
+export function splitUserMessage(
+  content: string,
+  attachments: string[] = [],
+  pastedTexts: CopilotPastedText[] = []
+): MessagePart[] {
+  const parts: MessagePart[] = []
+  let index = 0
+  const pushText = (text: string): void => {
+    if (text) parts.push(...splitAttachmentMarkers(text, attachments))
+  }
+  for (const pasted of pastedTexts) {
+    if (!pasted.text) continue
+    const start = content.indexOf(pasted.text, index)
+    if (start < 0) continue
+    pushText(content.slice(index, start))
+    parts.push({ pasted })
+    index = start + pasted.text.length
+  }
+  pushText(content.slice(index))
+  return parts
 }
 
 const escape = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')

@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { DocumentIcon, PaperclipIcon } from '../Icons'
-import Modal from '../Modal'
 import Presence from '../ui/Presence'
 import { usePresenceList } from '../../lib/use-presence-list'
 import { attachmentPreview, type DraftAttachment, type PastedText } from './attachment-markers'
+import PastedTextDialog from './PastedTextDialog'
 
 const attachmentKey = (attachment: DraftAttachment): string => attachment.id
 
@@ -90,17 +90,11 @@ export default function AttachmentChips({
           </div>
         </div>
       </Presence>
-      <Modal
-        open={viewing !== null}
-        title={viewing?.displayName ?? ''}
+      <PastedTextDialog
+        pasted={viewing && { name: viewing.displayName, text: viewing.text }}
         description="Sent in place of its pill in your message."
-        width="xl"
         onClose={() => setViewing(null)}
-      >
-        <pre className="tm-pasted-text" tabIndex={0} aria-label="Pasted text">
-          {viewing?.text}
-        </pre>
-      </Modal>
+      />
     </>
   )
 }

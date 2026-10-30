@@ -101,7 +101,7 @@ describe('unified thread state', () => {
     expect(state.threads[0]).toEqual({ ...before[0], settledAt: '2026-01-03T00:00:00.000Z' })
     expect(state.threads[1]).toEqual(before[1])
     expect(state.threads[2]).toEqual(before[2])
-    expect(state.ui.selectedThreadId).toBe('active')
+    expect(state.ui.selectedThreadId).toBeNull()
     expect(createPersistedStateStore(options).ensureState().threads[0].settledAt).toBeTruthy()
     threads.updateThreadLastUserMessage({ threadId: 'legacy', message: 'new activity' })
     expect(state.threads[0].settledAt).toBeNull()
@@ -122,16 +122,57 @@ describe('unified thread state', () => {
     expect(state.ui).toMatchObject({ selectedRepositoryId: 'shared', selectedThreadId: null })
   })
 
-  it('selects the most recent active thread from the same project after settling', () => {
+  it('closes the open thread, keeping its project selected, when it is settled or snoozed', () => {
     const { state, threads } = harness()
     state.repositories.push(repository('other'))
     state.threads.push({
       ...thread('elsewhere', 'other'),
       lastActivityAt: '2026-01-06T00:00:00.000Z'
     })
-    state.threads[2].lastActivityAt = '2026-01-05T00:00:00.000Z'
     threads.updateThread({ threadId: 'legacy', settled: true })
-    expect(state.ui).toMatchObject({ selectedRepositoryId: 'shared', selectedThreadId: 'next' })
+    expect(state.ui).toMatchObject({ selectedRepositoryId: 'shared', selectedThreadId: null })
+
+    threads.selectThread('next')
+    threads.updateThread({ threadId: 'next', snoozedUntil: '2026-01-04T00:00:00.000Z' })
+    expect(state.ui).toMatchObject({ selectedRepositoryId: 'shared', selectedThreadId: null })
+  })
+
+  it('keeps a thread its agent settles or snoozes open until the agent finishes its turn', () => {
+    const { state, threads } = harness()
+    expect(threads.settleThreadFromAgent('legacy')).toBe(true)
+    expect(state.ui.selectedThreadId).toBe('legacy')
+    expect(threads.finishAgentTurn('legacy')).toBe(true)
+    expect(state.ui).toMatchObject({ selectedRepositoryId: 'shared', selectedThreadId: null })
+    expect(threads.finishAgentTurn('legacy')).toBe(false)
+
+    threads.selectThread('active')
+    threads.updateThread(
+      { threadId: 'active', snoozedUntil: '2026-01-04T00:00:00.000Z' },
+      { fromAgent: true }
+    )
+    expect(state.ui.selectedThreadId).toBe('active')
+    expect(threads.finishAgentTurn('active')).toBe(true)
+    expect(state.ui.selectedThreadId).toBeNull()
+  })
+
+  it('leaves a thread open when it is reopened or unsettled before its agent finishes', () => {
+    const { state, threads } = harness()
+    threads.settleThreadFromAgent('legacy')
+    threads.selectThread('legacy')
+    expect(threads.finishAgentTurn('legacy')).toBe(false)
+    expect(state.ui.selectedThreadId).toBe('legacy')
+
+    threads.selectThread('active')
+    threads.settleThreadFromAgent('active')
+    threads.updateThread({ threadId: 'active', settled: false })
+    expect(threads.finishAgentTurn('active')).toBe(false)
+    expect(state.ui.selectedThreadId).toBe('active')
+
+    threads.selectThread('next')
+    threads.settleThreadFromAgent('next')
+    threads.selectThread('legacy')
+    expect(threads.finishAgentTurn('next')).toBe(false)
+    expect(state.ui.selectedThreadId).toBe('legacy')
   })
 
   it('does not move selection when another thread settles', () => {

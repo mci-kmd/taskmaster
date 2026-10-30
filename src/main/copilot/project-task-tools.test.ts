@@ -108,6 +108,37 @@ describe('project task tools', () => {
     expect((result.tasks as Array<{ id: number }>).map((task) => task.id)).toEqual([2, 1])
   })
 
+  it('includes attachment paths so agents can open them', () => {
+    const { call, repository } = setup()
+    repository.tasks[0].attachments = [
+      {
+        id: 'a1',
+        displayName: 'crash.png',
+        path: 'C:\\data\\task-attachments\\uuid-2\\crash.png',
+        mimeType: 'image/png'
+      },
+      { id: 'a2', displayName: 'trace.log', path: 'C:\\data\\task-attachments\\uuid-2\\trace.log' }
+    ]
+    const tasks = parse(call(PROJECT_TASK_TOOL_NAMES.list, {})).tasks as Array<
+      Record<string, unknown>
+    >
+    expect(tasks[0].attachments).toEqual([
+      {
+        name: 'crash.png',
+        path: 'C:\\data\\task-attachments\\uuid-2\\crash.png',
+        mimeType: 'image/png'
+      },
+      { name: 'trace.log', path: 'C:\\data\\task-attachments\\uuid-2\\trace.log' }
+    ])
+    expect(tasks[1]).not.toHaveProperty('attachments')
+    const matching = parse(call(PROJECT_TASK_TOOL_NAMES.list, { query: 'trace.LOG' }))
+    expect((matching.tasks as Array<{ id: number }>).map((task) => task.id)).toEqual([2])
+
+    const updated = call(PROJECT_TASK_TOOL_NAMES.update, { id: 2, title: 'Renamed' })
+    expect(updated.resultType).toBe('success')
+    expect(repository.tasks[0].attachments).toHaveLength(2)
+  })
+
   it('filters by query, task number, labels and status', () => {
     const { call } = setup()
     const ids = (args: unknown): number[] =>

@@ -5,6 +5,8 @@ import type {
   PersistedAppState,
   PersistedProjectTask,
   PersistedRepository,
+  ProjectTaskAttachment,
+  ProjectTaskAttachmentInput,
   ReopenRepositoryTaskInput,
   ReorderRepositoryTasksInput,
   UpdateRepositoryTaskInput
@@ -15,8 +17,10 @@ import {
   parseTaskTagsInput,
   resolveProjectTaskTags
 } from '../../../shared/task-tags'
+import type { TaskAttachmentStore } from './project-task-attachments'
 import {
   getNextTaskNumber,
+  sameTaskAttachments,
   sameTaskTags,
   validateRepositoryTaskValues
 } from './project-task-values'
@@ -29,6 +33,15 @@ type ProjectTaskServiceDependencies = {
   failureResult: (error: string, cancelled?: boolean) => MutationResult
   nowIso: () => string
   createId: () => string
+  /** Where attached files are copied to; without it, tasks cannot get new attachments. */
+  attachments?: TaskAttachmentStore
+}
+
+type ResolvedAttachments =
+  { ok: true; attachments: ProjectTaskAttachment[] } | { ok: false; error: string }
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 export function createProjectTaskService(dependencies: ProjectTaskServiceDependencies): {
@@ -45,6 +58,40 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
       repository.taskTagsInput
     )
 
+  /**
+   * Turns form attachments into stored ones: keeps the task's listed attachments and copies new
+   * files in. When a copy fails, the copies made so far are deleted again.
+   */
+  const resolveAttachments = (
+    taskId: string,
+    inputs: readonly ProjectTaskAttachmentInput[],
+    current: readonly ProjectTaskAttachment[]
+  ): ResolvedAttachments => {
+    const store = dependencies.attachments
+    if (!store && inputs.some((input) => input.kind !== 'existing')) {
+      return { ok: false, error: 'Attachments are not available.' }
+    }
+
+    const currentById = new Map(current.map((attachment) => [attachment.id, attachment]))
+    const attachments: ProjectTaskAttachment[] = []
+    const added: ProjectTaskAttachment[] = []
+    try {
+      for (const input of inputs) {
+        if (input.kind === 'existing') {
+          const existing = currentById.get(input.id)
+          if (existing && !attachments.includes(existing)) attachments.push(existing)
+          continue
+        }
+        const saved = store!.save(taskId, dependencies.createId(), input)
+        added.push(saved)
+        attachments.push(saved)
+      }
+    } catch (error) {
+      store?.remove(added)
+      return { ok: false, error: `Could not attach the file. ${errorMessage(error)}` }
+    }
+    return { ok: true, attachments }
+  }
   return {
     getRepositoryTaskTags: (repositoryId: string): string[] => {
       const repository = dependencies.findRepository(repositoryId)
@@ -65,13 +112,24 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
         return dependencies.failureResult(validation.error)
       }
 
+      const id = dependencies.createId()
+      let attachments: ProjectTaskAttachment[] = []
+      if (validation.attachments) {
+        const resolved = resolveAttachments(id, validation.attachments, [])
+        if (!resolved.ok) {
+          return dependencies.failureResult(resolved.error)
+        }
+        attachments = resolved.attachments
+      }
+
       const task: PersistedProjectTask = {
-        id: dependencies.createId(),
+        id,
         number: getNextTaskNumber(repository.tasks ?? [], repository.completedTasks ?? []),
         title: validation.title,
         description: validation.description,
         tags: validation.tags,
         ...(validation.githubIssueUrl ? { githubIssueUrl: validation.githubIssueUrl } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
         createdAt: dependencies.nowIso()
       }
 
@@ -102,11 +160,21 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
       const currentTags = normalizeTaskTags(task.tags)
       const githubIssueUrl =
         input.githubIssue === undefined ? task.githubIssueUrl : validation.githubIssueUrl
+      const currentAttachments = task.attachments ?? []
+      let attachments = currentAttachments
+      if (validation.attachments) {
+        const resolved = resolveAttachments(task.id, validation.attachments, currentAttachments)
+        if (!resolved.ok) {
+          return dependencies.failureResult(resolved.error)
+        }
+        attachments = resolved.attachments
+      }
       if (
         task.title === validation.title &&
         task.description === validation.description &&
         sameTaskTags(currentTags, validation.tags) &&
-        task.githubIssueUrl === githubIssueUrl
+        task.githubIssueUrl === githubIssueUrl &&
+        sameTaskAttachments(currentAttachments, attachments)
       ) {
         return dependencies.successResult()
       }
@@ -119,7 +187,15 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
       } else {
         delete task.githubIssueUrl
       }
+      if (attachments.length > 0) {
+        task.attachments = attachments
+      } else {
+        delete task.attachments
+      }
       dependencies.saveState()
+      dependencies.attachments?.remove(
+        currentAttachments.filter((attachment) => !attachments.includes(attachment))
+      )
       return dependencies.successResult()
     },
 

@@ -7,6 +7,7 @@ import {
   removeAttachmentMarkers,
   snapOutOfMarker,
   splitAttachmentMarkers,
+  splitUserMessage,
   stripAttachmentMarkers,
   uniqueAttachmentName
 } from './attachment-markers'
@@ -114,10 +115,35 @@ describe('attachment markers', () => {
     }
     expect(
       expandPastedText('Fix [📎 Pasted text, 16 lines] using [📎 a.png]', [pasted, file])
-    ).toEqual({ prompt: 'Fix a\nb using [📎 a.png]', attachments: [file] })
+    ).toEqual({
+      prompt: 'Fix a\nb using [📎 a.png]',
+      attachments: [file],
+      pastedTexts: [{ name: 'Pasted text, 16 lines', text: 'a\nb' }]
+    })
     expect(expandPastedText('Only [📎 a.png]', [file])).toEqual({
       prompt: 'Only [📎 a.png]',
-      attachments: [file]
+      attachments: [file],
+      pastedTexts: []
     })
+  })
+
+  it('leaves out pasted text whose marker was deleted', () => {
+    const pasted = { id: 't', type: 'text' as const, displayName: 'Pasted', text: 'a\nb' }
+    expect(expandPastedText('Nothing here', [pasted]).pastedTexts).toEqual([])
+  })
+
+  it('splits a sent message into text, pasted text and attachment markers', () => {
+    const first = { name: 'Pasted text, 16 lines', text: 'a\nb' }
+    const second = { name: 'Pasted text, 20 lines', text: 'c\nd' }
+    expect(splitUserMessage('Fix a\nb in [📎 x.ts] then c\nd', ['x.ts'], [first, second])).toEqual([
+      { text: 'Fix ' },
+      { pasted: first },
+      { text: ' in ' },
+      { attachment: 'x.ts' },
+      { text: ' then ' },
+      { pasted: second }
+    ])
+    // Text no longer in the message stays inline.
+    expect(splitUserMessage('Plain', [], [first])).toEqual([{ text: 'Plain' }])
   })
 })

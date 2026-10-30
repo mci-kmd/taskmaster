@@ -83,6 +83,28 @@ it('shows a request Copilot made together with the answer', () => {
   expect(within(request).getByText('You answered').nextSibling?.textContent).toBe('Postgres')
 })
 
+it('shows long pasted text in a sent message as a pill that opens it', () => {
+  const log = 'line 1\nline 2'
+  render(
+    <SessionTimelineItem
+      item={{
+        id: 'user:1',
+        type: 'user',
+        timestamp: '',
+        content: `Fix ${log} in [📎 a.ts]`,
+        attachments: ['a.ts'],
+        pastedTexts: [{ name: 'Pasted text, 2 lines', text: log }]
+      }}
+    />
+  )
+  const message = screen.getByRole('article', { name: 'Your message' })
+  expect(message.textContent).toContain('Fix Pasted text, 2 lines in a.ts')
+  expect(message.textContent).not.toContain('line 1')
+  fireEvent.click(within(message).getByRole('button', { name: 'Pasted text, 2 lines' }))
+  const dialog = screen.getByRole('dialog', { name: 'Pasted text, 2 lines' })
+  expect(within(dialog).getByLabelText('Pasted text').textContent).toBe(log)
+})
+
 it('marks skills loaded into the conversation and who asked for them', () => {
   const skill = {
     id: 'skill:1',
