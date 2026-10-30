@@ -309,6 +309,32 @@ describe('repository service', () => {
     expect(saveState).toHaveBeenCalledTimes(4)
   })
 
+  it('saves the new thread checkout, clearing it to follow the app setting', () => {
+    const saveState = vi.fn()
+    const repository = createTestRepository()
+    const service = createTestRepositoryService({ findRepository: () => repository, saveState })
+    const input = {
+      repositoryId: repository.id,
+      faviconPath: null,
+      runCommand: null,
+      solutionFilePath: null,
+      newWorktreeSetupCommand: null,
+      postWorktreeRemoveCommand: null
+    }
+
+    expect(service.updateRepository({ ...input, threadSetupMode: 'branch' }).ok).toBe(true)
+    expect(repository.threadSetupMode).toBe('branch')
+    expect(service.updateRepository(input).ok).toBe(true)
+    expect(repository.threadSetupMode).toBe('branch')
+    expect(service.updateRepository({ ...input, threadSetupMode: 'x' as never })).toMatchObject({
+      ok: false,
+      error: 'Thread checkout mode is invalid.'
+    })
+    expect(service.updateRepository({ ...input, threadSetupMode: null }).ok).toBe(true)
+    expect(repository).not.toHaveProperty('threadSetupMode')
+    expect(saveState).toHaveBeenCalledTimes(2)
+  })
+
   it('saves tool overrides, dropping unknown tools and storing none as absent', () => {
     const saveState = vi.fn()
     const repository = createTestRepository()

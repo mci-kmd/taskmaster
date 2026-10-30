@@ -241,6 +241,59 @@ describe('thread state service', () => {
     expect(thread).not.toHaveProperty('pinnedMessageIds')
   })
 
+  it('changes the checkout a thread gets until it is made', () => {
+    const saveState = vi.fn()
+    let settingUp = false
+    const thread: PersistedThread = {
+      id: 'thread-1',
+      repositoryId: 'repo-1',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActivityAt: '2026-01-01T00:00:00.000Z',
+      pendingSetup: { mode: 'trunk', branchName: null }
+    }
+    const service = createThreadStateService({
+      ensureState: () => ({
+        repositories: [],
+        threads: [thread],
+        ui: { selectedRepositoryId: 'repo-1', selectedThreadId: 'thread-1' }
+      }),
+      findThread: (id) => (id === thread.id ? thread : undefined),
+      saveState,
+      updateSelection: () => {},
+      buildSelectionSnapshot: () => ({}) as never,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      normalizeCustomTitle: (value) => value ?? null,
+      normalizeTrackedText: (value) => value ?? null,
+      normalizeCopilotTitle: (title) => title ?? null,
+      nowIso: () => '2026-01-02T00:00:00.000Z',
+      isThreadSettingUp: () => settingUp
+    })
+    const setup = (value: unknown): ReturnType<typeof service.updateThread> =>
+      service.updateThread({ threadId: 'thread-1', setup: value as never })
+
+    expect(setup({ mode: 'worktree', branchName: ' feature/x ' }).ok).toBe(true)
+    expect(thread.pendingSetup).toEqual({ mode: 'worktree', branchName: 'feature/x' })
+    expect(setup({ mode: 'trunk', branchName: 'ignored' }).ok).toBe(true)
+    expect(thread.pendingSetup).toEqual({ mode: 'trunk', branchName: null })
+    expect(saveState).toHaveBeenCalledTimes(2)
+    expect(setup({ mode: 'detached', branchName: null }).ok).toBe(false)
+
+    settingUp = true
+    expect(setup({ mode: 'branch', branchName: null }).ok).toBe(false)
+    settingUp = false
+    delete thread.pendingSetup
+    expect(setup({ mode: 'branch', branchName: null }).ok).toBe(false)
+    expect(thread).not.toHaveProperty('pendingSetup')
+  })
+
   it('suspends idle threads without touching their activity and unsuspends on a new prompt', () => {
     const saveState = vi.fn()
     let working = true

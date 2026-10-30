@@ -6,6 +6,7 @@ import {
   checkoutExistingBranch,
   getCurrentBranchLabel,
   getCurrentBranchName,
+  getPrimaryBranch,
   hasUncommittedChanges,
   listRepositoryWorktrees,
   resolveExistingBranchTarget
@@ -27,6 +28,7 @@ vi.mock('../repositories/repository-git', () => ({
   checkoutExistingBranch: vi.fn(),
   getCurrentBranchLabel: vi.fn(),
   getCurrentBranchName: vi.fn(),
+  getPrimaryBranch: vi.fn(),
   hasUncommittedChanges: vi.fn(),
   listRepositoryWorktrees: vi.fn(),
   resolveExistingBranchTarget: vi.fn()
@@ -80,15 +82,24 @@ function createState(): PersistedAppState {
   }
 }
 
-function createHarness(): {
+type CreateService = ReturnType<typeof createThreadCreateService>
+
+function createHarness(
+  options: { generateBranchName?: (prompt: string) => Promise<string | null> } = {}
+): {
   state: PersistedAppState
-  createThread: ReturnType<typeof createThreadCreateService>['createThread']
+  createThread: CreateService['createThread']
+  finishThreadSetup: CreateService['finishThreadSetup']
+  isThreadSettingUp: CreateService['isThreadSettingUp']
   saveState: ReturnType<typeof vi.fn>
   updateSelection: ReturnType<typeof vi.fn>
+  onThreadSetUp: ReturnType<typeof vi.fn>
 } {
   const state = createState()
   const saveState = vi.fn()
   const updateSelection = vi.fn()
+  const onThreadSetUp = vi.fn()
+  const generate = options.generateBranchName
   const service = createThreadCreateService({
     ensureState: () => state,
     updateSelection,
@@ -100,14 +111,19 @@ function createHarness(): {
       .fn()
       .mockReturnValueOnce('thread-1')
       .mockReturnValueOnce('session-1')
-      .mockReturnValue('id')
+      .mockReturnValue('id'),
+    generateBranchName: generate ? ({ prompt }) => generate(prompt) : undefined,
+    onThreadSetUp
   })
 
   return {
     state,
     createThread: service.createThread,
+    finishThreadSetup: service.finishThreadSetup,
+    isThreadSettingUp: service.isThreadSettingUp,
     saveState,
-    updateSelection
+    updateSelection,
+    onThreadSetUp
   }
 }
 
@@ -115,6 +131,7 @@ describe('createThreadCreateService', () => {
   beforeEach(() => {
     vi.mocked(getCurrentBranchLabel).mockReset()
     vi.mocked(getCurrentBranchName).mockReset()
+    vi.mocked(getPrimaryBranch).mockReset()
     vi.mocked(hasUncommittedChanges).mockReset()
     vi.mocked(resolveExistingBranchTarget).mockReset()
     vi.mocked(checkoutExistingBranch).mockReset()
@@ -127,6 +144,7 @@ describe('createThreadCreateService', () => {
 
     vi.mocked(getCurrentBranchLabel).mockReturnValue('main')
     vi.mocked(getCurrentBranchName).mockReturnValue('main')
+    vi.mocked(getPrimaryBranch).mockReturnValue('main')
     vi.mocked(hasUncommittedChanges).mockReturnValue(false)
     vi.mocked(resolveExistingBranchTarget).mockReturnValue({ ok: true, target: null })
     vi.mocked(listRepositoryWorktrees).mockReturnValue([])
@@ -405,5 +423,168 @@ describe('createThreadCreateService', () => {
       }
     )
     expect(harness.state.threads).toEqual([])
+  })
+  describe('threads without a checkout yet', () => {
+    it('creates a thread on the current branch with the default checkout to make', () => {
+      const harness = createHarness()
+
+      expect(harness.createThread({ repositoryId: 'repo-1' })).toEqual({ ok: true })
+
+      expect(harness.state.threads[0]).toMatchObject({
+        mode: 'active-branch',
+        branchName: 'main',
+        worktreePath: null,
+        pendingSetup: { mode: 'trunk', branchName: null }
+      })
+      expect(runGit).not.toHaveBeenCalled()
+      expect(createWorktree).not.toHaveBeenCalled()
+    })
+
+    it('preselects the project checkout over the app setting', () => {
+      const harness = createHarness()
+      harness.state.settings.threadSetupMode = 'branch'
+      expect(harness.createThread({ repositoryId: 'repo-1' }).ok).toBe(true)
+      harness.state.repositories[0].threadSetupMode = 'worktree'
+      expect(harness.createThread({ repositoryId: 'repo-1' }).ok).toBe(true)
+
+      expect(harness.state.threads.map((thread) => thread.pendingSetup?.mode)).toEqual([
+        'branch',
+        'worktree'
+      ])
+    })
+
+    it('checks out the primary branch for a trunk thread', async () => {
+      vi.mocked(getCurrentBranchName).mockReturnValue('feature/old')
+      vi.mocked(resolveExistingBranchTarget).mockReturnValue({
+        ok: true,
+        target: { kind: 'local', branchName: 'main' }
+      })
+      const harness = createHarness()
+      harness.createThread({ repositoryId: 'repo-1' })
+
+      await expect(harness.finishThreadSetup('thread-1', 'Fix it')).resolves.toEqual({
+        ok: true,
+        cwdChanged: false
+      })
+
+      expect(checkoutExistingBranch).toHaveBeenCalledWith(
+        '/repo',
+        { kind: 'local', branchName: 'main' },
+        createNativeBackend()
+      )
+      expect(harness.state.threads[0]).toMatchObject({ mode: 'active-branch', branchName: 'main' })
+      expect(harness.state.threads[0]).not.toHaveProperty('pendingSetup')
+      expect(harness.onThreadSetUp).toHaveBeenCalledWith('thread-1')
+    })
+
+    it('names a new branch from the first message', async () => {
+      const generate = vi.fn(async () => '12431234-build-the-thing')
+      const harness = createHarness({ generateBranchName: generate })
+      harness.state.settings.threadSetupMode = 'branch'
+      harness.createThread({ repositoryId: 'repo-1' })
+
+      const result = await harness.finishThreadSetup('thread-1', 'US 12431234: build the thing')
+
+      expect(result).toEqual({ ok: true, cwdChanged: false })
+      expect(generate).toHaveBeenCalledWith('US 12431234: build the thing')
+      expect(runGit).toHaveBeenCalledWith(
+        '/repo',
+        ['checkout', '-b', '12431234-build-the-thing', 'main'],
+        createNativeBackend()
+      )
+      expect(harness.state.threads[0]).toMatchObject({
+        mode: 'new-branch',
+        branchName: '12431234-build-the-thing',
+        ownsBranch: true
+      })
+    })
+
+    it('makes a generated name unique and falls back when naming fails', async () => {
+      vi.mocked(listRepositoryWorktrees).mockReturnValue([
+        { branchName: 'add-login', path: '/repo/.worktrees/add-login' }
+      ])
+      const harness = createHarness({ generateBranchName: async () => 'add-login' })
+      harness.state.settings.threadSetupMode = 'worktree'
+      harness.createThread({ repositoryId: 'repo-1' })
+
+      const result = await harness.finishThreadSetup('thread-1', 'Add login')
+
+      expect(result).toEqual({ ok: true, cwdChanged: true })
+      expect(createWorktree).toHaveBeenCalledWith(
+        '/repo',
+        'add-login-2',
+        'main',
+        createNativeBackend()
+      )
+      expect(harness.state.threads[0]).toMatchObject({
+        mode: 'worktree',
+        branchName: 'add-login-2',
+        worktreePath: '/repo/.worktrees/feature-thread',
+        resumeSessionId: null
+      })
+    })
+
+    it('uses the chosen branch name without generating one', async () => {
+      const generate = vi.fn(async () => 'unused')
+      const harness = createHarness({ generateBranchName: generate })
+      harness.createThread({ repositoryId: 'repo-1' })
+      harness.state.threads[0].pendingSetup = { mode: 'worktree', branchName: 'feature/chosen' }
+
+      await harness.finishThreadSetup('thread-1', 'Anything')
+
+      expect(generate).not.toHaveBeenCalled()
+      expect(createWorktree).toHaveBeenCalledWith(
+        '/repo',
+        'feature/chosen',
+        'main',
+        createNativeBackend()
+      )
+    })
+
+    it('keeps the thread pending when the checkout fails', async () => {
+      vi.mocked(getCurrentBranchName).mockReturnValue('feature/old')
+      vi.mocked(hasUncommittedChanges).mockReturnValue(true)
+      vi.mocked(resolveExistingBranchTarget).mockReturnValue({
+        ok: true,
+        target: { kind: 'local', branchName: 'main' }
+      })
+      const harness = createHarness()
+      harness.createThread({ repositoryId: 'repo-1' })
+
+      const result = await harness.finishThreadSetup('thread-1', 'Fix it')
+
+      expect(result.ok).toBe(false)
+      expect(harness.state.threads[0].pendingSetup).toEqual({ mode: 'trunk', branchName: null })
+      expect(harness.onThreadSetUp).not.toHaveBeenCalled()
+    })
+
+    it('sets a thread up once while its branch is being named', async () => {
+      let finishNaming: (name: string) => void = () => undefined
+      const harness = createHarness({
+        generateBranchName: () => new Promise((resolve) => (finishNaming = resolve))
+      })
+      harness.state.settings.threadSetupMode = 'branch'
+      harness.createThread({ repositoryId: 'repo-1' })
+
+      const first = harness.finishThreadSetup('thread-1', 'Do it')
+      const second = harness.finishThreadSetup('thread-1', 'Do it')
+      expect(harness.isThreadSettingUp('thread-1')).toBe(true)
+      finishNaming('do-it')
+
+      expect(await first).toEqual(await second)
+      expect(runGit).toHaveBeenCalledOnce()
+      expect(harness.isThreadSettingUp('thread-1')).toBe(false)
+    })
+
+    it('does nothing for a thread that already has its checkout', async () => {
+      const harness = createHarness()
+      harness.createThread({ repositoryId: 'repo-1', mode: 'active-branch' })
+
+      await expect(harness.finishThreadSetup('thread-1', 'Hi')).resolves.toEqual({
+        ok: true,
+        cwdChanged: false
+      })
+      expect(harness.onThreadSetUp).not.toHaveBeenCalled()
+    })
   })
 })

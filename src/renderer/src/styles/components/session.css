@@ -1278,6 +1278,55 @@
     margin-left: auto;
   }
 
+  /* The checkout a new thread gets with its first message, tinted until it is made. */
+  .tm-thread-setup {
+    margin-top: 8px;
+    padding: 8px 12px 9px;
+    border: 1px dashed var(--color-accent-line);
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--color-accent-soft) 55%, transparent);
+    transition: opacity var(--duration-base) ease;
+  }
+  .tm-thread-setup[data-busy] {
+    opacity: 0.7;
+  }
+  .tm-thread-setup-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+  }
+  .tm-thread-setup-label {
+    color: var(--color-fg-muted);
+    font-size: 12px;
+    font-weight: 560;
+  }
+  .tm-thread-setup-modes {
+    width: 252px;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .tm-thread-setup-branch {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+  .tm-thread-setup-trunk {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    color: var(--color-fg);
+    font: 12px/26px var(--font-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tm-thread-setup-hint {
+    margin: 6px 0 0;
+    color: var(--color-fg-subtle);
+    font-size: 11.5px;
+  }
+
   /* Skill completions. */
   .tm-skill-menu {
     padding: 6px;

@@ -20,9 +20,15 @@ import {
   type TaskmasterToolKey
 } from '../settings/taskmaster-tool-values'
 import { useAutoSave, type AutoSaveResult } from '../settings/use-auto-save'
-import type { AppSettingsSnapshot, UpdateSettingsInput } from '../../../../shared/app-types'
+import type {
+  AppSettingsSnapshot,
+  ThreadSetupMode,
+  UpdateSettingsInput
+} from '../../../../shared/app-types'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
 import { DEFAULT_THEME } from '../../../../shared/themes'
+import { DEFAULT_THREAD_SETUP_MODE, THREAD_SETUP_MODES } from '../../../../shared/thread-setup'
+import Select from '../ui/Select'
 import LegacyModelsPicker from './LegacyModelsPicker'
 import { useDialogSession } from './use-dialog-session'
 
@@ -60,6 +66,7 @@ function SettingsDialogContent({
       legacyCopilotModels: settings.legacyCopilotModels ?? [],
       theme: settings.theme ?? DEFAULT_THEME,
       showAgentModePicker: settings.showAgentModePicker ?? false,
+      threadSetupMode: settings.threadSetupMode ?? DEFAULT_THREAD_SETUP_MODE,
       ...toolEnabledValues(settings.disabledTaskmasterTools)
     },
     save: (values) =>
@@ -70,12 +77,14 @@ function SettingsDialogContent({
         legacyCopilotModels: values.legacyCopilotModels,
         theme: values.theme,
         showAgentModePicker: values.showAgentModePicker,
+        threadSetupMode: values.threadSetupMode,
         disabledTaskmasterTools: disabledToolsFromValues(values)
       })
   })
   const { values } = form
   const legacyModels = form.field('legacyCopilotModels')
   const theme = form.field('theme')
+  const threadSetupMode = form.field('threadSetupMode')
 
   const close = (): void => {
     void form.flush()
@@ -100,6 +109,26 @@ function SettingsDialogContent({
             labelledBy={`${theme.id}-label`}
             onChange={theme.set}
             value={theme.value ?? DEFAULT_THEME}
+          />
+        </SettingRow>
+      )
+    },
+    {
+      id: 'threads',
+      label: 'Threads',
+      hasError: form.hasErrors(['threadSetupMode']),
+      content: (
+        <SettingRow
+          controlId={threadSetupMode.id}
+          hint="Preselected under the message box of a new thread, where you can still change it before the first message. Projects can override it in Edit project."
+          label="New thread checkout"
+          status={threadSetupMode.status}
+        >
+          <Select
+            id={threadSetupMode.id}
+            onChange={(value) => threadSetupMode.set(value as ThreadSetupMode)}
+            options={THREAD_SETUP_MODES}
+            value={threadSetupMode.value ?? DEFAULT_THREAD_SETUP_MODE}
           />
         </SettingRow>
       )

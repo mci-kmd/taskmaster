@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import EditRepositoryDialog from '../../components/dialogs/EditRepositoryDialog'
 import EditThreadDialog from '../../components/dialogs/EditThreadDialog'
-import NewThreadDialog from '../../components/dialogs/NewThreadDialog'
 import SettingsDialog from '../../components/dialogs/SettingsDialog'
 import {
   CheckboxSetting,
@@ -128,14 +127,7 @@ const generalProject: RepositorySnapshot = {
 }
 
 type OpenDialog =
-  | 'settings'
-  | 'edit-project'
-  | 'edit-project-working'
-  | 'edit-general'
-  | 'new-thread'
-  | 'new-thread-error'
-  | 'edit-thread'
-  | null
+  'settings' | 'edit-project' | 'edit-project-working' | 'edit-general' | 'edit-thread' | null
 
 /** Dialog launchers; the gallery screenshots open them by clicking `[data-open="…"]`. */
 function Dialogs(): React.JSX.Element {
@@ -156,8 +148,6 @@ function Dialogs(): React.JSX.Element {
         {launcher('edit-project', 'Edit project')}
         {launcher('edit-project-working', 'Edit project (threads working)')}
         {launcher('edit-general', 'Edit built-in project')}
-        {launcher('new-thread', 'New thread')}
-        {launcher('new-thread-error', 'New thread (error)')}
         {launcher('edit-thread', 'Edit thread')}
       </div>
 
@@ -191,18 +181,6 @@ function Dialogs(): React.JSX.Element {
         removing={false}
         repository={editing}
         workingThreadCount={open === 'edit-project-working' ? 2 : 0}
-      />
-      <NewThreadDialog
-        busy={false}
-        error={
-          open === 'new-thread-error'
-            ? 'Could not switch to feature/theme-picker: your working tree has uncommitted changes.'
-            : null
-        }
-        onClose={close}
-        onSubmit={async () => false}
-        open={open === 'new-thread' || open === 'new-thread-error'}
-        repository={repository}
       />
       <EditThreadDialog
         busy={false}

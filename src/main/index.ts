@@ -35,6 +35,7 @@ import {
   updateCopilotActivity,
   registerAppStateIpc,
   resolveCopilotThread,
+  prepareCopilotThread,
   setCommitMessageGenerator,
   setCopilotThreadController,
   setLegacyModelsChangeListener,
@@ -190,7 +191,8 @@ app.whenReady().then(() => {
     setAside: setCopilotThreadAside,
     createForkedThread: createForkedCopilotThread,
     onHistoryTruncated: updateCopilotHistoryTruncated,
-    confirmReset: confirmCopilotHistoryReset
+    confirmReset: confirmCopilotHistoryReset,
+    prepareThread: prepareCopilotThread
   })
   copilotSessionService = copilotService
   setLegacyModelsChangeListener(copilotService.refreshAllowedModels)

@@ -16,6 +16,8 @@ import {
   normalizeGeneralProjectName
 } from '../../../../shared/general-project'
 import { parseTaskTagsInput } from '../../../../shared/task-tags'
+import { THREAD_SETUP_MODES, isThreadSetupMode } from '../../../../shared/thread-setup'
+import Select from '../ui/Select'
 import {
   COMMIT_SHORTCUT_LABEL,
   PUSH_SHORTCUT_LABEL,
@@ -146,6 +148,8 @@ type RepositoryValues = ToolOverrideValues & {
   taskTagsInput: string
   commitMessageModel: CopilotModelSelection
   autoPushAfterCommit: boolean
+  /** Empty follows the app setting. */
+  threadSetupMode: string
 }
 
 function repositoryValues(repository: RepositorySnapshot): RepositoryValues {
@@ -161,6 +165,7 @@ function repositoryValues(repository: RepositorySnapshot): RepositoryValues {
     taskTagsInput: repository.taskTagsInput ?? '',
     commitMessageModel: resolveCommitMessageModel(repository),
     autoPushAfterCommit: repository.autoPushAfterCommit === true,
+    threadSetupMode: repository.threadSetupMode ?? '',
     ...toolOverrideValues(repository.taskmasterToolOverrides)
   }
 }
@@ -185,6 +190,7 @@ function toUpdateInput(repositoryId: string, values: RepositoryValues): UpdateRe
       ? null
       : values.commitMessageModel,
     autoPushAfterCommit: values.autoPushAfterCommit,
+    threadSetupMode: isThreadSetupMode(values.threadSetupMode) ? values.threadSetupMode : null,
     taskmasterToolOverrides: toolOverridesFromValues(values)
   }
 }
@@ -217,6 +223,7 @@ function RepositorySettings({
   const icon = form.field('icon')
   const iconColor = form.field('iconColor')
   const commitModel = form.field('commitMessageModel')
+  const threadSetupMode = form.field('threadSetupMode')
 
   const close = (): void => {
     void form.flush()
@@ -246,7 +253,13 @@ function RepositorySettings({
     {
       id: 'general',
       label: 'General',
-      hasError: form.hasErrors(['icon', 'iconColor', 'faviconPath', 'solutionFilePath']),
+      hasError: form.hasErrors([
+        'icon',
+        'iconColor',
+        'faviconPath',
+        'solutionFilePath',
+        'threadSetupMode'
+      ]),
       content: (
         <>
           <SettingRow
@@ -283,7 +296,24 @@ function RepositorySettings({
             label="Visual Studio solution"
             placeholder="src\MyApp.slnx"
           />
+          <SettingRow
+            controlId={threadSetupMode.id}
+            hint="Preselected under the message box of a new thread in this project."
+            label="New thread checkout"
+            status={threadSetupMode.status}
+          >
+            <Select
+              id={threadSetupMode.id}
+              onChange={threadSetupMode.set}
+              options={[
+                { value: '', label: 'App default', description: 'Follow the setting in Settings' },
+                ...THREAD_SETUP_MODES
+              ]}
+              value={threadSetupMode.value}
+            />
+          </SettingRow>
           <SettingRow label="Location">
+            {' '}
             <p className="break-all py-0.5 font-mono text-[12px] leading-5 text-fg-muted">
               {repository.path}
             </p>

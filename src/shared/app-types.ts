@@ -5,6 +5,15 @@ import type { ThreadWorkItem } from './work-items'
 export type { ThreadWorkItem } from './work-items'
 
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
+/** How a new thread's checkout is made: on the trunk branch, on a branch, or in a worktree. */
+export type ThreadSetupMode = 'trunk' | 'branch' | 'worktree'
+
+/** Checkout options picked in a new thread's composer, made when its first prompt is sent. */
+export interface ThreadSetup {
+  mode: ThreadSetupMode
+  /** An existing branch or worktree branch, or a new name. Null generates one from the prompt. */
+  branchName: string | null
+}
 export type TerminalKind = 'shell'
 export type ProjectTaskTag = string
 export type CopilotReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -100,6 +109,8 @@ export interface PersistedSettings {
   showAgentModePicker?: boolean
   /** Taskmaster tools turned off for every project unless a project overrides them. Absent means all on. */
   disabledTaskmasterTools?: TaskmasterToolName[]
+  /** Checkout new threads start with unless a project overrides it. Absent means DEFAULT_THREAD_SETUP_MODE. */
+  threadSetupMode?: ThreadSetupMode
 }
 
 export type CopilotModelSelection = {
@@ -136,6 +147,8 @@ export interface PersistedRepository {
   favorite?: boolean
   /** Taskmaster tools this project turns on or off. Absent tools follow the app setting. */
   taskmasterToolOverrides?: TaskmasterToolOverrides
+  /** Checkout new threads start with in this project. Absent follows the app setting. */
+  threadSetupMode?: ThreadSetupMode
   addedAt: string
   tasks: PersistedProjectTask[]
   /** Completed tasks, most recently completed first. Absent until a task is completed. */
@@ -172,6 +185,11 @@ export interface PersistedThread {
   pinnedMessageTitles?: Record<string, string>
   /** The side conversation forked from this thread's session. Absent until one is opened. */
   aside?: PersistedThreadAside
+  /**
+   * Set until the first prompt is sent; the thread then gets this checkout. Until then it works in
+   * the project's checkout. Absent once set up.
+   */
+  pendingSetup?: ThreadSetup
   mode: ThreadMode
   branchName: string
   worktreePath: string | null
@@ -410,7 +428,8 @@ export type OpenThreadSolutionInVisualStudioResult = OpenThreadLocationResult
 
 export interface CreateThreadInput {
   repositoryId: string
-  mode: ThreadMode
+  /** Absent: the checkout is picked in the thread's composer and made with its first prompt. */
+  mode?: ThreadMode
   title?: string
   branchName?: string
   /** When true, base the new branch / worktree on the repo's current HEAD instead of its primary branch. */
@@ -829,6 +848,8 @@ export interface UpdateSettingsInput {
   showAgentModePicker?: boolean
   /** Left unchanged when omitted. */
   disabledTaskmasterTools?: TaskmasterToolName[]
+  /** Left unchanged when omitted. */
+  threadSetupMode?: ThreadSetupMode
 }
 
 export interface UpdateRepositoryInput {
@@ -849,6 +870,8 @@ export interface UpdateRepositoryInput {
   autoPushAfterCommit?: boolean
   /** Left unchanged when omitted; an empty object makes every tool follow the app setting. */
   taskmasterToolOverrides?: TaskmasterToolOverrides
+  /** Left unchanged when omitted; null follows the app setting. */
+  threadSetupMode?: ThreadSetupMode | null
 }
 
 export interface SetRepositoryFavoriteInput {
@@ -948,6 +971,8 @@ export interface UpdateThreadInput {
   dismissAwakened?: boolean
   /** Pins or unpins one Copilot message, identified by its timeline item id. */
   pinnedMessage?: { messageId: string; pinned: boolean }
+  /** Changes the checkout options of a thread whose first prompt hasn't been sent. */
+  setup?: ThreadSetup
 }
 
 export interface UpdateUiInput {

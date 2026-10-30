@@ -1929,6 +1929,42 @@ describe('session skills and prompt history', () => {
     expect(sent.attachments[0]).not.toHaveProperty('element')
   })
 
+  it("makes a new thread's checkout before its first prompt, moving into a new worktree", async () => {
+    let cwd = '/project'
+    const prepareThread = vi.fn(async () => {
+      cwd = '/project.worktrees/fix'
+      return { ok: true as const, cwdChanged: true }
+    })
+    const service = setup(true, {
+      resolveThread: (id) => ({
+        thread: { id, resumeSessionId: null, latestCopilotTitle: null } as PersistedThread,
+        cwd,
+        yoloEnabled: true
+      }),
+      prepareThread
+    })
+    await service.start('thread')
+    expect(harness.config?.workingDirectory).toBe('/project')
+
+    expect((await service.send({ ...input, prompt: 'Fix it' })).ok).toBe(true)
+
+    expect(prepareThread).toHaveBeenCalledWith('thread', 'Fix it')
+    expect(harness.createSession).toHaveBeenCalledTimes(2)
+    expect(harness.config?.workingDirectory).toBe('/project.worktrees/fix')
+    expect(harness.send).toHaveBeenCalledWith(expect.objectContaining({ prompt: 'Fix it' }))
+  })
+
+  it('does not send when the checkout cannot be made', async () => {
+    const service = setup(true, {
+      prepareThread: async () => ({ ok: false, error: 'Commit or stash first.' })
+    })
+    expect(await service.send({ ...input, prompt: 'Fix it' })).toMatchObject({
+      ok: false,
+      error: 'Commit or stash first.'
+    })
+    expect(harness.send).not.toHaveBeenCalled()
+  })
+
   it('accepts the leading dollar skill syntax without executing arbitrary CLI commands', async () => {
     harness.listSkills.mockResolvedValue({ skills: [skill] })
     const service = setup()

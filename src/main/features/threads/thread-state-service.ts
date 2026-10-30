@@ -15,6 +15,7 @@ import {
   sameThreadTaskNumbers,
   sameThreadWorkItems
 } from '../../../shared/work-items'
+import { normalizeThreadSetup, sameThreadSetup } from '../../../shared/thread-setup'
 import { normalizePinnedMessageIds, prunePinnedMessageTitles } from './thread-values'
 
 type ThreadStateServiceDependencies = {
@@ -31,6 +32,8 @@ type ThreadStateServiceDependencies = {
   nowIso: () => string
   /** Whether the thread's Copilot session is busy; such threads can't be suspended. */
   isThreadWorking?: (threadId: string) => boolean
+  /** Whether the thread's checkout is being made; its options can no longer change. */
+  isThreadSettingUp?: (threadId: string) => boolean
   /** Called after a message is newly pinned, e.g. to title it. */
   onMessagePinned?: (threadId: string, messageId: string) => void
 }
@@ -141,6 +144,18 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
           prunePinnedMessageTitles(thread)
           dependencies.saveState()
           if (pinned) dependencies.onMessagePinned?.(thread.id, messageId)
+        }
+      }
+      if (input.setup !== undefined) {
+        const setup = normalizeThreadSetup(input.setup)
+        if (!setup) return dependencies.failureResult('Invalid thread checkout.')
+        if (!thread.pendingSetup)
+          return dependencies.failureResult("This thread's checkout is already set up.")
+        if (dependencies.isThreadSettingUp?.(thread.id))
+          return dependencies.failureResult("This thread's checkout is being set up.")
+        if (!sameThreadSetup(setup, thread.pendingSetup)) {
+          thread.pendingSetup = setup
+          dependencies.saveState()
         }
       }
       if (input.customTitle === undefined) return dependencies.successResult()

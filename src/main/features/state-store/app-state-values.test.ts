@@ -167,6 +167,14 @@ describe('commit settings persistence', () => {
       normalizePersistedRepository({ ...repository('alpha'), autoPushAfterCommit: false })
     ).not.toHaveProperty('autoPushAfterCommit')
   })
+
+  it('keeps a valid new thread checkout and drops invalid ones', () => {
+    const value: PersistedRepository = { ...repository('alpha'), threadSetupMode: 'worktree' }
+    expect(normalizePersistedRepository(value)).toBe(value)
+    expect(
+      normalizePersistedRepository({ ...repository('alpha'), threadSetupMode: 'x' as never })
+    ).not.toHaveProperty('threadSetupMode')
+  })
 })
 
 describe('Taskmaster tool settings persistence', () => {
@@ -330,6 +338,33 @@ describe('generated thread titles', () => {
     expect(normalizePersistedThread({ ...base, workItems: 'x' as never })).not.toHaveProperty(
       'workItems'
     )
+  })
+
+  it('keeps a valid pending checkout and drops invalid ones', () => {
+    const base = normalizePersistedThread({
+      id: 't',
+      repositoryId: 'r',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01',
+      lastActivityAt: '2026-01-01'
+    })
+    const pending = { ...base, pendingSetup: { mode: 'branch' as const, branchName: 'fix' } }
+    expect(normalizePersistedThread(pending)).toBe(pending)
+    expect(
+      normalizePersistedThread({
+        ...base,
+        pendingSetup: { mode: 'trunk', branchName: 'main' }
+      }).pendingSetup
+    ).toEqual({ mode: 'trunk', branchName: null })
+    expect(
+      normalizePersistedThread({ ...base, pendingSetup: { mode: 'x' } as never })
+    ).not.toHaveProperty('pendingSetup')
   })
 
   it('keeps valid pinned message ids and drops invalid ones', () => {

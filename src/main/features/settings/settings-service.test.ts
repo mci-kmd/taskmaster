@@ -166,6 +166,29 @@ describe('settings service', () => {
     expect(state.settings).not.toHaveProperty('showAgentModePicker')
   })
 
+  it('stores a valid new thread checkout only when given', () => {
+    const settings: PersistedSettings = {
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: ''
+    }
+    const state = { settings, ui: { selectedRepositoryId: null, selectedThreadId: null } }
+    const service = createSettingsService({
+      ensureState: () => state,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      normalizeTerminalFontFamilyInput: (value) => value,
+      clampSidebarWidth: (value) => value
+    })
+    const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+
+    service.updateSettings({ ...base, threadSetupMode: 'worktree' })
+    expect(state.settings.threadSetupMode).toBe('worktree')
+    service.updateSettings(base)
+    service.updateSettings({ ...base, threadSetupMode: 'bogus' as never })
+    expect(state.settings.threadSetupMode).toBe('worktree')
+  })
+
   it('clamps sidebar width on UI updates', () => {
     const saveState = vi.fn()
     const state = {

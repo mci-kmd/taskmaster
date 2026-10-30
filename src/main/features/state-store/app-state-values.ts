@@ -20,6 +20,11 @@ import {
   normalizeGeneralProjectName
 } from '../../../shared/general-project'
 import { PROJECT_ICONS, PROJECT_ICON_COLORS } from '../../../shared/project-icons'
+import {
+  isThreadSetupMode,
+  normalizeThreadSetup,
+  sameThreadSetup
+} from '../../../shared/thread-setup'
 import { normalizeCopilotTitle } from '../../../shared/thread-title'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import {
@@ -87,6 +92,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     pinnedMessageIds
   )
   const aside = normalizeThreadAside(thread.aside)
+  const pendingSetup = normalizeThreadSetup(thread.pendingSetup)
 
   if (
     latestCopilotTitle === thread.latestCopilotTitle &&
@@ -105,6 +111,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
         thread.pinnedMessageIds.length === pinnedMessageIds.length &&
         pinnedMessageIds.every((id, index) => thread.pinnedMessageIds?.[index] === id)) &&
     samePinnedMessageTitles(pinnedMessageTitles, thread.pinnedMessageTitles) &&
+    sameThreadSetup(pendingSetup, thread.pendingSetup) &&
     (aside === undefined
       ? thread.aside === undefined
       : aside.sessionId === thread.aside?.sessionId &&
@@ -121,9 +128,11 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     pinnedMessageIds: _pinnedMessageIds,
     pinnedMessageTitles: _pinnedMessageTitles,
     aside: _aside,
+    pendingSetup: _pendingSetup,
     ...rest
   } = thread
   void _aside
+  void _pendingSetup
   void _generatedTitle
   void _lastModel
   void _workItems
@@ -140,7 +149,8 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     ...(taskNumbers ? { taskNumbers } : {}),
     ...(pinnedMessageIds ? { pinnedMessageIds } : {}),
     ...(pinnedMessageTitles ? { pinnedMessageTitles } : {}),
-    ...(aside ? { aside } : {})
+    ...(aside ? { aside } : {}),
+    ...(pendingSetup ? { pendingSetup } : {})
   }
 }
 
@@ -296,6 +306,8 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   )
     ? (rawToolOverrides as PersistedRepository['taskmasterToolOverrides'])
     : normalizedToolOverrides
+  const rawThreadSetupMode = (repository as { threadSetupMode?: unknown }).threadSetupMode
+  const threadSetupMode = isThreadSetupMode(rawThreadSetupMode) ? rawThreadSetupMode : undefined
   const currentTasks = Array.isArray(repository.tasks) ? repository.tasks : []
   const rawCompletedTasks = (repository as { completedTasks?: unknown }).completedTasks
   const { tasks, completedTasks } = assignTaskNumbers(
@@ -315,6 +327,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     autoPushAfterCommit === rawAutoPush &&
     favorite === rawFavorite &&
     taskmasterToolOverrides === rawToolOverrides &&
+    threadSetupMode === rawThreadSetupMode &&
     completedTasks === rawCompletedTasks &&
     Array.isArray(repository.tasks) &&
     tasks.length === currentTasks.length &&
@@ -331,9 +344,11 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     favorite: _favorite,
     completedTasks: _completedTasks,
     taskmasterToolOverrides: _taskmasterToolOverrides,
+    threadSetupMode: _threadSetupMode,
     ...rest
   } = repository
   void _taskmasterToolOverrides
+  void _threadSetupMode
   void _taskTagsInput
   void _previewUrl
   void _commitMessageModel
@@ -353,6 +368,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     ...(autoPushAfterCommit === undefined ? {} : { autoPushAfterCommit }),
     ...(favorite === undefined ? {} : { favorite }),
     ...(taskmasterToolOverrides === undefined ? {} : { taskmasterToolOverrides }),
+    ...(threadSetupMode === undefined ? {} : { threadSetupMode }),
     tasks,
     ...(completedTasks === undefined ? {} : { completedTasks })
   }
@@ -375,6 +391,9 @@ export function normalizePersistedSettings(
   const legacyCopilotModels = normalizeModelIds(settings.legacyCopilotModels)
   const theme = isThemeId(settings.theme) ? settings.theme : undefined
   const showAgentModePicker = settings.showAgentModePicker === true ? true : undefined
+  const threadSetupMode = isThreadSetupMode(settings.threadSetupMode)
+    ? settings.threadSetupMode
+    : undefined
   const normalizedDisabledTools = normalizeDisabledTaskmasterTools(settings.disabledTaskmasterTools)
   const disabledTaskmasterTools = sameTaskmasterToolSettings(
     normalizedDisabledTools,
@@ -391,6 +410,7 @@ export function normalizePersistedSettings(
     legacyCopilotModels === settings.legacyCopilotModels &&
     theme === settings.theme &&
     showAgentModePicker === settings.showAgentModePicker &&
+    threadSetupMode === settings.threadSetupMode &&
     disabledTaskmasterTools === settings.disabledTaskmasterTools
   ) {
     return settings
@@ -408,6 +428,8 @@ export function normalizePersistedSettings(
   else delete normalized.theme
   if (showAgentModePicker) normalized.showAgentModePicker = true
   else delete normalized.showAgentModePicker
+  if (threadSetupMode) normalized.threadSetupMode = threadSetupMode
+  else delete normalized.threadSetupMode
   if (disabledTaskmasterTools) normalized.disabledTaskmasterTools = disabledTaskmasterTools
   else delete normalized.disabledTaskmasterTools
   return normalized

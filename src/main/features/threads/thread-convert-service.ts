@@ -43,6 +43,12 @@ export function createThreadConvertService(dependencies: {
         return dependencies.failureResult('Thread is already a worktree thread.')
       }
 
+      if (thread.pendingSetup) {
+        return dependencies.failureResult(
+          'This thread has no checkout yet. Pick Worktree below its message box instead.'
+        )
+      }
+
       const repository = state.repositories.find((item) => item.id === thread.repositoryId)
       if (!repository) {
         return dependencies.failureResult('Owning repository not found.')

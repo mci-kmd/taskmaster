@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { RepositorySnapshot, ThreadSnapshot } from '../../../shared/app-types'
 import InboxThreads from './InboxThreads'
 import ProjectIcon from './ProjectIcon'
-import NewThreadDialog from './dialogs/NewThreadDialog'
 
 function thread(id: string, activity: string, settledAt?: string): ThreadSnapshot {
   return {
@@ -882,23 +881,5 @@ describe('inbox', () => {
       Element.prototype.getAnimations = originalGetAnimations
       vi.useRealTimers()
     }
-  })
-
-  it('creates threads without an interface switch and retains branch/worktree controls', () => {
-    const onSubmit = vi.fn(async () => true)
-    render(
-      <NewThreadDialog
-        open
-        repository={repositories[0]}
-        busy={false}
-        error={null}
-        onClose={vi.fn()}
-        onSubmit={onSubmit}
-      />
-    )
-    expect(screen.queryByText('CLI')).toBeNull()
-    expect(screen.getByText('Worktree')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Create thread' }))
-    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ mode: 'active-branch' }))
   })
 })

@@ -18,7 +18,9 @@ import type {
   CopilotSendDelivery,
   CopilotSessionSnapshot,
   CopilotStartResult,
+  RepositorySnapshot,
   ThreadCommitPhase,
+  ThreadSetup,
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { getRendererApi } from '../shared/api/client'
@@ -36,6 +38,7 @@ import { reconcileSessionSnapshot } from '../lib/session-snapshot'
 import PromptRail from './copilot/PromptRail'
 import { messagePreview, type RailPrompt } from './copilot/prompt-rail'
 import SessionPromptInput from './copilot/SessionPromptInput'
+import ThreadSetupPanel from './copilot/ThreadSetupPanel'
 import SendButton from './copilot/SendButton'
 import CommitButton, { type CommitButtonAction } from './copilot/CommitButton'
 import PendingMessages from './copilot/PendingMessages'
@@ -68,6 +71,10 @@ type Props = {
   onSetMessagePinned?: (messageId: string, pinned: boolean) => Promise<unknown> | void
   /** Opens a new thread from the end of a message's turn, or from the latest turn without one. */
   onForkThread?: (messageId?: string) => Promise<unknown> | void
+  /** The thread's project, for picking the checkout of a thread that has none yet. */
+  repository?: RepositorySnapshot | null
+  /** Changes the checkout a new thread gets with its first message. */
+  onChangeSetup?: (setup: ThreadSetup) => Promise<unknown> | void
 }
 type SessionViewProps = Props & {
   /** The session shown: the thread's own by default, or its aside's. */
@@ -313,7 +320,9 @@ function SessionView({
   legacyModels,
   showModePicker = false,
   onSetMessagePinned,
-  onForkThread
+  onForkThread,
+  repository,
+  onChangeSetup
 }: SessionViewProps): React.JSX.Element {
   const isAside = variant === 'aside'
   const [session, setSession] = useState<CopilotSessionSnapshot | null>(null)
@@ -331,6 +340,10 @@ function SessionView({
   const resumedCommitPhase = commitPhase === null ? (thread.commitPhase ?? null) : null
   const busy = ownBusy ?? (resumedCommitPhase ? 'commit' : null)
   const resumedCommitRef = useRef(false)
+  const showSetup = !isAside && Boolean(thread.pendingSetup && repository && onChangeSetup)
+  // Keeps the panel's contents while it collapses away once the checkout is made.
+  const [shownSetup, setShownSetup] = useState(thread.pendingSetup)
+  if (thread.pendingSetup && thread.pendingSetup !== shownSetup) setShownSetup(thread.pendingSetup)
   resumedCommitRef.current = resumedCommitPhase !== null
   const [delivery, setDelivery] = useState<CopilotSendDelivery>('steer')
   const [cancelling, setCancelling] = useState<string | null>(null)
@@ -1390,6 +1403,19 @@ function SessionView({
             </div>
           </div>
         </div>
+        <Presence show={showSetup} motion="collapse">
+          <div>
+            {shownSetup && repository && onChangeSetup ? (
+              <ThreadSetupPanel
+                key={thread.id}
+                setup={shownSetup}
+                repository={repository}
+                settingUp={busy === 'send' || !thread.pendingSetup}
+                onChange={onChangeSetup}
+              />
+            ) : null}
+          </div>
+        </Presence>
       </div>
       <Presence show={dragging} motion="fade">
         <div className="tm-session-drop">

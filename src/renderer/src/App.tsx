@@ -5,7 +5,6 @@ import ModelPerformanceView from './components/ModelPerformanceView'
 import Toast from './components/Toast'
 import EditRepositoryDialog from './components/dialogs/EditRepositoryDialog'
 import EditThreadDialog from './components/dialogs/EditThreadDialog'
-import NewThreadDialog from './components/dialogs/NewThreadDialog'
 import SettingsDialog from './components/dialogs/SettingsDialog'
 import SnoozeThreadDialog from './components/dialogs/SnoozeThreadDialog'
 import ResizeHandle from './components/ResizeHandle'
@@ -25,19 +24,17 @@ import {
   type UsdDkkRate,
   type CreateRepositoryTaskInput,
   type RepositorySnapshot,
-  type ThreadMode,
+  type ThreadSetup,
   type ThreadSnapshot,
   type UpdateSettingsInput,
   type UpdateRepositoryInput,
   type UpdateRepositoryTaskInput
 } from '../../shared/app-types'
-import { isGeneralProject } from '../../shared/general-project'
 import { DEFAULT_THEME } from '../../shared/themes'
 import { setTheme } from './lib/theme'
 import { composeThreadTitle } from './lib/title'
 
-type DialogKey =
-  'new-thread' | 'settings' | 'edit-repository' | 'edit-thread' | 'snooze-thread' | null
+type DialogKey = 'settings' | 'edit-repository' | 'edit-thread' | 'snooze-thread' | null
 
 const api = getRendererApi()
 
@@ -102,7 +99,6 @@ export default function App(): React.JSX.Element {
   const [inboxProjectId, setInboxProjectId] = useState<string | null>(null)
   const [repositoryViewId, setRepositoryViewId] = useState<string | null>(null)
   const [taskFocus, setTaskFocus] = useState<{ number: number; token: number } | null>(null)
-  const [newThreadError, setNewThreadError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMap>(new Map())
   const [performanceOpen, setPerformanceOpen] = useState(false)
   const [performanceSamples, setPerformanceSamples] = useState<ModelPerformanceSample[]>([])
@@ -386,60 +382,16 @@ export default function App(): React.JSX.Element {
     [setSnapshot]
   )
 
-  const handleCreateThread = useCallback(
-    async (input: {
-      mode: ThreadMode
-      title?: string
-      branchName?: string
-      useCurrentBranch?: boolean
-    }): Promise<boolean> => {
-      if (!selectedRepository) {
-        return false
-      }
-
-      setNewThreadError(null)
-      setBusyAction('create-thread')
-      try {
-        const result = await api.appState.createThread({
-          repositoryId: selectedRepository.id,
-          mode: input.mode,
-          title: input.title,
-          branchName: input.branchName,
-          useCurrentBranch: input.useCurrentBranch
-        })
-
-        if (result.snapshot) {
-          setSnapshot(result.snapshot)
-        }
-
-        if (result.ok && result.snapshot?.selectedThreadId) {
-          setRepositoryViewId(null)
-          setInboxProjectId(null)
-          setPerformanceOpen(false)
-        } else if (!result.cancelled) {
-          setNewThreadError(result.error ?? 'Thread creation failed.')
-        }
-
-        return result.ok
-      } catch (error) {
-        setNewThreadError(error instanceof Error ? error.message : String(error))
-        return false
-      } finally {
-        setBusyAction(null)
-      }
-    },
-    [selectedRepository, setSnapshot]
-  )
-
-  const handleCreateGeneralThread = useCallback(
-    async (repositoryId: string): Promise<void> => {
-      if (busyAction === 'create-thread') {
+  const handleNewThread = useCallback(
+    async (repositoryId?: string): Promise<void> => {
+      const targetRepositoryId = repositoryId ?? selectedRepository?.id
+      if (!targetRepositoryId || busyAction === 'create-thread') {
         return
       }
 
       setBusyAction('create-thread')
       try {
-        const result = await api.appState.createThread({ repositoryId, mode: 'active-branch' })
+        const result = await api.appState.createThread({ repositoryId: targetRepositoryId })
         if (result.snapshot) {
           setSnapshot(result.snapshot)
         }
@@ -457,38 +409,19 @@ export default function App(): React.JSX.Element {
         setBusyAction(null)
       }
     },
-    [busyAction, setSnapshot]
+    [busyAction, selectedRepository, setSnapshot]
   )
 
-  const handleOpenNewThreadDialog = useCallback(
-    (repositoryId?: string): void => {
-      const targetRepositoryId = repositoryId ?? selectedRepository?.id
-      if (!targetRepositoryId) {
-        return
+  const handleChangeThreadSetup = useCallback(
+    async (threadId: string, setup: ThreadSetup): Promise<void> => {
+      try {
+        await applyMutation(api.appState.updateThread({ threadId, setup }))
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
       }
-
-      const targetRepository = snapshot?.repositories.find(
-        (repository) => repository.id === targetRepositoryId
-      )
-      if (isGeneralProject(targetRepository)) {
-        void handleCreateGeneralThread(targetRepositoryId)
-        return
-      }
-
-      if (targetRepositoryId !== selectedRepository?.id) {
-        handleSelectRepository(targetRepositoryId)
-      }
-      setNewThreadError(null)
-      setDialog('new-thread')
     },
-    [handleCreateGeneralThread, handleSelectRepository, selectedRepository, snapshot]
+    [applyMutation]
   )
-
-  const handleCloseNewThreadDialog = useCallback((): void => {
-    setDialog(null)
-    setNewThreadError(null)
-  }, [])
-
   // Settings dialogs auto-save and show failures inline, so these skip the busy state and toast.
   const handleSaveSettings = useCallback(
     async (input: UpdateSettingsInput): Promise<MutationResult> => {
@@ -791,15 +724,7 @@ export default function App(): React.JSX.Element {
     themeSynced.current = true
   }, [savedTheme])
 
-  // Refresh repo state (current branch, primary branch, etc.) every time the
-  // New Thread dialog opens — git state can change externally between opens.
-  useEffect(() => {
-    if (dialog === 'new-thread') {
-      void refreshSnapshot()
-    }
-  }, [dialog, refreshSnapshot])
-
-  // Ctrl+N to open new-thread dialog (also accepts ⌘ for cross-platform devs)
+  // Ctrl+N starts a new thread (also accepts ⌘ for cross-platform devs)
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
@@ -808,12 +733,12 @@ export default function App(): React.JSX.Element {
         }
 
         event.preventDefault()
-        handleOpenNewThreadDialog()
+        void handleNewThread()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [handleOpenNewThreadDialog, selectedRepository])
+  }, [handleNewThread, selectedRepository])
 
   if (!snapshot) {
     return (
@@ -853,7 +778,7 @@ export default function App(): React.JSX.Element {
             setPerformanceOpen(false)
           }}
           onEditThread={handleOpenThreadEditor}
-          onNewThread={handleOpenNewThreadDialog}
+          onNewThread={(repositoryId) => void handleNewThread(repositoryId)}
           onOpenSettings={() => setDialog('settings')}
           onOpenPerformance={() => {
             setDialog(null)
@@ -894,7 +819,7 @@ export default function App(): React.JSX.Element {
               onReopenRepositoryTask={handleReopenRepositoryTask}
               onUpdateRepositoryTask={(input) => handleUpdateRepositoryTask(input)}
               onReorderRepositoryTasks={handleReorderRepositoryTasks}
-              onNewThread={() => handleOpenNewThreadDialog()}
+              onNewThread={() => void handleNewThread()}
               onStartRunCommand={() => void handleStartRunCommand()}
               onStopRunCommand={() => void handleStopRunCommand()}
               onOpenWorkingDirectory={() => void handleOpenWorkingDirectory()}
@@ -903,6 +828,7 @@ export default function App(): React.JSX.Element {
               onRefresh={refreshSnapshot}
               onSessionsChange={handleSessionsChange}
               onSetMessagePinned={handleSetMessagePinned}
+              onChangeThreadSetup={handleChangeThreadSetup}
               onForkThread={handleForkThread}
               onDismissAwakened={handleDismissAwakened}
               repositoryTaskBusy={
@@ -940,15 +866,6 @@ export default function App(): React.JSX.Element {
           </Presence>
         </div>
       </div>
-
-      <NewThreadDialog
-        busy={busyAction === 'create-thread'}
-        error={newThreadError}
-        onClose={handleCloseNewThreadDialog}
-        onSubmit={handleCreateThread}
-        open={dialog === 'new-thread'}
-        repository={selectedRepository}
-      />
 
       <SettingsDialog
         onClose={() => setDialog(null)}

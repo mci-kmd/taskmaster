@@ -70,6 +70,7 @@ it('shows automatic approval enabled by default and saves a toggle immediately',
     taskTagsInput: 'bug',
     legacyCopilotModels: [],
     theme: 'graphite',
+    threadSetupMode: 'trunk',
     showAgentModePicker: false,
     disabledTaskmasterTools: []
   })
@@ -148,6 +149,7 @@ it('shows a rejected value inline and keeps saving other settings from the last 
     taskTagsInput: 'bug',
     legacyCopilotModels: [],
     theme: 'graphite',
+    threadSetupMode: 'trunk',
     showAgentModePicker: false,
     disabledTaskmasterTools: []
   })
@@ -192,6 +194,8 @@ it('navigates sections with the arrow keys', async () => {
   expect(document.activeElement).toBe(appearance)
   expect(appearance.getAttribute('aria-selected')).toBe('true')
 
+  await user.keyboard('{ArrowDown}')
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Threads' }))
   await user.keyboard('{ArrowDown}')
   expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Copilot' }))
   await user.keyboard('{ArrowDown}')

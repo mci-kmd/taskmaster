@@ -20,7 +20,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Completed tasks are kept rather than deleted: open them from the quiet "N completed tasks" link below the task list, newest first, with the same search and label filters, and reopen any of them
 - Tag tasks with global labels from Settings plus optional project-specific labels from Edit project
 - Threads are named automatically after your first message, using the project's commit message model; a title you set in Edit thread replaces it, and **Regenerate title** in a thread's menu writes a new one from the conversation (replacing any manual title)
-- Create Copilot threads on a branch or worktree; settling preserves sessions, branches, and worktrees without cleanup, and keeps the current project selected
+- **New thread** (Ctrl+N) opens a thread right away. Under its message box, pick its checkout: **Trunk** (the primary branch), **Branch** or **Worktree**, preselected from Settings → Threads or the project's override in Edit project. Pick an existing branch or worktree, type a new name, or leave it blank to have one named from your first message (with a leading user-story number kept, e.g. `12431234-build-the-thing`). The checkout is made when the first message is sent; settling preserves sessions, branches, and worktrees without cleanup, and keeps the current project selected
 - Choose a predefined project icon and color as a fallback for custom favicons
 - Settings and Edit project are split into sections (Edit project: General, Run & preview, Worktrees, Tasks, Commits, Danger zone) navigated from a sidebar (↑/↓ move between sections). There is no Save button: toggles and pickers save immediately, text fields after a short pause in typing, on Enter or blur, and when the dialog closes (Esc). The header shows the save status; a rejected value, such as an invalid preview URL, is flagged next to its field and on its section while the last valid value stays saved
 - Browse available Copilot models through nested family submenus, preserving the active model and per-model reasoning settings; star models (click the star or press `*`) to list them as favorites at the bottom of the picker
@@ -50,7 +50,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Skills loaded into the conversation appear as a marker naming them (skills loaded together share one line) and whether you or Copilot asked for them; hover a skill name for its description
 - Add git repositories from a folder picker
 - Remove a project from Edit project: a confirmation lists the active and settled threads and tasks that will be lost. Only Taskmaster's metadata is deleted; the repository, branches, and worktrees are untouched. Unavailable while any of the project's threads are working
-- Create persisted threads on the active branch, an existing branch, a new branch, or a worktree
+- Create persisted threads on the primary branch, an existing branch, a new branch, or a worktree
 - Open a plain shell terminal in a thread's working directory
 - Resume Copilot conversations by persisted session ID
 - Configure automatic permission approval (enabled by default); managed-policy approvals still prompt. Settings apply to newly opened sessions

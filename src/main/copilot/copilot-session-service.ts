@@ -498,6 +498,14 @@ export function createCopilotSessionService(dependencies: {
   onHistoryTruncated?: (threadId: string, history: ReturnType<typeof describeHistory>) => void
   /** Asks the user to confirm resetting a conversation. */
   confirmReset?: () => Promise<boolean>
+  /**
+   * Makes a new thread's checkout before its first prompt is sent. cwdChanged means the thread
+   * moved to another directory, so its session restarts there.
+   */
+  prepareThread?: (
+    threadId: string,
+    prompt: string
+  ) => Promise<{ ok: true; cwdChanged: boolean } | { ok: false; error: string }>
 }): {
   getSdkStatus: () => Promise<CopilotSdkStatus>
   updateSdk: () => Promise<CopilotSdkStatus>
@@ -1779,6 +1787,38 @@ export function createCopilotSessionService(dependencies: {
     }
   }
 
+  /** Sets up a new thread's checkout, restarting its session when it moved elsewhere. */
+  const prepareThread = async (threadId: string, prompt: string): Promise<CopilotStartResult> => {
+    if (!dependencies.prepareThread) return { ok: true }
+    const result = await dependencies.prepareThread(threadId, prompt)
+    const previous = sessions.get(threadId)
+    if (!result.ok) return { ok: false, error: result.error, snapshot: previous?.snapshot }
+    if (!result.cwdChanged) return { ok: true }
+    // Keep the model picked before the first prompt.
+    const selection: CopilotModelSelection | null = previous?.snapshot.model
+      ? { model: previous.snapshot.model, reasoningEffort: previous.snapshot.reasoningEffort }
+      : null
+    const previousSessionId = previous?.session.sessionId ?? null
+    await stopThread(threadId)
+    if (previousSessionId)
+      void ensureClient()
+        .then((sdkClient) => sdkClient.deleteSession(previousSessionId))
+        .catch(() => undefined)
+    const started = await start(threadId)
+    if (!started.ok || !selection) return started
+    const active = sessions.get(threadId)
+    if (
+      !active ||
+      (active.snapshot.model === selection.model &&
+        (!selection.reasoningEffort ||
+          active.snapshot.reasoningEffort === selection.reasoningEffort))
+    )
+      return started
+    // A model that didn't carry over shows in the picker; it doesn't hold up the prompt.
+    await applyModelSelection(active, selection)
+    return started
+  }
+
   const sendWhileRunning = async (
     active: ActiveSession,
     input: CopilotSendInput & { delivery: CopilotSendDelivery }
@@ -1898,6 +1938,10 @@ export function createCopilotSessionService(dependencies: {
       }
     },
     send: async (input) => {
+      if (!isAsideSessionKey(input.threadId)) {
+        const prepared = await prepareThread(input.threadId, input.prompt)
+        if (!prepared.ok) return prepared
+      }
       const startResult = await start(input.threadId)
       if (!startResult.ok) return startResult
       const active = sessions.get(input.threadId)

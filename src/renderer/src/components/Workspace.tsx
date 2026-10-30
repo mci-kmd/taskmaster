@@ -3,6 +3,7 @@ import type {
   AppSettingsSnapshot,
   CreateRepositoryTaskInput,
   RepositorySnapshot,
+  ThreadSetup,
   ThreadSnapshot,
   UpdateRepositoryTaskInput
 } from '../../../shared/app-types'
@@ -82,6 +83,7 @@ type WorkspaceProps = {
     pinned: boolean
   ) => Promise<unknown> | void
   onForkThread?: (threadId: string, messageId?: string) => Promise<unknown> | void
+  onChangeThreadSetup?: (threadId: string, setup: ThreadSetup) => Promise<unknown> | void
   /** Clears the awakened state of a thread back from a snooze once the user attends to it. */
   onDismissAwakened?: (threadId: string) => Promise<unknown> | void
 }
@@ -316,6 +318,7 @@ export default function Workspace({
   onSessionsChange,
   onSetMessagePinned,
   onForkThread,
+  onChangeThreadSetup,
   onDismissAwakened
 }: WorkspaceProps): React.JSX.Element {
   const terminalSessionsRef = useRef<TerminalSessionsHandle | null>(null)
@@ -357,6 +360,13 @@ export default function Workspace({
         ? (messageId: string, pinned: boolean) => onSetMessagePinned(pinThreadId, messageId, pinned)
         : undefined,
     [onSetMessagePinned, pinThreadId]
+  )
+  const handleChangeSetup = useMemo(
+    () =>
+      onChangeThreadSetup && pinThreadId
+        ? (setup: ThreadSetup) => onChangeThreadSetup(pinThreadId, setup)
+        : undefined,
+    [onChangeThreadSetup, pinThreadId]
   )
   const handleForkThread = useMemo(
     () =>
@@ -683,6 +693,8 @@ export default function Workspace({
                     onSessionChange={handleCustomCopilotSessionChange}
                     onSetMessagePinned={handleSetMessagePinned}
                     onForkThread={handleForkThread}
+                    onChangeSetup={handleChangeSetup}
+                    repository={selectedRepository}
                     sharedCheckoutBusy={sharedCheckoutBusy}
                     showModePicker={settings.showAgentModePicker}
                     thread={selectedThread}

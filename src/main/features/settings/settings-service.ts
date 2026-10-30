@@ -6,6 +6,7 @@ import type {
 } from '../../../shared/app-types'
 import { normalizeDisabledTaskmasterTools } from '../../../shared/copilot-tools'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
+import { isThreadSetupMode } from '../../../shared/thread-setup'
 import { DEFAULT_THEME, isThemeId, type ThemeId } from '../../../shared/themes'
 import { normalizeModelIds } from '../state-store/app-state-values'
 
@@ -47,6 +48,9 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
         const disabled = normalizeDisabledTaskmasterTools(input.disabledTaskmasterTools)
         if (disabled) state.settings.disabledTaskmasterTools = disabled
         else delete state.settings.disabledTaskmasterTools
+      }
+      if (isThreadSetupMode(input.threadSetupMode)) {
+        state.settings.threadSetupMode = input.threadSetupMode
       }
       const themeChanged =
         input.theme !== undefined &&

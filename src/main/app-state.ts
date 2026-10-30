@@ -39,6 +39,7 @@ import { parseTaskTagsInput } from '../shared/task-tags'
 import { isTaskmasterToolEnabled } from '../shared/copilot-tools'
 import { DEFAULT_THEME, type ThemeId } from '../shared/themes'
 import { isHttpUrl } from '../shared/preview'
+import { resolveCommitMessageModel } from '../shared/commit'
 import { normalizeCopilotTitle, threadDisplayName } from '../shared/thread-title'
 import { createProjectTaskService } from './features/project-tasks/project-task-service'
 import { createProjectTaskTools } from './copilot/project-task-tools'
@@ -80,7 +81,15 @@ import { createThreadDiffService } from './features/diffs/thread-diff-service'
 import { createBranchStatusService } from './features/branch-status/branch-status-service'
 import { createThreadCloseService } from './features/threads/thread-close-service'
 import { createThreadConvertService } from './features/threads/thread-convert-service'
-import { createThreadCreateService } from './features/threads/thread-create-service'
+import {
+  createThreadCreateService,
+  type ThreadSetupResult
+} from './features/threads/thread-create-service'
+import {
+  BRANCH_NAME_SYSTEM_MESSAGE,
+  buildBranchNamePrompt,
+  cleanGeneratedBranchName
+} from './features/threads/thread-branch-name'
 import { createThreadGitContextService } from './features/threads/thread-git-context'
 import { getThreadExecutionCwd, getThreadUiCwd } from './features/threads/thread-paths'
 import { createThreadRunService } from './features/threads/thread-run-service'
@@ -222,6 +231,7 @@ const threadStateService = createThreadStateService({
   normalizeCopilotTitle,
   nowIso,
   isThreadWorking: (threadId) => isCopilotThreadWorking(threadId),
+  isThreadSettingUp: (threadId) => threadCreateService.isThreadSettingUp(threadId),
   onMessagePinned: (threadId, messageId) =>
     void pinnedMessageTitleService.generatePinTitle(threadId, messageId)
 })
@@ -251,7 +261,24 @@ const threadCreateService = createThreadCreateService({
   successResult,
   failureResult,
   nowIso,
-  createId: randomUUID
+  createId: randomUUID,
+  generateBranchName: async ({ repository, cwd, prompt }) => {
+    if (!prompt.trim() || !generateCommitMessage) return null
+    return cleanGeneratedBranchName(
+      await generateCommitMessage({
+        ...resolveCommitMessageModel(repository),
+        cwd,
+        systemMessage: BRANCH_NAME_SYSTEM_MESSAGE,
+        prompt: buildBranchNamePrompt(prompt)
+      })
+    )
+  },
+  onThreadSetUp: (threadId) => {
+    const thread = findThread(threadId)
+    const repository = thread ? findRepository(thread.repositoryId) : undefined
+    if (repository) repositoryGitStateService.getRepositoryGitState(repository, true)
+    electronUi.broadcastThreadRunState(threadId)
+  }
 })
 const threadConvertService = createThreadConvertService({
   ensureState,
@@ -499,6 +526,11 @@ export function setCopilotThreadController(controller: {
   isCopilotThreadWorking = controller.isWorking
   getCopilotUserPrompts = controller.getUserPrompts
   getCopilotMessageContent = controller.getMessageContent
+}
+
+/** Makes a new thread's checkout before its first prompt is sent. */
+export function prepareCopilotThread(threadId: string, prompt: string): Promise<ThreadSetupResult> {
+  return threadCreateService.finishThreadSetup(threadId, prompt)
 }
 
 export function resolveCopilotThread(threadId: string): {

@@ -20,6 +20,7 @@ import {
   sameTaskmasterToolSettings
 } from '../../../shared/copilot-tools'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
+import { isThreadSetupMode } from '../../../shared/thread-setup'
 import { validateRepositoryPreviewUrlInput } from './repository-values'
 
 type FilePickerResult = {
@@ -287,6 +288,13 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         input.autoPushAfterCommit === undefined
           ? repository.autoPushAfterCommit === true
           : input.autoPushAfterCommit === true
+      if (input.threadSetupMode != null && !isThreadSetupMode(input.threadSetupMode)) {
+        return dependencies.failureResult('Thread checkout mode is invalid.')
+      }
+      const threadSetupMode =
+        input.threadSetupMode === undefined
+          ? repository.threadSetupMode
+          : (input.threadSetupMode ?? undefined)
 
       if (
         (input.icon === undefined || input.icon === repository.icon) &&
@@ -300,6 +308,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         (repository.previewUrl ?? null) === previewUrlValidation.url &&
         isSameModelSelection(repository.commitMessageModel, commitMessageModel) &&
         (repository.autoPushAfterCommit === true) === autoPushAfterCommit &&
+        repository.threadSetupMode === threadSetupMode &&
         !toolOverridesChanged
       ) {
         return dependencies.successResult()
@@ -319,6 +328,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       else delete repository.commitMessageModel
       if (autoPushAfterCommit) repository.autoPushAfterCommit = true
       else delete repository.autoPushAfterCommit
+      if (threadSetupMode) repository.threadSetupMode = threadSetupMode
+      else delete repository.threadSetupMode
       applyToolOverrides()
       dependencies.saveState()
       return dependencies.successResult()
