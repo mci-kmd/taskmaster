@@ -584,6 +584,9 @@
   .tm-session-working[data-waiting] .tm-session-working-spark {
     color: var(--color-accent-2);
   }
+  .tm-session-working[data-watching] .tm-session-working-spark {
+    animation: tm-pulse 2.4s ease-in-out infinite;
+  }
   .tm-session-working-time {
     font-weight: 400;
     font-variant-numeric: tabular-nums;

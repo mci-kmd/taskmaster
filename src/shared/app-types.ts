@@ -702,6 +702,11 @@ export interface CopilotSessionSnapshot {
   workingSince?: string | null
   /** Sub-agents running now, oldest first. Background ones may outlive the agent's turn. */
   runningSubagents?: CopilotRunningSubagent[]
+  /**
+   * Attached shell commands still running in the background. Copilot is notified when they
+   * finish, so after its turn it is watching them rather than done.
+   */
+  backgroundShells?: number
   error: string | null
 }
 

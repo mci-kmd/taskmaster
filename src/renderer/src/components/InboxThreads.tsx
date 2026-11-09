@@ -25,6 +25,7 @@ import {
   WorktreeIcon,
   ChevronRightIcon,
   CheckIcon,
+  EyeIcon,
   GitCommitIcon,
   GitHubIssueIcon,
   GitPullRequestIcon,
@@ -606,6 +607,8 @@ function ThreadStatus({
     <span key={status} className="tm-thread-status tm-fade-in" data-status={status}>
       {status === 'working' || status === 'connecting' ? (
         <span className="tm-live-dot" aria-hidden="true" />
+      ) : status === 'watching' ? (
+        <EyeIcon width={12} height={12} strokeWidth={1.6} aria-hidden="true" />
       ) : status === 'error' ? (
         <AlertIcon width={11} height={11} strokeWidth={1.8} aria-hidden="true" />
       ) : (
@@ -624,6 +627,7 @@ function isBusyStatus(status: CopilotThreadStatus): boolean {
 const STATUS_LABELS: Record<CopilotThreadStatus, string> = {
   idle: 'Idle',
   working: 'Working',
+  watching: 'Watching',
   connecting: 'Connecting',
   input: 'Needs input',
   done: 'Done',
@@ -705,7 +709,7 @@ function ThreadTooltip({
   const showAwakened = awakened && !isBusyStatus(status)
   const tone = showAwakened
     ? 'warning'
-    : status === 'working' || status === 'connecting'
+    : status === 'working' || status === 'connecting' || status === 'watching'
       ? 'accent'
       : status === 'done'
         ? 'positive'

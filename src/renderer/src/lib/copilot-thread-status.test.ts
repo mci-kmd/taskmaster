@@ -75,6 +75,24 @@ describe('Copilot thread status', () => {
     expect(mergeCopilotThreadSessionState(done, working).copilotStatus).toBe('working')
   })
 
+  it('keeps working for background sub-agents and watches background shells after the turn', () => {
+    const agent = { id: 'a', name: 'writer', description: '', model: null, startedAt: '' }
+    const withAgents = toCopilotThreadSessionState({
+      ...snapshot('idle'),
+      runningSubagents: [agent],
+      backgroundShells: 1
+    })
+    expect(withAgents.copilotStatus).toBe('working')
+    const watching = toCopilotThreadSessionState({ ...snapshot('idle'), backgroundShells: 1 })
+    expect(watching.copilotStatus).toBe('watching')
+    const running = toCopilotThreadSessionState(snapshot('running'))
+    expect(mergeCopilotThreadSessionState(running, watching).copilotStatus).toBe('watching')
+
+    const idle = toCopilotThreadSessionState(snapshot('idle'))
+    expect(mergeCopilotThreadSessionState(withAgents, idle).copilotStatus).toBe('done')
+    expect(mergeCopilotThreadSessionState(watching, idle).copilotStatus).toBe('done')
+  })
+
   it('ignores modifier-only keys as dismiss interactions', () => {
     expect(isDoneDismissKey('Alt')).toBe(false)
     expect(isDoneDismissKey('Control')).toBe(false)

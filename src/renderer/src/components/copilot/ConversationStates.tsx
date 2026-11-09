@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { CopilotRunningSubagent } from '../../../../shared/app-types'
 import Button from '../ui/Button'
-import { AgentIcon, SparkIcon } from '../Icons'
+import { AgentIcon, EyeIcon, SparkIcon } from '../Icons'
 import { useLastValue } from '../../lib/motion'
 import { formatElapsed } from './prompt-cost'
 
@@ -80,6 +80,24 @@ export function WorkingIndicator({
           {formatElapsed(elapsed)}
         </span>
       ) : null}
+    </div>
+  )
+}
+
+/** The row at the end of the transcript while Copilot waits on shell commands it left running. */
+export function WatchingIndicator({
+  shells,
+  ...motion
+}: { shells: number } & MotionProps): React.JSX.Element {
+  // Keeps the last count on screen while the row animates out.
+  const shown = useLastValue(shells > 0 ? shells : null) ?? 1
+  return (
+    <div className="tm-session-working" data-watching="" {...motion}>
+      <EyeIcon className="tm-session-working-spark" aria-hidden="true" />
+      <span>Watching {shown === 1 ? 'a background command' : `${shown} background commands`}</span>
+      <span className="tm-session-working-time">
+        Copilot resumes when {shown === 1 ? 'it finishes' : 'they finish'}
+      </span>
     </div>
   )
 }

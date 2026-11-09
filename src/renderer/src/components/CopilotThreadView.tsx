@@ -43,7 +43,12 @@ import SendButton from './copilot/SendButton'
 import CommitButton, { type CommitButtonAction } from './copilot/CommitButton'
 import PendingMessages from './copilot/PendingMessages'
 import AttachmentChips from './copilot/AttachmentChips'
-import { EmptyConversation, RunningSubagents, WorkingIndicator } from './copilot/ConversationStates'
+import {
+  EmptyConversation,
+  RunningSubagents,
+  WatchingIndicator,
+  WorkingIndicator
+} from './copilot/ConversationStates'
 import { registerComposer, useSessionDraft } from './copilot/session-drafts'
 import {
   expandPastedText,
@@ -169,19 +174,45 @@ function useAsideRunning(threadId: string, enabled: boolean): boolean {
 export default function CopilotThreadView(props: Props): React.JSX.Element {
   const threadId = props.thread.id
   const [, rerender] = useReducer((count: number) => count + 1, 0)
+  const hostRef = useRef<HTMLDivElement>(null)
   const asideOpen = openAsides.has(threadId)
   const setAsideOpen = useCallback(
     (open: boolean) => {
       if (open) openAsides.add(threadId)
-      else openAsides.delete(threadId)
+      else {
+        openAsides.delete(threadId)
+        // Focus would otherwise be lost with the closing panel; hand it back to the thread.
+        const host = hostRef.current
+        const active = document.activeElement
+        if (host && (!active || active === document.body || active.closest('.tm-aside')))
+          host.querySelector<HTMLTextAreaElement>(':scope > .tm-session textarea')?.focus()
+      }
       rerender()
     },
     [threadId]
   )
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      if (
+        !(event.ctrlKey || event.metaKey) ||
+        !event.shiftKey ||
+        event.altKey ||
+        event.key.toLowerCase() !== 'a' ||
+        document.querySelector('[role="dialog"][aria-modal="true"]') ||
+        // A view that is crossfading out (or otherwise inert) no longer owns the shortcut.
+        hostRef.current?.closest('[data-state="closed"], [inert]')
+      )
+        return
+      event.preventDefault()
+      if (!event.repeat) setAsideOpen(!openAsides.has(threadId))
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [threadId, setAsideOpen])
   // Only a thread that has had an aside can have one working.
   const asideRunning = useAsideRunning(threadId, Boolean(props.thread.aside))
   return (
-    <div className="tm-session-host">
+    <div ref={hostRef} className="tm-session-host">
       <SessionView
         key={threadId}
         {...props}
@@ -279,7 +310,7 @@ function AsidePanel({
           variant="ghost"
           iconOnly
           aria-label="Close aside"
-          title="Close aside (Esc)"
+          title="Close aside (Esc or Ctrl+Shift+A)"
           onClick={onClose}
         >
           <CloseIcon aria-hidden="true" />
@@ -712,6 +743,10 @@ function SessionView({
     })
   }
   const running = session?.phase === 'running'
+  // After its turn, Copilot may still have sub-agents working or shell commands it watches.
+  const backgroundAgents = session?.phase === 'idle' && (session.runningSubagents?.length ?? 0) > 0
+  const watching =
+    session?.phase === 'idle' && !backgroundAgents && (session.backgroundShells ?? 0) > 0
   const ready = session?.phase === 'idle' && !session.pendingInteraction && !stopping
   // Messages sent while Copilot works steer the current turn or wait in the queue.
   const sendWhileRunning = running && !session?.pendingInteraction && !stopping
@@ -982,15 +1017,19 @@ function SessionView({
         ? 'Needs your input'
         : running
           ? 'Working…'
-          : session?.phase === 'idle'
-            ? 'Ready'
-            : session?.phase === 'error' || (error && !session)
-              ? session?.sessionId
-                ? 'Session error'
-                : 'Could not connect'
-              : session?.phase === 'disconnected'
-                ? 'Disconnected'
-                : 'Connecting…'
+          : backgroundAgents
+            ? 'Sub-agents working…'
+            : watching
+              ? 'Watching background commands'
+              : session?.phase === 'idle'
+                ? 'Ready'
+                : session?.phase === 'error' || (error && !session)
+                  ? session?.sessionId
+                    ? 'Session error'
+                    : 'Could not connect'
+                  : session?.phase === 'disconnected'
+                    ? 'Disconnected'
+                    : 'Connecting…'
 
   return (
     <section
@@ -1091,6 +1130,9 @@ function SessionView({
             </Presence>
             <Presence show={(session?.runningSubagents?.length ?? 0) > 0} motion="collapse">
               <RunningSubagents agents={session?.runningSubagents ?? []} />
+            </Presence>
+            <Presence show={watching} motion="collapse">
+              <WatchingIndicator shells={session?.backgroundShells ?? 0} />
             </Presence>
           </div>
         </div>
@@ -1311,7 +1353,7 @@ function SessionView({
                 className="tm-aside-toggle"
                 aria-pressed={aside.open}
                 aria-label={aside.open ? 'Close aside' : 'Open aside'}
-                title="Aside: talk about this thread without affecting it"
+                title="Aside: talk about this thread without affecting it (Ctrl+Shift+A)"
                 data-running={aside.running || undefined}
                 onClick={aside.onToggle}
               >

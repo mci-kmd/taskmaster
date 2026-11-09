@@ -425,6 +425,7 @@ export default function Workspace({
       return (
         session?.copilotPhase === 'running' ||
         session?.copilotPhase === 'connecting' ||
+        session?.copilotStatus === 'working' ||
         session?.copilotStatus === 'input'
       )
     })

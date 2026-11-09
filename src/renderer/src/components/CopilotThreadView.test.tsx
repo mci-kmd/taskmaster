@@ -740,6 +740,29 @@ describe('Copilot session composer', () => {
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Aside' })).toBeNull())
   })
 
+  it('toggles the aside with Ctrl+Shift+A and focuses its message box', async () => {
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    const press = (): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'A',
+        ctrlKey: true,
+        shiftKey: true,
+        cancelable: true
+      })
+      act(() => {
+        window.dispatchEvent(event)
+      })
+      return event
+    }
+    expect(press().defaultPrevented).toBe(true)
+    const aside = await screen.findByRole('complementary', { name: 'Aside' })
+    const input = await within(aside).findByRole('combobox', { name: 'Message Copilot' })
+    await waitFor(() => expect(document.activeElement).toBe(input))
+    press()
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Aside' })).toBeNull())
+  })
+
   it('shows model and approval failures, without swallowing them', async () => {
     const a = thread()
     mock.setModel.mockResolvedValue({ ok: false, error: 'Model unavailable' })

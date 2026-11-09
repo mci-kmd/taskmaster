@@ -43,6 +43,7 @@ const harness = vi.hoisted(() => ({
   forceStop: vi.fn(),
   fork: vi.fn(),
   truncate: vi.fn(),
+  listTasks: vi.fn(),
   broadcast: vi.fn(),
   unsubscribe: vi.fn()
 }))
@@ -164,6 +165,7 @@ beforeEach(() => {
   harness.forceStop.mockResolvedValue(undefined)
   harness.fork.mockResolvedValue({ sessionId: 'forked-session' })
   harness.truncate.mockResolvedValue({ eventsRemoved: 0 })
+  harness.listTasks.mockResolvedValue({ tasks: [] })
   harness.setModel.mockResolvedValue(undefined)
   harness.setAllowedModels.mockResolvedValue({})
   harness.send.mockResolvedValue('message-id')
@@ -185,7 +187,8 @@ beforeEach(() => {
         commands: { invoke: harness.invokeCommand },
         mcp: { list: harness.listMcpServers, oauth: { login: harness.mcpLogin } },
         queue: { pendingItems: harness.pendingItems, removeAt: harness.removeAt },
-        history: { truncate: harness.truncate }
+        history: { truncate: harness.truncate },
+        tasks: { list: harness.listTasks }
       },
       on: (listener: (event: SessionEvent) => void) => {
         harness.listener = listener
@@ -1134,6 +1137,72 @@ describe('Copilot session interactions', () => {
     expect(service.runningThreadNames()).toEqual(['Fix login'])
     emit('session.idle', {})
     expect(service.runningThreadNames()).toEqual([])
+  })
+
+  it('stays working while background sub-agents outlive the turn or are messaged again', async () => {
+    const service = setup()
+    await service.start('thread')
+    harness.listener!(event('user.message', { content: 'Hi', messageId: 'u1' }))
+    harness.listener!(
+      event('subagent.started', { toolCallId: 'c1', agentName: 'writer' }, { agentId: 'a' })
+    )
+    emit('assistant.idle', {})
+    expect(service.getSession('thread')!.phase).toBe('idle')
+    expect(service.isThreadWorking('thread')).toBe(true)
+    expect(service.runningThreadNames()).toHaveLength(1)
+    harness.listener!(event('subagent.completed', { toolCallId: 'c1' }, { agentId: 'a' }))
+    expect(service.isThreadWorking('thread')).toBe(false)
+    expect(service.runningThreadNames()).toEqual([])
+
+    // Copilot messages the idle sub-agent again; it works without starting anew.
+    harness.listener!(event('user.message', { content: 'Follow-up' }, { agentId: 'a' }))
+    expect(service.getSession('thread')!.runningSubagents).toEqual([
+      expect.objectContaining({ id: 'a', name: 'writer' })
+    ])
+    expect(service.isThreadWorking('thread')).toBe(true)
+    harness.listener!(event('user.message', { content: 'Unknown' }, { agentId: 'z' }))
+    expect(service.getSession('thread')!.runningSubagents).toHaveLength(1)
+    emit('system.notification', {
+      content: '',
+      kind: { type: 'agent_idle', agentId: 'a', agentType: 'writer' }
+    })
+    expect(service.getSession('thread')!.runningSubagents).toEqual([])
+    expect(service.isThreadWorking('thread')).toBe(false)
+  })
+
+  it('counts attached background shells until the session goes idle', async () => {
+    const service = setup()
+    await service.start('thread')
+    const shell = (status: string, attachmentMode = 'attached'): unknown => ({
+      type: 'shell',
+      id: crypto.randomUUID(),
+      status,
+      attachmentMode
+    })
+    harness.listTasks.mockResolvedValueOnce({
+      tasks: [
+        shell('running'),
+        shell('running', 'detached'),
+        shell('completed'),
+        { type: 'agent', status: 'running' }
+      ]
+    })
+    emit('session.background_tasks_changed', {})
+    await vi.waitFor(() => expect(service.getSession('thread')!.backgroundShells).toBe(1))
+    emit('assistant.idle', {})
+    expect(service.getSession('thread')!.backgroundShells).toBe(1)
+    expect(service.isThreadWorking('thread')).toBe(false)
+
+    // A listing still in flight when the session goes idle is stale.
+    const late = deferred<unknown>()
+    harness.listTasks.mockReturnValueOnce(late.promise)
+    emit('session.background_tasks_changed', {})
+    emit('session.idle', {})
+    expect(service.getSession('thread')!.backgroundShells).toBe(0)
+    late.resolve({ tasks: [shell('running')] })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(service.getSession('thread')!.backgroundShells).toBe(0)
   })
 
   it('reconnects a failed session rather than returning the same error snapshot', async () => {

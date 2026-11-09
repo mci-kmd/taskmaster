@@ -243,6 +243,16 @@
   .tm-thread-status[data-status='connecting'] .tm-live-dot {
     opacity: 0.7;
   }
+  /* Copilot's turn is over, but it resumes once the background work it watches finishes. */
+  .tm-thread-status[data-status='watching'] {
+    gap: 4px;
+    color: var(--color-accent);
+    font-weight: 560;
+  }
+  .tm-thread-status[data-status='watching'] svg {
+    flex: none;
+    animation: tm-pulse 2.4s ease-in-out infinite;
+  }
   .tm-thread-status[data-status='error'] {
     gap: 4px;
     color: var(--color-danger);

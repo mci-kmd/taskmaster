@@ -125,6 +125,10 @@ type ActiveSession = {
   allowedModels: string[] | null
   /** Serializes allowlist updates so they reach the runtime in order. */
   allowedModelsSync: Promise<void>
+  /** Discards background task listings made stale by a newer listing or the session going idle. */
+  backgroundRevision: number
+  /** Sub-agents started in this session, to list them again when Copilot messages them anew. */
+  subagentInfo: Map<string, Omit<CopilotRunningSubagent, 'startedAt'>>
   unsubscribe: () => void
 }
 
@@ -622,6 +626,44 @@ export function createCopilotSessionService(dependencies: {
     broadcastSession(active.snapshot)
   }
 
+  /**
+   * Counts the attached shell commands still running, e.g. one Copilot waits on in the background
+   * to resume when it finishes. They defer session.idle, so the thread is watching rather than done.
+   */
+  const refreshBackgroundTasks = (active: ActiveSession): void => {
+    const tasks = active.session.rpc.tasks
+    // Experimental in the SDK; other installed SDK versions may not offer it.
+    if (typeof tasks?.list !== 'function') return
+    const revision = ++active.backgroundRevision
+    void tasks
+      .list()
+      .then(({ tasks: list }) => {
+        if (
+          revision !== active.backgroundRevision ||
+          sessions.get(active.snapshot.threadId) !== active
+        )
+          return
+        const shells = list.filter(
+          (task) =>
+            task.type === 'shell' && task.status === 'running' && task.attachmentMode === 'attached'
+        ).length
+        if (shells !== (active.snapshot.backgroundShells ?? 0))
+          updateSnapshot(active, { backgroundShells: shells })
+      })
+      .catch((error) => console.error('Could not list background tasks:', error))
+  }
+
+  const clearBackgroundTasks = (active: ActiveSession): Partial<CopilotSessionSnapshot> => {
+    active.backgroundRevision++
+    return { runningSubagents: [], backgroundShells: 0 }
+  }
+
+  /** Copilot is busy, including sub-agents it left running in the background after its turn. */
+  const isWorking = ({ snapshot }: ActiveSession): boolean =>
+    snapshot.phase === 'running' ||
+    snapshot.phase === 'connecting' ||
+    (snapshot.phase === 'idle' && (snapshot.runningSubagents?.length ?? 0) > 0)
+
   // Keeps the agent off legacy models, e.g. when it picks a model for a sub-agent. A legacy
   // model the user chose for the session stays allowed.
   const syncAllowedModels = (active: ActiveSession): Promise<void> => {
@@ -830,6 +872,15 @@ export function createCopilotSessionService(dependencies: {
     if (next !== current) updateSnapshot(active, { runningSubagents: next })
   }
 
+  const listRunningSubagent = (
+    active: ActiveSession,
+    info: Omit<CopilotRunningSubagent, 'startedAt'>,
+    startedAt: string
+  ): void =>
+    setRunningSubagents(active, (agents) =>
+      agents.some((agent) => agent.id === info.id) ? agents : [...agents, { ...info, startedAt }]
+    )
+
   const handleSubagentEvent = (active: ActiveSession, event: SessionEvent): boolean => {
     switch (event.type) {
       case 'subagent.started': {
@@ -842,21 +893,33 @@ export function createCopilotSessionService(dependencies: {
           nanoAiu: null
         })
         const { agentDisplayName, agentName, agentDescription, model } = event.data
-        setRunningSubagents(active, (agents) =>
-          agents.some((agent) => agent.id === id)
-            ? agents
-            : [
-                ...agents,
-                {
-                  id,
-                  name: agentDisplayName || agentName || 'Sub-agent',
-                  description: agentDescription ?? '',
-                  model: model ?? null,
-                  startedAt: event.timestamp
-                }
-              ]
-        )
+        const info = {
+          id,
+          name: agentDisplayName || agentName || 'Sub-agent',
+          description: agentDescription ?? '',
+          model: model ?? null
+        }
+        active.subagentInfo.set(id, info)
+        listRunningSubagent(active, info, event.timestamp)
         return true
+      }
+      // A sub-agent that finished its task works again when Copilot messages it, without
+      // starting anew; only its message and the notification when it is idle again tell.
+      case 'user.message':
+        if (event.agentId) {
+          const info = active.subagentInfo.get(event.agentId)
+          if (info) listRunningSubagent(active, info, event.timestamp)
+        }
+        return false
+      case 'system.notification': {
+        const { kind } = event.data
+        if (kind.type === 'agent_idle' || kind.type === 'agent_completed')
+          setRunningSubagents(active, (agents) =>
+            agents.some((agent) => agent.id === kind.agentId)
+              ? agents.filter((agent) => agent.id !== kind.agentId)
+              : agents
+          )
+        return false
       }
       case 'subagent.configured':
         if (event.agentId) {
@@ -866,6 +929,8 @@ export function createCopilotSessionService(dependencies: {
             model: event.data.model || agent.model,
             reasoningEffort: event.data.reasoningEffort ?? agent.reasoningEffort
           }))
+          const info = active.subagentInfo.get(id)
+          if (info && event.data.model) info.model = event.data.model
           if (event.data.model)
             setRunningSubagents(active, (agents) =>
               agents.some((agent) => agent.id === id && agent.model !== event.data.model)
@@ -1245,6 +1310,10 @@ export function createCopilotSessionService(dependencies: {
     }
 
     if (handleSubagentEvent(active, event)) return
+    if (event.type === 'session.background_tasks_changed') {
+      refreshBackgroundTasks(active)
+      return
+    }
     if (event.agentId) return
 
     if (event.type === 'assistant.message_delta') {
@@ -1356,7 +1425,7 @@ export function createCopilotSessionService(dependencies: {
         finishActivity(active)
         cancelInteractions(active)
         completePrompt(active, event.timestamp)
-        updateSnapshot(active, { phase: 'idle', error: null, runningSubagents: [] })
+        updateSnapshot(active, { phase: 'idle', error: null, ...clearBackgroundTasks(active) })
         refreshQueue(active)
         break
       case 'pending_messages.modified':
@@ -1369,7 +1438,7 @@ export function createCopilotSessionService(dependencies: {
         updateSnapshot(active, {
           phase: 'error',
           error: event.data.message,
-          runningSubagents: []
+          ...clearBackgroundTasks(active)
         })
         break
       case 'session.mcp_servers_loaded':
@@ -1619,6 +1688,8 @@ export function createCopilotSessionService(dependencies: {
         lastSummary: null,
         allowedModels: null,
         allowedModelsSync: Promise.resolve(),
+        backgroundRevision: 0,
+        subagentInfo: new Map(),
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder, context.yoloEnabled)
@@ -2197,12 +2268,12 @@ export function createCopilotSessionService(dependencies: {
       ),
     isThreadWorking: (threadId) => {
       if (startingThreads.has(threadId)) return true
-      const phase = sessions.get(threadId)?.snapshot.phase
-      return phase === 'running' || phase === 'connecting'
+      const active = sessions.get(threadId)
+      return Boolean(active && isWorking(active))
     },
     runningThreadNames: () =>
       [...sessions.values()]
-        .filter((active) => active.snapshot.phase === 'running')
+        .filter((active) => active.snapshot.phase !== 'connecting' && isWorking(active))
         .map(
           (active) =>
             sessionDisplayName(active.snapshot.threadId, active.snapshot.title) ??

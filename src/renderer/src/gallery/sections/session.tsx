@@ -17,6 +17,7 @@ import CommitButton from '../../components/copilot/CommitButton'
 import {
   EmptyConversation,
   RunningSubagents,
+  WatchingIndicator,
   WorkingIndicator
 } from '../../components/copilot/ConversationStates'
 import InteractionPanel from '../../components/copilot/InteractionPanel'
@@ -479,6 +480,7 @@ function LiveConversation(): React.JSX.Element {
   const [timeline, setTimeline] = useState(TIMELINE)
   const [working, setWorking] = useState(true)
   const [subagents, setSubagents] = useState(true)
+  const [watching, setWatching] = useState(false)
   const [request, setRequest] = useState(false)
   const [queued, setQueued] = useState<CopilotQueuedMessage[]>([])
   const [attachments, setAttachments] = useState<CopilotAttachment[]>([])
@@ -551,6 +553,7 @@ function LiveConversation(): React.JSX.Element {
         </Button>
         {toggle('Working', working, setWorking)}
         {toggle('Sub-agents', subagents, setSubagents)}
+        {toggle('Watching', watching, setWatching)}
         {toggle('Request', request, setRequest)}
         {toggle('Error', error, setError)}
         {toggle('Jump pill', jump, setJump)}
@@ -567,6 +570,9 @@ function LiveConversation(): React.JSX.Element {
             </Presence>
             <Presence show={subagents} motion="collapse">
               <RunningSubagents agents={subagents ? RUNNING_SUBAGENTS : []} />
+            </Presence>
+            <Presence show={watching} motion="collapse">
+              <WatchingIndicator shells={watching ? 1 : 0} />
             </Presence>
           </>
         }

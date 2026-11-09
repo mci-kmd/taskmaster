@@ -14,6 +14,9 @@ function getCopilotStatus(snapshot: CopilotSessionSnapshot): CopilotThreadStatus
     case 'disconnected':
       return 'disconnected'
     default:
+      // The agent's turn is over, but what it left running in the background isn't.
+      if (snapshot.runningSubagents?.length) return 'working'
+      if (snapshot.backgroundShells) return 'watching'
       return 'idle'
   }
 }
@@ -38,7 +41,8 @@ export function toCopilotThreadSessionState(snapshot: CopilotSessionSnapshot): T
   }
 }
 
-// 'done' sticks (even for the open thread) until explicitly dismissed or a new turn starts.
+// 'done' sticks (even for the open thread) until explicitly dismissed or a new turn starts. A turn
+// is also done once the background work it left running (sub-agents, watched shells) finishes.
 export function mergeCopilotThreadSessionState(
   previous: ThreadSessionState | undefined,
   next: ThreadSessionState
@@ -47,7 +51,10 @@ export function mergeCopilotThreadSessionState(
 
   const completed =
     previous?.copilotPhase === 'running' ||
-    (previous?.copilotPhase === 'idle' && previous.copilotStatus === 'done')
+    (previous?.copilotPhase === 'idle' &&
+      (previous.copilotStatus === 'done' ||
+        previous.copilotStatus === 'working' ||
+        previous.copilotStatus === 'watching'))
 
   return completed ? { ...next, copilotStatus: 'done' } : next
 }

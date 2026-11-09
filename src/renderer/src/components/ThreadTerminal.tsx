@@ -23,7 +23,7 @@ const api = getRendererApi()
 
 export type SessionPhase = 'initializing' | 'idle' | 'launching' | 'running' | 'stopped' | 'error'
 export type CopilotThreadStatus =
-  'idle' | 'working' | 'input' | 'done' | 'connecting' | 'error' | 'disconnected'
+  'idle' | 'working' | 'watching' | 'input' | 'done' | 'connecting' | 'error' | 'disconnected'
 
 export type ThreadSessionState = {
   phase: SessionPhase

@@ -223,6 +223,7 @@ const STATUS_CYCLE: CopilotThreadStatus[] = [
   'idle',
   'connecting',
   'working',
+  'watching',
   'input',
   'done',
   'error'
