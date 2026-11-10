@@ -51,6 +51,9 @@ function thread(id: string, settledAt?: string): ThreadSnapshot {
     commitPhase: null,
     previewUrl: null,
     commitAutoPush: false,
+    onPrimaryBranch: false,
+    primaryBranchProtected: false,
+    checkoutDrift: null,
     customTitle: id,
     displayTitle: id,
     lastActivityAt: '2026-01-01',
@@ -258,6 +261,11 @@ it('resets the commit model to the default', async () => {
   await user.click(push)
   expect(props.onSave).toHaveBeenLastCalledWith(
     expect.objectContaining({ commitMessageModel: null, autoPushAfterCommit: false })
+  )
+
+  await user.click(screen.getByRole('checkbox', { name: 'The primary branch is protected' }))
+  expect(props.onSave).toHaveBeenLastCalledWith(
+    expect.objectContaining({ primaryBranchProtected: true })
   )
 })
 

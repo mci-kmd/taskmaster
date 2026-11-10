@@ -8,6 +8,7 @@ import type {
   CreateRepositoryTaskInput,
   CompleteRepositoryTaskInput,
   ReopenRepositoryTaskInput,
+  MoveThreadCheckoutInput,
   MutationResult,
   OpenTaskAttachmentResult,
   OpenThreadSolutionInVisualStudioResult,
@@ -70,6 +71,7 @@ declare global {
     pickRepositorySolutionFile: (repositoryId: string) => Promise<PickRepositorySolutionFileResult>
     createThread: (input: CreateThreadInput) => Promise<MutationResult>
     convertThreadToWorktree: (threadId: string) => Promise<MutationResult>
+    moveThreadCheckout: (input: MoveThreadCheckoutInput) => Promise<MutationResult>
     closeThread: (threadId: string) => Promise<MutationResult>
     updateSettings: (input: UpdateSettingsInput) => Promise<MutationResult>
     updateUi: (input: UpdateUiInput) => Promise<MutationResult>

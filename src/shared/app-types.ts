@@ -5,6 +5,15 @@ import type { ThreadWorkItem } from './work-items'
 export type { ThreadWorkItem } from './work-items'
 
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
+/** Where a thread on the primary branch moves: a branch in the same checkout, or a worktree. */
+export type ThreadCheckoutMoveKind = 'branch' | 'worktree'
+
+export interface MoveThreadCheckoutInput {
+  threadId: string
+  kind: ThreadCheckoutMoveKind
+  /** A new or existing branch; absent names a new branch from the conversation. */
+  branchName?: string
+}
 /** How a new thread's checkout is made: on the trunk branch, on a branch, or in a worktree. */
 export type ThreadSetupMode = 'trunk' | 'branch' | 'worktree'
 
@@ -188,6 +197,8 @@ export interface PersistedRepository {
   commitMessageModel?: CopilotModelSelection
   /** Push to the remote after an AI commit. Absent means off. */
   autoPushAfterCommit?: boolean
+  /** Commit and push are off on the primary branch; threads move to a branch first. */
+  primaryBranchProtected?: boolean
   /** Listed first in project pickers. Absent means not a favorite. */
   favorite?: boolean
   /** Taskmaster tools this project turns on or off. Absent tools follow the app setting. */
@@ -287,6 +298,15 @@ export interface ThreadSnapshot extends PersistedThread {
   previewUrl: string | null
   /** Whether the AI commit action also pushes to the remote. */
   commitAutoPush: boolean
+  /** Whether the thread works on the project's primary branch in the project's checkout. */
+  onPrimaryBranch: boolean
+  /** Whether commit and push are off because the thread is on a protected primary branch. */
+  primaryBranchProtected: boolean
+  /**
+   * The branch the project's checkout switched to while the thread is recorded on the primary
+   * branch, when no other thread claims it; the thread can adopt it. Null otherwise.
+   */
+  checkoutDrift: string | null
 }
 
 export interface RepositorySnapshot extends PersistedRepository {
@@ -928,6 +948,7 @@ export interface UpdateRepositoryInput {
   /** Null restores the default commit message model. */
   commitMessageModel?: CopilotModelSelection | null
   autoPushAfterCommit?: boolean
+  primaryBranchProtected?: boolean
   /** Left unchanged when omitted; an empty object makes every tool follow the app setting. */
   taskmasterToolOverrides?: TaskmasterToolOverrides
   /** Left unchanged when omitted; null follows the app setting. */

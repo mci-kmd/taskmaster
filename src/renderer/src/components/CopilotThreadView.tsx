@@ -926,8 +926,35 @@ function SessionView({
     if (!resumedCommit) return
     return () => void refreshWorkingTree()
   }, [resumedCommit, refreshWorkingTree])
-  const canCommit = usesGit && ready && !sharedCheckoutBusy && hasChanges(workingTree)
-  const canPush = usesGit && ready && !sharedCheckoutBusy && (workingTree?.ahead ?? 0) > 0
+  // Commits to a protected primary branch are off; the thread moves to a worktree instead.
+  const protectedPrimary = usesGit && thread.primaryBranchProtected
+  const canCommit =
+    usesGit && ready && !sharedCheckoutBusy && !protectedPrimary && hasChanges(workingTree)
+  const canPush =
+    usesGit && ready && !sharedCheckoutBusy && !protectedPrimary && (workingTree?.ahead ?? 0) > 0
+  const canMoveToWorktree =
+    protectedPrimary &&
+    thread.onPrimaryBranch &&
+    !thread.checkoutDrift &&
+    ready &&
+    !sharedCheckoutBusy &&
+    hasChanges(workingTree)
+  const moveCheckout = (kind: 'branch' | 'worktree', branchName?: string): void =>
+    void run('move', async () => {
+      const result = await api.appState.moveThreadCheckout({
+        threadId: thread.id,
+        kind,
+        branchName
+      })
+      if (!result.ok) throw new Error(result.error ?? 'Could not move the thread.')
+      if (mounted.current) setWorkingTree(null)
+      void refreshWorkingTree()
+    })
+  const protectedPrimaryError =
+    'Commits to the protected primary branch are off. Move the thread to a worktree first.'
+  // Keeps the banner's text while it collapses after the drift is resolved.
+  const shownDrift = useRef<string | null>(null)
+  if (thread.checkoutDrift) shownDrift.current = thread.checkoutDrift
   const [commitAction, setCommitAction] = useState<CommitButtonAction>('commit')
   const shownPhase = commitPhase ?? resumedCommitPhase
   const shownAction: CommitButtonAction =
@@ -949,6 +976,7 @@ function SessionView({
         ? 'Wait for the current action to finish'
         : null
   const commit = (): void => {
+    if (protectedPrimary && hasChanges(workingTree)) return setError(protectedPrimaryError)
     if (!canCommit || shownPhase || commitDisabledReason || busyRef.current) return
     setCommitAction('commit')
     commitActive.current = true
@@ -967,6 +995,7 @@ function SessionView({
     })
   }
   const push = (): void => {
+    if (protectedPrimary && (workingTree?.ahead ?? 0) > 0) return setError(protectedPrimaryError)
     if (!canPush || shownPhase || busy || busyRef.current) return
     setCommitAction('push')
     commitActive.current = true
@@ -1255,6 +1284,24 @@ function SessionView({
             </div>
           )
         })}
+        <Presence show={usesGit && Boolean(thread.checkoutDrift)} motion="collapse">
+          <div className="tm-session-slot">
+            <div className="tm-session-notice tm-session-notice--info" role="status">
+              <span>
+                The checkout switched to &ldquo;{shownDrift.current}&rdquo;. Track that branch in
+                this thread so commits and diffs follow it?
+              </span>
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={Boolean(busy) || !thread.checkoutDrift}
+                onClick={() => moveCheckout('branch', thread.checkoutDrift ?? undefined)}
+              >
+                {busy === 'move' ? 'Tracking…' : 'Track branch'}
+              </Button>
+            </div>
+          </div>
+        </Presence>
         <Presence show={Boolean(sdk?.updateError)} motion="collapse">
           <div className="tm-session-slot">
             <div className="tm-session-notice tm-session-notice--warning" role="status">
@@ -1415,6 +1462,17 @@ function SessionView({
                   onClick={() => void stop()}
                 >
                   {stopping ? 'Stopping…' : 'Stop'}
+                </Button>
+              </Presence>
+              <Presence show={canMoveToWorktree && !showCommit} motion="pop">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={Boolean(busy)}
+                  title="The primary branch is protected. Move this thread and its changes to a worktree on a new branch."
+                  onClick={() => moveCheckout('worktree')}
+                >
+                  {busy === 'move' ? 'Moving…' : 'Move to worktree'}
                 </Button>
               </Presence>
               <Presence show={showCommit} motion="pop">

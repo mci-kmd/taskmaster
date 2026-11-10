@@ -9,6 +9,7 @@ import type {
   CopilotModelSelection,
   CreateRepositoryTaskInput,
   CreateThreadInput,
+  MoveThreadCheckoutInput,
   MutationResult,
   PickRepositoryFaviconResult,
   ReorderRepositoryTasksInput,
@@ -64,6 +65,7 @@ import {
 } from './features/repositories/repository-solution-file-service'
 import {
   createRepositoryGitStateService,
+  getPrimaryBranch,
   resolveGitRoot
 } from './features/repositories/repository-git'
 import {
@@ -86,6 +88,11 @@ import { createThreadDiffService } from './features/diffs/thread-diff-service'
 import { createBranchStatusService } from './features/branch-status/branch-status-service'
 import { createThreadCloseService } from './features/threads/thread-close-service'
 import { createThreadConvertService } from './features/threads/thread-convert-service'
+import {
+  createThreadCheckoutMoveService,
+  type ThreadCheckoutMoveResult
+} from './features/threads/thread-checkout-move-service'
+import { isOnPrimaryBranch } from './features/threads/thread-checkout-drift'
 import {
   createThreadCreateService,
   type ThreadSetupResult
@@ -113,6 +120,7 @@ import { hasSessionsForThread, killSessionsForThread } from './terminal'
 import {
   createNativeBackend,
   getBasename,
+  getRepositoryExecutionPath,
   isSameRepositoryPath
 } from './backends/repository-backend'
 import { registerAppStateIpcHandlers } from './ipc/app-state-ipc'
@@ -144,6 +152,8 @@ let threadCommitServiceRef: ReturnType<typeof createThreadCommitService> | null 
 let stopCopilotThread: (threadId: string) => Promise<void> = async () => undefined
 let hasCopilotSession: (threadId: string) => boolean = () => false
 let isCopilotThreadWorking: (threadId: string) => boolean = () => false
+let setCopilotWorkingDirectory: (threadId: string, cwd: string) => Promise<boolean> = async () =>
+  true
 let getCopilotUserPrompts: (threadId: string) => string[] = () => []
 let getCopilotMessageContent: (threadId: string, messageId: string) => string | null = () => null
 
@@ -266,6 +276,25 @@ const threadRunService = createThreadRunService({
   showThreadRunFailure: electronUi.showThreadRunFailure
 })
 threadRunServiceRef = threadRunService
+async function generateThreadBranchName({
+  repository,
+  cwd,
+  prompt
+}: {
+  repository: Parameters<typeof resolveCommitMessageModel>[0]
+  cwd: string
+  prompt: string
+}): Promise<string | null> {
+  if (!prompt.trim() || !generateCommitMessage) return null
+  return cleanGeneratedBranchName(
+    await generateCommitMessage({
+      ...resolveCommitMessageModel(repository),
+      cwd,
+      systemMessage: BRANCH_NAME_SYSTEM_MESSAGE,
+      prompt: buildBranchNamePrompt(prompt)
+    })
+  )
+}
 const threadCreateService = createThreadCreateService({
   ensureState,
   updateSelection,
@@ -274,17 +303,7 @@ const threadCreateService = createThreadCreateService({
   failureResult,
   nowIso,
   createId: randomUUID,
-  generateBranchName: async ({ repository, cwd, prompt }) => {
-    if (!prompt.trim() || !generateCommitMessage) return null
-    return cleanGeneratedBranchName(
-      await generateCommitMessage({
-        ...resolveCommitMessageModel(repository),
-        cwd,
-        systemMessage: BRANCH_NAME_SYSTEM_MESSAGE,
-        prompt: buildBranchNamePrompt(prompt)
-      })
-    )
-  },
+  generateBranchName: (request) => generateThreadBranchName(request),
   onThreadSetUp: (threadId) => {
     const thread = findThread(threadId)
     const repository = thread ? findRepository(thread.repositoryId) : undefined
@@ -380,9 +399,58 @@ const threadCommitService = createThreadCommitService({
   onFinished: (threadId, cwd) => {
     branchStatusService.invalidate(cwd)
     electronUi.broadcastThreadRunState(threadId)
+  },
+  getProtectedBranch: (threadId) => {
+    const thread = findThread(threadId)
+    const repository = thread ? findRepository(thread.repositoryId) : undefined
+    if (!repository?.primaryBranchProtected) return null
+    return getPrimaryBranch(getRepositoryExecutionPath(repository), repository.backend)
   }
 })
 threadCommitServiceRef = threadCommitService
+const threadCheckoutMoveService = createThreadCheckoutMoveService({
+  ensureState,
+  saveState,
+  isCommitting: (threadId) => threadCommitService.getCommitPhases().has(threadId),
+  isWorking: (threadId) => isCopilotThreadWorking(threadId),
+  isRunCommandRunning: (threadId) => threadRunService.getRunningThreadIds().has(threadId),
+  generateBranchName: generateThreadBranchName
+})
+
+/** Moves a thread off the primary branch, then moves its Copilot sessions along. */
+export async function moveThreadCheckout(
+  input: MoveThreadCheckoutInput
+): Promise<ThreadCheckoutMoveResult & { sessionMoved?: boolean }> {
+  const result = await threadCheckoutMoveService.moveThreadCheckout(input)
+  if (!result.ok) return result
+  const thread = findThread(input.threadId)
+  const repository = thread ? findRepository(thread.repositoryId) : undefined
+  if (repository) repositoryGitStateService.getRepositoryGitState(repository, true)
+  branchStatusService.invalidate(result.previousCwd)
+  branchStatusService.invalidate(result.cwd)
+  const sessionMoved =
+    result.cwd === result.previousCwd ||
+    (await setCopilotWorkingDirectory(input.threadId, result.cwd))
+  electronUi.broadcastThreadRunState(input.threadId)
+  return { ...result, sessionMoved }
+}
+
+const moveThreadCheckoutMutation = async (
+  input: MoveThreadCheckoutInput
+): Promise<MutationResult> => {
+  const result = await moveThreadCheckout(input)
+  return result.ok ? successResult() : failureResult(result.error)
+}
+
+function isThreadOnPrimaryBranch(threadId: string): boolean {
+  const thread = findThread(threadId)
+  const repository = thread ? findRepository(thread.repositoryId) : undefined
+  if (!thread || !repository || thread.mode === 'worktree' || thread.pendingSetup) return false
+  return isOnPrimaryBranch(
+    thread,
+    getPrimaryBranch(getRepositoryExecutionPath(repository), repository.backend)
+  )
+}
 const threadTitleService = createThreadTitleService({
   resolveThreadContext: threadGitContextService.resolveThreadGitContext,
   getUserPrompts: (threadId) => getCopilotUserPrompts(threadId),
@@ -454,8 +522,12 @@ export function registerAppStateIpc(): void {
     getTaskAttachmentPreview: (request) => taskAttachmentFiles.getTaskAttachmentPreview(request),
     openTaskAttachment: (path: string) => taskAttachmentFiles.openTaskAttachment(path),
     createThread: (input: CreateThreadInput) => threadCreateService.createThread(input),
+    // Threads on the primary branch can't take it into a worktree, so they move off it instead.
     convertThreadToWorktree: (threadId: string) =>
-      threadConvertService.convertThreadToWorktree(threadId),
+      isThreadOnPrimaryBranch(threadId)
+        ? moveThreadCheckoutMutation({ threadId, kind: 'worktree' })
+        : threadConvertService.convertThreadToWorktree(threadId),
+    moveThreadCheckout: moveThreadCheckoutMutation,
     closeThread: (threadId: string) => threadCloseService.closeThread(threadId),
     updateRepository: (input: UpdateRepositoryInput) => repositoryService.updateRepository(input),
     removeRepository: async (repositoryId: string) => {
@@ -542,7 +614,9 @@ export function setCopilotThreadController(controller: {
   isWorking: (threadId: string) => boolean
   getUserPrompts: (threadId: string) => string[]
   getMessageContent: (threadId: string, messageId: string) => string | null
+  setWorkingDirectory: (threadId: string, cwd: string) => Promise<boolean>
 }): void {
+  setCopilotWorkingDirectory = controller.setWorkingDirectory
   stopCopilotThread = controller.stop
   hasCopilotSession = controller.has
   isCopilotThreadWorking = controller.isWorking
@@ -620,6 +694,7 @@ function createAllCopilotSessionTools(threadId: string): Tool[] {
       },
       setTaskNumbers: (taskNumbers) =>
         threadStateService.setThreadTaskNumbers(threadId, taskNumbers),
+      moveCheckout: (kind, branchName) => moveThreadCheckout({ threadId, kind, branchName }),
       onThreadChanged: refresh
     })
   ]

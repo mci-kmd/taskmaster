@@ -288,6 +288,10 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         input.autoPushAfterCommit === undefined
           ? repository.autoPushAfterCommit === true
           : input.autoPushAfterCommit === true
+      const primaryBranchProtected =
+        input.primaryBranchProtected === undefined
+          ? repository.primaryBranchProtected === true
+          : input.primaryBranchProtected === true
       if (input.threadSetupMode != null && !isThreadSetupMode(input.threadSetupMode)) {
         return dependencies.failureResult('Thread checkout mode is invalid.')
       }
@@ -308,6 +312,7 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
         (repository.previewUrl ?? null) === previewUrlValidation.url &&
         isSameModelSelection(repository.commitMessageModel, commitMessageModel) &&
         (repository.autoPushAfterCommit === true) === autoPushAfterCommit &&
+        (repository.primaryBranchProtected === true) === primaryBranchProtected &&
         repository.threadSetupMode === threadSetupMode &&
         !toolOverridesChanged
       ) {
@@ -328,6 +333,8 @@ export function createRepositoryService(dependencies: RepositoryServiceDependenc
       else delete repository.commitMessageModel
       if (autoPushAfterCommit) repository.autoPushAfterCommit = true
       else delete repository.autoPushAfterCommit
+      if (primaryBranchProtected) repository.primaryBranchProtected = true
+      else delete repository.primaryBranchProtected
       if (threadSetupMode) repository.threadSetupMode = threadSetupMode
       else delete repository.threadSetupMode
       applyToolOverrides()

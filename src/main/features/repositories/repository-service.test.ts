@@ -273,12 +273,14 @@ describe('repository service', () => {
       service.updateRepository({
         ...input,
         commitMessageModel: { model: ' fast-model ', reasoningEffort: 'high' },
-        autoPushAfterCommit: true
+        autoPushAfterCommit: true,
+        primaryBranchProtected: true
       }).ok
     ).toBe(true)
     expect(repository).toMatchObject({
       commitMessageModel: { model: 'fast-model', reasoningEffort: 'high' },
-      autoPushAfterCommit: true
+      autoPushAfterCommit: true,
+      primaryBranchProtected: true
     })
     expect(service.updateRepository(input).ok).toBe(true)
     expect(
@@ -294,11 +296,13 @@ describe('repository service', () => {
       service.updateRepository({
         ...input,
         commitMessageModel: { model: 'gpt-6-luna', reasoningEffort: 'medium' },
-        autoPushAfterCommit: false
+        autoPushAfterCommit: false,
+        primaryBranchProtected: false
       }).ok
     ).toBe(true)
     expect(repository).not.toHaveProperty('commitMessageModel')
     expect(repository).not.toHaveProperty('autoPushAfterCommit')
+    expect(repository).not.toHaveProperty('primaryBranchProtected')
 
     service.updateRepository({
       ...input,

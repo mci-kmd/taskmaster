@@ -295,6 +295,9 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
       : (normalizedCommitMessageModel ?? undefined)
   const rawAutoPush = (repository as { autoPushAfterCommit?: unknown }).autoPushAfterCommit
   const autoPushAfterCommit = rawAutoPush === true ? true : undefined
+  const rawPrimaryProtected = (repository as { primaryBranchProtected?: unknown })
+    .primaryBranchProtected
+  const primaryBranchProtected = rawPrimaryProtected === true ? true : undefined
   const rawFavorite = (repository as { favorite?: unknown }).favorite
   const favorite = rawFavorite === true ? true : undefined
   const rawToolOverrides = (repository as { taskmasterToolOverrides?: unknown })
@@ -325,6 +328,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     previewUrl === rawPreviewUrl &&
     commitMessageModel === rawCommitMessageModel &&
     autoPushAfterCommit === rawAutoPush &&
+    primaryBranchProtected === rawPrimaryProtected &&
     favorite === rawFavorite &&
     taskmasterToolOverrides === rawToolOverrides &&
     threadSetupMode === rawThreadSetupMode &&
@@ -341,6 +345,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     previewUrl: _previewUrl,
     commitMessageModel: _commitMessageModel,
     autoPushAfterCommit: _autoPushAfterCommit,
+    primaryBranchProtected: _primaryBranchProtected,
     favorite: _favorite,
     completedTasks: _completedTasks,
     taskmasterToolOverrides: _taskmasterToolOverrides,
@@ -353,6 +358,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
   void _previewUrl
   void _commitMessageModel
   void _autoPushAfterCommit
+  void _primaryBranchProtected
   void _favorite
   void _completedTasks
   return {
@@ -366,6 +372,7 @@ export function normalizePersistedRepository(repository: PersistedRepository): P
     ...(taskTagsInput === undefined ? {} : { taskTagsInput }),
     ...(commitMessageModel === undefined ? {} : { commitMessageModel }),
     ...(autoPushAfterCommit === undefined ? {} : { autoPushAfterCommit }),
+    ...(primaryBranchProtected === undefined ? {} : { primaryBranchProtected }),
     ...(favorite === undefined ? {} : { favorite }),
     ...(taskmasterToolOverrides === undefined ? {} : { taskmasterToolOverrides }),
     ...(threadSetupMode === undefined ? {} : { threadSetupMode }),

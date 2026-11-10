@@ -13,6 +13,22 @@ import {
 /** A task of the thread's project, as the link tool reports it. */
 export type LinkableTask = { title: string; status: 'open' | 'completed' }
 
+/** The outcome of moving the thread's checkout, as the move tool reports it. */
+export type ThreadCheckoutMoveOutcome =
+  | {
+      ok: true
+      kind: 'branch' | 'worktree'
+      branchName: string
+      previousCwd: string
+      cwd: string
+      outcome: 'created' | 'existing' | 'adopted'
+      carriedChanges: boolean
+      leftChanges: boolean
+      /** False when the session couldn't move and still runs in the previous directory. */
+      sessionMoved?: boolean
+    }
+  | { ok: false; error: string }
+
 export type ThreadToolDependencies = {
   /** The session's thread, looked up on every call. */
   resolveThread: () => PersistedThread | undefined
@@ -23,6 +39,11 @@ export type ThreadToolDependencies = {
   /** Looks up a task of the thread's project by its number. */
   findTask: (number: number) => LinkableTask | undefined
   setTaskNumbers: (taskNumbers: number[]) => boolean
+  /** Moves the thread off the primary branch to a branch or worktree of its own. */
+  moveCheckout: (
+    kind: 'branch' | 'worktree',
+    branchName: string | undefined
+  ) => Promise<ThreadCheckoutMoveOutcome>
   /** Makes open windows refresh their snapshot. */
   onThreadChanged: () => void
   now?: () => Date
@@ -31,7 +52,8 @@ export type ThreadToolDependencies = {
 export const THREAD_TOOL_NAMES = {
   settle: 'taskmaster_settle_thread',
   snooze: 'taskmaster_snooze_thread',
-  linkWorkItems: 'taskmaster_link_work_items'
+  linkWorkItems: 'taskmaster_link_work_items',
+  moveCheckout: 'taskmaster_move_thread_checkout'
 } as const
 
 type Args = Record<string, unknown>
@@ -334,5 +356,95 @@ export function createThreadTools(dependencies: ThreadToolDependencies): Tool[] 
       return success(currentLinks(thread))
     })
   }
-  return [settleThread, snoozeThread, linkWorkItems]
+  const moveCheckout: Tool = {
+    name: THREAD_TOOL_NAMES.moveCheckout,
+    description:
+      'Move the Taskmaster thread this conversation belongs to off the primary branch (e.g. ' +
+      'main), onto a branch of its own or into a git worktree of its own. Taskmaster tracks ' +
+      "each thread's branch and working directory for its commit, push, diff and terminal " +
+      'actions, so ALWAYS use this instead of running git switch/checkout -b or git worktree ' +
+      'add yourself when the user asks you to create a branch or worktree to continue the ' +
+      'work in. Only works while the thread is on the primary branch. Uncommitted changes in ' +
+      'the checkout move along. "worktree" gives the thread its own directory, so it does not ' +
+      'disturb other threads working in the project; prefer it unless the user asks for a ' +
+      'plain branch. "branch" switches the project checkout itself, and is refused while ' +
+      'other threads share it. If you already switched the checkout to a new branch yourself, ' +
+      'call this with kind "branch" and that branch name so the thread adopts it. After a ' +
+      'worktree move, your working directory changes: work only in the returned directory.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        kind: {
+          type: 'string',
+          enum: ['worktree', 'branch'],
+          description:
+            '"worktree": a new worktree in its own directory. "branch": switch the project ' +
+            'checkout to the branch.'
+        },
+        branchName: {
+          type: 'string',
+          description:
+            'Optional branch name, new or existing. Omit to have Taskmaster name it from the ' +
+            'conversation.'
+        }
+      },
+      required: ['kind']
+    },
+    handler: async (rawArgs: unknown): Promise<ToolResultObject> => {
+      if (!dependencies.resolveThread())
+        return failure('The thread for this session no longer exists.')
+      const args = asArgs(rawArgs)
+      if (args.kind !== 'branch' && args.kind !== 'worktree')
+        return failure('"kind" must be "worktree" or "branch".')
+      if (
+        args.branchName !== undefined &&
+        args.branchName !== null &&
+        typeof args.branchName !== 'string'
+      )
+        return failure('"branchName" must be a string.')
+      const result = await dependencies.moveCheckout(
+        args.kind,
+        typeof args.branchName === 'string' && args.branchName.trim()
+          ? args.branchName.trim()
+          : undefined
+      )
+      if (!result.ok) return failure(result.error)
+      dependencies.onThreadChanged()
+      const notes: string[] = []
+      if (result.outcome === 'adopted')
+        notes.push(
+          `The thread now tracks "${result.branchName}", which the checkout was already on.`
+        )
+      if (result.cwd !== result.previousCwd) {
+        notes.push(
+          `Your working directory is now ${result.cwd}. Shells started earlier are still in ` +
+            `${result.previousCwd}: cd to the new directory or start new shells, and only edit ` +
+            'files under the new directory from now on.'
+        )
+        notes.push(
+          'Gitignored files, such as installed dependencies and build output, were not copied ' +
+            "to the worktree unless the project's setup command created them."
+        )
+      }
+      if (result.carriedChanges) notes.push('Uncommitted changes moved along.')
+      if (result.leftChanges)
+        notes.push("The project's checkout has uncommitted changes that stayed there.")
+      if (result.sessionMoved === false)
+        notes.push(
+          'Taskmaster could not move this session; it keeps the previous working directory ' +
+            'until it restarts, so use absolute paths under the new directory.'
+        )
+      return success({
+        message:
+          result.kind === 'worktree'
+            ? `Moved this thread to a worktree on branch "${result.branchName}".`
+            : `Moved this thread to branch "${result.branchName}".`,
+        branch: result.branchName,
+        workingDirectory: result.cwd,
+        notes
+      })
+    }
+  }
+  return [settleThread, snoozeThread, linkWorkItems, moveCheckout]
 }

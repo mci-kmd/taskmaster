@@ -16,6 +16,7 @@ import type {
   CreateThreadInput,
   CreateRepositoryTaskInput,
   ModelPerformanceSampleEvent,
+  MoveThreadCheckoutInput,
   CompleteRepositoryTaskInput,
   ReopenRepositoryTaskInput,
   OpenThreadSolutionInVisualStudioResult,
@@ -131,6 +132,8 @@ const api = {
       invokeIpc(IPC_CHANNELS.appState.createThread, input),
     convertThreadToWorktree: (threadId: string) =>
       invokeIpc(IPC_CHANNELS.appState.convertThreadToWorktree, threadId),
+    moveThreadCheckout: (input: MoveThreadCheckoutInput) =>
+      invokeIpc(IPC_CHANNELS.appState.moveThreadCheckout, input),
     closeThread: (threadId: string) => invokeIpc(IPC_CHANNELS.appState.closeThread, threadId),
     updateSettings: (input: UpdateSettingsInput) =>
       invokeIpc(IPC_CHANNELS.appState.updateSettings, input),

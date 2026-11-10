@@ -205,7 +205,8 @@ app.whenReady().then(() => {
     has: copilotService.hasSession,
     isWorking: copilotService.isThreadWorking,
     getUserPrompts: copilotService.getUserPrompts,
-    getMessageContent: copilotService.getMessageContent
+    getMessageContent: copilotService.getMessageContent,
+    setWorkingDirectory: copilotService.setWorkingDirectory
   })
   setCommitMessageGenerator(copilotService.generateText)
   const usdDkkRate = createUsdDkkRate()

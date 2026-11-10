@@ -266,7 +266,7 @@ function setUpCheckout(repository: PersistedRepository, input: CheckoutRequest):
 }
 
 /** Whether a new branch by this name would clash with a branch or worktree. */
-function isBranchNameTaken(repository: PersistedRepository, name: string): boolean {
+export function isBranchNameTaken(repository: PersistedRepository, name: string): boolean {
   const repositoryPath = getRepositoryExecutionPath(repository)
   if (
     listRepositoryWorktrees(repositoryPath, repository.backend).some(

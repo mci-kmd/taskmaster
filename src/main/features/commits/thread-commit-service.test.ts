@@ -53,6 +53,7 @@ function setup(
     repository?: Partial<PersistedRepository>
     working?: string[]
     generate?: (request: CommitMessageRequest) => Promise<string>
+    protectedBranch?: string
   } = {}
 ): {
   service: ReturnType<typeof createThreadCommitService>
@@ -84,7 +85,8 @@ function setup(
     generateCommitMessage,
     runGit: tryGitAsync,
     onProgress: (_threadId, phase) => phases.push(phase),
-    onFinished
+    onFinished,
+    getProtectedBranch: () => options.protectedBranch ?? null
   })
   return { service, phases, generateCommitMessage, onFinished }
 }
@@ -185,6 +187,20 @@ describe('thread commit service', () => {
     })
     expect(busy.generateCommitMessage).not.toHaveBeenCalled()
     expect(git(cwd, 'diff', '--cached', '--name-only')).toBe('')
+  })
+
+  it('refuses to commit or push on a protected branch', async () => {
+    const cwd = createRepository()
+    writeFileSync(join(cwd, 'readme.md'), 'changed\n')
+    const { service, generateCommitMessage } = setup(cwd, { protectedBranch: 'main' })
+    const error = '"main" is protected. Move the thread to a branch or worktree first.'
+
+    expect(await service.commitThreadChanges('thread')).toEqual({ ok: false, error })
+    expect(await service.pushThreadChanges('thread')).toEqual({ ok: false, error })
+    expect(generateCommitMessage).not.toHaveBeenCalled()
+
+    git(cwd, 'switch', '-q', '-c', 'feature')
+    expect((await service.commitThreadChanges('thread')).ok).toBe(true)
   })
 
   it('rejects overlapping commits in the same checkout', async () => {

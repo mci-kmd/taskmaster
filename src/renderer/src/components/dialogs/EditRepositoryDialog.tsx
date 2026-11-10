@@ -148,6 +148,7 @@ type RepositoryValues = ToolOverrideValues & {
   taskTagsInput: string
   commitMessageModel: CopilotModelSelection
   autoPushAfterCommit: boolean
+  primaryBranchProtected: boolean
   /** Empty follows the app setting. */
   threadSetupMode: string
 }
@@ -165,6 +166,7 @@ function repositoryValues(repository: RepositorySnapshot): RepositoryValues {
     taskTagsInput: repository.taskTagsInput ?? '',
     commitMessageModel: resolveCommitMessageModel(repository),
     autoPushAfterCommit: repository.autoPushAfterCommit === true,
+    primaryBranchProtected: repository.primaryBranchProtected === true,
     threadSetupMode: repository.threadSetupMode ?? '',
     ...toolOverrideValues(repository.taskmasterToolOverrides)
   }
@@ -190,6 +192,7 @@ function toUpdateInput(repositoryId: string, values: RepositoryValues): UpdateRe
       ? null
       : values.commitMessageModel,
     autoPushAfterCommit: values.autoPushAfterCommit,
+    primaryBranchProtected: values.primaryBranchProtected,
     threadSetupMode: isThreadSetupMode(values.threadSetupMode) ? values.threadSetupMode : null,
     taskmasterToolOverrides: toolOverridesFromValues(values)
   }
@@ -399,7 +402,11 @@ function RepositorySettings({
       id: 'commits',
       label: 'Commits',
       description: `For the commit button in Copilot threads (${COMMIT_SHORTCUT_LABEL}; push with ${PUSH_SHORTCUT_LABEL}).`,
-      hasError: form.hasErrors(['commitMessageModel', 'autoPushAfterCommit']),
+      hasError: form.hasErrors([
+        'commitMessageModel',
+        'autoPushAfterCommit',
+        'primaryBranchProtected'
+      ]),
       content: (
         <>
           <SettingRow
@@ -430,6 +437,12 @@ function RepositorySettings({
             field={form.field('autoPushAfterCommit')}
             hint="Runs git push after each AI commit."
             label="Push"
+          />
+          <CheckboxSetting
+            checkboxLabel="The primary branch is protected"
+            field={form.field('primaryBranchProtected')}
+            hint="Turns commit and push off for threads on the primary branch. Move such a thread to a branch or worktree to commit."
+            label="Primary branch"
           />
         </>
       )

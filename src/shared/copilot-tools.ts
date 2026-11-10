@@ -42,6 +42,13 @@ export const TASKMASTER_TOOLS = [
     allowLabel: 'Copilot can link work items',
     description:
       'Links the issues, pull requests, work items and tasks the thread works on to its card.'
+  },
+  {
+    name: 'taskmaster_move_thread_checkout',
+    label: 'Move threads off the primary branch',
+    allowLabel: 'Copilot can move its thread to a branch or worktree',
+    description:
+      'Moves a thread on the primary branch to a branch or worktree of its own when you ask, so commits follow it.'
   }
 ] as const
 

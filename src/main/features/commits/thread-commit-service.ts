@@ -76,6 +76,8 @@ export function createThreadCommitService(dependencies: {
   runGit: (cwd: string, args: string[], backend: RepositoryBackend) => Promise<GitCommandResult>
   onProgress: (threadId: string, phase: ThreadCommitPhase) => void
   onFinished?: (threadId: string, cwd: string) => void
+  /** The project's primary branch when it is protected, or null. */
+  getProtectedBranch?: (threadId: string) => string | null
   platform?: NodeJS.Platform
 }): {
   commitThreadChanges: (threadId: string) => Promise<ThreadCommitResult>
@@ -129,6 +131,19 @@ export function createThreadCommitService(dependencies: {
     return dependencies.runGit(cwd, ['push', '-u', remote, 'HEAD'], backend)
   }
 
+  const protectedBranchError = async (
+    threadId: string,
+    cwd: string,
+    backend: RepositoryBackend
+  ): Promise<string | null> => {
+    const protectedBranch = dependencies.getProtectedBranch?.(threadId)
+    if (!protectedBranch) return null
+    const head = await dependencies.runGit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'], backend)
+    return head.ok && head.stdout.trim() === protectedBranch
+      ? `"${protectedBranch}" is protected. Move the thread to a branch or worktree first.`
+      : null
+  }
+
   const commit = async (threadId: string): Promise<ThreadCommitResult> => {
     const context = dependencies.resolveThreadContext(threadId)
     if (!context.ok) return { ok: false, error: context.error }
@@ -138,6 +153,9 @@ export function createThreadCommitService(dependencies: {
     if (committing.has(key)) return { ok: false, error: 'A commit is already in progress.' }
     if (anyThreadWorking(threadId))
       return { ok: false, error: 'Wait for Copilot to finish before committing.' }
+    const protectedError = await protectedBranchError(threadId, cwd, backend)
+    if (protectedError) return { ok: false, error: protectedError }
+    if (committing.has(key)) return { ok: false, error: 'A commit is already in progress.' }
 
     committing.add(key)
     try {
@@ -233,6 +251,9 @@ export function createThreadCommitService(dependencies: {
     if (!context.ok) return { ok: false, error: context.error }
     const { cwd, repository } = context
     const key = cwd.toLowerCase()
+    if (committing.has(key)) return { ok: false, error: 'A commit or push is already in progress.' }
+    const protectedError = await protectedBranchError(threadId, cwd, repository.backend)
+    if (protectedError) return { ok: false, error: protectedError }
     if (committing.has(key)) return { ok: false, error: 'A commit or push is already in progress.' }
 
     committing.add(key)

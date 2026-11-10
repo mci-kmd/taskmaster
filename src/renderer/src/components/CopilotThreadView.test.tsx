@@ -36,6 +36,7 @@ const appState = vi.hoisted(() => ({
   getBranchStatus: vi.fn(),
   commitThreadChanges: vi.fn(),
   pushThreadChanges: vi.fn(),
+  moveThreadCheckout: vi.fn(),
   onCommitProgress: vi.fn()
 }))
 vi.mock('../shared/api/client', () => ({ getRendererApi: () => ({ copilot: mock, appState }) }))
@@ -1776,6 +1777,46 @@ describe('AI commit button', () => {
     await waitFor(() => expect(commitButton()).not.toBeNull())
     fireEvent.keyDown(window, { key: 'd', ctrlKey: true })
     expect(appState.pushThreadChanges).not.toHaveBeenCalled()
+  })
+
+  it('offers a worktree instead of committing to a protected primary branch', async () => {
+    appState.getBranchStatus.mockResolvedValue(dirty)
+    appState.moveThreadCheckout.mockResolvedValue({ ok: true })
+    const t = { ...thread(), onPrimaryBranch: true, primaryBranchProtected: true }
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+    const move = await screen.findByRole('button', { name: 'Move to worktree' })
+    expect(commitButton()).toBeNull()
+
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+    expect(appState.commitThreadChanges).not.toHaveBeenCalled()
+    expect(screen.getByRole('alert').textContent).toContain('protected primary branch')
+
+    fireEvent.click(move)
+    await waitFor(() =>
+      expect(appState.moveThreadCheckout).toHaveBeenCalledWith({
+        threadId: t.id,
+        kind: 'worktree',
+        branchName: undefined
+      })
+    )
+  })
+
+  it('offers to track a branch the checkout switched to', async () => {
+    appState.getBranchStatus.mockResolvedValue(clean)
+    appState.moveThreadCheckout.mockResolvedValue({ ok: true })
+    const t = { ...thread(), checkoutDrift: 'feature/x' }
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    await ready()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Track branch' }))
+    await waitFor(() =>
+      expect(appState.moveThreadCheckout).toHaveBeenCalledWith({
+        threadId: t.id,
+        kind: 'branch',
+        branchName: 'feature/x'
+      })
+    )
   })
 })
 

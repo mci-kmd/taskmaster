@@ -1,12 +1,17 @@
 import type { Tool, ToolInvocation, ToolResultObject } from '@github/copilot-sdk'
 import { describe, expect, it, vi } from 'vitest'
 import type { PersistedThread, ThreadWorkItem } from '../../shared/app-types'
-import { createThreadTools, THREAD_TOOL_NAMES } from './thread-tools'
+import {
+  createThreadTools,
+  THREAD_TOOL_NAMES,
+  type ThreadCheckoutMoveOutcome
+} from './thread-tools'
 
 function setup(workItems?: ThreadWorkItem[]): {
   thread: PersistedThread
   onThreadChanged: ReturnType<typeof vi.fn>
   snoozeThread: ReturnType<typeof vi.fn>
+  moveCheckout: ReturnType<typeof vi.fn>
   call: (name: string, args: unknown) => ToolResultObject
   tools: Tool[]
 } {
@@ -29,6 +34,22 @@ function setup(workItems?: ThreadWorkItem[]): {
     thread.snoozedUntil = until.toISOString()
     return null
   })
+  const moveCheckout = vi.fn(
+    async (kind: 'branch' | 'worktree', branchName?: string): Promise<ThreadCheckoutMoveOutcome> =>
+      branchName === 'taken'
+        ? { ok: false, error: 'Branch is taken.' }
+        : {
+            ok: true,
+            kind,
+            branchName: branchName ?? 'login-fix',
+            previousCwd: '/repo',
+            cwd: kind === 'worktree' ? '/repo.worktrees/login-fix' : '/repo',
+            outcome: 'created',
+            carriedChanges: true,
+            leftChanges: false,
+            sessionMoved: true
+          }
+  )
   const tools = createThreadTools({
     resolveThread: () => thread,
     settleThread: () => {
@@ -52,6 +73,7 @@ function setup(workItems?: ThreadWorkItem[]): {
       else delete thread.taskNumbers
       return true
     },
+    moveCheckout,
     onThreadChanged,
     // Wednesday 2026-01-14, 15:20 local time.
     now: () => new Date(2026, 0, 14, 15, 20)
@@ -61,7 +83,7 @@ function setup(workItems?: ThreadWorkItem[]): {
       args,
       {} as ToolInvocation
     ) as ToolResultObject
-  return { thread, onThreadChanged, snoozeThread, call, tools }
+  return { thread, onThreadChanged, snoozeThread, moveCheckout, call, tools }
 }
 
 function parse(result: ToolResultObject): Record<string, unknown> {
@@ -78,6 +100,26 @@ const issue: ThreadWorkItem = {
 }
 
 describe('thread tools', () => {
+  it('moves the checkout and tells the agent where to work', async () => {
+    const { call, moveCheckout, onThreadChanged } = setup()
+
+    const moved = parse(await call(THREAD_TOOL_NAMES.moveCheckout, { kind: 'worktree' }))
+    expect(moveCheckout).toHaveBeenCalledWith('worktree', undefined)
+    expect(moved).toMatchObject({
+      branch: 'login-fix',
+      workingDirectory: '/repo.worktrees/login-fix'
+    })
+    expect(String(moved.notes)).toContain('Shells started earlier are still in /repo')
+    expect(onThreadChanged).toHaveBeenCalledTimes(1)
+
+    const failed = await call(THREAD_TOOL_NAMES.moveCheckout, {
+      kind: 'branch',
+      branchName: 'taken'
+    })
+    expect(failed).toMatchObject({ resultType: 'failure', error: 'Branch is taken.' })
+    expect((await call(THREAD_TOOL_NAMES.moveCheckout, { kind: 'tag' })).resultType).toBe('failure')
+    expect(onThreadChanged).toHaveBeenCalledTimes(1)
+  })
   it('only settles when asked, and says so in the description', () => {
     const { tools, thread, call, onThreadChanged } = setup()
     expect(tools.map((tool) => tool.name)).toEqual(Object.values(THREAD_TOOL_NAMES))

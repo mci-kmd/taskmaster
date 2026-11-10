@@ -263,7 +263,8 @@ const ThreadTerminal = forwardRef<ThreadTerminalHandle, ThreadTerminalProps>(
         kind: 'shell',
         threadId: currentThread.id,
         threadMode: currentThread.mode,
-        branchName: currentThread.branchName,
+        // Don't switch the checkout back while the thread can still adopt the branch it moved to.
+        branchName: currentThread.checkoutDrift ? undefined : currentThread.branchName,
         cols: term.cols,
         rows: term.rows,
         cwd: currentThread.cwd,

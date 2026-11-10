@@ -43,6 +43,9 @@ function makeThread(
     commitPhase: null,
     previewUrl: null,
     commitAutoPush: false,
+    onPrimaryBranch: false,
+    primaryBranchProtected: false,
+    checkoutDrift: null,
     createdAt: NOW,
     lastActivityAt: NOW,
     ...extra

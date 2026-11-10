@@ -7,6 +7,7 @@ import type {
   ReopenRepositoryTaskInput,
   CreateRepositoryTaskInput,
   CreateThreadInput,
+  MoveThreadCheckoutInput,
   MutationResult,
   OpenThreadSolutionInVisualStudioResult,
   OpenThreadWorkingDirectoryResult,
@@ -58,7 +59,8 @@ type AppStateIpcHandlers = {
   getTaskAttachmentPreview: (request: TaskAttachmentPreviewRequest) => Promise<string | null>
   openTaskAttachment: (path: string) => Promise<OpenTaskAttachmentResult>
   createThread: (input: CreateThreadInput) => MutationResult
-  convertThreadToWorktree: (threadId: string) => MutationResult
+  convertThreadToWorktree: (threadId: string) => MutationResult | Promise<MutationResult>
+  moveThreadCheckout: (input: MoveThreadCheckoutInput) => Promise<MutationResult>
   closeThread: (threadId: string) => Promise<MutationResult>
   updateRepository: (input: UpdateRepositoryInput) => MutationResult
   removeRepository: (repositoryId: string) => Promise<MutationResult>
@@ -136,6 +138,9 @@ export function registerAppStateIpcHandlers(handlers: AppStateIpcHandlers): void
   )
   handleIpc(IPC_CHANNELS.appState.convertThreadToWorktree, (_event, threadId: string) =>
     handlers.convertThreadToWorktree(threadId)
+  )
+  handleIpc(IPC_CHANNELS.appState.moveThreadCheckout, (_event, input: MoveThreadCheckoutInput) =>
+    handlers.moveThreadCheckout(input)
   )
   handleIpc(IPC_CHANNELS.appState.closeThread, (_event, threadId: string) =>
     handlers.closeThread(threadId)

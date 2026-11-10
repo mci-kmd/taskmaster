@@ -132,6 +132,12 @@ type ActiveSession = {
   unsubscribe: () => void
 }
 
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out.')), ms)
+    promise.then(resolve, reject).finally(() => clearTimeout(timer))
+  })
+
 type StartOperation = {
   cancelled: boolean
   promise: Promise<CopilotStartResult>
@@ -555,6 +561,12 @@ export function createCopilotSessionService(dependencies: {
     error?: string
   }>
   stopThread: (threadId: string) => Promise<void>
+  /**
+   * Moves the thread's connected sessions (and its aside's) to another directory. Sessions that
+   * can't move are stopped when idle, so they resume in the thread's directory. False when a
+   * working session couldn't move.
+   */
+  setWorkingDirectory: (threadId: string, cwd: string) => Promise<boolean>
   /** Cuts the conversation back to the end of a message's turn, once the user confirms. */
   resetToMessage: (input: CopilotMessageActionInput) => Promise<CopilotStartResult>
   /** Opens a new thread continuing a copy of the conversation. */
@@ -2259,6 +2271,7 @@ export function createCopilotSessionService(dependencies: {
       }
     },
     stopThread,
+    setWorkingDirectory,
     resetToMessage,
     forkThread,
     resetAside,
@@ -2443,6 +2456,26 @@ export function createCopilotSessionService(dependencies: {
   async function stopThread(threadId: string): Promise<void> {
     await stopSession(threadId)
     if (!isAsideSessionKey(threadId)) await stopSession(asideSessionKey(threadId))
+  }
+
+  async function setWorkingDirectory(threadId: string, cwd: string): Promise<boolean> {
+    let moved = true
+    for (const key of [threadId, asideSessionKey(threadId)]) {
+      await startingThreads.get(key)?.promise
+      const active = sessions.get(key)
+      if (!active?.session) continue
+      try {
+        await withTimeout(
+          active.session.rpc.metadata.setWorkingDirectory({ workingDirectory: cwd }),
+          10_000
+        )
+      } catch (error) {
+        console.warn('Could not move the session to the new working directory:', error)
+        if (isWorking(active)) moved = false
+        else await stopSession(key)
+      }
+    }
+    return moved
   }
 
   async function stopSession(threadId: string): Promise<void> {

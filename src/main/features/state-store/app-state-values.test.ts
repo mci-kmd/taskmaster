@@ -152,17 +152,20 @@ describe('commit settings persistence', () => {
     const value: PersistedRepository = {
       ...repository('alpha'),
       commitMessageModel: { model: 'fast-model', reasoningEffort: 'high' },
-      autoPushAfterCommit: true
+      autoPushAfterCommit: true,
+      primaryBranchProtected: true
     }
     expect(normalizePersistedRepository(value)).toBe(value)
 
     const invalid = normalizePersistedRepository({
       ...repository('alpha'),
       commitMessageModel: { model: '', reasoningEffort: 'medium' },
-      autoPushAfterCommit: 'yes' as never
+      autoPushAfterCommit: 'yes' as never,
+      primaryBranchProtected: 'yes' as never
     })
     expect(invalid).not.toHaveProperty('commitMessageModel')
     expect(invalid).not.toHaveProperty('autoPushAfterCommit')
+    expect(invalid).not.toHaveProperty('primaryBranchProtected')
     expect(
       normalizePersistedRepository({ ...repository('alpha'), autoPushAfterCommit: false })
     ).not.toHaveProperty('autoPushAfterCommit')

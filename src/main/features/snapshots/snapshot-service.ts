@@ -9,6 +9,7 @@ import type {
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { GENERAL_THREAD_FALLBACK_TITLE, isGeneralProject } from '../../../shared/general-project'
+import { findCheckoutDrift, isOnPrimaryBranch } from '../threads/thread-checkout-drift'
 
 export type BuildSnapshotOptions = {
   refreshGit?: boolean
@@ -131,9 +132,20 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
   function buildThreadSnapshot(
     repository: PersistedRepository,
     thread: PersistedThread,
-    runningRunThreadIds: Set<string>
+    runningRunThreadIds: Set<string>,
+    gitState: RepositoryGitSnapshotState,
+    projectThreads: PersistedThread[]
   ): ThreadSnapshot {
     const general = isGeneralProject(repository)
+    const primaryBranch = general ? null : gitState.primaryBranch
+    // currentBranch is a display label; only trust it when it names a local branch.
+    const liveBranch = gitState.branchOptions.some(
+      (option) => option.kind === 'local' && option.value === gitState.currentBranch
+    )
+      ? gitState.currentBranch
+      : null
+    const checkoutBranch =
+      thread.mode === 'worktree' ? thread.branchName : (liveBranch ?? thread.branchName)
     return {
       ...thread,
       projectKind: general ? 'general' : 'repository',
@@ -146,7 +158,18 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
       isRunCommandRunning: runningRunThreadIds.has(thread.id),
       commitPhase: dependencies.getCommitPhases().get(thread.id) ?? null,
       previewUrl: general ? null : dependencies.resolveThreadPreviewUrl(repository, thread),
-      commitAutoPush: !general && repository.autoPushAfterCommit === true
+      commitAutoPush: !general && repository.autoPushAfterCommit === true,
+      onPrimaryBranch: isOnPrimaryBranch(thread, primaryBranch),
+      primaryBranchProtected:
+        repository.primaryBranchProtected === true &&
+        primaryBranch !== null &&
+        checkoutBranch === primaryBranch,
+      checkoutDrift: findCheckoutDrift({
+        thread,
+        threads: projectThreads,
+        primaryBranch,
+        liveBranch
+      })
     }
   }
 
@@ -160,9 +183,17 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
     const repositoryGitState = isGeneralProject(repository)
       ? GENERAL_PROJECT_GIT_STATE
       : (resolvedGitState ?? dependencies.getRepositoryGitState(repository, refreshGit))
-    const snapshotThreads = threads
-      .filter((thread) => thread.repositoryId === repository.id)
-      .map((thread) => buildThreadSnapshot(repository, thread, runningRunThreadIds))
+    const projectThreads = threads.filter((thread) => thread.repositoryId === repository.id)
+    const snapshotThreads = projectThreads
+      .map((thread) =>
+        buildThreadSnapshot(
+          repository,
+          thread,
+          runningRunThreadIds,
+          repositoryGitState,
+          projectThreads
+        )
+      )
       .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt))
 
     return {
