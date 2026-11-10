@@ -88,6 +88,13 @@ it('opens SDK conversations for selected threads', async () => {
   await screen.findByText('Conversation')
 })
 
+it('shows the working directory before the branch', () => {
+  render(<Workspace {...props({ cwd: '/worktrees/fix', displayBranchName: 'fix/x' })} />)
+  const sub = document.querySelector('.tm-workspace-sub')!
+  expect(sub.textContent).toBe('/worktrees/fix·fix/x')
+  expect(screen.getByTitle('/worktrees/fix')).toBeTruthy()
+})
+
 it('offers the preview only for projects that opt in', () => {
   render(<Workspace {...props()} />)
   expect(screen.queryByRole('radio', { name: 'Preview' })).toBeNull()

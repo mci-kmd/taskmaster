@@ -45,6 +45,17 @@
     color: var(--color-accent);
   }
 
+  /* Shrinks before the branch name; rtl puts the ellipsis on the left. */
+  .tm-workspace-cwd {
+    min-width: 4ch;
+    flex-shrink: 4;
+    overflow: hidden;
+    direction: rtl;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .tm-workspace-separator {
     flex: none;
     width: 1px;

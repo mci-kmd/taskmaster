@@ -465,6 +465,7 @@ export default function Workspace({
     : selectedThread
       ? selectedThread.displayBranchName
       : selectedRepository?.currentBranch
+  const headerCwd = !generalProject ? selectedThread?.cwd : undefined
   const selectedThreadId = selectedThread?.id ?? null
   const selectedDone = selectedCopilotSession.copilotStatus === 'done'
   const selectedAwakened = Boolean(selectedThread?.awakenedAt && !selectedThread.settledAt)
@@ -574,6 +575,15 @@ export default function Workspace({
             </Presence>
           </div>
           <div className="tm-workspace-sub">
+            {headerCwd ? (
+              <>
+                {/* Truncates from the left so the folder name stays visible. */}
+                <span className="tm-workspace-cwd" title={headerCwd}>
+                  <bdi>{headerCwd}</bdi>
+                </span>
+                <span className="text-fg-faint">·</span>
+              </>
+            ) : null}
             {headerBranch ? (
               <span className="truncate">{headerBranch}</span>
             ) : (
