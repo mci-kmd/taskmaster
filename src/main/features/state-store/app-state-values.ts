@@ -398,6 +398,7 @@ export function normalizePersistedSettings(
   const legacyCopilotModels = normalizeModelIds(settings.legacyCopilotModels)
   const theme = isThemeId(settings.theme) ? settings.theme : undefined
   const showAgentModePicker = settings.showAgentModePicker === true ? true : undefined
+  const autoUpdateCopilot = settings.autoUpdateCopilot === false ? false : undefined
   const threadSetupMode = isThreadSetupMode(settings.threadSetupMode)
     ? settings.threadSetupMode
     : undefined
@@ -417,6 +418,7 @@ export function normalizePersistedSettings(
     legacyCopilotModels === settings.legacyCopilotModels &&
     theme === settings.theme &&
     showAgentModePicker === settings.showAgentModePicker &&
+    autoUpdateCopilot === settings.autoUpdateCopilot &&
     threadSetupMode === settings.threadSetupMode &&
     disabledTaskmasterTools === settings.disabledTaskmasterTools
   ) {
@@ -435,6 +437,8 @@ export function normalizePersistedSettings(
   else delete normalized.theme
   if (showAgentModePicker) normalized.showAgentModePicker = true
   else delete normalized.showAgentModePicker
+  if (autoUpdateCopilot === false) normalized.autoUpdateCopilot = false
+  else delete normalized.autoUpdateCopilot
   if (threadSetupMode) normalized.threadSetupMode = threadSetupMode
   else delete normalized.threadSetupMode
   if (disabledTaskmasterTools) normalized.disabledTaskmasterTools = disabledTaskmasterTools

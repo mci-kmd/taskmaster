@@ -72,6 +72,7 @@ it('shows automatic approval enabled by default and saves a toggle immediately',
     theme: 'graphite',
     threadSetupMode: 'trunk',
     showAgentModePicker: false,
+    autoUpdateCopilot: true,
     disabledTaskmasterTools: []
   })
   expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Saved')
@@ -151,6 +152,7 @@ it('shows a rejected value inline and keeps saving other settings from the last 
     theme: 'graphite',
     threadSetupMode: 'trunk',
     showAgentModePicker: false,
+    autoUpdateCopilot: true,
     disabledTaskmasterTools: []
   })
 })
@@ -163,6 +165,16 @@ it('saves the agent mode picker toggle', async () => {
   expect(picker).toHaveProperty('checked', false)
   await user.click(picker)
   expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({ showAgentModePicker: true }))
+})
+
+it('saves turning off automatic Copilot updates', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog()
+  await user.click(screen.getByRole('tab', { name: 'Copilot' }))
+  const updates = screen.getByRole('checkbox', { name: 'Install updates on startup' })
+  expect(updates).toHaveProperty('checked', true)
+  await user.click(updates)
+  expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({ autoUpdateCopilot: false }))
 })
 
 it('saves Taskmaster tools turned off, one tool at a time', async () => {

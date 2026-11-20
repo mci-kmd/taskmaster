@@ -166,6 +166,30 @@ describe('settings service', () => {
     expect(state.settings).not.toHaveProperty('showAgentModePicker')
   })
 
+  it('stores automatic Copilot updates only when given and only when off', () => {
+    const settings: PersistedSettings = {
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: ''
+    }
+    const state = { settings, ui: { selectedRepositoryId: null, selectedThreadId: null } }
+    const service = createSettingsService({
+      ensureState: () => state,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      normalizeTerminalFontFamilyInput: (value) => value,
+      clampSidebarWidth: (value) => value
+    })
+    const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+
+    service.updateSettings({ ...base, autoUpdateCopilot: false })
+    expect(state.settings.autoUpdateCopilot).toBe(false)
+    service.updateSettings(base)
+    expect(state.settings.autoUpdateCopilot).toBe(false)
+    service.updateSettings({ ...base, autoUpdateCopilot: true })
+    expect(state.settings).not.toHaveProperty('autoUpdateCopilot')
+  })
+
   it('stores a valid new thread checkout only when given', () => {
     const settings: PersistedSettings = {
       yoloEnabled: true,

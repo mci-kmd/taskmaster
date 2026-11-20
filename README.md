@@ -30,6 +30,7 @@ A personal Electron app for organizing repo-scoped Copilot SDK conversations and
 - Change model and reasoning effort while Copilot works; the queued choice applies to the next message
 - Press Page Up/Page Down in the message box to raise or lower the selected model's reasoning effort
 - Copilot always works in Interactive mode; turn on **Show the mode picker** in Settings → Copilot to pick Plan or Autopilot for the next message
+- Copilot updates install automatically at startup, before sessions connect; turn off **Install updates on startup** in Settings → Copilot to update manually from **Update available** in a session
 - While Copilot works, the indicator at the end of the conversation shows how long it has spent on the current prompt
 - Running sub-agents are listed below it with their name, task, model and runtime, including background ones that outlive the turn or that Copilot gives follow-up work; the thread stays Working (not Done) until they finish
 - When Copilot ends its turn while waiting on shell commands it left running in the background (e.g. an interactive review listening for feedback), the thread card shows **Watching** and the conversation shows what it is watching; it resumes when they finish

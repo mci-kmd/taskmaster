@@ -34,6 +34,7 @@ import { useDialogSession } from './use-dialog-session'
 
 type SettingsValues = Omit<UpdateSettingsInput, 'disabledTaskmasterTools'> & {
   showAgentModePicker: boolean
+  autoUpdateCopilot: boolean
 } & Record<TaskmasterToolKey, boolean>
 
 type SettingsDialogProps = {
@@ -66,6 +67,7 @@ function SettingsDialogContent({
       legacyCopilotModels: settings.legacyCopilotModels ?? [],
       theme: settings.theme ?? DEFAULT_THEME,
       showAgentModePicker: settings.showAgentModePicker ?? false,
+      autoUpdateCopilot: settings.autoUpdateCopilot !== false,
       threadSetupMode: settings.threadSetupMode ?? DEFAULT_THREAD_SETUP_MODE,
       ...toolEnabledValues(settings.disabledTaskmasterTools)
     },
@@ -77,6 +79,7 @@ function SettingsDialogContent({
         legacyCopilotModels: values.legacyCopilotModels,
         theme: values.theme,
         showAgentModePicker: values.showAgentModePicker,
+        autoUpdateCopilot: values.autoUpdateCopilot,
         threadSetupMode: values.threadSetupMode,
         disabledTaskmasterTools: disabledToolsFromValues(values)
       })
@@ -137,7 +140,12 @@ function SettingsDialogContent({
       id: 'copilot',
       label: 'Copilot',
       description: 'Applies to newly opened sessions.',
-      hasError: form.hasErrors(['yoloEnabled', 'showAgentModePicker', 'legacyCopilotModels']),
+      hasError: form.hasErrors([
+        'yoloEnabled',
+        'showAgentModePicker',
+        'autoUpdateCopilot',
+        'legacyCopilotModels'
+      ]),
       content: (
         <>
           <CheckboxSetting
@@ -151,6 +159,12 @@ function SettingsDialogContent({
             field={form.field('showAgentModePicker')}
             hint="Lets you send messages in Plan or Autopilot mode. When hidden, Copilot always works in Interactive mode."
             label="Agent mode"
+          />
+          <CheckboxSetting
+            checkboxLabel="Install updates on startup"
+            field={form.field('autoUpdateCopilot')}
+            hint="When a newer Copilot version is available, Taskmaster installs it as it starts, before connecting. When off, use Update available in a session."
+            label="Updates"
           />
           <SettingRow
             hint="The model picker lists these under a collapsed Legacy row at the end of their family."

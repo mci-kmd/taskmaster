@@ -503,6 +503,8 @@ export function createCopilotSessionService(dependencies: {
   setFavoriteModels?: (models: string[]) => void
   /** Models the user marked as legacy, which the agent should not pick on its own. */
   getLegacyModels?: () => string[]
+  /** Whether a pending SDK update is installed at startup, before Copilot connects. */
+  autoUpdateSdkOnStartup?: () => boolean
   resolveThread: (threadId: string) => ThreadContext | null
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
@@ -631,7 +633,21 @@ export function createCopilotSessionService(dependencies: {
       sendIpc(window.webContents, IPC_CHANNELS.copilot.sdkStatus, { status })
     }
   })
-  sdkManager.startUpdateChecks()
+  // With automatic updates on, Copilot clients wait for the startup check (and any install) so
+  // they start on the latest SDK.
+  let startupUpdate: Promise<void> | null = null
+  if (dependencies.autoUpdateSdkOnStartup?.()) {
+    startupUpdate = (async () => {
+      const status = await sdkManager.startUpdateChecks()
+      if (status.updateAvailable) await sdkManager.installLatest()
+    })()
+      .catch((error) => console.warn('Could not apply the Copilot SDK update:', error))
+      .finally(() => {
+        startupUpdate = null
+      })
+  } else {
+    void sdkManager.startUpdateChecks()
+  }
 
   const updateSnapshot = (active: ActiveSession, patch: Partial<CopilotSessionSnapshot>): void => {
     active.snapshot = { ...active.snapshot, ...patch }
@@ -1505,6 +1521,7 @@ export function createCopilotSessionService(dependencies: {
   }
 
   const ensureClient = async (): Promise<CopilotClient> => {
+    if (startupUpdate) await startupUpdate
     if (clientPromise) return clientPromise
 
     clientPromise = (async () => {
@@ -2042,7 +2059,7 @@ export function createCopilotSessionService(dependencies: {
   return {
     getSdkStatus: () => sdkManager.getStatus(),
     updateSdk: async () => {
-      if (sdkUpdateInProgress) return sdkManager.getStatus()
+      if (sdkUpdateInProgress || startupUpdate) return sdkManager.getStatus()
 
       const blockers = collectCopilotSdkUpdateBlockers(
         [...sessions.values()].map((active) => active.snapshot),

@@ -9,6 +9,7 @@ const BUNDLED_VERSION = '1.0.14'
 const SUPPORTED_MAJOR = 1
 const REGISTRY_URL = 'https://registry.npmjs.org/@github%2Fcopilot-sdk/latest'
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
+const UPDATE_CHECK_TIMEOUT_MS = 15_000
 
 type CopilotSdkModule = {
   CopilotClient: typeof BundledCopilotClient
@@ -187,16 +188,18 @@ export class CopilotSdkManager {
     }
   }
 
-  /** Checks now, then once per interval (24h by default). */
-  startUpdateChecks(intervalMs = UPDATE_CHECK_INTERVAL_MS): void {
-    if (this.updateTimer) return
-    const check = (): void => {
-      if (this.updateState === 'checking' || this.updateState === 'installing') return
-      void this.checkForUpdate()
+  /** Checks now, then once per interval (24h by default). Resolves when the first check finishes. */
+  startUpdateChecks(intervalMs = UPDATE_CHECK_INTERVAL_MS): Promise<CopilotSdkStatus> {
+    if (this.updateTimer) return this.getStatus()
+    const check = (): Promise<CopilotSdkStatus> => {
+      if (this.updateState === 'checking' || this.updateState === 'installing')
+        return this.getStatus()
+      return this.checkForUpdate()
     }
-    check()
-    this.updateTimer = setInterval(check, intervalMs)
+    const first = check()
+    this.updateTimer = setInterval(() => void check(), intervalMs)
     this.updateTimer.unref?.()
+    return first
   }
 
   stopUpdateChecks(): void {
@@ -211,7 +214,9 @@ export class CopilotSdkManager {
     await this.emitStatus()
     try {
       const response = await fetch(REGISTRY_URL, {
-        headers: { Accept: 'application/json' }
+        headers: { Accept: 'application/json' },
+        // Copilot waits on this check at startup when updates apply automatically.
+        signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT_MS)
       })
       if (!response.ok) {
         throw new Error(`Registry request failed with status ${response.status}.`)

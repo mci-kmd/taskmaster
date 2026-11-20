@@ -741,6 +741,21 @@ describe('Copilot session composer', () => {
     await waitFor(() => expect(screen.queryByRole('complementary', { name: 'Aside' })).toBeNull())
   })
 
+  it('lists prompts in a rail in the thread but not in its aside', async () => {
+    mock.getSession.mockImplementation(async (id) =>
+      snapshot(id, {
+        timeline: [{ id: 'u1', type: 'user', content: 'Question', timestamp: '' }]
+      })
+    )
+    render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
+    await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'Open aside' }))
+    const aside = await screen.findByRole('complementary', { name: 'Aside' })
+    await within(aside).findByText('Question')
+    expect(screen.getAllByRole('navigation', { name: 'Prompts in this thread' })).toHaveLength(1)
+    expect(within(aside).queryByRole('navigation', { name: 'Prompts in this thread' })).toBeNull()
+  })
+
   it('toggles the aside with Ctrl+Shift+A and focuses its message box', async () => {
     render(<CopilotThreadView thread={thread()} onSessionChange={vi.fn()} />)
     await ready()

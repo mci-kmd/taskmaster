@@ -44,6 +44,10 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
         if (input.showAgentModePicker === true) state.settings.showAgentModePicker = true
         else delete state.settings.showAgentModePicker
       }
+      if (input.autoUpdateCopilot !== undefined) {
+        if (input.autoUpdateCopilot === false) state.settings.autoUpdateCopilot = false
+        else delete state.settings.autoUpdateCopilot
+      }
       if (input.disabledTaskmasterTools !== undefined) {
         const disabled = normalizeDisabledTaskmasterTools(input.disabledTaskmasterTools)
         if (disabled) state.settings.disabledTaskmasterTools = disabled

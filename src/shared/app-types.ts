@@ -165,6 +165,8 @@ export interface PersistedSettings {
   disabledTaskmasterTools?: TaskmasterToolName[]
   /** Checkout new threads start with unless a project overrides it. Absent means DEFAULT_THREAD_SETUP_MODE. */
   threadSetupMode?: ThreadSetupMode
+  /** Installs a pending Copilot SDK update at startup. Absent means on; only false is stored. */
+  autoUpdateCopilot?: false
 }
 
 export type CopilotModelSelection = {
@@ -930,6 +932,8 @@ export interface UpdateSettingsInput {
   disabledTaskmasterTools?: TaskmasterToolName[]
   /** Left unchanged when omitted. */
   threadSetupMode?: ThreadSetupMode
+  /** Left unchanged when omitted. */
+  autoUpdateCopilot?: boolean
 }
 
 export interface UpdateRepositoryInput {

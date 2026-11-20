@@ -738,6 +738,10 @@ export function getLegacyCopilotModels(): string[] {
   return ensureState().settings.legacyCopilotModels ?? []
 }
 
+export function getAutoUpdateCopilotSetting(): boolean {
+  return ensureState().settings.autoUpdateCopilot !== false
+}
+
 export function getFavoriteCopilotModels(): string[] {
   return ensureState().settings.favoriteCopilotModels ?? []
 }

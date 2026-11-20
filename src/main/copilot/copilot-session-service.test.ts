@@ -45,6 +45,8 @@ const harness = vi.hoisted(() => ({
   truncate: vi.fn(),
   listTasks: vi.fn(),
   broadcast: vi.fn(),
+  startUpdateChecks: vi.fn(),
+  installLatest: vi.fn(),
   unsubscribe: vi.fn()
 }))
 vi.mock('electron', () => ({
@@ -57,7 +59,8 @@ vi.mock('./copilot-sdk-manager', () => ({
   CopilotSdkManager: class {
     setStatusListener = vi.fn()
     setRuntimeStatus = vi.fn()
-    startUpdateChecks = vi.fn()
+    startUpdateChecks = harness.startUpdateChecks
+    installLatest = harness.installLatest
     stopUpdateChecks = vi.fn()
     loadSdk = async (): Promise<unknown> => ({
       version: 'test',
@@ -147,6 +150,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   harness.clientOptions = null
   harness.clientCount = 0
+  harness.startUpdateChecks.mockResolvedValue({ updateAvailable: false })
   harness.getEvents.mockResolvedValue([])
   harness.getCurrentModel.mockResolvedValue({ modelId: 'model' })
   harness.listSkills.mockResolvedValue({ skills: [] })
@@ -209,6 +213,36 @@ it('registers session tools for the thread', async () => {
   await service.start('thread')
   expect(getSessionTools).toHaveBeenCalledWith('thread')
   expect(harness.config?.tools).toEqual([tool])
+})
+
+describe('startup SDK update', () => {
+  it('installs a pending update before Copilot connects when enabled', async () => {
+    const check = deferred<unknown>()
+    const install = deferred<unknown>()
+    harness.startUpdateChecks.mockReturnValue(check.promise)
+    harness.installLatest.mockReturnValue(install.promise)
+    const service = setup(true, { autoUpdateSdkOnStartup: () => true })
+
+    const started = service.start('thread')
+    check.resolve({ updateAvailable: true })
+    await vi.waitFor(() => expect(harness.installLatest).toHaveBeenCalledTimes(1))
+    expect(harness.clientCount).toBe(0)
+
+    install.resolve({})
+    await expect(started).resolves.toMatchObject({ ok: true })
+    expect(harness.clientCount).toBe(1)
+  })
+
+  it('connects without installing when no update is pending or the setting is off', async () => {
+    harness.startUpdateChecks.mockResolvedValue({ updateAvailable: true })
+    await setup(true, { autoUpdateSdkOnStartup: () => false }).start('thread')
+    harness.startUpdateChecks.mockResolvedValue({ updateAvailable: false })
+    await setup(true, { autoUpdateSdkOnStartup: () => true }).start('thread')
+
+    expect(harness.startUpdateChecks).toHaveBeenCalledTimes(2)
+    expect(harness.installLatest).not.toHaveBeenCalled()
+    expect(harness.clientCount).toBe(2)
+  })
 })
 
 it('records model usage with call timing, including subagents, and ignores unmeasurable calls', async () => {

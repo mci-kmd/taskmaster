@@ -1165,12 +1165,14 @@ function SessionView({
             </Presence>
           </div>
         </div>
-        <PromptRail
-          prompts={prompts}
-          scrollRef={timelineRef}
-          onNavigate={stopFollowing}
-          onRevealHistory={revealHistory}
-        />
+        {isAside ? null : (
+          <PromptRail
+            prompts={prompts}
+            scrollRef={timelineRef}
+            onNavigate={stopFollowing}
+            onRevealHistory={revealHistory}
+          />
+        )}
         <PromptRail
           prompts={pins}
           scrollRef={timelineRef}
