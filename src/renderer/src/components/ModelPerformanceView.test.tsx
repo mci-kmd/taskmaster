@@ -114,7 +114,8 @@ it('names each used model and shows bucket metrics and time on hover and keyboar
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    hourCycle: 'h23'
   })
   const hour = new Date(now.getTime() - 60_000)
   hour.setMinutes(0, 0, 0)
@@ -176,7 +177,8 @@ it('uses 5-minute, hourly and daily intervals aligned to local time', () => {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    hourCycle: 'h23'
   })
   const time = new Date(now.getTime() - 60_000)
   const fiveMinutes = new Date(time)

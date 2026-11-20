@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import { snoozeUntil, toDateTimeLocalValue } from '../../lib/snooze'
+import {
+  parseDateTimeInput,
+  snoozeUntil,
+  toDateInputValue,
+  toTimeInputValue
+} from '../../lib/snooze'
 import { useNow } from '../../lib/useNow'
 import Modal from '../Modal'
 import Button from '../ui/Button'
@@ -45,10 +50,17 @@ function SnoozeForm({
   onCancel: () => void
   onSubmit: (until: string) => void
 }): React.JSX.Element {
-  const [value, setValue] = useState(() => toDateTimeLocalValue(snoozeUntil('tomorrow')))
+  const [initial] = useState(() => snoozeUntil('tomorrow'))
+  const [date, setDate] = useState(() => toDateInputValue(initial))
+  const [time, setTime] = useState(() => toTimeInputValue(initial))
   const now = useNow(30_000)
-  const until = value ? new Date(value) : null
-  const valid = until !== null && !Number.isNaN(until.getTime()) && until.getTime() > now
+  const until = parseDateTimeInput(date, time)
+  const valid = until !== null && until.getTime() > now
+  const hint = !until
+    ? 'Pick a date and a 24-hour time, e.g. 08:00 or 16:30.'
+    : !valid
+      ? 'Pick a time in the future.'
+      : undefined
   return (
     <form
       className="space-y-4"
@@ -57,19 +69,32 @@ function SnoozeForm({
         if (valid && until) onSubmit(until.toISOString())
       }}
     >
-      <Field
-        htmlFor="snooze-until"
-        hint={value && !valid ? 'Pick a time in the future.' : undefined}
-        label="Snooze until"
-      >
-        <TextInput
-          autoFocus
-          id="snooze-until"
-          min={toDateTimeLocalValue(new Date(now))}
-          onChange={(event) => setValue(event.target.value)}
-          type="datetime-local"
-          value={value}
-        />
+      <Field htmlFor="snooze-until" hint={hint} label="Snooze until">
+        {/* A separate 24-hour time field, since the native datetime picker follows the locale's 12/24-hour clock. */}
+        <div className="flex gap-2">
+          <div className="min-w-0 flex-1">
+            <TextInput
+              autoFocus
+              id="snooze-until"
+              min={toDateInputValue(new Date(now))}
+              onChange={(event) => setDate(event.target.value)}
+              type="date"
+              value={date}
+            />
+          </div>
+          <div className="w-24 shrink-0">
+            <TextInput
+              aria-label="Time (24-hour)"
+              className="tabular-nums"
+              inputMode="numeric"
+              maxLength={5}
+              onChange={(event) => setTime(event.target.value)}
+              placeholder="HH:MM"
+              type="text"
+              value={time}
+            />
+          </div>
+        </div>
       </Field>
       <div className="flex items-center justify-end gap-2">
         <Button onClick={onCancel} title="Cancel (Esc)" type="button" variant="ghost">

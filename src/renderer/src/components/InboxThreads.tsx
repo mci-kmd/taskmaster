@@ -280,7 +280,11 @@ export default function InboxThreads({
                           <span
                             className="tm-thread-status"
                             data-status="snoozed"
-                            title={new Date(snoozedUntil).toLocaleString()}
+                            title={new Date(snoozedUntil).toLocaleString(undefined, {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                              hourCycle: 'h23'
+                            })}
                           >
                             <SnoozeIcon
                               width={11}

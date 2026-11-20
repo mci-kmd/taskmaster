@@ -320,7 +320,8 @@ function Trend({
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    hourCycle: 'h23'
   })
   const interval = (index: number): string =>
     `${rangeFormat.format(Math.max(start, buckets[index].start))} – ${rangeFormat.format(Math.min(end, buckets[index].end))}`
@@ -521,7 +522,7 @@ export default function ModelPerformanceView({
   const start = now - selected.duration
   const timeLabel = new Intl.DateTimeFormat(undefined, {
     ...(period === '1h' || period === '1d'
-      ? { hour: 'numeric' as const, minute: '2-digit' as const }
+      ? { hour: 'numeric' as const, minute: '2-digit' as const, hourCycle: 'h23' as const }
       : { month: 'short' as const, day: 'numeric' as const })
   })
   const byModel = useMemo(() => {
