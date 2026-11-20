@@ -1,7 +1,7 @@
 /* Model performance view and charts. */
 @layer components {
   /* Series colors come from tokens so they hold up in every theme: cobalt for speed, amber for
-     first-token latency (also dashed, with hollow points) and violet for cost. */
+     first-token latency (with hollow points) and violet for cost. */
   .tm-performance {
     --tm-tps: var(--color-accent);
     --tm-ttft: var(--color-syntax-number);
@@ -217,6 +217,7 @@
   }
 
   .tm-performance__swatch {
+    position: relative;
     display: inline-block;
     flex: none;
     width: 14px;
@@ -225,9 +226,23 @@
     vertical-align: middle;
   }
 
-  .tm-performance__readout--ttft .tm-performance__swatch,
-  .tm-performance__scale--ttft .tm-performance__swatch {
-    border-top-style: dashed;
+  /* A point on the swatch: filled for TPS, hollow for TTFT, matching the chart. */
+  .tm-performance__swatch::after {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 3px;
+    box-sizing: border-box;
+    width: 8px;
+    height: 8px;
+    border: 1.5px solid var(--tm-ink);
+    border-radius: 50%;
+    background: var(--tm-ink);
+  }
+
+  .tm-performance__readout--ttft .tm-performance__swatch::after,
+  .tm-performance__scale--ttft .tm-performance__swatch::after {
+    background: var(--color-panel);
   }
 
   .tm-performance__readout {
@@ -276,26 +291,44 @@
     min-width: 0;
   }
 
+  /* Value scales sit in gutters beside the plot: left for the first series, right for a second. */
   .tm-performance__chart-wrap {
+    --tm-chart-height: 160px;
+    --tm-gutter-end: 8px;
     position: relative;
-    height: 84px;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) var(--tm-gutter-end);
+    grid-template-rows: 16px var(--tm-chart-height) auto;
+    grid-template-areas:
+      'scales scales scales'
+      'start chart end'
+      '. axis .';
+    row-gap: 4px;
+  }
+
+  .tm-performance__chart-wrap--dual {
+    --tm-gutter-end: 44px;
+  }
+
+  .tm-performance__chart-area {
+    position: relative;
+    grid-area: chart;
+    min-width: 0;
   }
 
   .tm-performance__chart {
     display: block;
     width: 100%;
-    height: 84px;
+    height: 100%;
     overflow: visible;
     color: var(--tm-ink);
   }
 
   .tm-performance__scales {
-    position: absolute;
-    top: 0;
-    right: 12px;
-    left: 12px;
+    grid-area: scales;
     display: flex;
     justify-content: space-between;
+    align-items: center;
     gap: 14px;
     pointer-events: none;
   }
@@ -310,11 +343,40 @@
     font-variant-numeric: tabular-nums;
   }
 
-  .tm-performance__scale:only-child {
-    margin-left: auto;
+  .tm-performance__ticks {
+    position: relative;
+    color: color-mix(in oklab, var(--tm-ink) 55%, var(--color-fg-subtle));
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .tm-performance__ticks--start {
+    grid-area: start;
+  }
+
+  .tm-performance__ticks--end {
+    grid-area: end;
+  }
+
+  .tm-performance__ticks > span {
+    position: absolute;
+    transform: translateY(-50%);
+    white-space: nowrap;
+  }
+
+  .tm-performance__ticks--start > span {
+    right: 6px;
+  }
+
+  .tm-performance__ticks--end > span {
+    left: 6px;
   }
 
   .tm-performance__axis {
+    grid-area: axis;
     display: flex;
     justify-content: space-between;
     padding: 0 8px;
@@ -326,9 +388,13 @@
 
   .tm-performance__grid {
     fill: none;
-    stroke: var(--color-border-strong);
+    stroke: var(--color-border);
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
+  }
+
+  .tm-performance__grid--base {
+    stroke: var(--color-border-strong);
   }
 
   .tm-performance__line {
@@ -340,6 +406,14 @@
     vector-effect: non-scaling-stroke;
   }
 
+  /* Bridges intervals without a value, so each series reads as one continuous line. */
+  .tm-performance__line--gap {
+    stroke-width: 1.3;
+    stroke-dasharray: 4 4;
+    stroke-linecap: butt;
+    opacity: 0.6;
+  }
+
   .tm-performance__point {
     fill: currentColor;
     stroke: var(--color-panel);
@@ -347,11 +421,7 @@
     transition: r var(--duration-fast) var(--ease-out);
   }
 
-  /* TTFT is dashed with hollow points so the two series never rely on color alone. */
-  .tm-performance__series--ttft .tm-performance__line {
-    stroke-dasharray: 5 4;
-  }
-
+  /* TTFT has hollow points so the two series never rely on color alone. */
   .tm-performance__series--ttft .tm-performance__point {
     fill: var(--color-panel);
     stroke: currentColor;
@@ -469,12 +539,8 @@
       padding: 17px 0;
     }
 
-    .tm-performance__chart {
-      height: 66px;
-    }
-
     .tm-performance__chart-wrap {
-      height: 66px;
+      --tm-chart-height: 120px;
     }
   }
 }

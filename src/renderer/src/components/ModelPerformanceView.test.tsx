@@ -51,6 +51,11 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+const ticks = (element: HTMLElement, side: 'start' | 'end'): string[] =>
+  Array.from(element.querySelectorAll(`.tm-performance__ticks--${side} span`)).map(
+    (tick) => tick.textContent ?? ''
+  )
+
 it('shows only active models and calculates weighted end-to-end TPS and recorded TTFT', () => {
   view([
     sample('1', 'Alpha', 2, 100, 1000, 200),
@@ -60,8 +65,9 @@ it('shows only active models and calculates weighted end-to-end TPS and recorded
   ])
   expect(screen.getByRole('radio', { name: '1h' }).getAttribute('aria-checked')).toBe('true')
   const model = screen.getByRole('region', { name: 'Alpha performance' })
-  expect(within(model).getByText('50')).toBeTruthy()
-  expect(within(model).getByText('300')).toBeTruthy()
+  const readouts = model.querySelector('.tm-performance__readouts') as HTMLElement
+  expect(within(readouts).getByText('50')).toBeTruthy()
+  expect(within(readouts).getByText('300')).toBeTruthy()
   expect(within(model).getByText('2 / 3 recorded')).toBeTruthy()
   expect(screen.queryByRole('region', { name: 'Older performance' })).toBeNull()
   const chart = within(model).getByRole('img', { name: /Alpha output speed and first token trend/ })
@@ -74,8 +80,12 @@ it('shows only active models and calculates weighted end-to-end TPS and recorded
   expect(
     chart.querySelectorAll('.tm-performance__series--ttft .tm-performance__point')
   ).toHaveLength(1)
-  expect(within(model).getByText('TPS 0–50 tok/s')).toBeTruthy()
-  expect(within(model).getByText('TTFT 0–300 ms')).toBeTruthy()
+  expect(within(model).getByText('TPS tok/s')).toBeTruthy()
+  expect(within(model).getByText('TTFT ms')).toBeTruthy()
+  // Both scales share round gridlines: TPS on the left, TTFT on the right.
+  expect(ticks(model, 'start')).toEqual(['0', '10', '20', '30', '40', '50', '60'])
+  expect(ticks(model, 'end')).toEqual(['0', '50', '100', '150', '200', '250', '300'])
+  expect(chart.querySelectorAll('.tm-performance__grid')).toHaveLength(7)
 
   fireEvent.click(screen.getByRole('radio', { name: '1w' }))
   expect(screen.getByRole('region', { name: 'Older performance' })).toBeTruthy()
@@ -106,8 +116,9 @@ it('names each used model and shows bucket metrics and time on hover and keyboar
     hour: 'numeric',
     minute: '2-digit'
   })
-  expect(tooltip.textContent).toContain(format.format(new Date(now.getTime() - 2 * 60 * 60_000)))
-  expect(tooltip.textContent).toContain(' – ')
+  const hour = new Date(now.getTime() - 60_000)
+  hour.setMinutes(0, 0, 0)
+  expect(tooltip.textContent).toContain(`${format.format(hour)} – `)
   fireEvent.mouseLeave(alphaPoint)
   expect(screen.queryByRole('tooltip')).toBeNull()
 
@@ -136,6 +147,15 @@ it('keeps one tab stop per chart and moves between intervals with arrow keys', (
     .querySelector('.tm-performance__metric') as HTMLElement
   const points = within(graph).getAllByRole('button', { name: /Alpha,/ })
   expect(points.map((point) => point.tabIndex)).toEqual([-1, -1, 0])
+  // Points without neighbors are bridged by dashed curves, never left unconnected.
+  const tps = graph.querySelector('.tm-performance__series--tps')!
+  expect(tps.querySelector('.tm-performance__line:not(.tm-performance__line--gap)')).toBeNull()
+  expect(
+    tps
+      .querySelector('.tm-performance__line--gap')
+      ?.getAttribute('d')
+      ?.match(/M[^C]+C/g)
+  ).toHaveLength(2)
   points[2].focus()
   fireEvent.keyDown(points[2], { key: 'ArrowLeft' })
   expect(document.activeElement).toBe(points[1])
@@ -148,6 +168,36 @@ it('keeps one tab stop per chart and moves between intervals with arrow keys', (
   expect(within(graph).getByRole('tooltip').style.getPropertyValue('--tm-tooltip-center')).not.toBe(
     ''
   )
+})
+
+it('uses 5-minute, hourly and daily intervals aligned to local time', () => {
+  view([sample('1', 'Alpha', 1, 10, 1000, 100)])
+  const format = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+  const time = new Date(now.getTime() - 60_000)
+  const fiveMinutes = new Date(time)
+  fiveMinutes.setMinutes(Math.floor(time.getMinutes() / 5) * 5, 0, 0)
+  const hour = new Date(time)
+  hour.setMinutes(0, 0, 0)
+  const midnight = new Date(time)
+  midnight.setHours(0, 0, 0, 0)
+  for (const [period, start] of [
+    ['1h', fiveMinutes],
+    ['1d', hour],
+    ['1w', midnight],
+    ['1m', midnight]
+  ] as const) {
+    fireEvent.click(screen.getByRole('radio', { name: period }))
+    const point = within(screen.getByRole('region', { name: 'Alpha performance' })).getByRole(
+      'button',
+      { name: /Alpha,/ }
+    )
+    expect(point.getAttribute('aria-label')).toContain(`Alpha, ${format.format(start)} – `)
+  }
 })
 
 it('includes boundary samples and hides models older than each selected period', () => {
@@ -252,8 +302,8 @@ it('keeps completed intervals and their positions stable as samples and the cloc
   const originalHeights = heights()
   expect(original[0]).toContain('50 tokens per second')
   expect(original[1]).toContain('30 tokens per second')
-  expect(within(graph).getByText('TPS 0–50 tok/s')).toBeTruthy()
-  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' L')
+  expect(ticks(graph, 'start')).toEqual(['0', '10', '20', '30', '40', '50'])
+  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' C')
   const focused = within(graph).getAllByRole('button', { name: /Alpha,/ })[0]
   act(() => focused.focus())
   const focusedDetails = within(graph).getByRole('tooltip').textContent
@@ -277,7 +327,7 @@ it('keeps completed intervals and their positions stable as samples and the cloc
   })
   expect(past()).toEqual(original)
   expect(heights()).toEqual(originalHeights)
-  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' L')
+  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' C')
 
   vi.setSystemTime(new Date(now.getTime() + 6 * 60_000))
   await act(async () => {
@@ -297,7 +347,7 @@ it('keeps completed intervals and their positions stable as samples and the cloc
   })
   expect(past()).toEqual(original)
   expect(heights()).toEqual(originalHeights)
-  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' L')
+  expect(graph.querySelector('.tm-performance__line')?.getAttribute('d')).toContain(' C')
   expect(document.activeElement).toBe(focused)
   expect(within(graph).getByRole('tooltip').textContent).toBe(focusedDetails)
 })
@@ -313,7 +363,7 @@ it('labels a changed vertical scale without changing recorded interval metrics',
   const recorded = within(graph)
     .getByRole('button', { name: /Alpha,/ })
     .getAttribute('aria-label')
-  expect(within(graph).getByText('TPS 0–50 tok/s')).toBeTruthy()
+  expect(ticks(graph, 'start').at(-1)).toBe('50')
 
   vi.setSystemTime(new Date(now.getTime() + 2 * 60_000))
   await act(async () => {
@@ -327,7 +377,7 @@ it('labels a changed vertical scale without changing recorded interval metrics',
       />
     )
   })
-  expect(within(graph).getByText('TPS 0–100 tok/s')).toBeTruthy()
+  expect(ticks(graph, 'start')).toEqual(['0', '20', '40', '60', '80', '100', '120'])
   expect(
     within(graph)
       .getAllByRole('button', { name: /Alpha,/ })[0]
@@ -400,7 +450,8 @@ it('toggles to AI credit and DKK usage per model, tolerating samples without usa
   const alpha = screen.getByRole('region', { name: 'Alpha AI credits' })
   expect(within(alpha).getByText('2.50')).toBeTruthy()
   expect(within(alpha).getByText('2 / 3 with usage')).toBeTruthy()
-  expect(within(alpha).getByText('0–2.50 credits')).toBeTruthy()
+  expect(ticks(alpha, 'start')).toEqual(['0', '0.5', '1.0', '1.5', '2.0', '2.5'])
+  expect(alpha.querySelector('.tm-performance__ticks--end')).toBeNull()
   expect(within(alpha).getByRole('img', { name: /Alpha AI credits trend/ })).toBeTruthy()
   const point = within(alpha).getByRole('button', { name: /Alpha,/ })
   expect(point.getAttribute('aria-label')).toContain('Credits: 2.50 credits')
@@ -420,7 +471,7 @@ it('toggles to AI credit and DKK usage per model, tolerating samples without usa
   fireEvent.click(within(chart).getByRole('radio', { name: 'DKK' }))
   const alphaDkk = screen.getByRole('region', { name: 'Alpha estimated DKK' })
   expect(within(alphaDkk).getByText('≈0.16')).toBeTruthy()
-  expect(within(alphaDkk).getByText('0–0.16 DKK')).toBeTruthy()
+  expect(ticks(alphaDkk, 'start')).toEqual(['0', '0.05', '0.10', '0.15', '0.20'])
   expect(container.querySelector('.tm-performance__footer')?.textContent).toContain(
     '$1 = 6.5 DKK (live rate)'
   )

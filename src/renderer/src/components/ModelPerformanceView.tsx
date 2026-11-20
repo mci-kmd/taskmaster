@@ -57,11 +57,17 @@ const METRICS: Record<Metric, { name: string; label: string; unit: string; spoke
   credits: { name: 'Credits', label: 'AI credits', unit: 'credits', spoken: 'credits' },
   dkk: { name: 'DKK', label: 'Estimated cost', unit: 'DKK', spoken: 'DKK' }
 }
-const BUCKET_COUNT = 12
+const MINUTE = 60 * 1000
+const HOUR = 60 * MINUTE
+/** Chart geometry in SVG units; the plot stretches horizontally to fit. */
+const CHART = { width: 640, height: 160, left: 12, right: 628, top: 10, bottom: 150 }
+/** Candidate gridline counts, in order of preference when scales fit equally well. */
+const GRID_INTERVALS = [5, 4, 6]
 const modelKey = (group: ModelPerformanceSample[]): string => group[0]?.model ?? ''
 type SampleBucket = { start: number; end: number; samples: ModelPerformanceSample[] }
 type Series = { metric: Metric; values: (number | null)[]; max: number }
 type Row = { label: string; text: string; spoken: string }
+type Point = { x: number; y: number }
 
 function formatValue(value: number, metric: Metric): string {
   if (metric === 'credits' || metric === 'dkk') return formatCostAmount(value)
@@ -110,45 +116,133 @@ function aggregate(
   return duration > 0 ? (tokens / duration) * 1000 : null
 }
 
+/**
+ * Bucket edges aligned to local clock boundaries (5 minutes, hours or days), so completed
+ * intervals stay put as the period's moving edge advances.
+ */
+function bucketEdges(period: Period, start: number, end: number): number[] {
+  const first = new Date(start)
+  if (period === '1h') first.setMinutes(Math.floor(first.getMinutes() / 5) * 5, 0, 0)
+  else if (period === '1d') first.setMinutes(0, 0, 0)
+  else first.setHours(0, 0, 0, 0)
+  const edges = [first.getTime()]
+  while (edges[edges.length - 1] < end) {
+    const last = edges[edges.length - 1]
+    if (period === '1h') edges.push(last + 5 * MINUTE)
+    else if (period === '1d') edges.push(last + HOUR)
+    else {
+      // Calendar days, so daylight saving changes keep buckets on local midnight.
+      const next = new Date(last)
+      next.setDate(next.getDate() + 1)
+      edges.push(next.getTime())
+    }
+  }
+  return edges
+}
+
 function bucketSamples(
   samples: ModelPerformanceSample[],
+  period: Period,
   start: number,
   end: number
 ): SampleBucket[] {
-  const width = (end - start) / BUCKET_COUNT
-  // Align to fixed time boundaries, not the moving edge of the selected period.
-  const first = Math.floor(start / width) * width
-  const buckets: SampleBucket[] = Array.from(
-    { length: Math.ceil((end - first) / width) },
-    (_, index) => ({
-      start: first + index * width,
-      end: first + (index + 1) * width,
-      samples: []
-    })
-  )
+  const edges = bucketEdges(period, start, end)
+  const buckets: SampleBucket[] = edges
+    .slice(0, -1)
+    .map((edge, index) => ({ start: edge, end: edges[index + 1], samples: [] }))
   for (const sample of samples) {
-    const index = Math.min(
-      buckets.length - 1,
-      Math.floor((Date.parse(sample.timestamp) - first) / width)
-    )
+    const time = Date.parse(sample.timestamp)
+    const after = edges.findIndex((edge) => edge > time)
+    const index = after === -1 ? buckets.length - 1 : after - 1
     if (index >= 0 && index < buckets.length) buckets[index].samples.push(sample)
   }
   return buckets
 }
 
-function linePaths(points: ({ x: number; y: number } | null)[]): string[] {
-  const segments: string[] = []
-  let segment = ''
-  for (const point of points) {
-    if (point) {
-      segment += `${segment ? ' L' : 'M'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`
-    } else if (segment) {
-      segments.push(segment)
-      segment = ''
+/** Smallest 1, 2, 2.5 (from 25 up) or 5 × 10ⁿ step that is at least `raw`. */
+function niceStep(raw: number): number {
+  const power = 10 ** Math.floor(Math.log10(raw))
+  for (const factor of [1, 2, 2.5, 5, 10]) {
+    if (factor === 2.5 && power < 10) continue
+    if (factor * power >= raw * (1 - 1e-9)) return factor * power
+  }
+  return 10 * power
+}
+
+/**
+ * Picks one gridline count shared by every series, each with its own round step, so each
+ * horizontal line reads as a round number on every scale while wasting the least height.
+ */
+function niceScales(maxima: number[]): { intervals: number; steps: number[] } {
+  let best = { intervals: GRID_INTERVALS[0], steps: [] as number[], waste: Infinity }
+  for (const intervals of GRID_INTERVALS) {
+    const steps = maxima.map((max) => niceStep((max > 0 ? max : 1) / intervals))
+    const waste = steps.reduce(
+      (sum, step, index) => sum + (step * intervals) / (maxima[index] > 0 ? maxima[index] : 1),
+      0
+    )
+    if (waste < best.waste - 1e-9) best = { intervals, steps, waste }
+  }
+  return best
+}
+
+function formatTick(value: number, step: number, metric: Metric): string {
+  const decimals = Math.max(0, -Math.floor(Math.log10(step) + 1e-9))
+  // Cost amounts are shown with toFixed elsewhere, so their ticks match.
+  if (metric === 'credits' || metric === 'dkk') return value === 0 ? '0' : value.toFixed(decimals)
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: value === 0 ? 0 : decimals,
+    maximumFractionDigits: decimals,
+    ...(step >= 1000 ? { notation: 'compact' as const, maximumFractionDigits: 1 } : {})
+  }).format(value)
+}
+
+/** Monotone cubic tangents (as in d3's curveMonotoneX), so curves never overshoot the data. */
+function monotoneSlopes(points: Point[]): number[] {
+  const secants = points
+    .slice(1)
+    .map((point, index) => (point.y - points[index].y) / (point.x - points[index].x || 1))
+  const inner = points.map((point, index) => {
+    if (index === 0 || index === points.length - 1) return 0
+    const [s0, s1] = [secants[index - 1], secants[index]]
+    if (s0 * s1 <= 0) return 0
+    const h0 = point.x - points[index - 1].x
+    const h1 = points[index + 1].x - point.x
+    const p = (s0 * h1 + s1 * h0) / (h0 + h1)
+    return 2 * Math.sign(s0) * Math.min(Math.abs(s0), Math.abs(s1), 0.5 * Math.abs(p))
+  })
+  const last = points.length - 1
+  if (last < 1) return inner
+  inner[0] = last === 1 ? secants[0] : (3 * secants[0] - inner[1]) / 2
+  inner[last] = last === 1 ? secants[0] : (3 * secants[last - 1] - inner[last - 1]) / 2
+  return inner
+}
+
+/**
+ * One continuous curve through every point: solid between adjacent intervals and dashed
+ * where it bridges intervals without a value.
+ */
+function curvePaths(points: (Point | null)[]): { solid: string; gaps: string } {
+  const plotted = points.flatMap((point, index) => (point ? [{ ...point, index }] : []))
+  const slopes = monotoneSlopes(plotted)
+  const f = (value: number): string => value.toFixed(1)
+  let solid = ''
+  let gaps = ''
+  let continuing = false
+  for (let index = 1; index < plotted.length; index += 1) {
+    const [a, b] = [plotted[index - 1], plotted[index]]
+    const third = (b.x - a.x) / 3
+    const curve = ` C${f(a.x + third)} ${f(a.y + slopes[index - 1] * third)} ${f(b.x - third)} ${f(b.y - slopes[index] * third)} ${f(b.x)} ${f(b.y)}`
+    const move = `M${f(a.x)} ${f(a.y)}`
+    if (b.index === a.index + 1) {
+      solid += `${continuing ? '' : `${solid ? ' ' : ''}${move}`}${curve}`
+      continuing = true
+    } else {
+      gaps += `${gaps ? ' ' : ''}${move}${curve}`
+      continuing = false
     }
   }
-  if (segment) segments.push(segment)
-  return segments
+  return { solid, gaps }
 }
 
 function Trend({
@@ -158,15 +252,17 @@ function Trend({
   title,
   start,
   end,
+  timeLabels,
   model
 }: {
   buckets: SampleBucket[]
-  /** Each series has its own labeled 0–max scale so both stay readable in one plot. */
+  /** The first series is scaled on the left axis, a second on the right; gridlines are shared. */
   series: Series[]
   rows: (samples: ModelPerformanceSample[]) => Row[]
   title: string
   start: number
   end: number
+  timeLabels: [string, string]
   model: string
 }): React.JSX.Element {
   const [activeStart, setActiveStart] = useState<number | null>(null)
@@ -194,16 +290,31 @@ function Trend({
   }
   const activeIndex =
     activeStart === null ? null : buckets.findIndex((bucket) => bucket.start === activeStart)
-  const xAt = (time: number): number => 12 + ((time - start) / (end - start)) * 616
+  const xAt = (time: number): number =>
+    CHART.left + ((time - start) / (end - start)) * (CHART.right - CHART.left)
+  const yAt = (value: number, top: number): number =>
+    CHART.bottom - (value / top) * (CHART.bottom - CHART.top)
   const centers = buckets.map((bucket) =>
     xAt((Math.max(start, bucket.start) + Math.min(end, bucket.end)) / 2)
   )
-  const plotted = series.map((item) => ({
-    ...item,
-    points: item.values.map((value, index) =>
-      value === null ? null : { x: centers[index], y: 72 - (value / (item.max || 1)) * 56 }
+  const scales = niceScales(series.map((item) => item.max))
+  const plotted = series.map((item, seriesIndex) => {
+    const step = scales.steps[seriesIndex]
+    const top = step * scales.intervals
+    const points = item.values.map((value, index) =>
+      value === null ? null : { x: centers[index], y: yAt(value, top) }
     )
-  }))
+    return {
+      ...item,
+      points,
+      paths: curvePaths(points),
+      ticks: Array.from({ length: scales.intervals + 1 }, (_, index) => {
+        const value = Number((index * step).toPrecision(12))
+        return { value, label: formatTick(value, step, item.metric), y: yAt(value, top) }
+      })
+    }
+  })
+  const gridlines = plotted[0]?.ticks.map((tick) => tick.y) ?? []
 
   const rangeFormat = new Intl.DateTimeFormat(undefined, {
     month: 'short',
@@ -239,44 +350,9 @@ function Trend({
   const hasValues = series.some((item) => item.values.some((value) => value !== null))
 
   return (
-    <div className="tm-performance__chart-wrap tm-fade-in">
-      <svg
-        className="tm-performance__chart"
-        viewBox="0 0 640 84"
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={`${model} ${title} trend. ${description || 'No recorded values in this period.'}`}
-      >
-        <path className="tm-performance__grid" d="M12 16H628 M12 44H628 M12 72H628" />
-        {/* The guide slides between points and fades in and out with the hover. */}
-        <Presence show={active !== null} motion="fade">
-          {guideIndex !== null ? (
-            <path
-              className="tm-performance__guide"
-              d="M0 8V76"
-              style={{ transform: `translateX(${centers[guideIndex]}px)` }}
-            />
-          ) : null}
-        </Presence>
-        {plotted.map((item) => (
-          <g key={item.metric} className={`tm-performance__series--${item.metric}`}>
-            {linePaths(item.points).map((path, index) => (
-              <path key={index} className="tm-performance__line" d={path} />
-            ))}
-            {item.points.map((point, index) =>
-              point ? (
-                <circle
-                  key={buckets[index].start}
-                  className="tm-performance__point"
-                  cx={point.x}
-                  cy={point.y}
-                  r={index === activeIndex ? 5 : 3.5}
-                />
-              ) : null
-            )}
-          </g>
-        ))}
-      </svg>
+    <div
+      className={`tm-performance__chart-wrap tm-fade-in${series.length > 1 ? ' tm-performance__chart-wrap--dual' : ''}`}
+    >
       {hasValues ? (
         <div className="tm-performance__scales" aria-hidden="true">
           {series.map((item) => (
@@ -285,63 +361,133 @@ function Trend({
               className={`tm-performance__scale tm-performance__scale--${item.metric}`}
             >
               {series.length > 1 && <i className="tm-performance__swatch" />}
-              {series.length > 1 ? `${METRICS[item.metric].name} ` : ''}0–
-              {formatValue(item.max, item.metric)} {METRICS[item.metric].unit}
+              {series.length > 1 ? `${METRICS[item.metric].name} ` : ''}
+              {METRICS[item.metric].unit}
             </span>
           ))}
         </div>
       ) : null}
-      {buckets.map((bucket, index) =>
-        bucket.samples.length ? (
-          <button
-            key={bucket.start}
-            ref={(element) => {
-              hitRefs.current[index] = element
-            }}
-            className="tm-performance__chart-hit"
-            type="button"
-            tabIndex={index === tabbable ? 0 : -1}
-            style={{
-              left: `${(xAt(Math.max(start, bucket.start)) / 640) * 100}%`,
-              width: `${((xAt(Math.min(end, bucket.end)) - xAt(Math.max(start, bucket.start))) / 640) * 100}%`
-            }}
-            aria-label={details(index)}
-            aria-describedby={activeIndex === index ? tooltipId : undefined}
-            onMouseEnter={() => setActiveStart(bucket.start)}
-            onMouseLeave={() => setActiveStart(null)}
-            onFocus={() => {
-              setFocusStart(bucket.start)
-              setActiveStart(bucket.start)
-            }}
-            onBlur={() => setActiveStart(null)}
-            onKeyDown={(event) => moveFocus(event, index)}
-          />
-        ) : null
-      )}
-      <Presence show={active !== null} motion="fade">
-        {guideIndex !== null && tooltipBucket ? (
-          <div
-            className="tm-performance__tooltip"
-            id={tooltipId}
-            role="tooltip"
-            style={
-              {
-                '--tm-tooltip-center': `${(centers[guideIndex] / 640) * 100}%`
-              } as React.CSSProperties
-            }
-          >
-            <strong>{model}</strong>
-            <span>{interval(guideIndex)}</span>
-            {rows(tooltipBucket.samples).map((row) => (
-              <div key={row.label}>
-                <span>{row.label}</span>
-                <b>{row.text}</b>
-              </div>
-            ))}
-            <small>{calls(tooltipBucket.samples.length)}</small>
-          </div>
-        ) : null}
-      </Presence>
+      {hasValues
+        ? plotted.map((item, seriesIndex) => (
+            <div
+              key={item.metric}
+              className={`tm-performance__ticks tm-performance__ticks--${seriesIndex === 0 ? 'start' : 'end'} tm-performance__scale--${item.metric}`}
+              aria-hidden="true"
+            >
+              {item.ticks.map((tick) => (
+                <span key={tick.value} style={{ top: `${(tick.y / CHART.height) * 100}%` }}>
+                  {tick.label}
+                </span>
+              ))}
+            </div>
+          ))
+        : null}
+      <div className="tm-performance__chart-area">
+        <svg
+          className="tm-performance__chart"
+          viewBox={`0 0 ${CHART.width} ${CHART.height}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`${model} ${title} trend. ${description || 'No recorded values in this period.'}`}
+        >
+          {gridlines.map((y, index) => (
+            <path
+              key={index}
+              className={`tm-performance__grid${index === 0 ? ' tm-performance__grid--base' : ''}`}
+              d={`M${CHART.left} ${y}H${CHART.right}`}
+            />
+          ))}
+          {/* The guide slides between points and fades in and out with the hover. */}
+          <Presence show={active !== null} motion="fade">
+            {guideIndex !== null ? (
+              <path
+                className="tm-performance__guide"
+                d={`M0 ${CHART.top - 6}V${CHART.bottom + 6}`}
+                style={{ transform: `translateX(${centers[guideIndex]}px)` }}
+              />
+            ) : null}
+          </Presence>
+          {plotted.map((item) => (
+            <g key={item.metric} className={`tm-performance__series--${item.metric}`}>
+              {item.paths.gaps ? (
+                <path
+                  className="tm-performance__line tm-performance__line--gap"
+                  d={item.paths.gaps}
+                />
+              ) : null}
+              {item.paths.solid ? (
+                <path className="tm-performance__line" d={item.paths.solid} />
+              ) : null}
+              {item.points.map((point, index) =>
+                point ? (
+                  <circle
+                    key={buckets[index].start}
+                    className="tm-performance__point"
+                    cx={point.x}
+                    cy={point.y}
+                    r={index === activeIndex ? 5 : 3.5}
+                  />
+                ) : null
+              )}
+            </g>
+          ))}
+        </svg>
+        {buckets.map((bucket, index) =>
+          bucket.samples.length ? (
+            <button
+              key={bucket.start}
+              ref={(element) => {
+                hitRefs.current[index] = element
+              }}
+              className="tm-performance__chart-hit"
+              type="button"
+              tabIndex={index === tabbable ? 0 : -1}
+              style={{
+                left: `${(xAt(Math.max(start, bucket.start)) / CHART.width) * 100}%`,
+                width: `${((xAt(Math.min(end, bucket.end)) - xAt(Math.max(start, bucket.start))) / CHART.width) * 100}%`
+              }}
+              aria-label={details(index)}
+              aria-describedby={activeIndex === index ? tooltipId : undefined}
+              onMouseEnter={() => setActiveStart(bucket.start)}
+              onMouseLeave={() => setActiveStart(null)}
+              onFocus={() => {
+                setFocusStart(bucket.start)
+                setActiveStart(bucket.start)
+              }}
+              onBlur={() => setActiveStart(null)}
+              onKeyDown={(event) => moveFocus(event, index)}
+            />
+          ) : null
+        )}
+        <Presence show={active !== null} motion="fade">
+          {guideIndex !== null && tooltipBucket ? (
+            <div
+              className="tm-performance__tooltip"
+              id={tooltipId}
+              role="tooltip"
+              style={
+                {
+                  '--tm-tooltip-center': `${(centers[guideIndex] / CHART.width) * 100}%`
+                } as React.CSSProperties
+              }
+            >
+              <strong>{model}</strong>
+              <span>{interval(guideIndex)}</span>
+              {rows(tooltipBucket.samples).map((row) => (
+                <div key={row.label}>
+                  <span>{row.label}</span>
+                  <b>{row.text}</b>
+                </div>
+              ))}
+              <small>{calls(tooltipBucket.samples.length)}</small>
+            </div>
+          ) : null}
+        </Presence>
+      </div>
+      <div className="tm-performance__axis" aria-hidden="true">
+        <span>{timeLabels[0]}</span>
+        <span>{timeLabels[1]}</span>
+      </div>
     </div>
   )
 }
@@ -522,7 +668,7 @@ export default function ModelPerformanceView({
         ) : (
           <div className="tm-performance__models" key="models" ref={modelListRef}>
             {modelEntries.map(({ key: model, item: group, exitToken }) => {
-              const buckets = bucketSamples(group, start, now)
+              const buckets = bucketSamples(group, period, start, now)
               const tps = value(group, 'tps')
               const ttft = value(group, 'ttft')
               const recordedTtft = group.filter((sample) =>
@@ -617,12 +763,9 @@ export default function ModelPerformanceView({
                           }
                           start={start}
                           end={now}
+                          timeLabels={[timeLabel.format(start), timeLabel.format(now)]}
                           model={model}
                         />
-                        <div className="tm-performance__axis" aria-hidden="true">
-                          <span>{timeLabel.format(start)}</span>
-                          <span>{timeLabel.format(now)}</span>
-                        </div>
                       </div>
                     </div>
                   </LeaveWith>
@@ -636,8 +779,8 @@ export default function ModelPerformanceView({
           key={view === 'performance' ? 'performance' : 'cost'}
         >
           {view === 'performance'
-            ? 'TPS = total output tokens ÷ total duration (end-to-end), in seconds. TTFT averages recorded values only. Each line uses its own labeled 0–max scale. Each point combines calls in its time interval; gaps indicate no measurement. Samples come from new Copilot calls only, not past history.'
-            : `Each point sums the AI credits billed for calls in its time interval, including sub-agents; gaps indicate no recorded usage. Estimate: 1 credit = $${USD_PER_AI_CREDIT}, ${rateNote}. Calls recorded before usage tracking have no credit data.`}
+            ? 'TPS = total output tokens ÷ total duration (end-to-end), in seconds. TTFT averages recorded values only. TPS uses the left scale and TTFT the right; gridlines mark round values on both. Each point combines calls in its time interval; dashed lines bridge intervals with no measurement. Samples come from new Copilot calls only, not past history.'
+            : `Each point sums the AI credits billed for calls in its time interval, including sub-agents; dashed lines bridge intervals with no recorded usage. Estimate: 1 credit = $${USD_PER_AI_CREDIT}, ${rateNote}. Calls recorded before usage tracking have no credit data.`}
         </footer>
       </div>
     </section>
