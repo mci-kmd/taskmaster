@@ -33,8 +33,8 @@ import { usePresenceList } from '../lib/use-presence-list'
 import { toCopilotThreadSessionState } from '../lib/copilot-thread-status'
 import InteractionPanel from './copilot/InteractionPanel'
 import SessionModelControls from './copilot/SessionModelControls'
-import SessionTimeline from './copilot/SessionTimeline'
-import { reconcileSessionSnapshot } from '../lib/session-snapshot'
+import SessionTimeline, { type TimelineRevealRequest } from './copilot/SessionTimeline'
+import { applySessionItems, reconcileSessionSnapshot } from '../lib/session-snapshot'
 import PromptRail from './copilot/PromptRail'
 import { messagePreview, type RailPrompt } from './copilot/prompt-rail'
 import SessionPromptInput from './copilot/SessionPromptInput'
@@ -101,6 +101,16 @@ const hasChanges = (status: BranchStatusSnapshot | null): boolean =>
     status.staged + status.modified + status.deleted + status.untracked + status.conflicted > 0
   )
 
+/** Keeps an array reference stable while its element references are unchanged. */
+function useStableItems<T>(items: T[]): T[] {
+  const [stable, setStable] = useState(items)
+  if (stable.length !== items.length || stable.some((item, index) => item !== items[index])) {
+    setStable(items)
+    return items
+  }
+  return stable
+}
+
 async function imagePreview(file: File): Promise<string | undefined> {
   if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return undefined
   try {
@@ -152,7 +162,12 @@ function useAsideRunning(threadId: string, enabled: boolean): boolean {
     const unsubscribe = api.copilot.onSession(({ snapshot }) => {
       if (snapshot.threadId !== key) return
       received = true
-      setState({ key, running: snapshot.phase === 'running' })
+      const nextRunning = snapshot.phase === 'running'
+      setState((previous) =>
+        previous?.key === key && previous.running === nextRunning
+          ? previous
+          : { key, running: nextRunning }
+      )
     })
     void api.copilot
       .getSession(key)
@@ -383,7 +398,9 @@ function SessionView({
   const stoppingRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [atBottom, setAtBottom] = useState(true)
+  const [following, setFollowing] = useState(true)
   const followOutput = useRef(true)
+  const lastScrollTop = useRef(0)
   const [dragging, setDragging] = useState(false)
   const dragDepth = useRef(0)
   const timelineRef = useRef<HTMLDivElement>(null)
@@ -438,6 +455,15 @@ function SessionView({
       sessionRevision.current++
       updateSession(snapshot)
     })
+    const unsubscribeSessionItems =
+      api.copilot.onSessionItems?.((event) => {
+        if (!mounted.current || event.threadId !== sessionKey) return
+        setSession((previous) => {
+          const next = applySessionItems(previous, event)
+          if (next !== previous) sessionRevision.current++
+          return next
+        })
+      }) ?? (() => undefined)
     const unsubscribeStatus = api.copilot.onSdkStatus(({ status }) => {
       statusRevision++
       setSdk(status)
@@ -469,6 +495,7 @@ function SessionView({
       cancelled = true
       mounted.current = false
       unsubscribeSession()
+      unsubscribeSessionItems()
       unsubscribeStatus()
     }
   }, [sessionKey, updateSession, acceptResult])
@@ -516,11 +543,13 @@ function SessionView({
   if (historyLoaded && !hasTimeline && startedEmptyThread !== sessionKey)
     setStartedEmptyThread(sessionKey)
   const startedEmpty = startedEmptyThread === sessionKey
-  // The prompt rail can jump to a prompt the progressive history hasn't rendered yet.
-  const [revealedThread, setRevealedThread] = useState<string | null>(null)
-  const revealHistory = useCallback(() => {
-    flushSync(() => setRevealedThread(sessionKey))
-  }, [sessionKey])
+  // The prompt/pin rail can jump to an item the windowed history hasn't mounted yet.
+  const [revealRequest, setRevealRequest] = useState<TimelineRevealRequest | null>(null)
+  const revealNonce = useRef(0)
+  const revealHistory = useCallback((targetId?: string) => {
+    const nonce = ++revealNonce.current
+    flushSync(() => setRevealRequest({ id: targetId ?? null, nonce }))
+  }, [])
   const emptyState = usePresence(Boolean(session && session.phase !== 'connecting') && !hasTimeline)
   const mcpNotices = usePresenceList(
     session?.mcpServersNeedingAuth ?? NONE,
@@ -528,12 +557,14 @@ function SessionView({
     sessionKey
   )
 
-  const prompts = useMemo(
-    () =>
-      (session?.timeline ?? []).filter(
-        (item): item is typeof item & RailPrompt => item.type === 'user'
-      ),
-    [session?.timeline]
+  const prompts = useStableItems(
+    useMemo(
+      () =>
+        (session?.timeline ?? []).filter(
+          (item): item is typeof item & RailPrompt => item.type === 'user'
+        ),
+      [session?.timeline]
+    )
   )
   // The rail's gutter eases open when a conversation gets its first prompt, but not when a
   // thread opens with prompts (that would shift the whole history sideways).
@@ -551,13 +582,15 @@ function SessionView({
     }
     return ids
   }, [savedPins, pinOverrides])
-  const pins = useMemo(
-    () =>
-      (session?.timeline ?? []).filter(
-        (item): item is typeof item & RailPrompt =>
-          item.type === 'assistant' && pinnedIds.has(item.id)
-      ),
-    [session?.timeline, pinnedIds]
+  const pins = useStableItems(
+    useMemo(
+      () =>
+        (session?.timeline ?? []).filter(
+          (item): item is typeof item & RailPrompt =>
+            item.type === 'assistant' && pinnedIds.has(item.id)
+        ),
+      [session?.timeline, pinnedIds]
+    )
   )
   const [pinsAtLoad, setPinsAtLoad] = useState<boolean | null>(null)
   if (session && pinsAtLoad === null) setPinsAtLoad(pins.length > 0)
@@ -590,8 +623,21 @@ function SessionView({
       }
     })().catch(() => {})
   }, [])
+  // Following output glides towards the end a frame at a time; scroll events at the positions
+  // it sets are its own, so they don't count as the user scrolling away.
+  const followFrame = useRef<number | null>(null)
+  const ownScrollTop = useRef<number | null>(null)
   const stopFollowing = useCallback(() => {
     followOutput.current = false
+    setFollowing(false)
+    if (followFrame.current !== null) {
+      cancelAnimationFrame(followFrame.current)
+      followFrame.current = null
+    }
+  }, [])
+  const handleTimelineScrollAdjusted = useCallback((scrollTop: number) => {
+    ownScrollTop.current = scrollTop
+    lastScrollTop.current = scrollTop
   }, [])
   const resetToMessage = useCallback(
     (messageId: string) =>
@@ -615,14 +661,11 @@ function SessionView({
     [run]
   )
 
-  // Following output glides towards the end a frame at a time; scroll events at the positions
-  // it sets are its own, so they don't count as the user scrolling away.
-  const followFrame = useRef<number | null>(null)
-  const ownScrollTop = useRef<number | null>(null)
   const scrollToLatest = useCallback((mode: ScrollMode) => {
     const element = timelineRef.current
     if (!element) return
     const distance = element.scrollHeight - element.clientHeight - element.scrollTop
+    if (distance <= 0.5 && followFrame.current === null) return
     // Large catch-ups (opening a thread, a burst of output) land instantly.
     const glide =
       mode !== 'instant' &&
@@ -634,6 +677,7 @@ function SessionView({
       followFrame.current = null
       element.scrollTop = element.scrollHeight
       ownScrollTop.current = element.scrollTop
+      lastScrollTop.current = element.scrollTop
       return
     }
     if (followFrame.current !== null) return
@@ -647,11 +691,19 @@ function SessionView({
       if (remaining <= 1) {
         current.scrollTop = current.scrollHeight
         ownScrollTop.current = current.scrollTop
+        lastScrollTop.current = current.scrollTop
         followFrame.current = null
         return
       }
-      current.scrollTop += Math.max(1, Math.round(remaining * FOLLOW_STEP))
+      const before = current.scrollTop
+      current.scrollTop = before + Math.max(1, Math.round(remaining * FOLLOW_STEP))
       ownScrollTop.current = current.scrollTop
+      lastScrollTop.current = current.scrollTop
+      // Fractional DPI scaling can clamp scrollTop slightly shy of scrollHeight - clientHeight.
+      if (current.scrollTop <= before) {
+        followFrame.current = null
+        return
+      }
       followFrame.current = requestAnimationFrame(step)
     }
     followFrame.current = requestAnimationFrame(step)
@@ -665,6 +717,7 @@ function SessionView({
   const jumpToLatest = useCallback(
     (mode: ScrollMode = 'follow') => {
       followOutput.current = true
+      setFollowing(true)
       setAtBottom(true)
       scrollToLatest(mode)
     },
@@ -1109,18 +1162,34 @@ function SessionView({
           role="region"
           aria-label="Conversation"
           tabIndex={0}
+          onWheel={(event) => {
+            if (event.deltaY < 0 && (followOutput.current || followFrame.current !== null)) {
+              stopFollowing()
+            }
+          }}
           onScroll={() => {
             const element = timelineRef.current
             if (!element) return
             if (
               ownScrollTop.current !== null &&
-              Math.abs(element.scrollTop - ownScrollTop.current) < 1
-            )
+              Math.abs(element.scrollTop - ownScrollTop.current) < 1.5
+            ) {
+              lastScrollTop.current = element.scrollTop
               return
+            }
             ownScrollTop.current = null
-            const bottom = element.scrollHeight - element.scrollTop - element.clientHeight < 64
-            followOutput.current = bottom
-            setAtBottom(bottom)
+            const distance = element.scrollHeight - element.scrollTop - element.clientHeight
+            const scrolledUp = element.scrollTop < lastScrollTop.current - 1
+            lastScrollTop.current = element.scrollTop
+            if (scrolledUp) {
+              if (followOutput.current || followFrame.current !== null) stopFollowing()
+            } else if (distance <= 8) {
+              followOutput.current = true
+              setFollowing(true)
+            } else if (distance >= 64) {
+              if (followOutput.current || followFrame.current !== null) stopFollowing()
+            }
+            setAtBottom(distance < 64)
           }}
         >
           <div className="tm-session-transcript" ref={contentRef}>
@@ -1141,7 +1210,9 @@ function SessionView({
                 animateInitial={startedEmpty}
                 items={session.timeline}
                 key={sessionKey}
-                showAll={revealedThread === sessionKey}
+                following={following}
+                revealRequest={revealRequest}
+                onScrollAdjusted={handleTimelineScrollAdjusted}
                 pinnedIds={pinnedIds}
                 onTogglePin={!isAside && onSetMessagePinned ? togglePin : undefined}
                 running={running}
@@ -1354,7 +1425,7 @@ function SessionView({
             connected={session?.phase === 'idle' || session?.phase === 'running'}
             inputRef={promptRef}
             prompt={prompt}
-            timeline={session?.timeline ?? []}
+            timeline={prompts}
             hasAttachments={attachments.length > 0}
             hasInteraction={Boolean(session?.pendingInteraction)}
             mode={replying ? 'reply' : running ? delivery : 'send'}

@@ -56,6 +56,7 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
+    overflow-anchor: none;
     overscroll-behavior: contain;
     padding: 20px 24px 32px;
   }
@@ -77,6 +78,24 @@
     gap: 14px;
     max-width: 780px;
     margin: 0 auto;
+  }
+  .tm-session-transcript
+    > :is(
+      .tm-session-message,
+      .tm-session-reasoning,
+      .tm-session-tool-group,
+      .tm-session-activity,
+      .tm-session-interaction,
+      .tm-session-notice,
+      .tm-session-summary,
+      .tm-session-skill
+    ) {
+    contain: layout style;
+  }
+  .tm-session-load-earlier {
+    display: flex;
+    justify-content: center;
+    padding: 2px 0 4px;
   }
 
   /* Messages. */

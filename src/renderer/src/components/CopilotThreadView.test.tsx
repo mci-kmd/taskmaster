@@ -30,6 +30,7 @@ const mock = vi.hoisted(() => ({
   resetToMessage: vi.fn(),
   resetAside: vi.fn(),
   onSession: vi.fn(),
+  onSessionItems: vi.fn(),
   onSdkStatus: vi.fn()
 }))
 const appState = vi.hoisted(() => ({
@@ -41,6 +42,7 @@ const appState = vi.hoisted(() => ({
 }))
 vi.mock('../shared/api/client', () => ({ getRendererApi: () => ({ copilot: mock, appState }) }))
 let listener: Parameters<CopilotApi['onSession']>[0]
+let itemsListener: Parameters<CopilotApi['onSessionItems']>[0]
 let commitProgress: (payload: { threadId: string; phase: ThreadCommitPhase }) => void
 let threadCount = 0
 const thread = (): ThreadSnapshot => ({ id: `test-${++threadCount}` }) as ThreadSnapshot
@@ -98,6 +100,10 @@ beforeEach(() => {
   mock.getSdkStatus.mockResolvedValue(null)
   mock.onSession.mockImplementation((callback) => {
     listener = callback
+    return vi.fn()
+  })
+  mock.onSessionItems.mockImplementation((callback) => {
+    itemsListener = callback
     return vi.fn()
   })
   mock.onSdkStatus.mockReturnValue(vi.fn())
@@ -843,6 +849,66 @@ describe('Copilot session composer', () => {
     fireEvent.click(screen.getByRole('button', { name: '↓ Jump to latest' }))
     expect(conversation.scrollTop).toBe(1000)
     expect(screen.queryByRole('button', { name: '↓ Jump to latest' })).toBeNull()
+  })
+
+  it('applies incremental streamed item updates without re-notifying workspace status', async () => {
+    const a = thread()
+    const onSessionChange = vi.fn()
+    render(<CopilotThreadView thread={a} onSessionChange={onSessionChange} />)
+    await ready()
+    onSessionChange.mockClear()
+
+    act(() =>
+      itemsListener({
+        threadId: a.id,
+        sessionId: 'session',
+        items: [
+          {
+            id: 'assistant:1',
+            type: 'assistant',
+            content: 'Chunk 1',
+            timestamp: '',
+            streaming: true
+          }
+        ]
+      })
+    )
+    expect(screen.getByText('Chunk 1')).toBeTruthy()
+    expect(onSessionChange).not.toHaveBeenCalled()
+  })
+
+  it('stops following immediately when the reader wheels upward near the bottom', async () => {
+    const a = thread()
+    render(<CopilotThreadView thread={a} onSessionChange={vi.fn()} />)
+    await ready()
+    const conversation = screen.getByRole('region', { name: 'Conversation' })
+    Object.defineProperties(conversation, {
+      scrollHeight: { value: 1000, configurable: true },
+      clientHeight: { value: 300, configurable: true }
+    })
+    conversation.scrollTop = 700
+    fireEvent.scroll(conversation)
+    // Wheel up slightly (within 64px of bottom) — auto-follow must disengage so streaming won't yank back.
+    fireEvent.wheel(conversation, { deltaY: -20 })
+    conversation.scrollTop = 680
+    fireEvent.scroll(conversation)
+
+    act(() =>
+      itemsListener({
+        threadId: a.id,
+        sessionId: 'session',
+        items: [
+          {
+            id: 'reply',
+            type: 'assistant',
+            content: 'More output',
+            timestamp: '',
+            streaming: true
+          }
+        ]
+      })
+    )
+    expect(conversation.scrollTop).toBe(680)
   })
 })
 

@@ -22,7 +22,14 @@ function getCopilotStatus(snapshot: CopilotSessionSnapshot): CopilotThreadStatus
 }
 
 export function toCopilotThreadSessionState(snapshot: CopilotSessionSnapshot): ThreadSessionState {
-  const lastUserMessage = [...snapshot.timeline].reverse().find((item) => item.type === 'user')
+  let lastUserMessage: string | null = null
+  for (let i = snapshot.timeline.length - 1; i >= 0; i--) {
+    const item = snapshot.timeline[i]
+    if (item.type === 'user') {
+      lastUserMessage = item.content
+      break
+    }
+  }
   return {
     phase:
       snapshot.phase === 'connecting'
@@ -35,10 +42,22 @@ export function toCopilotThreadSessionState(snapshot: CopilotSessionSnapshot): T
     exitCode: null,
     errorMessage: snapshot.error,
     runtimeTitle: snapshot.title,
-    lastUserMessage: lastUserMessage?.type === 'user' ? lastUserMessage.content : null,
+    lastUserMessage,
     copilotStatus: getCopilotStatus(snapshot),
     copilotPhase: snapshot.phase
   }
+}
+
+export function sameThreadSessionState(a: ThreadSessionState, b: ThreadSessionState): boolean {
+  return (
+    a.phase === b.phase &&
+    a.exitCode === b.exitCode &&
+    a.errorMessage === b.errorMessage &&
+    a.runtimeTitle === b.runtimeTitle &&
+    a.lastUserMessage === b.lastUserMessage &&
+    a.copilotStatus === b.copilotStatus &&
+    a.copilotPhase === b.copilotPhase
+  )
 }
 
 // 'done' sticks (even for the open thread) until explicitly dismissed or a new turn starts. A turn

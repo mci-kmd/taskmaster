@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
-import SessionTimeline from './SessionTimeline'
+import SessionTimeline, { INITIAL_ROWS, MAX_FOLLOW_ROWS, TRIM_KEEP_ROWS } from './SessionTimeline'
 
 afterEach(cleanup)
 
@@ -38,7 +38,7 @@ it('lets a message that was empty while streaming rise in once it has text', () 
   expect(article('Streamed').classList.contains('tm-rise-in')).toBe(true)
 })
 
-it('opens a long conversation at its newest end and fills in the rest while idle', () => {
+it('opens a long conversation at its newest end and loads older chunks on demand', () => {
   vi.useFakeTimers()
   try {
     const history = Array.from({ length: 100 }, (_, index) =>
@@ -48,14 +48,74 @@ it('opens a long conversation at its newest end and fills in the rest while idle
     expect(screen.queryByText('Answer 99')).not.toBeNull()
     expect(screen.queryByText('Answer 0')).toBeNull()
 
-    // Each idle period renders the next chunk of older rows.
-    for (let chunk = 0; chunk < 5; chunk++) act(() => vi.advanceTimersByTime(100))
+    // Idle time alone must not prepend older rows (prevents thread-switch scroll wobble).
+    vi.advanceTimersByTime(2_000)
+    expect(screen.queryByText('Answer 0')).toBeNull()
+
+    // Clicking "Load earlier messages" loads chunks until the start is reached.
+    while (screen.queryByRole('button', { name: /Load earlier messages/ })) {
+      fireEvent.click(screen.getByRole('button', { name: /Load earlier messages/ }))
+    }
     expect(screen.queryByText('Answer 0')).not.toBeNull()
-    // Filled-in history is not new: it doesn't animate.
+    // Loaded history is not new: it doesn't animate.
     expect(article('Answer 0').classList.contains('tm-rise-in')).toBe(false)
   } finally {
     vi.useRealTimers()
   }
+})
+
+it('loads older chunks when scrolling near the top and preserves scroll position', () => {
+  const history = Array.from({ length: 100 }, (_, index) => message(`m${index}`, `Answer ${index}`))
+  const onScrollAdjusted = vi.fn()
+  const { container } = render(
+    <div style={{ overflowY: 'auto' }}>
+      <SessionTimeline items={history} onScrollAdjusted={onScrollAdjusted} />
+    </div>
+  )
+  const scroller = container.firstElementChild as HTMLDivElement
+  Object.defineProperties(scroller, {
+    scrollHeight: {
+      get: () => scroller.querySelectorAll('article').length * 50,
+      configurable: true
+    },
+    clientHeight: { value: 400, configurable: true }
+  })
+  const beforeHeight = scroller.scrollHeight
+  scroller.scrollTop = 100
+  fireEvent.scroll(scroller)
+  expect(screen.queryByText(`Answer ${100 - INITIAL_ROWS - 1}`)).not.toBeNull()
+  const expectedScrollTop = 100 + (scroller.scrollHeight - beforeHeight)
+  expect(scroller.scrollTop).toBe(expectedScrollTop)
+  expect(onScrollAdjusted).toHaveBeenCalledWith(expectedScrollTop)
+})
+
+it('reveals down to a targeted older item synchronously without mounting earlier history', () => {
+  const history = Array.from({ length: 100 }, (_, index) => message(`m${index}`, `Answer ${index}`))
+  const { rerender } = render(<SessionTimeline items={history} />)
+  expect(screen.queryByText('Answer 40')).toBeNull()
+
+  rerender(<SessionTimeline items={history} revealRequest={{ id: 'm40', nonce: 1 }} />)
+  expect(screen.queryByText('Answer 40')).not.toBeNull()
+  expect(screen.queryByText('Answer 0')).toBeNull()
+})
+
+it('trims oldest rows while following a long-running session without re-animating them later', () => {
+  const initial = Array.from({ length: 10 }, (_, index) => message(`m${index}`, `Answer ${index}`))
+  const { rerender } = render(<SessionTimeline items={initial} following />)
+  const grown = Array.from({ length: MAX_FOLLOW_ROWS + 5 }, (_, index) =>
+    message(`m${index}`, `Answer ${index}`)
+  )
+  rerender(<SessionTimeline items={grown} following />)
+  expect(screen.queryByText(`Answer ${MAX_FOLLOW_ROWS + 4}`)).not.toBeNull()
+  expect(screen.queryByText('Answer 0')).toBeNull()
+  expect(screen.queryByText(`Answer ${grown.length - TRIM_KEEP_ROWS}`)).not.toBeNull()
+
+  // Scrolling back up to trimmed rows mounts them without replaying the rise-in animation.
+  rerender(<SessionTimeline items={grown} following={false} />)
+  while (screen.queryByRole('button', { name: /Load earlier messages/ })) {
+    fireEvent.click(screen.getByRole('button', { name: /Load earlier messages/ }))
+  }
+  expect(article('Answer 0').classList.contains('tm-rise-in')).toBe(false)
 })
 
 it('renders the whole history at once when asked', () => {

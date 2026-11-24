@@ -9,6 +9,7 @@ import type {
   CopilotMcpAuthInput,
   CopilotSendInput,
   CopilotSessionEvent,
+  CopilotSessionItemsEvent,
   CopilotSdkStatusEvent,
   CopilotFavoriteModelsEvent,
   CopilotSetModelFavoriteInput,
@@ -229,6 +230,8 @@ const api = {
     getPathForFile: (file: unknown) => webUtils.getPathForFile(file as File),
     onSession: (callback: (payload: CopilotSessionEvent) => void) =>
       onIpc(IPC_CHANNELS.copilot.session, callback),
+    onSessionItems: (callback: (payload: CopilotSessionItemsEvent) => void) =>
+      onIpc(IPC_CHANNELS.copilot.sessionItems, callback),
     onSdkStatus: (callback: (payload: CopilotSdkStatusEvent) => void) =>
       onIpc(IPC_CHANNELS.copilot.sdkStatus, callback)
   },

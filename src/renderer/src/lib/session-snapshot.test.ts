@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CopilotSessionSnapshot, CopilotTimelineItem } from '../../../shared/app-types'
-import { reconcileSessionSnapshot } from './session-snapshot'
+import { applySessionItems, reconcileSessionSnapshot } from './session-snapshot'
 
 function snapshot(
   timeline: CopilotTimelineItem[],
@@ -76,5 +76,46 @@ describe('reconcileSessionSnapshot', () => {
     expect(
       reconcileSessionSnapshot(previous, snapshot([], { threadId: 'thread-2' })).timeline
     ).toEqual([])
+  })
+})
+
+describe('applySessionItems', () => {
+  it('patches updated items and appends new ones while keeping untouched item references', () => {
+    const previous = snapshot([message('a', 'Hello'), message('b', 'Work')])
+    const next = applySessionItems(previous, {
+      threadId: 'thread-1',
+      sessionId: 'session-1',
+      items: [message('b', 'Working'), message('c', 'Done')]
+    })
+
+    expect(next).not.toBe(previous)
+    expect(next?.timeline[0]).toBe(previous.timeline[0])
+    expect(next?.timeline[1]).toMatchObject({ id: 'b', content: 'Working' })
+    expect(next?.timeline[2]).toMatchObject({ id: 'c', content: 'Done' })
+  })
+
+  it('ignores mismatched threads, mismatched sessions, and unchanged items', () => {
+    const previous = snapshot([message('a', 'Hello')])
+    expect(
+      applySessionItems(previous, {
+        threadId: 'other',
+        sessionId: 'session-1',
+        items: [message('a', 'Changed')]
+      })
+    ).toBe(previous)
+    expect(
+      applySessionItems(previous, {
+        threadId: 'thread-1',
+        sessionId: 'other',
+        items: [message('a', 'Changed')]
+      })
+    ).toBe(previous)
+    expect(
+      applySessionItems(previous, {
+        threadId: 'thread-1',
+        sessionId: 'session-1',
+        items: [message('a', 'Hello')]
+      })
+    ).toBe(previous)
   })
 })

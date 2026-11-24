@@ -70,6 +70,38 @@ function textOf(node: unknown): string {
   return (element.children ?? []).map(textOf).join('')
 }
 
+const REMARK_PLUGINS = [remarkGfm]
+
+const CodeBlock = memo(function CodeBlock({
+  text,
+  language
+}: {
+  text: string
+  language?: string
+}): React.JSX.Element {
+  return (
+    <div className="tm-session-code">
+      <div className="tm-session-code-toolbar">
+        <span>{language || 'Code'}</span>
+        <CopyButton text={text} label="Copy code" iconOnly />
+      </div>
+      <pre>
+        <code>
+          {highlightCode(text.replace(/\n$/, ''), language).map((token, index) =>
+            token.kind ? (
+              <span className={`tm-syntax-${token.kind}`} key={index}>
+                {token.text}
+              </span>
+            ) : (
+              token.text
+            )
+          )}
+        </code>
+      </pre>
+    </div>
+  )
+})
+
 const components: Components = {
   a: ({ href, children }) =>
     safeExternalUrl(href) ? (
@@ -90,27 +122,7 @@ const components: Components = {
       .map(String)
       .find((name) => name.startsWith('language-'))
       ?.slice('language-'.length)
-    return (
-      <div className="tm-session-code">
-        <div className="tm-session-code-toolbar">
-          <span>{language || 'Code'}</span>
-          <CopyButton text={text} label="Copy code" iconOnly />
-        </div>
-        <pre>
-          <code>
-            {highlightCode(text.replace(/\n$/, ''), language).map((token, index) =>
-              token.kind ? (
-                <span className={`tm-syntax-${token.kind}`} key={index}>
-                  {token.text}
-                </span>
-              ) : (
-                token.text
-              )
-            )}
-          </code>
-        </pre>
-      </div>
-    )
+    return <CodeBlock text={text} language={language} />
   },
   table: ({ children }) => (
     <div className="tm-session-table">
@@ -126,7 +138,7 @@ const SessionMarkdown = memo(function SessionMarkdown({
 }): React.JSX.Element {
   return (
     <div className="tm-session-markdown">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
+      <Markdown remarkPlugins={REMARK_PLUGINS} components={components}>
         {children}
       </Markdown>
     </div>

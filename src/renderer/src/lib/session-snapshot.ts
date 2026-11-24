@@ -1,4 +1,51 @@
-import type { CopilotSessionSnapshot, CopilotTimelineItem } from '../../../shared/app-types'
+import type {
+  CopilotSessionItemsEvent,
+  CopilotSessionSnapshot,
+  CopilotTimelineItem
+} from '../../../shared/app-types'
+
+/**
+ * Applies an incremental batch of timeline item updates to the snapshot on screen without
+ * cloning or re-checking untouched history items.
+ */
+export function applySessionItems(
+  previous: CopilotSessionSnapshot | null,
+  event: CopilotSessionItemsEvent
+): CopilotSessionSnapshot | null {
+  if (!previous || previous.threadId !== event.threadId || event.items.length === 0) {
+    return previous
+  }
+  if (
+    event.sessionId !== null &&
+    previous.sessionId !== null &&
+    event.sessionId !== previous.sessionId
+  ) {
+    return previous
+  }
+
+  let timeline: CopilotTimelineItem[] | null = null
+  for (const item of event.items) {
+    const current = timeline ?? previous.timeline
+    let index = -1
+    // Streaming and recent items are almost always at the tail of the timeline.
+    for (let i = current.length - 1; i >= 0; i--) {
+      if (current[i].id === item.id) {
+        index = i
+        break
+      }
+    }
+    if (index >= 0) {
+      if (sameValue(current[index], item)) continue
+      timeline ??= [...previous.timeline]
+      timeline[index] = item
+    } else {
+      timeline ??= [...previous.timeline]
+      timeline.push(item)
+    }
+  }
+
+  return timeline ? { ...previous, timeline } : previous
+}
 
 /**
  * Folds a session snapshot from the main process into the one on screen.

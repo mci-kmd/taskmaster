@@ -105,6 +105,8 @@ type PendingInteraction = {
   resolve: (response: CopilotInteractionResponse) => void
 }
 
+const STREAM_BROADCAST_INTERVAL_MS = 32
+
 type ActiveSession = {
   session: CopilotSession
   snapshot: CopilotSessionSnapshot
@@ -129,6 +131,14 @@ type ActiveSession = {
   backgroundRevision: number
   /** Sub-agents started in this session, to list them again when Copilot messages them anew. */
   subagentInfo: Map<string, Omit<CopilotRunningSubagent, 'startedAt'>>
+  /** Index from timeline item id to its position in `snapshot.timeline`. */
+  timelineIndex: Map<string, number>
+  /** Streaming timeline items waiting for the next coalesced broadcast. */
+  pendingItemBroadcasts: Map<string, CopilotTimelineItem>
+  itemBroadcastTimer: ReturnType<typeof setTimeout> | null
+  lastItemBroadcastAt: number
+  /** True while replaying buffered events before the initial hydrated snapshot broadcast. */
+  hydrating: boolean
   unsubscribe: () => void
 }
 
@@ -609,6 +619,7 @@ export function createCopilotSessionService(dependencies: {
 
   const discardClient = async (): Promise<void> => {
     for (const active of sessions.values()) {
+      clearPendingItemBroadcasts(active)
       cancelInteractions(active)
       active.unsubscribe()
       broadcastSession({ ...active.snapshot, phase: 'disconnected' })
@@ -622,10 +633,82 @@ export function createCopilotSessionService(dependencies: {
     if (staleClient) await staleClient.forceStop().catch(() => undefined)
   }
 
+  const rebuildTimelineIndex = (timeline: CopilotTimelineItem[]): Map<string, number> => {
+    const index = new Map<string, number>()
+    for (let i = 0; i < timeline.length; i++) index.set(timeline[i].id, i)
+    return index
+  }
+
+  const getTimelineItem = (active: ActiveSession, id: string): CopilotTimelineItem | undefined => {
+    const indexed = active.timelineIndex.get(id)
+    if (indexed !== undefined && active.snapshot.timeline[indexed]?.id === id)
+      return active.snapshot.timeline[indexed]
+    return active.snapshot.timeline.find((item) => item.id === id)
+  }
+
+  const clearPendingItemBroadcasts = (active: ActiveSession): void => {
+    if (active.itemBroadcastTimer !== null) {
+      clearTimeout(active.itemBroadcastTimer)
+      active.itemBroadcastTimer = null
+    }
+    active.pendingItemBroadcasts.clear()
+  }
+
   const broadcastSession = (snapshot: CopilotSessionSnapshot): void => {
     for (const window of BrowserWindow.getAllWindows()) {
       sendIpc(window.webContents, IPC_CHANNELS.copilot.session, { snapshot })
     }
+  }
+
+  const broadcastSessionItems = (
+    threadId: string,
+    sessionId: string | null,
+    items: CopilotTimelineItem[]
+  ): void => {
+    if (!items.length) return
+    for (const window of BrowserWindow.getAllWindows()) {
+      sendIpc(window.webContents, IPC_CHANNELS.copilot.sessionItems, {
+        threadId,
+        sessionId,
+        items
+      })
+    }
+  }
+
+  const flushPendingItemBroadcasts = (active: ActiveSession): void => {
+    if (active.itemBroadcastTimer !== null) {
+      clearTimeout(active.itemBroadcastTimer)
+      active.itemBroadcastTimer = null
+    }
+    if (!active.pendingItemBroadcasts.size) return
+    const items = [...active.pendingItemBroadcasts.values()]
+    active.pendingItemBroadcasts.clear()
+    active.lastItemBroadcastAt = Date.now()
+    broadcastSessionItems(active.snapshot.threadId, active.snapshot.sessionId, items)
+  }
+
+  const scheduleItemBroadcast = (
+    active: ActiveSession,
+    item: CopilotTimelineItem,
+    coalesce: boolean
+  ): void => {
+    if (active.hydrating) return
+    active.pendingItemBroadcasts.set(item.id, item)
+    if (!coalesce) {
+      flushPendingItemBroadcasts(active)
+      return
+    }
+    if (active.itemBroadcastTimer !== null) return
+    const elapsed = Date.now() - active.lastItemBroadcastAt
+    if (elapsed >= STREAM_BROADCAST_INTERVAL_MS) {
+      flushPendingItemBroadcasts(active)
+      return
+    }
+    active.itemBroadcastTimer = setTimeout(() => {
+      active.itemBroadcastTimer = null
+      if (sessions.get(active.snapshot.threadId) !== active) return
+      flushPendingItemBroadcasts(active)
+    }, STREAM_BROADCAST_INTERVAL_MS - elapsed)
   }
 
   sdkManager.setStatusListener((status) => {
@@ -650,7 +733,10 @@ export function createCopilotSessionService(dependencies: {
   }
 
   const updateSnapshot = (active: ActiveSession, patch: Partial<CopilotSessionSnapshot>): void => {
+    if (patch.timeline) active.timelineIndex = rebuildTimelineIndex(patch.timeline)
     active.snapshot = { ...active.snapshot, ...patch }
+    if (active.hydrating) return
+    clearPendingItemBroadcasts(active)
     broadcastSession(active.snapshot)
   }
 
@@ -732,15 +818,36 @@ export function createCopilotSessionService(dependencies: {
     return active.allowedModelsSync
   }
 
-  const upsertTimeline = (active: ActiveSession, item: CopilotTimelineItem): void => {
-    const index = active.snapshot.timeline.findIndex((existing) => existing.id === item.id)
+  const upsertTimeline = (
+    active: ActiveSession,
+    item: CopilotTimelineItem,
+    options?: { coalesce?: boolean }
+  ): void => {
+    const indexed = active.timelineIndex.get(item.id)
+    const index =
+      indexed !== undefined && active.snapshot.timeline[indexed]?.id === item.id
+        ? indexed
+        : active.snapshot.timeline.findIndex((existing) => existing.id === item.id)
     const timeline = [...active.snapshot.timeline]
+    let updated: CopilotTimelineItem
     if (index >= 0) {
-      timeline[index] = mergeTimelineItem(timeline[index], item)
+      updated = mergeTimelineItem(timeline[index], item)
+      timeline[index] = updated
+      active.timelineIndex.set(item.id, index)
     } else {
+      updated = item
+      active.timelineIndex.set(item.id, timeline.length)
       timeline.push(item)
     }
-    updateSnapshot(active, { timeline })
+    active.snapshot = { ...active.snapshot, timeline }
+    if (active.hydrating) return
+    // User prompts update the sidebar summary, so broadcast the full snapshot.
+    if (updated.type === 'user') {
+      clearPendingItemBroadcasts(active)
+      broadcastSession(active.snapshot)
+      return
+    }
+    scheduleItemBroadcast(active, updated, options?.coalesce ?? false)
   }
 
   // Keeps each answered request in the timeline, since the runtime does not persist them.
@@ -1346,45 +1453,57 @@ export function createCopilotSessionService(dependencies: {
 
     if (event.type === 'assistant.message_delta') {
       const id = `assistant:${event.data.messageId}`
-      const existing = active.snapshot.timeline.find((item) => item.id === id)
-      upsertTimeline(active, {
-        id,
-        type: 'assistant',
-        content:
-          existing?.type === 'assistant'
-            ? `${existing.content}${event.data.deltaContent}`
-            : event.data.deltaContent,
-        timestamp: event.timestamp,
-        streaming: true,
-        model: active.snapshot.model ?? undefined
-      })
+      const existing = getTimelineItem(active, id)
+      upsertTimeline(
+        active,
+        {
+          id,
+          type: 'assistant',
+          content:
+            existing?.type === 'assistant'
+              ? `${existing.content}${event.data.deltaContent}`
+              : event.data.deltaContent,
+          timestamp: event.timestamp,
+          streaming: true,
+          model: active.snapshot.model ?? undefined
+        },
+        { coalesce: true }
+      )
       return
     }
 
     if (event.type === 'assistant.reasoning_delta') {
       const id = `reasoning:${event.data.reasoningId}`
-      const existing = active.snapshot.timeline.find((item) => item.id === id)
-      upsertTimeline(active, {
-        id,
-        type: 'reasoning',
-        content:
-          existing?.type === 'reasoning'
-            ? `${existing.content}${event.data.deltaContent}`
-            : event.data.deltaContent,
-        timestamp: event.timestamp,
-        streaming: true
-      })
+      const existing = getTimelineItem(active, id)
+      upsertTimeline(
+        active,
+        {
+          id,
+          type: 'reasoning',
+          content:
+            existing?.type === 'reasoning'
+              ? `${existing.content}${event.data.deltaContent}`
+              : event.data.deltaContent,
+          timestamp: event.timestamp,
+          streaming: true
+        },
+        { coalesce: true }
+      )
       return
     }
 
     if (event.type === 'tool.execution_partial_result') {
       const id = `tool:${event.data.toolCallId}`
-      const existing = active.snapshot.timeline.find((item) => item.id === id)
+      const existing = getTimelineItem(active, id)
       if (existing?.type === 'tool') {
-        upsertTimeline(active, {
-          ...existing,
-          detail: `${existing.detail}${event.data.partialOutput}`
-        })
+        upsertTimeline(
+          active,
+          {
+            ...existing,
+            detail: `${existing.detail}${event.data.partialOutput}`
+          },
+          { coalesce: true }
+        )
       }
       return
     }
@@ -1719,6 +1838,11 @@ export function createCopilotSessionService(dependencies: {
         allowedModelsSync: Promise.resolve(),
         backgroundRevision: 0,
         subagentInfo: new Map(),
+        timelineIndex: new Map(),
+        pendingItemBroadcasts: new Map(),
+        itemBroadcastTimer: null,
+        lastItemBroadcastAt: 0,
+        hydrating: false,
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder, context.yoloEnabled)
@@ -1790,6 +1914,7 @@ export function createCopilotSessionService(dependencies: {
         dependencies.setAside?.(parentThreadId, aside)
       }
       const timeline = buildTimeline(history, session.sessionId, aside?.baseEventId ?? null)
+      placeholder.timelineIndex = rebuildTimelineIndex(timeline)
       placeholder.snapshot = {
         ...placeholder.snapshot,
         phase: 'idle',
@@ -1802,6 +1927,7 @@ export function createCopilotSessionService(dependencies: {
         timeline
       }
       if (operation.cancelled) {
+        clearPendingItemBroadcasts(placeholder)
         cancelInteractions(placeholder)
         placeholder.unsubscribe()
         await session.disconnect()
@@ -1810,6 +1936,7 @@ export function createCopilotSessionService(dependencies: {
         return { ok: false, error: 'Copilot session start was cancelled.' }
       }
       hydrated = true
+      placeholder.hydrating = true
       const historyIds = new Set(history.map((event) => event.id))
       const completedItems = new Set(
         timeline
@@ -1835,6 +1962,8 @@ export function createCopilotSessionService(dependencies: {
         if (streamedItemId && completedItems.has(streamedItemId)) continue
         handleEvent(placeholder, event)
       }
+      placeholder.hydrating = false
+      clearPendingItemBroadcasts(placeholder)
       broadcastSession(placeholder.snapshot)
       void syncAllowedModels(placeholder)
       // Status events may have fired before this listener was attached.
@@ -1850,6 +1979,7 @@ export function createCopilotSessionService(dependencies: {
     } catch (error) {
       const active = sessions.get(threadId)
       if (active) {
+        clearPendingItemBroadcasts(active)
         cancelInteractions(active)
         active.unsubscribe()
         await active.session.disconnect().catch(() => undefined)
@@ -2315,7 +2445,8 @@ export function createCopilotSessionService(dependencies: {
         item.type === 'user' ? [item.content] : []
       ),
     getMessageContent: (threadId, messageId) => {
-      const item = sessions.get(threadId)?.snapshot.timeline.find((entry) => entry.id === messageId)
+      const active = sessions.get(threadId)
+      const item = active ? getTimelineItem(active, messageId) : undefined
       return item && (item.type === 'assistant' || item.type === 'user') ? item.content : null
     },
     listModels: async () => {
@@ -2362,6 +2493,7 @@ export function createCopilotSessionService(dependencies: {
       }
       await Promise.allSettled([...startingThreads.values()].map((operation) => operation.promise))
       for (const active of sessions.values()) {
+        clearPendingItemBroadcasts(active)
         cancelInteractions(active)
         active.unsubscribe()
         await active.session.disconnect()
@@ -2503,6 +2635,7 @@ export function createCopilotSessionService(dependencies: {
     }
     const active = sessions.get(threadId)
     if (!active) return
+    clearPendingItemBroadcasts(active)
     cancelInteractions(active)
     finishActivity(active)
     active.unsubscribe()

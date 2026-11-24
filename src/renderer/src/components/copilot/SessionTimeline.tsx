@@ -1,6 +1,16 @@
-import { memo, startTransition, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import type { CopilotTimelineItem } from '../../../../shared/app-types'
 import { ChevronRightIcon } from '../Icons'
+import Button from '../ui/Button'
 import Presence from '../ui/Presence'
 import SessionTimelineItem, { SkillLine, ToolStatusDot } from './SessionTimelineItem'
 import { TOOL_STATUS_LABELS } from './tool-status'
@@ -13,12 +23,25 @@ type TimelineRow =
   | { type: 'tools'; id: string; items: ToolItem[] }
   | { type: 'skills'; id: string; items: SkillItem[] }
 
+export type TimelineRevealRequest = { id: string | null; nonce: number }
+
 const rowKey = (row: TimelineRow): string => (row.type === 'item' ? row.item.id : row.id)
 
+const rowContainsId = (row: TimelineRow, id: string): boolean =>
+  row.type === 'item' ? row.item.id === id : row.items.some((item) => item.id === id)
+
 /** Rows rendered as soon as a conversation opens: its newest end, which is what's in view. */
-const INITIAL_ROWS = 24
-/** Older rows rendered per idle period afterwards, so long histories never block input. */
-const ROWS_PER_CHUNK = 30
+export const INITIAL_ROWS = 30
+/** Older rows loaded per scroll-up or button click. */
+export const ROWS_PER_CHUNK = 30
+/** Distance from the top of the scroll container at which the next older chunk loads. */
+const LOAD_MORE_THRESHOLD_PX = 320
+/** Trim oldest off-screen rows while following at the bottom once visible rows exceed this. */
+export const MAX_FOLLOW_ROWS = 80
+/** Rows kept mounted after trimming while following at the bottom. */
+export const TRIM_KEEP_ROWS = 50
+/** Extra rows rendered above a jump target so scrolling slightly up doesn't hit the edge. */
+const REVEAL_BUFFER_ROWS = 8
 
 /** The nearest ancestor that scrolls vertically. */
 function scrollParent(element: HTMLElement | null): HTMLElement | null {
@@ -26,16 +49,6 @@ function scrollParent(element: HTMLElement | null): HTMLElement | null {
     if (/(auto|scroll)/.test(getComputedStyle(node).overflowY)) return node
   }
   return null
-}
-
-/** Runs `callback` when the browser is idle (soon, in environments without idle callbacks). */
-function whenIdle(callback: () => void): () => void {
-  if (typeof window.requestIdleCallback === 'function') {
-    const handle = window.requestIdleCallback(callback, { timeout: 500 })
-    return () => window.cancelIdleCallback(handle)
-  }
-  const handle = window.setTimeout(callback, 16)
-  return () => window.clearTimeout(handle)
 }
 
 const ToolGroup = memo(
@@ -111,10 +124,13 @@ const ToolGroup = memo(
     previous.items.every((item, index) => item === next.items[index])
 )
 
-export default function SessionTimeline({
+const SessionTimeline = memo(function SessionTimeline({
   items,
   animateInitial = false,
   showAll = false,
+  following = false,
+  revealRequest = null,
+  onScrollAdjusted,
   pinnedIds,
   onTogglePin,
   onReset,
@@ -124,13 +140,19 @@ export default function SessionTimeline({
   forkDisabled = false
 }: {
   items: CopilotTimelineItem[]
-  /** Renders the whole history right away instead of filling older rows in while idle. */
+  /** Renders the whole history right away instead of loading older rows on demand. */
   showAll?: boolean
   /**
    * Whether the items present on mount rise in too. Off when opening a conversation, so its
    * history appears at once; only items that arrive afterwards animate.
    */
   animateInitial?: boolean
+  /** When true, trims oldest off-screen rows once visible rows exceed MAX_FOLLOW_ROWS. */
+  following?: boolean
+  /** Synchronous reveal request (e.g. from the prompt/pin rail) to mount down to a target id. */
+  revealRequest?: TimelineRevealRequest | null
+  /** Called right after prepending or trimming adjusts scrollTop so scroll listeners ignore it. */
+  onScrollAdjusted?: (scrollTop: number) => void
   /** Ids of pinned Copilot messages. */
   pinnedIds?: ReadonlySet<string>
   /** Shows a pin toggle on Copilot messages; keep it stable so messages needn't re-render. */
@@ -167,33 +189,119 @@ export default function SessionTimeline({
     }
     return result
   }, [items])
-  const [initialKeys] = useState(
+  // Keys that should never replay the rise-in animation (initial history + trimmed older rows).
+  const [staticKeys, setStaticKeys] = useState(
     () => new Set(animateInitial ? [] : rows.map((row) => rowKey(row)))
   )
-  // How many of the oldest rows are still to be rendered. A long conversation opens with its
-  // newest rows, and the rest fills in above them in small, interruptible chunks.
+  // How many of the oldest rows are unmounted. Older rows load on demand when scrolling up.
   const [pending, setPending] = useState(() => Math.max(0, rows.length - INITIAL_ROWS))
-  const hidden = showAll ? 0 : Math.min(pending, rows.length)
+  const [appliedRevealNonce, setAppliedRevealNonce] = useState<number | null>(null)
+  let effectivePending = pending
+  if (revealRequest && revealRequest.nonce !== appliedRevealNonce) {
+    setAppliedRevealNonce(revealRequest.nonce)
+    const targetIndex = revealRequest.id
+      ? rows.findIndex((row) => rowContainsId(row, revealRequest.id!))
+      : 0
+    const nextPending = targetIndex >= 0 ? Math.max(0, targetIndex - REVEAL_BUFFER_ROWS) : 0
+    if (nextPending < effectivePending) {
+      effectivePending = nextPending
+      setPending(nextPending)
+    }
+  }
+
+  const maxPending = Math.max(0, rows.length - INITIAL_ROWS)
+  let hidden = showAll ? 0 : Math.min(effectivePending, maxPending)
+  // Keep long-running live sessions bounded in the DOM while following the newest output.
+  if (following && !showAll && rows.length - hidden > MAX_FOLLOW_ROWS) {
+    const nextPending = Math.max(0, rows.length - TRIM_KEEP_ROWS)
+    const nextStatic = new Set(staticKeys)
+    for (let i = hidden; i < nextPending; i++) nextStatic.add(rowKey(rows[i]))
+    hidden = nextPending
+    setPending(nextPending)
+    setStaticKeys(nextStatic)
+  }
+
   const edge = useRef<HTMLSpanElement>(null)
+  const previousHidden = useRef(hidden)
+  const scrollAnchor = useRef<{
+    scroller: HTMLElement
+    scrollHeight: number
+    scrollTop: number
+  } | null>(null)
+  const onScrollAdjustedRef = useRef(onScrollAdjusted)
+  useLayoutEffect(() => {
+    onScrollAdjustedRef.current = onScrollAdjusted
+  })
+
+  const loadEarlier = useCallback(() => {
+    const scroller = scrollParent(edge.current)
+    if (scroller && !scrollAnchor.current) {
+      scrollAnchor.current = {
+        scroller,
+        scrollHeight: scroller.scrollHeight,
+        scrollTop: scroller.scrollTop
+      }
+    }
+    setPending((count) => Math.max(0, Math.min(count, maxPending) - ROWS_PER_CHUNK))
+  }, [maxPending])
+
+  // Compensate scrollTop synchronously after prepending or trimming so visible items stay put.
+  useLayoutEffect(() => {
+    const prevHidden = previousHidden.current
+    previousHidden.current = hidden
+    const anchor = scrollAnchor.current
+    if (anchor) {
+      scrollAnchor.current = null
+      const delta = anchor.scroller.scrollHeight - anchor.scrollHeight
+      if (delta !== 0) {
+        anchor.scroller.scrollTop = Math.max(0, anchor.scrollTop + delta)
+        onScrollAdjustedRef.current?.(anchor.scroller.scrollTop)
+      }
+      return
+    }
+    if (hidden > prevHidden && following) {
+      const scroller = scrollParent(edge.current)
+      if (scroller) {
+        scroller.scrollTop = scroller.scrollHeight
+        onScrollAdjustedRef.current?.(scroller.scrollTop)
+      }
+    }
+  }, [hidden, following])
+
+  // Load older rows on demand when the reader scrolls near the top.
   useEffect(() => {
     if (hidden === 0) return
-    return whenIdle(() => {
-      // Prepended rows keep the reader's place through the browser's scroll anchoring, which
-      // doesn't apply at the very top; step off it first.
-      const scroller = scrollParent(edge.current)
-      if (scroller && scroller.scrollTop < 1 && scroller.scrollHeight > scroller.clientHeight) {
-        scroller.scrollTop = 1
-      }
-      startTransition(() => setPending((count) => Math.max(0, count - ROWS_PER_CHUNK)))
-    })
-  }, [hidden])
+    const scroller = scrollParent(edge.current)
+    if (!scroller) return
+    const onScroll = (): void => {
+      if (following || scrollAnchor.current) return
+      if (scroller.scrollTop <= LOAD_MORE_THRESHOLD_PX) loadEarlier()
+    }
+    const onWheel = (event: WheelEvent): void => {
+      if (event.deltaY >= 0 || scrollAnchor.current) return
+      if (scroller.scrollTop <= 1) loadEarlier()
+    }
+    scroller.addEventListener('scroll', onScroll, { passive: true })
+    scroller.addEventListener('wheel', onWheel, { passive: true })
+    return () => {
+      scroller.removeEventListener('scroll', onScroll)
+      scroller.removeEventListener('wheel', onWheel)
+    }
+  }, [hidden, following, loadEarlier])
 
   return (
     <>
       <span hidden ref={edge} />
+      {hidden > 0 ? (
+        <div className="tm-session-load-earlier">
+          <Button size="xs" variant="ghost" onClick={loadEarlier}>
+            Load earlier messages ({hidden} more)
+          </Button>
+        </div>
+      ) : null}
       {rows.slice(hidden).map((row) => {
         const key = rowKey(row)
-        const enter = !initialKeys.has(key)
+        const enter = !staticKeys.has(key)
         return row.type === 'tools' ? (
           <ToolGroup key={key} items={row.items} enter={enter} />
         ) : row.type === 'skills' ? (
@@ -214,4 +322,6 @@ export default function SessionTimeline({
       })}
     </>
   )
-}
+})
+
+export default SessionTimeline

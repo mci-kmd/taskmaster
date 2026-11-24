@@ -2315,3 +2315,62 @@ describe('resetting and forking conversations', () => {
     expect(harness.config?.tools).toBeUndefined()
   })
 })
+
+describe('incremental streaming broadcasts', () => {
+  it('coalesces streaming deltas over session-items without re-broadcasting full snapshots', async () => {
+    vi.useFakeTimers()
+    try {
+      const service = setup()
+      await service.start('thread')
+      harness.broadcast.mockClear()
+
+      // First token flushes immediately for zero first-token latency; rapid follow-ups coalesce.
+      emit('assistant.message_delta', { messageId: 'm1', deltaContent: 'Hel' })
+      emit('assistant.message_delta', { messageId: 'm1', deltaContent: 'lo ' })
+      emit('assistant.message_delta', { messageId: 'm1', deltaContent: 'world' })
+
+      // getSession() is always synchronously up to date.
+      expect(service.getSession('thread')?.timeline).toEqual([
+        expect.objectContaining({ id: 'assistant:m1', content: 'Hello world', streaming: true })
+      ])
+      // No full snapshot broadcast for streaming deltas.
+      expect(
+        harness.broadcast.mock.calls.filter(([ch]) => ch === IPC_CHANNELS.copilot.session)
+      ).toHaveLength(0)
+      const itemCallsBeforeTimer = harness.broadcast.mock.calls.filter(
+        ([ch]) => ch === IPC_CHANNELS.copilot.sessionItems
+      )
+      expect(itemCallsBeforeTimer).toHaveLength(1)
+      expect(itemCallsBeforeTimer[0][1].items).toEqual([
+        expect.objectContaining({ id: 'assistant:m1', content: 'Hel' })
+      ])
+
+      // Advancing past the coalesce window sends a single combined update.
+      vi.advanceTimersByTime(40)
+      const itemCallsAfterTimer = harness.broadcast.mock.calls.filter(
+        ([ch]) => ch === IPC_CHANNELS.copilot.sessionItems
+      )
+      expect(itemCallsAfterTimer).toHaveLength(2)
+      expect(itemCallsAfterTimer[1][1].items).toEqual([
+        expect.objectContaining({ id: 'assistant:m1', content: 'Hello world' })
+      ])
+
+      // A full snapshot cancels any pending coalesced delta timer so stale items never fire after it.
+      harness.broadcast.mockClear()
+      emit('assistant.message_delta', { messageId: 'm1', deltaContent: '!' })
+      emit('session.idle', {})
+      vi.advanceTimersByTime(100)
+      expect(
+        harness.broadcast.mock.calls.filter(([ch]) => ch === IPC_CHANNELS.copilot.sessionItems)
+      ).toHaveLength(0)
+      const finalSnapshot = harness.broadcast.mock.calls
+        .filter(([ch]) => ch === IPC_CHANNELS.copilot.session)
+        .at(-1)?.[1].snapshot
+      expect(finalSnapshot?.timeline).toEqual([
+        expect.objectContaining({ id: 'assistant:m1', content: 'Hello world!', streaming: false })
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

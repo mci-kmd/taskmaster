@@ -18,6 +18,7 @@ import type {
   CopilotSendInput,
   CopilotSkillsResult,
   CopilotSessionEvent,
+  CopilotSessionItemsEvent,
   CopilotSessionSnapshot,
   CopilotSetModelInput,
   CopilotStartResult,
@@ -150,6 +151,7 @@ export const IPC_CHANNELS = {
     pickAttachments: 'copilot:pick-attachments',
     listModels: 'copilot:list-models',
     session: 'copilot:session',
+    sessionItems: 'copilot:session-items',
     sdkStatus: 'copilot:sdk-status'
   },
   preview: {
@@ -314,6 +316,7 @@ export type IpcEventDefinitions = {
   'terminal:data': { payload: TerminalDataEvent }
   'terminal:exit': { payload: TerminalExitEvent }
   'copilot:session': { payload: CopilotSessionEvent }
+  'copilot:session-items': { payload: CopilotSessionItemsEvent }
   'copilot:performance-sample': { payload: ModelPerformanceSampleEvent }
   'copilot:sdk-status': { payload: CopilotSdkStatusEvent }
   'copilot:favorite-models': { payload: CopilotFavoriteModelsEvent }

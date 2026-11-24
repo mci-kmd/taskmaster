@@ -39,34 +39,44 @@ export function ToolStatusDot({ status }: { status: ToolStatus }): React.JSX.Ele
 type SkillItem = Extract<CopilotTimelineItem, { type: 'skill' }>
 
 /** One line naming skills loaded together; each name shows its description on hover. */
-export function SkillLine({
-  items,
-  enter = false
-}: {
-  items: SkillItem[]
-  enter?: boolean
-}): React.JSX.Element {
-  const names = items.map((item) => item.name)
-  const byUser = items[0]?.invokedBy === 'user'
-  const plural = items.length > 1 ? 's' : ''
-  return (
-    <div
-      className={`tm-session-skill${enter ? ' tm-rise-in' : ''}`}
-      role="note"
-      aria-label={`Skill${plural} ${names.join(', ')} loaded`}
-    >
-      <SparkIcon className="tm-session-skill-icon" aria-hidden="true" />
-      <span className="tm-session-skill-label">
-        {byUser ? `Loaded skill${plural}` : `Copilot loaded skill${plural}`}
-      </span>
-      {items.map((item) => (
-        <span className="tm-session-skill-name" key={item.id} title={item.description ?? undefined}>
-          {item.name}
+export const SkillLine = memo(
+  function SkillLine({
+    items,
+    enter = false
+  }: {
+    items: SkillItem[]
+    enter?: boolean
+  }): React.JSX.Element {
+    const names = items.map((item) => item.name)
+    const byUser = items[0]?.invokedBy === 'user'
+    const plural = items.length > 1 ? 's' : ''
+    return (
+      <div
+        className={`tm-session-skill${enter ? ' tm-rise-in' : ''}`}
+        role="note"
+        aria-label={`Skill${plural} ${names.join(', ')} loaded`}
+      >
+        <SparkIcon className="tm-session-skill-icon" aria-hidden="true" />
+        <span className="tm-session-skill-label">
+          {byUser ? `Loaded skill${plural}` : `Copilot loaded skill${plural}`}
         </span>
-      ))}
-    </div>
-  )
-}
+        {items.map((item) => (
+          <span
+            className="tm-session-skill-name"
+            key={item.id}
+            title={item.description ?? undefined}
+          >
+            {item.name}
+          </span>
+        ))}
+      </div>
+    )
+  },
+  (previous, next) =>
+    previous.enter === next.enter &&
+    previous.items.length === next.items.length &&
+    previous.items.every((item, index) => item === next.items[index])
+)
 
 export default memo(function SessionTimelineItem({
   item,

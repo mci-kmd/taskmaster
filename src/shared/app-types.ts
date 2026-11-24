@@ -849,6 +849,12 @@ export interface CopilotSessionEvent {
   snapshot: CopilotSessionSnapshot
 }
 
+export interface CopilotSessionItemsEvent {
+  threadId: string
+  sessionId: string | null
+  items: CopilotTimelineItem[]
+}
+
 export interface ModelPerformanceSample {
   id: string
   model: string
@@ -915,6 +921,7 @@ export interface CopilotApi {
   listModels: () => Promise<CopilotListModelsResult>
   getPathForFile: (file: unknown) => string
   onSession: (callback: (payload: CopilotSessionEvent) => void) => () => void
+  onSessionItems: (callback: (payload: CopilotSessionItemsEvent) => void) => () => void
   onSdkStatus: (callback: (payload: CopilotSdkStatusEvent) => void) => () => void
 }
 

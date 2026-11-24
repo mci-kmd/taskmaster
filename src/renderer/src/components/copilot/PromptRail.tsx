@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { promptPreview, type RailPrompt } from './prompt-rail'
 import { useLastValue, usePresence } from '../../lib/motion'
 
@@ -34,7 +34,7 @@ const reducedMotion = (): boolean =>
  * Only the newest {@link MAX_RAIL_PROMPTS} prompts are listed. With `side="right"` it lists
  * other transcript items (e.g. pinned messages) at the right edge instead.
  */
-export default function PromptRail({
+const PromptRail = memo(function PromptRail({
   prompts: allPrompts,
   scrollRef,
   onNavigate,
@@ -50,8 +50,8 @@ export default function PromptRail({
   scrollRef: React.RefObject<HTMLElement | null>
   /** Called before the rail scrolls the transcript, e.g. to stop following new output. */
   onNavigate?: () => void
-  /** Renders the whole history synchronously when a target prompt isn't rendered yet. */
-  onRevealHistory?: () => void
+  /** Renders enough history synchronously to include the target item when it isn't mounted yet. */
+  onRevealHistory?: (targetId?: string) => void
   side?: 'left' | 'right'
   /** Accessible name of the rail. */
   label?: string
@@ -158,10 +158,11 @@ export default function PromptRail({
 
   const jump = (index: number): void => {
     const container = scrollRef.current
-    let element = promptElements().get(prompts[index]?.id)
+    const targetId = prompts[index]?.id
+    let element = promptElements().get(targetId)
     if (!element && onRevealHistory) {
-      onRevealHistory()
-      element = promptElements().get(prompts[index]?.id)
+      onRevealHistory(targetId)
+      element = promptElements().get(targetId)
     }
     if (!container || !element) return
     onNavigate?.()
@@ -273,4 +274,6 @@ export default function PromptRail({
       ) : null}
     </div>
   )
-}
+})
+
+export default PromptRail

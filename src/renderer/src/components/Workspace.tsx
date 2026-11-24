@@ -40,6 +40,7 @@ import {
   dismissCopilotThreadDone,
   isDoneDismissKey,
   mergeCopilotThreadSessionState,
+  sameThreadSessionState,
   toCopilotThreadSessionState
 } from '../lib/copilot-thread-status'
 
@@ -379,8 +380,11 @@ export default function Workspace({
   const handleCustomCopilotSessionChange = useCallback(
     (threadId: string, state: ThreadSessionState): void => {
       setCustomCopilotSessions((current) => {
+        const previous = current.get(threadId)
+        const merged = mergeCopilotThreadSessionState(previous, state)
+        if (previous && sameThreadSessionState(previous, merged)) return current
         const next = new Map(current)
-        next.set(threadId, mergeCopilotThreadSessionState(current.get(threadId), state))
+        next.set(threadId, merged)
         return next
       })
     },
