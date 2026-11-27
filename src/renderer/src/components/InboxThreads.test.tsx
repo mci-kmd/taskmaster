@@ -748,6 +748,113 @@ describe('inbox', () => {
     expect(input.className).toContain('tm-status-badge')
   })
 
+  it('shows setting up worktree state instead of idle while a worktree is being created', () => {
+    const handlers = callbacks()
+    const projects = [
+      repository('Alpha', [
+        { ...thread('Provisioning', '2026-04-01'), setupPhase: 'worktree' },
+        { ...thread('Branching', '2026-03-01'), setupPhase: 'branch' }
+      ])
+    ]
+    render(
+      <InboxThreads
+        repositories={projects}
+        selectedRepository={projects[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        {...handlers}
+      />
+    )
+    const rows = within(screen.getByRole('list', { name: 'Active threads' })).getAllByRole(
+      'listitem'
+    )
+    const worktreeBadge = within(rows[0]).getByText('Setting up worktree')
+    expect(worktreeBadge.getAttribute('data-status')).toBe('setting-up')
+    expect(within(rows[0]).queryByText('Idle')).toBeNull()
+    expect(
+      (within(rows[0]).getByRole('button', { name: 'Suspend Provisioning' }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true)
+
+    const branchBadge = within(rows[1]).getByText('Setting up checkout')
+    expect(branchBadge.getAttribute('data-status')).toBe('setting-up')
+  })
+
+  it('shows auto settle menu actions and card indicators when unsettled, suspended and settled', () => {
+    const handlers = callbacks()
+    const onAutoSettleThread = vi.fn()
+    const projects = [
+      repository('Alpha', [
+        { ...thread('Plain', '2026-04-04') },
+        { ...thread('Linked', '2026-04-03'), taskNumbers: [5] },
+        {
+          ...thread('Waiting', '2026-04-02'),
+          taskNumbers: [5],
+          autoSettle: true,
+          suspendedAt: '2026-04-02T01:00:00.000Z'
+        },
+        {
+          ...thread('ActiveAuto', '2026-04-01'),
+          taskNumbers: [5],
+          autoSettle: true
+        },
+        {
+          ...thread('SettledAuto', '2026-03-01'),
+          taskNumbers: [5],
+          autoSettle: true,
+          settledAt: '2026-03-02T00:00:00.000Z'
+        }
+      ])
+    ]
+    render(
+      <InboxThreads
+        repositories={projects}
+        selectedRepository={projects[0]}
+        selectedThread={null}
+        sessions={new Map()}
+        convertingThread={false}
+        closingThread={false}
+        onAutoSettleThread={onAutoSettleThread}
+        {...handlers}
+      />
+    )
+
+    // Plain thread has no work items -> no Auto settle menu item.
+    fireEvent.contextMenu(screen.getByText('Plain'))
+    let menu = screen.getByRole('menu', { name: 'Thread actions for Plain' })
+    expect(within(menu).queryByRole('menuitem', { name: 'Auto settle' })).toBeNull()
+    fireEvent.keyDown(menu, { key: 'Escape' })
+
+    // Linked thread -> Auto settle is available and triggers callback.
+    fireEvent.contextMenu(screen.getByText('Linked'))
+    menu = screen.getByRole('menu', { name: 'Thread actions for Linked' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Auto settle' }))
+    expect(onAutoSettleThread).toHaveBeenCalledWith('Linked', true)
+
+    // Suspended auto-settling card shows compact visual indicator and Disable auto settle menu item.
+    const waitingRow = screen.getByText('Waiting').closest('li')!
+    expect(within(waitingRow).getByRole('img', { name: 'Auto settle enabled' })).toBeTruthy()
+    fireEvent.contextMenu(screen.getByText('Waiting'))
+    menu = screen.getByRole('menu', { name: 'Thread actions for Waiting' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Disable auto settle' }))
+    expect(onAutoSettleThread).toHaveBeenCalledWith('Waiting', false)
+
+    // Non-suspended active card shows Auto settle badge.
+    const activeAutoRow = screen.getByText('ActiveAuto').closest('li')!
+    expect(within(activeAutoRow).getByText('Auto settle')).toBeTruthy()
+
+    // Settled card also shows Auto settle badge and offers Disable auto settle in context menu.
+    fireEvent.click(screen.getByRole('button', { name: /Settled threads/i }))
+    const settledRow = screen.getByText('SettledAuto').closest('li')!
+    expect(within(settledRow).getByText('Auto settle')).toBeTruthy()
+    fireEvent.contextMenu(screen.getByText('SettledAuto'))
+    menu = screen.getByRole('menu', { name: 'Thread actions for SettledAuto' })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Disable auto settle' }))
+    expect(onAutoSettleThread).toHaveBeenLastCalledWith('SettledAuto', false)
+  })
+
   it('prefers a custom favicon and falls back to the colored project icon on failure', () => {
     const { container, rerender } = render(
       <ProjectIcon repository={{ ...repositories[0], faviconUrl: 'file:///icon.png' }} />

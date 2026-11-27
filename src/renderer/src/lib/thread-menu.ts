@@ -12,6 +12,8 @@ export type ThreadMenuAction =
   | 'snooze-next-week'
   | 'snooze-custom'
   | 'unsnooze'
+  | 'auto-settle'
+  | 'disable-auto-settle'
   | 'close-thread'
   | 'settle-thread'
   | 'unsettle-thread'
@@ -28,6 +30,10 @@ export type ThreadMenuOptions = {
   settled?: boolean
   /** Whether the thread is snoozed. */
   snoozed?: boolean
+  /** Whether auto settle is enabled for the thread. */
+  autoSettle?: boolean
+  /** Whether the thread has at least one linked work item or local task. */
+  hasWorkItems?: boolean
   convertToWorktreeVisible: boolean
   convertToWorktreeEnabled: boolean
   closeThreadEnabled: boolean
@@ -46,6 +52,8 @@ export function threadMenuOptions(
   return {
     settled: Boolean(thread.settledAt),
     snoozed: Boolean(thread.snoozedUntil) && !thread.settledAt,
+    autoSettle: Boolean(thread.autoSettle),
+    hasWorkItems: Boolean(thread.workItems?.length || thread.taskNumbers?.length),
     convertToWorktreeVisible: thread.mode !== 'worktree' && thread.projectKind !== 'general',
     convertToWorktreeEnabled: !convertingThread,
     closeThreadEnabled: !closingThread,
@@ -85,6 +93,19 @@ export function threadMenuActions(options: ThreadMenuOptions): ThreadMenuEntry[]
       ]
     })
     if (options.snoozed) actions.push({ action: 'unsnooze', label: 'Unsnooze', enabled: true })
+  }
+  if (options.autoSettle) {
+    actions.push({
+      action: 'disable-auto-settle',
+      label: 'Disable auto settle',
+      enabled: true
+    })
+  } else if (!options.settled && options.hasWorkItems) {
+    actions.push({
+      action: 'auto-settle',
+      label: 'Auto settle',
+      enabled: true
+    })
   }
   actions.push(
     {

@@ -35,6 +35,7 @@ type ProjectTaskServiceDependencies = {
   createId: () => string
   /** Where attached files are copied to; without it, tasks cannot get new attachments. */
   attachments?: TaskAttachmentStore
+  onTaskCompleted?: () => void
 }
 
 type ResolvedAttachments =
@@ -217,6 +218,7 @@ export function createProjectTaskService(dependencies: ProjectTaskServiceDepende
         ...(repository.completedTasks ?? [])
       ]
       dependencies.saveState()
+      dependencies.onTaskCompleted?.()
       return dependencies.successResult()
     },
 

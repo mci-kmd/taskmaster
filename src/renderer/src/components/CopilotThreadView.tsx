@@ -1668,7 +1668,7 @@ function SessionView({
                 key={thread.id}
                 setup={shownSetup}
                 repository={repository}
-                settingUp={busy === 'send' || !thread.pendingSetup}
+                settingUp={busy === 'send' || Boolean(thread.setupPhase) || !thread.pendingSetup}
                 onChange={onChangeSetup}
               />
             ) : null}

@@ -6,6 +6,7 @@ import type {
   PersistedThread,
   RepositorySnapshot,
   ThreadCommitPhase,
+  ThreadSetupPhase,
   ThreadSnapshot
 } from '../../../shared/app-types'
 import { GENERAL_THREAD_FALLBACK_TITLE, isGeneralProject } from '../../../shared/general-project'
@@ -26,6 +27,7 @@ type SnapshotServiceDependencies = {
   ensureState: () => PersistedAppState
   getRunningRunThreadIds: () => Set<string>
   getCommitPhases: () => ReadonlyMap<string, ThreadCommitPhase>
+  getSetupPhases?: () => ReadonlyMap<string, ThreadSetupPhase>
   getRepositoryGitState: (
     repository: PersistedRepository,
     refreshGit: boolean
@@ -157,6 +159,7 @@ export function createSnapshotService(dependencies: SnapshotServiceDependencies)
         thread.customTitle ?? (general ? GENERAL_THREAD_FALLBACK_TITLE : thread.branchName),
       isRunCommandRunning: runningRunThreadIds.has(thread.id),
       commitPhase: dependencies.getCommitPhases().get(thread.id) ?? null,
+      setupPhase: dependencies.getSetupPhases?.().get(thread.id) ?? null,
       previewUrl: general ? null : dependencies.resolveThreadPreviewUrl(repository, thread),
       commitAutoPush: !general && repository.autoPushAfterCommit === true,
       onPrimaryBranch: isOnPrimaryBranch(thread, primaryBranch),

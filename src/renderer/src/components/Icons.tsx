@@ -286,6 +286,16 @@ export function CheckIcon(props: IconProps): React.JSX.Element {
   )
 }
 
+export function AutoSettleIcon(props: IconProps): React.JSX.Element {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" />
+      <path d="M13.5 3v2.5H11" />
+      <path d="m5.75 8.1 1.65 1.65 3.1-3.3" />
+    </svg>
+  )
+}
+
 export function QuestionIcon(props: IconProps): React.JSX.Element {
   return (
     <svg {...baseProps} {...props}>

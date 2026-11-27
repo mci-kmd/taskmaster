@@ -488,3 +488,29 @@ it('estimates DKK with the fallback rate until a live rate is available', () => 
     '$1 = 6.58 DKK (fallback rate)'
   )
 })
+
+it('hides and restores model charts by toggling model pills', () => {
+  view([sample('a1', 'Alpha', 2, 100, 1000, 200), sample('b1', 'Beta', 4, 80, 1000, 150)])
+  const models = screen.getByRole('group', { name: 'Models in this period' })
+  const alphaPill = within(models).getByRole('checkbox', { name: 'Alpha' })
+  const betaPill = within(models).getByRole('checkbox', { name: 'Beta' })
+  expect(alphaPill.getAttribute('aria-checked')).toBe('true')
+  expect(betaPill.getAttribute('aria-checked')).toBe('true')
+  expect(screen.getByRole('region', { name: 'Alpha performance' })).toBeTruthy()
+  expect(screen.getByRole('region', { name: 'Beta performance' })).toBeTruthy()
+
+  fireEvent.click(alphaPill)
+  expect(alphaPill.getAttribute('aria-checked')).toBe('false')
+  expect(screen.queryByRole('region', { name: 'Alpha performance' })).toBeNull()
+  expect(screen.getByRole('region', { name: 'Beta performance' })).toBeTruthy()
+
+  fireEvent.click(betaPill)
+  expect(screen.queryByRole('region', { name: 'Beta performance' })).toBeNull()
+  expect(screen.getByRole('status').textContent).toContain('All models are hidden')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Show all models' }))
+  expect(alphaPill.getAttribute('aria-checked')).toBe('true')
+  expect(betaPill.getAttribute('aria-checked')).toBe('true')
+  expect(screen.getByRole('region', { name: 'Alpha performance' })).toBeTruthy()
+  expect(screen.getByRole('region', { name: 'Beta performance' })).toBeTruthy()
+})

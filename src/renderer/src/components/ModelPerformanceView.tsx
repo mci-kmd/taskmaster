@@ -7,7 +7,7 @@ import {
 } from '../../../shared/ai-credits'
 import type { ModelPerformanceSample, UsdDkkRate } from '../../../shared/app-types'
 import { formatCostAmount } from './copilot/prompt-cost'
-import { CloseIcon } from './Icons'
+import { CheckIcon, CloseIcon } from './Icons'
 import Button from './ui/Button'
 import Presence from './ui/Presence'
 import SegmentedControl from './ui/SegmentedControl'
@@ -503,7 +503,16 @@ export default function ModelPerformanceView({
 }: Props): React.JSX.Element {
   const [period, setPeriod] = useState<Period>('1h')
   const [view, setView] = useState<View>('performance')
+  const [hiddenModels, setHiddenModels] = useState<ReadonlySet<string>>(() => new Set())
   const [now, setNow] = useState(Date.now)
+  const toggleModel = (model: string): void => {
+    setHiddenModels((current) => {
+      const next = new Set(current)
+      if (next.has(model)) next.delete(model)
+      else next.add(model)
+      return next
+    })
+  }
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(timer)
@@ -568,7 +577,11 @@ export default function ModelPerformanceView({
   }
   // Models entering or leaving the period (e.g. after switching it) animate in and out.
   const modelGroups = useMemo(() => Array.from(byModel.values()), [byModel])
-  const modelEntries = usePresenceList(modelGroups, modelKey, 'models')
+  const visibleModelGroups = useMemo(
+    () => modelGroups.filter((group) => !hiddenModels.has(modelKey(group))),
+    [hiddenModels, modelGroups]
+  )
+  const modelEntries = usePresenceList(visibleModelGroups, modelKey, 'models')
   const modelListRef = useAnimatedListMotion<HTMLDivElement>('models')
   const modelChips = usePresenceList(modelGroups, modelKey, 'models')
   const rateNote = `$1 = ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(dkkPerUsd)} DKK (${usdDkkRate.source === 'live' ? 'live rate' : 'fallback rate'})`
@@ -633,15 +646,27 @@ export default function ModelPerformanceView({
             aria-label="Models in this period"
           >
             <span>Models in this period</span>
-            {modelChips.map(({ key, exitToken }) => (
-              <strong
-                data-motion={exitToken === null ? undefined : 'fade'}
-                data-state={exitToken === null ? undefined : 'closed'}
-                key={key}
-              >
-                {key}
-              </strong>
-            ))}
+            {modelChips.map(({ key, exitToken }) => {
+              const checked = !hiddenModels.has(key)
+              return (
+                <button
+                  aria-checked={checked}
+                  className="tm-performance__model-pill"
+                  data-motion={exitToken === null ? undefined : 'fade'}
+                  data-state={exitToken === null ? undefined : 'closed'}
+                  key={key}
+                  onClick={() => toggleModel(key)}
+                  role="checkbox"
+                  title={checked ? `Hide ${key}` : `Show ${key}`}
+                  type="button"
+                >
+                  <span className="tm-performance__model-check" aria-hidden="true">
+                    {checked && <CheckIcon width={9} height={9} strokeWidth={2.2} />}
+                  </span>
+                  <span>{key}</span>
+                </button>
+              )
+            })}
           </div>
         )}
 
@@ -665,6 +690,19 @@ export default function ModelPerformanceView({
               Run a Copilot model to collect samples. Past activity isn’t available; choose a longer
               period for recent measurements.
             </span>
+          </div>
+        ) : visibleModelGroups.length === 0 && modelEntries.length === 0 ? (
+          <div className="tm-performance__state tm-fade-in" key="all-hidden" role="status">
+            <strong>All models are hidden</strong>
+            <span>Check a model above to show its chart.</span>
+            <Button
+              className="mt-2.5"
+              onClick={() => setHiddenModels(new Set())}
+              size="sm"
+              variant="secondary"
+            >
+              Show all models
+            </Button>
           </div>
         ) : (
           <div className="tm-performance__models" key="models" ref={modelListRef}>

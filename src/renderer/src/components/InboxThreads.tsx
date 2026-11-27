@@ -20,6 +20,7 @@ import ModelFamilyIcon from './copilot/ModelFamilyIcon'
 import { modelFamily } from './copilot/model-families'
 import {
   AlertIcon,
+  AutoSettleIcon,
   BranchIcon,
   FolderIcon,
   WorktreeIcon,
@@ -69,6 +70,7 @@ export default function InboxThreads({
   onOpenRepositoryTasks,
   onEditThread,
   onSettleThread,
+  onAutoSettleThread,
   onSuspendThread,
   onSnoozeThread,
   onCustomSnoozeThread,
@@ -92,6 +94,7 @@ export default function InboxThreads({
   onOpenRepositoryTasks: (id: string, taskNumber?: number) => void
   onEditThread: (id: string) => void
   onSettleThread: (id: string, settled: boolean) => void
+  onAutoSettleThread?: (id: string, enabled: boolean) => void
   onSuspendThread?: (id: string, suspended: boolean) => void
   /** Snoozes a thread until an ISO time, or wakes it with null. */
   onSnoozeThread?: (id: string, until: string | null) => void
@@ -122,6 +125,8 @@ export default function InboxThreads({
       onSnoozeThread?.(thread.id, snoozeUntil('next-week').toISOString())
     else if (action === 'snooze-custom') onCustomSnoozeThread?.(thread.id)
     else if (action === 'unsnooze') onSnoozeThread?.(thread.id, null)
+    else if (action === 'auto-settle' || action === 'disable-auto-settle')
+      onAutoSettleThread?.(thread.id, action === 'auto-settle')
     else if (action === 'settle-thread' || action === 'unsettle-thread')
       onSettleThread(thread.id, action === 'settle-thread')
     else if (action === 'close-thread') onCloseThread(thread.id)
@@ -178,7 +183,11 @@ export default function InboxThreads({
     const snoozedUntil = thread.settledAt ? null : (thread.snoozedUntil ?? null)
     const awakened = Boolean(thread.awakenedAt) && !thread.settledAt && !snoozedUntil
     const status = session?.copilotStatus ?? 'idle'
-    const working = status === 'working' || status === 'connecting' || status === 'input'
+    const working =
+      status === 'working' ||
+      status === 'connecting' ||
+      status === 'input' ||
+      Boolean(thread.setupPhase)
     const linkedTasks = findLinkedTasks(thread, repository)
     const subtitle =
       thread.projectKind === 'general'
@@ -190,6 +199,7 @@ export default function InboxThreads({
         className="tm-inbox-item"
         data-motion-key={key}
         data-suspended={suspended ? '' : undefined}
+        data-auto-settle={thread.autoSettle ? '' : undefined}
         data-thread-id={thread.id}
         data-exiting={exiting ? '' : undefined}
         inert={exiting}
@@ -203,6 +213,7 @@ export default function InboxThreads({
                 commitPhase={thread.commitPhase}
                 lastActivity={formatRelativeTime(thread.lastActivityAt, now)}
                 repository={repository}
+                setupPhase={thread.setupPhase ?? null}
                 status={session?.copilotStatus ?? 'idle'}
                 thread={thread}
                 title={title}
@@ -222,10 +233,21 @@ export default function InboxThreads({
                   type="button"
                   onClick={() => onSelectThread(thread.id)}
                   className="tm-inbox-row-main"
-                  aria-description={`Suspended · ${subtitle}\n${thread.cwd}`}
+                  aria-description={`Suspended${thread.autoSettle ? ' · Auto settle' : ''} · ${subtitle}\n${thread.cwd}`}
                 >
                   <ProjectIcon repository={repository} />
                   <span className="tm-inbox-row-title min-w-0 flex-1">{title}</span>
+                  {thread.autoSettle ? (
+                    <span
+                      className="tm-inbox-auto-settle"
+                      data-compact=""
+                      role="img"
+                      aria-label="Auto settle enabled"
+                      title="Auto settles when linked work items complete"
+                    >
+                      <AutoSettleIcon width={11} height={11} strokeWidth={1.8} aria-hidden="true" />
+                    </span>
+                  ) : null}
                 </button>
                 <div className="tm-inbox-side">
                   <div className="tm-inbox-actions">
@@ -298,6 +320,7 @@ export default function InboxThreads({
                           <ThreadStatus
                             awakened={awakened}
                             commitPhase={thread.commitPhase}
+                            setupPhase={thread.setupPhase ?? null}
                             status={session?.copilotStatus ?? 'idle'}
                           />
                         )}
@@ -315,6 +338,25 @@ export default function InboxThreads({
                             <PlayIcon width={9} height={9} />
                           </span>
                         </Presence>
+                        {thread.autoSettle ? (
+                          <span
+                            className="tm-inbox-auto-settle"
+                            data-settled={thread.settledAt ? '' : undefined}
+                            title={
+                              thread.settledAt
+                                ? 'Auto settle enabled'
+                                : 'Auto settles when linked work items complete'
+                            }
+                          >
+                            <AutoSettleIcon
+                              width={11}
+                              height={11}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                            <span>Auto settle</span>
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                   </button>
@@ -566,13 +608,33 @@ export default function InboxThreads({
 function ThreadStatus({
   awakened = false,
   commitPhase,
+  setupPhase = null,
   status
 }: {
   /** Whether the thread returned from a snooze and hasn't been attended to yet. */
   awakened?: boolean
   commitPhase: ThreadSnapshot['commitPhase']
+  setupPhase?: ThreadSnapshot['setupPhase']
   status: CopilotThreadStatus
 }): React.JSX.Element {
+  if (setupPhase) {
+    const label = setupPhase === 'worktree' ? 'Setting up worktree' : 'Setting up checkout'
+    return (
+      <span
+        key={label}
+        className="tm-status-badge tm-fade-in"
+        data-status="setting-up"
+        title={label}
+      >
+        {setupPhase === 'worktree' ? (
+          <WorktreeIcon className="tm-blink" width={11} height={11} strokeWidth={1.7} />
+        ) : (
+          <BranchIcon className="tm-blink" width={11} height={11} strokeWidth={1.7} />
+        )}
+        {label}
+      </span>
+    )
+  }
   if (commitPhase) {
     const label = commitPhase === 'pushing' ? 'Pushing' : 'Committing'
     return (
@@ -700,6 +762,7 @@ function ThreadTooltip({
   status,
   awakened,
   commitPhase,
+  setupPhase = null,
   lastActivity
 }: {
   awakened: boolean
@@ -708,6 +771,7 @@ function ThreadTooltip({
   repository: RepositorySnapshot
   status: CopilotThreadStatus
   commitPhase: ThreadSnapshot['commitPhase']
+  setupPhase?: ThreadSnapshot['setupPhase']
   lastActivity: string
 }): React.JSX.Element {
   const showAwakened = awakened && !isBusyStatus(status)
@@ -750,14 +814,28 @@ function ThreadTooltip({
           <FolderIcon />
           <span>{thread.cwd}</span>
         </li>
-        <li className="tm-tooltip-row" data-tone={commitPhase ? 'accent' : tone}>
-          {commitPhase ? <GitCommitIcon /> : <ThreadIcon />}
+        <li className="tm-tooltip-row" data-tone={setupPhase || commitPhase ? 'accent' : tone}>
+          {setupPhase ? (
+            setupPhase === 'worktree' ? (
+              <WorktreeIcon />
+            ) : (
+              <BranchIcon />
+            )
+          ) : commitPhase ? (
+            <GitCommitIcon />
+          ) : (
+            <ThreadIcon />
+          )}
           <span>
-            {commitPhase
-              ? COMMIT_PHASE_LABELS[commitPhase]
-              : showAwakened
-                ? 'Awakened'
-                : STATUS_LABELS[status]}{' '}
+            {setupPhase
+              ? setupPhase === 'worktree'
+                ? 'Setting up worktree'
+                : 'Setting up checkout'
+              : commitPhase
+                ? COMMIT_PHASE_LABELS[commitPhase]
+                : showAwakened
+                  ? 'Awakened'
+                  : STATUS_LABELS[status]}{' '}
             · {lastActivity}
           </span>
         </li>
@@ -765,6 +843,16 @@ function ThreadTooltip({
           <li className="tm-tooltip-row" data-tone="positive">
             <PlayIcon />
             <span>App running</span>
+          </li>
+        ) : null}
+        {thread.autoSettle ? (
+          <li className="tm-tooltip-row" data-tone={thread.settledAt ? 'positive' : 'accent'}>
+            <AutoSettleIcon />
+            <span>
+              {thread.settledAt
+                ? 'Auto settle enabled'
+                : 'Auto settles when linked work items complete'}
+            </span>
           </li>
         ) : null}
         {findLinkedTasks(thread, repository).map((task) => (

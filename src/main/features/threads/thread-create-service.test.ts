@@ -14,8 +14,10 @@ import {
 import {
   cleanupFailedWorktree,
   createWorktree,
+  createWorktreeAsync,
   resolveBaseRef,
   runNewWorktreeSetupCommand,
+  runNewWorktreeSetupCommandAsync,
   WorktreeCreationError
 } from './thread-worktree-utils'
 import { createThreadCreateService } from './thread-create-service'
@@ -37,8 +39,10 @@ vi.mock('../repositories/repository-git', () => ({
 vi.mock('./thread-worktree-utils', () => ({
   cleanupFailedWorktree: vi.fn(),
   createWorktree: vi.fn(),
+  createWorktreeAsync: vi.fn(),
   resolveBaseRef: vi.fn(),
   runNewWorktreeSetupCommand: vi.fn(),
+  runNewWorktreeSetupCommandAsync: vi.fn(),
   WorktreeCreationError: class WorktreeCreationError extends Error {
     readonly worktreePath: string
     readonly ownsBranch: boolean
@@ -91,14 +95,17 @@ function createHarness(
   createThread: CreateService['createThread']
   finishThreadSetup: CreateService['finishThreadSetup']
   isThreadSettingUp: CreateService['isThreadSettingUp']
+  getSetupPhases: CreateService['getSetupPhases']
   saveState: ReturnType<typeof vi.fn>
   updateSelection: ReturnType<typeof vi.fn>
   onThreadSetUp: ReturnType<typeof vi.fn>
+  onSetupPhaseChanged: ReturnType<typeof vi.fn>
 } {
   const state = createState()
   const saveState = vi.fn()
   const updateSelection = vi.fn()
   const onThreadSetUp = vi.fn()
+  const onSetupPhaseChanged = vi.fn()
   const generate = options.generateBranchName
   const service = createThreadCreateService({
     ensureState: () => state,
@@ -113,7 +120,8 @@ function createHarness(
       .mockReturnValueOnce('session-1')
       .mockReturnValue('id'),
     generateBranchName: generate ? ({ prompt }) => generate(prompt) : undefined,
-    onThreadSetUp
+    onThreadSetUp,
+    onSetupPhaseChanged
   })
 
   return {
@@ -121,9 +129,11 @@ function createHarness(
     createThread: service.createThread,
     finishThreadSetup: service.finishThreadSetup,
     isThreadSettingUp: service.isThreadSettingUp,
+    getSetupPhases: service.getSetupPhases,
     saveState,
     updateSelection,
-    onThreadSetUp
+    onThreadSetUp,
+    onSetupPhaseChanged
   }
 }
 
@@ -138,8 +148,10 @@ describe('createThreadCreateService', () => {
     vi.mocked(listRepositoryWorktrees).mockReset()
     vi.mocked(resolveBaseRef).mockReset()
     vi.mocked(createWorktree).mockReset()
+    vi.mocked(createWorktreeAsync).mockReset()
     vi.mocked(cleanupFailedWorktree).mockReset()
     vi.mocked(runNewWorktreeSetupCommand).mockReset()
+    vi.mocked(runNewWorktreeSetupCommandAsync).mockReset()
     vi.mocked(runGit).mockReset()
 
     vi.mocked(getCurrentBranchLabel).mockReturnValue('main')
@@ -150,6 +162,8 @@ describe('createThreadCreateService', () => {
     vi.mocked(listRepositoryWorktrees).mockReturnValue([])
     vi.mocked(resolveBaseRef).mockReturnValue({ ok: true, ref: 'main' })
     vi.mocked(createWorktree).mockReturnValue('/repo/.worktrees/feature-thread')
+    vi.mocked(createWorktreeAsync).mockResolvedValue('/repo/.worktrees/feature-thread')
+    vi.mocked(runNewWorktreeSetupCommandAsync).mockResolvedValue(undefined)
   })
 
   it('creates a thread on the shared repository without a view mode', () => {
@@ -510,7 +524,7 @@ describe('createThreadCreateService', () => {
       const result = await harness.finishThreadSetup('thread-1', 'Add login')
 
       expect(result).toEqual({ ok: true, cwdChanged: true })
-      expect(createWorktree).toHaveBeenCalledWith(
+      expect(createWorktreeAsync).toHaveBeenCalledWith(
         '/repo',
         'add-login-2',
         'main',
@@ -533,7 +547,7 @@ describe('createThreadCreateService', () => {
       await harness.finishThreadSetup('thread-1', 'Anything')
 
       expect(generate).not.toHaveBeenCalled()
-      expect(createWorktree).toHaveBeenCalledWith(
+      expect(createWorktreeAsync).toHaveBeenCalledWith(
         '/repo',
         'feature/chosen',
         'main',
@@ -569,11 +583,34 @@ describe('createThreadCreateService', () => {
       const first = harness.finishThreadSetup('thread-1', 'Do it')
       const second = harness.finishThreadSetup('thread-1', 'Do it')
       expect(harness.isThreadSettingUp('thread-1')).toBe(true)
+      expect(harness.getSetupPhases().get('thread-1')).toBe('branch')
+      expect(harness.onSetupPhaseChanged).toHaveBeenCalledWith('thread-1')
       finishNaming('do-it')
 
       expect(await first).toEqual(await second)
       expect(runGit).toHaveBeenCalledOnce()
       expect(harness.isThreadSettingUp('thread-1')).toBe(false)
+      expect(harness.getSetupPhases().has('thread-1')).toBe(false)
+    })
+
+    it('reports worktree setup phase while a worktree is being created', async () => {
+      let finishWorktree: (path: string) => void = () => undefined
+      vi.mocked(createWorktreeAsync).mockImplementation(
+        () => new Promise((resolve) => (finishWorktree = resolve))
+      )
+      const harness = createHarness()
+      harness.state.settings.threadSetupMode = 'worktree'
+      harness.createThread({ repositoryId: 'repo-1' })
+      harness.state.threads[0].pendingSetup = { mode: 'worktree', branchName: 'feature/wt' }
+
+      const pending = harness.finishThreadSetup('thread-1', 'Work on it')
+      expect(harness.getSetupPhases().get('thread-1')).toBe('worktree')
+      expect(harness.onSetupPhaseChanged).toHaveBeenCalledWith('thread-1')
+      await vi.waitFor(() => expect(createWorktreeAsync).toHaveBeenCalled())
+      finishWorktree('/repo/.worktrees/feature-wt')
+
+      expect(await pending).toEqual({ ok: true, cwdChanged: true })
+      expect(harness.getSetupPhases().has('thread-1')).toBe(false)
     })
 
     it('does nothing for a thread that already has its checkout', async () => {

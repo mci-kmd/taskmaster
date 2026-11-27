@@ -143,12 +143,39 @@
   }
   .tm-inbox-row-meta {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 3px 6px;
     margin-top: 4px;
     color: var(--color-fg-subtle);
     font-size: 11px;
     line-height: 17px;
+  }
+
+  .tm-inbox-auto-settle {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    height: 17px;
+    padding: 0 6px 0 4px;
+    border-radius: 999px;
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
+    font-size: 10.5px;
+    font-weight: 560;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .tm-inbox-auto-settle[data-settled] {
+    background: var(--color-positive-soft);
+    color: var(--color-positive);
+  }
+  .tm-inbox-auto-settle[data-compact] {
+    flex: none;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    justify-content: center;
   }
 
   /* Suspended threads collapse to one quiet line at the bottom of the inbox. */
@@ -288,7 +315,8 @@
   .tm-status-badge[data-status='input'] svg {
     color: var(--color-accent-2);
   }
-  .tm-status-badge[data-status='committing'] {
+  .tm-status-badge[data-status='committing'],
+  .tm-status-badge[data-status='setting-up'] {
     background: var(--color-accent-soft);
     color: var(--color-accent);
   }

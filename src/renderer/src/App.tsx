@@ -149,6 +149,16 @@ export default function App(): React.JSX.Element {
     },
     [applyMutation]
   )
+  const handleAutoSettleThread = useCallback(
+    async (threadId: string, autoSettle: boolean): Promise<void> => {
+      try {
+        await applyMutation(api.appState.updateThread({ threadId, autoSettle }))
+      } catch (error) {
+        setToastError(error instanceof Error ? error.message : String(error))
+      }
+    },
+    [applyMutation]
+  )
   const handleSnoozeThread = useCallback(
     async (threadId: string, snoozedUntil: string | null): Promise<void> => {
       try {
@@ -788,6 +798,7 @@ export default function App(): React.JSX.Element {
           }}
           performanceOpen={performanceOpen}
           onSettleThread={(id, settled) => void handleSettleThread(id, settled)}
+          onAutoSettleThread={(id, enabled) => void handleAutoSettleThread(id, enabled)}
           onSuspendThread={(id, suspended) => void handleSuspendThread(id, suspended)}
           onSnoozeThread={(id, until) => void handleSnoozeThread(id, until)}
           onCustomSnoozeThread={(id) => {

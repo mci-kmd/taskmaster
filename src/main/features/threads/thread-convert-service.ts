@@ -1,7 +1,8 @@
 import type {
   MutationResult,
   PersistedAppState,
-  PersistedRepository
+  PersistedRepository,
+  ThreadSetupPhase
 } from '../../../shared/app-types'
 import { isGeneralProject } from '../../../shared/general-project'
 import { getRepositoryExecutionPath } from '../../backends/repository-backend'
@@ -12,8 +13,8 @@ import {
 } from '../repositories/repository-git'
 import {
   cleanupFailedWorktree,
-  createWorktreeForExistingBranch,
-  runNewWorktreeSetupCommand,
+  createWorktreeForExistingBranchAsync,
+  runNewWorktreeSetupCommandAsync,
   WorktreeCreationError
 } from './thread-worktree-utils'
 
@@ -28,11 +29,16 @@ export function createThreadConvertService(dependencies: {
   failureResult: (error: string, cancelled?: boolean) => MutationResult
   hasRunningProcesses: (threadId: string) => boolean
   refreshRepositoryGitState: (repository: PersistedRepository) => void
+  /** Called when a thread starts or stops converting to a worktree. */
+  onSetupPhaseChanged?: (threadId: string) => void
 }): {
-  convertThreadToWorktree: (threadId: string) => MutationResult
+  convertThreadToWorktree: (threadId: string) => Promise<MutationResult>
+  getSetupPhases: () => ReadonlyMap<string, ThreadSetupPhase>
 } {
+  const setupPhases = new Map<string, ThreadSetupPhase>()
+
   return {
-    convertThreadToWorktree: (threadId: string): MutationResult => {
+    convertThreadToWorktree: async (threadId: string): Promise<MutationResult> => {
       const state = dependencies.ensureState()
       const thread = state.threads.find((item) => item.id === threadId)
       if (!thread) {
@@ -90,18 +96,22 @@ export function createThreadConvertService(dependencies: {
       }
 
       let worktreePath: string | null = null
+      setupPhases.set(thread.id, 'worktree')
+      dependencies.onSetupPhaseChanged?.(thread.id)
 
       try {
-        worktreePath = createWorktreeForExistingBranch(
+        worktreePath = await createWorktreeForExistingBranchAsync(
           repositoryPath,
           thread.branchName,
           repository.backend
         )
-        runNewWorktreeSetupCommand(repository, {
+        await runNewWorktreeSetupCommandAsync(repository, {
           branchName: thread.branchName,
           worktreePath
         })
       } catch (error) {
+        setupPhases.delete(thread.id)
+        dependencies.onSetupPhaseChanged?.(thread.id)
         const conversionError = errorMessage(error)
         const rollbackErrors: string[] = []
         const attemptedWorktreePath =
@@ -130,12 +140,15 @@ export function createThreadConvertService(dependencies: {
         )
       }
 
+      setupPhases.delete(thread.id)
       thread.mode = 'worktree'
       thread.worktreePath = worktreePath
       thread.ownsWorktree = true
       dependencies.saveState()
       dependencies.refreshRepositoryGitState(repository)
+      dependencies.onSetupPhaseChanged?.(thread.id)
       return dependencies.successResult()
-    }
+    },
+    getSetupPhases: () => setupPhases
   }
 }

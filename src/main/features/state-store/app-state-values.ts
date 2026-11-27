@@ -87,6 +87,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
   const lastModel = normalizeThreadModel(thread.lastModel)
   const workItems = normalizeThreadWorkItems(thread.workItems)
   const taskNumbers = normalizeThreadTaskNumbers(thread.taskNumbers)
+  const autoSettle = thread.autoSettle === true ? true : undefined
   const pinnedMessageIds = normalizePinnedMessageIds(thread.pinnedMessageIds)
   const pinnedMessageTitles = normalizePinnedMessageTitles(
     thread.pinnedMessageTitles,
@@ -106,6 +107,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     sameThreadWorkItems(workItems, thread.workItems) &&
     (taskNumbers === undefined) === (thread.taskNumbers === undefined) &&
     sameThreadTaskNumbers(taskNumbers, thread.taskNumbers) &&
+    autoSettle === thread.autoSettle &&
     (pinnedMessageIds === undefined
       ? thread.pinnedMessageIds === undefined
       : Array.isArray(thread.pinnedMessageIds) &&
@@ -126,6 +128,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     lastModel: _lastModel,
     workItems: _workItems,
     taskNumbers: _taskNumbers,
+    autoSettle: _autoSettle,
     pinnedMessageIds: _pinnedMessageIds,
     pinnedMessageTitles: _pinnedMessageTitles,
     aside: _aside,
@@ -138,6 +141,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
   void _lastModel
   void _workItems
   void _taskNumbers
+  void _autoSettle
   void _pinnedMessageIds
   void _pinnedMessageTitles
   return {
@@ -148,6 +152,7 @@ export function normalizePersistedThread(thread: PersistedThread): PersistedThre
     ...(lastModel ? { lastModel } : {}),
     ...(workItems ? { workItems } : {}),
     ...(taskNumbers ? { taskNumbers } : {}),
+    ...(autoSettle ? { autoSettle } : {}),
     ...(pinnedMessageIds ? { pinnedMessageIds } : {}),
     ...(pinnedMessageTitles ? { pinnedMessageTitles } : {}),
     ...(aside ? { aside } : {}),

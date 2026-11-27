@@ -4,7 +4,8 @@ import type {
   PersistedRepository,
   PersistedThread,
   RepositoryBackend,
-  ThreadCheckoutMoveKind
+  ThreadCheckoutMoveKind,
+  ThreadSetupPhase
 } from '../../../shared/app-types'
 import { isGeneralProject } from '../../../shared/general-project'
 import { threadDisplayName } from '../../../shared/thread-title'
@@ -25,9 +26,9 @@ import { isBranchNameTaken } from './thread-create-service'
 import { getThreadExecutionCwd } from './thread-paths'
 import {
   cleanupFailedWorktree,
-  createWorktree,
-  createWorktreeForExistingBranch,
-  runNewWorktreeSetupCommand,
+  createWorktreeAsync,
+  createWorktreeForExistingBranchAsync,
+  runNewWorktreeSetupCommandAsync,
   WorktreeCreationError
 } from './thread-worktree-utils'
 
@@ -113,10 +114,14 @@ export function createThreadCheckoutMoveService(dependencies: {
     cwd: string
     prompt: string
   }) => Promise<string | null>
+  /** Called when a thread starts or stops moving its checkout. */
+  onSetupPhaseChanged?: (threadId: string) => void
 }): {
   moveThreadCheckout: (input: MoveThreadCheckoutInput) => Promise<ThreadCheckoutMoveResult>
+  getSetupPhases: () => ReadonlyMap<string, ThreadSetupPhase>
 } {
   const moving = new Set<string>()
+  const setupPhases = new Map<string, ThreadSetupPhase>()
 
   const resolveContext = (
     threadId: string,
@@ -307,7 +312,10 @@ export function createThreadCheckoutMoveService(dependencies: {
     }
   }
 
-  const moveToWorktree = (context: Context, name: string): ThreadCheckoutMoveResult => {
+  const moveToWorktree = async (
+    context: Context,
+    name: string
+  ): Promise<ThreadCheckoutMoveResult> => {
     const { thread, repository, repositoryPath, backend } = context
     const previousCwd = getThreadExecutionCwd(thread, repository)
     const dirty = isDirty(context)
@@ -362,16 +370,20 @@ export function createThreadCheckoutMoveService(dependencies: {
           )
           createdBranch = true
         }
-        worktreePath = createWorktreeForExistingBranch(repositoryPath, branchName, backend)
+        worktreePath = await createWorktreeForExistingBranchAsync(
+          repositoryPath,
+          branchName,
+          backend
+        )
       } else {
-        worktreePath = createWorktree(repositoryPath, branchName, 'HEAD', backend)
+        worktreePath = await createWorktreeAsync(repositoryPath, branchName, 'HEAD', backend)
         createdBranch = true
       }
       if (dirty) {
         stash = stashChanges(repositoryPath, `taskmaster: move thread to ${branchName}`, backend)
         if (stash) runGit(worktreePath, ['stash', 'apply', '--index', stash], backend)
       }
-      runNewWorktreeSetupCommand(repository, { branchName, worktreePath })
+      await runNewWorktreeSetupCommandAsync(repository, { branchName, worktreePath })
     } catch (error) {
       if (error instanceof WorktreeCreationError) {
         worktreePath ??= error.worktreePath
@@ -427,6 +439,8 @@ export function createThreadCheckoutMoveService(dependencies: {
   const move = async (input: MoveThreadCheckoutInput): Promise<ThreadCheckoutMoveResult> => {
     const first = resolveContext(input.threadId, input.kind)
     if (!first.ok) return first
+    setupPhases.set(input.threadId, input.kind)
+    dependencies.onSetupPhaseChanged?.(input.threadId)
     const requested = input.branchName?.trim() || first.context.drift || null
     const name = await resolveBranchName(first.context, requested)
     if (!name.ok) return name
@@ -435,7 +449,7 @@ export function createThreadCheckoutMoveService(dependencies: {
     if (!resolved.ok) return resolved
     return input.kind === 'branch'
       ? moveToBranch(resolved.context, name.name)
-      : moveToWorktree(resolved.context, name.name)
+      : await moveToWorktree(resolved.context, name.name)
   }
 
   return {
@@ -451,7 +465,11 @@ export function createThreadCheckoutMoveService(dependencies: {
         return await move(input)
       } finally {
         moving.delete(key)
+        if (setupPhases.delete(input.threadId)) {
+          dependencies.onSetupPhaseChanged?.(input.threadId)
+        }
       }
-    }
+    },
+    getSetupPhases: () => setupPhases
   }
 }

@@ -472,4 +472,71 @@ describe('thread state service', () => {
     expect(thread.settledAt).toBeNull()
     expect(thread.lastActivityAt).toBe('2026-01-02T00:00:00.000Z')
   })
+
+  it('enables auto settle, suspends unless working, preserves the flag on settle, and allows disabling', () => {
+    const saveState = vi.fn()
+    let working = true
+    const thread: PersistedThread = {
+      id: 'thread-1',
+      repositoryId: 'repo-1',
+      customTitle: null,
+      latestCopilotTitle: null,
+      lastUserMessage: null,
+      mode: 'active-branch',
+      branchName: 'main',
+      worktreePath: null,
+      resumeSessionId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      lastActivityAt: '2026-01-01T00:00:00.000Z'
+    }
+    const ui = { selectedRepositoryId: 'repo-1', selectedThreadId: 'thread-1' as string | null }
+    const service = createThreadStateService({
+      ensureState: () => ({ repositories: [], threads: [thread], ui }),
+      findThread: (id) => (id === thread.id ? thread : undefined),
+      saveState,
+      updateSelection: () => {},
+      buildSelectionSnapshot: () => ({}) as never,
+      successResult: () => ({ ok: true }),
+      failureResult: (error) => ({ ok: false, error }),
+      normalizeCustomTitle: (value) => value ?? null,
+      normalizeTrackedText: (value) => value ?? null,
+      normalizeCopilotTitle: (title) => title ?? null,
+      nowIso: () => '2026-01-02T00:00:00.000Z',
+      isThreadWorking: () => working
+    })
+
+    // Requires at least one linked work item or local task.
+    expect(service.updateThread({ threadId: 'thread-1', autoSettle: true })).toEqual({
+      ok: false,
+      error: 'Link a work item to enable auto settle.'
+    })
+
+    thread.taskNumbers = [42]
+    // While working, enabling auto settle does not suspend the thread.
+    expect(service.updateThread({ threadId: 'thread-1', autoSettle: true }).ok).toBe(true)
+    expect(thread.autoSettle).toBe(true)
+    expect(thread).not.toHaveProperty('suspendedAt')
+
+    // Disabling clears autoSettle; re-enabling when idle suspends it.
+    expect(service.updateThread({ threadId: 'thread-1', autoSettle: false }).ok).toBe(true)
+    expect(thread).not.toHaveProperty('autoSettle')
+    working = false
+    expect(service.updateThread({ threadId: 'thread-1', autoSettle: true }).ok).toBe(true)
+    expect(thread.autoSettle).toBe(true)
+    expect(thread.suspendedAt).toBe('2026-01-02T00:00:00.000Z')
+
+    // Auto-settling settles the thread, clears suspension, closes selection, and keeps autoSettle marked.
+    expect(service.autoSettleThread('thread-1')).toBe(true)
+    expect(thread.settledAt).toBe('2026-01-02T00:00:00.000Z')
+    expect(thread).not.toHaveProperty('suspendedAt')
+    expect(thread.autoSettle).toBe(true)
+    expect(ui.selectedThreadId).toBeNull()
+
+    // Disabling auto settle works even when settled; unsettling also clears autoSettle.
+    expect(service.updateThread({ threadId: 'thread-1', autoSettle: false }).ok).toBe(true)
+    expect(thread).not.toHaveProperty('autoSettle')
+    thread.autoSettle = true
+    expect(service.updateThread({ threadId: 'thread-1', settled: false }).ok).toBe(true)
+    expect(thread).not.toHaveProperty('autoSettle')
+  })
 })

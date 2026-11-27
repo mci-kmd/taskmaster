@@ -48,6 +48,8 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
   updateThreadResumeSession: (input: UpdateThreadResumeSessionInput) => boolean
   updateThreadLastUserMessage: (input: UpdateThreadLastUserMessageInput) => boolean
   settleThreadFromAgent: (threadId: string) => boolean
+  /** Settles an auto-settling thread once its work items complete, keeping autoSettle marked. */
+  autoSettleThread: (threadId: string) => boolean
   /**
    * Closes the thread if its agent settled or snoozed it during the turn that just ended and
    * it is still open; returns whether the selection changed.
@@ -125,6 +127,45 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
         delete thread.awakenedAt
         dependencies.saveState()
       }
+      if (input.autoSettle !== undefined) {
+        if (typeof input.autoSettle !== 'boolean') {
+          return dependencies.failureResult('Invalid auto settle status.')
+        }
+        if (input.autoSettle) {
+          if (thread.settledAt) {
+            return dependencies.failureResult('Resolved threads cannot enable auto settle.')
+          }
+          if (!thread.workItems?.length && !thread.taskNumbers?.length) {
+            return dependencies.failureResult('Link a work item to enable auto settle.')
+          }
+          let changed = false
+          if (!thread.autoSettle) {
+            thread.autoSettle = true
+            changed = true
+          }
+          const busy =
+            dependencies.isThreadWorking?.(thread.id) === true ||
+            dependencies.isThreadSettingUp?.(thread.id) === true
+          if (!busy) {
+            if (!thread.suspendedAt) {
+              thread.suspendedAt = dependencies.nowIso()
+              changed = true
+            }
+            if (thread.snoozedUntil) {
+              delete thread.snoozedUntil
+              changed = true
+            }
+            if (thread.awakenedAt) {
+              delete thread.awakenedAt
+              changed = true
+            }
+          }
+          if (changed) dependencies.saveState()
+        } else if (thread.autoSettle) {
+          delete thread.autoSettle
+          dependencies.saveState()
+        }
+      }
       if (input.settled !== undefined) {
         if (typeof input.settled !== 'boolean') {
           return dependencies.failureResult('Invalid settlement status.')
@@ -135,6 +176,8 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
           delete thread.snoozedUntil
           delete thread.awakenedAt
           closeThread(thread.id, fromAgent)
+        } else {
+          delete thread.autoSettle
         }
         dependencies.saveState()
       }
@@ -240,7 +283,10 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       thread.lastUserMessage = nextMessage
       // A new prompt brings a settled, suspended or snoozed thread back, and attends to an
       // awakened one.
-      if (thread.settledAt) thread.settledAt = null
+      if (thread.settledAt) {
+        thread.settledAt = null
+        delete thread.autoSettle
+      }
       delete thread.suspendedAt
       delete thread.snoozedUntil
       delete thread.awakenedAt
@@ -260,6 +306,18 @@ export function createThreadStateService(dependencies: ThreadStateServiceDepende
       delete thread.snoozedUntil
       delete thread.awakenedAt
       closeThread(thread.id, true)
+      dependencies.saveState()
+      return true
+    },
+
+    autoSettleThread: (threadId: string): boolean => {
+      const thread = dependencies.findThread(threadId)
+      if (!thread || !thread.autoSettle || thread.settledAt) return false
+      thread.settledAt = dependencies.nowIso()
+      delete thread.suspendedAt
+      delete thread.snoozedUntil
+      delete thread.awakenedAt
+      closeThread(thread.id, dependencies.isThreadWorking?.(thread.id) === true)
       dependencies.saveState()
       return true
     },

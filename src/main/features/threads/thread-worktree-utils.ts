@@ -4,7 +4,7 @@ import type {
   RepositoryBackend
 } from '../../../shared/app-types'
 import { mkdirSync, rmSync } from 'fs'
-import { runGit } from '../../backends/git-client'
+import { runGit, tryGitAsync } from '../../backends/git-client'
 import {
   backendPathExists,
   buildNativeCommand,
@@ -15,6 +15,7 @@ import {
   joinPath,
   mkdirBackend,
   pathForDisplay,
+  spawnBackendCommand,
   spawnSyncBackendCommand
 } from '../../backends/repository-backend'
 import { buildScriptCommand } from '../../terminal/command-utils'
@@ -54,6 +55,26 @@ export function worktreeGitArgs(backend: RepositoryBackend, args: string[]): str
 
 function runWorktreeGit(repoPath: string, args: string[], backend: RepositoryBackend): string {
   return runGit(repoPath, worktreeGitArgs(backend, args), backend)
+}
+
+async function runGitAsync(
+  repoPath: string,
+  args: string[],
+  backend: RepositoryBackend
+): Promise<string> {
+  const result = await tryGitAsync(repoPath, args, backend)
+  if (!result.ok) {
+    throw new Error(result.stderr.trim() || result.stdout.trim() || `git ${args.join(' ')} failed`)
+  }
+  return result.stdout.trim()
+}
+
+function runWorktreeGitAsync(
+  repoPath: string,
+  args: string[],
+  backend: RepositoryBackend
+): Promise<string> {
+  return runGitAsync(repoPath, worktreeGitArgs(backend, args), backend)
 }
 
 function reserveWorktreeDirectory(path: string, backend: RepositoryBackend): void {
@@ -177,6 +198,49 @@ function runThreadBranchScript(
   }
 }
 
+function runThreadBranchScriptAsync(
+  script: string,
+  repository: Pick<PersistedRepository, 'path' | 'backend'>,
+  thread: Pick<PersistedThread, 'branchName'>,
+  cwd: string
+): Promise<void> {
+  const resolvedScript = applyThreadBranchTokens(script, repository, thread)
+  const command = buildScriptCommand(resolvedScript, repository.backend)
+  return new Promise((resolve, reject) => {
+    const child = spawnBackendCommand(repository.backend, command, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (error?: Error): void => {
+      if (settled) return
+      settled = true
+      if (error) reject(error)
+      else resolve()
+    }
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk
+    })
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk
+    })
+    child.on('error', (error) => finish(error))
+    child.on('close', (code) => {
+      if (code === 0) {
+        finish()
+        return
+      }
+      const detail =
+        stderr.trim() || stdout.trim() || `Script exited with code ${code ?? 'unknown'}.`
+      finish(new Error(detail))
+    })
+  })
+}
+
 export function resolveBaseRef(
   repoPath: string,
   useCurrentBranch: boolean | undefined,
@@ -226,6 +290,34 @@ export function createWorktree(
   return worktreePath
 }
 
+export async function createWorktreeAsync(
+  repoPath: string,
+  branchName: string,
+  baseRef: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<string> {
+  if (branchExists(repoPath, branchName, backend)) {
+    throw new Error(`Branch "${branchName}" already exists.`)
+  }
+
+  const worktreePath = deriveWorktreePath(repoPath, branchName, backend)
+  mkdirBackend(backend, getDirname(worktreePath, backend))
+  reserveWorktreeDirectory(worktreePath, backend)
+  let ownsBranch = false
+  try {
+    await runGitAsync(repoPath, ['branch', branchName, baseRef], backend)
+    ownsBranch = true
+    await runWorktreeGitAsync(repoPath, ['worktree', 'add', worktreePath, branchName], backend)
+  } catch (error) {
+    throw new WorktreeCreationError(
+      error instanceof Error ? error.message : String(error),
+      worktreePath,
+      ownsBranch
+    )
+  }
+  return worktreePath
+}
+
 export function createWorktreeForExistingBranch(
   repoPath: string,
   branchName: string,
@@ -240,6 +332,30 @@ export function createWorktreeForExistingBranch(
   reserveWorktreeDirectory(worktreePath, backend)
   try {
     runWorktreeGit(repoPath, ['worktree', 'add', worktreePath, branchName], backend)
+  } catch (error) {
+    throw new WorktreeCreationError(
+      error instanceof Error ? error.message : String(error),
+      worktreePath,
+      false
+    )
+  }
+  return worktreePath
+}
+
+export async function createWorktreeForExistingBranchAsync(
+  repoPath: string,
+  branchName: string,
+  backend: RepositoryBackend = createNativeBackend()
+): Promise<string> {
+  if (!branchExists(repoPath, branchName, backend)) {
+    throw new Error(`Branch "${branchName}" does not exist.`)
+  }
+
+  const worktreePath = deriveWorktreePath(repoPath, branchName, backend)
+  mkdirBackend(backend, getDirname(worktreePath, backend))
+  reserveWorktreeDirectory(worktreePath, backend)
+  try {
+    await runWorktreeGitAsync(repoPath, ['worktree', 'add', worktreePath, branchName], backend)
   } catch (error) {
     throw new WorktreeCreationError(
       error instanceof Error ? error.message : String(error),
@@ -424,4 +540,26 @@ export function runNewWorktreeSetupCommand(
   }
 
   runThreadBranchScript(script, repository, thread, thread.worktreePath)
+}
+
+export async function runNewWorktreeSetupCommandAsync(
+  repository: Pick<PersistedRepository, 'path' | 'backend' | 'newWorktreeSetupCommand'>,
+  thread: Pick<PersistedThread, 'branchName' | 'worktreePath'>
+): Promise<void> {
+  const script = normalizeRepositoryScript(repository.newWorktreeSetupCommand)
+  if (!script) {
+    return
+  }
+
+  if (!thread.worktreePath) {
+    throw new Error('Worktree path missing.')
+  }
+
+  if (!backendPathExists(repository.backend, thread.worktreePath, 'directory')) {
+    throw new Error(
+      `Working directory not found: ${pathForDisplay(thread.worktreePath, repository.backend)}`
+    )
+  }
+
+  await runThreadBranchScriptAsync(script, repository, thread, thread.worktreePath)
 }

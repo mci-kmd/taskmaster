@@ -23,6 +23,7 @@ type SidebarProps = {
   onOpenPerformance: () => void
   performanceOpen: boolean
   onSettleThread: (id: string, settled: boolean) => void
+  onAutoSettleThread?: (id: string, enabled: boolean) => void
   onSuspendThread?: (id: string, suspended: boolean) => void
   /** Snoozes a thread until an ISO time, or wakes it with null. */
   onSnoozeThread?: (id: string, until: string | null) => void
@@ -55,6 +56,7 @@ export default function Sidebar({
   onOpenPerformance,
   performanceOpen,
   onSettleThread,
+  onAutoSettleThread,
   onSuspendThread,
   onSnoozeThread,
   onCustomSnoozeThread,
@@ -143,6 +145,7 @@ export default function Sidebar({
           onOpenRepositoryTasks={onOpenRepositoryTasks}
           onEditThread={onEditThread}
           onSettleThread={onSettleThread}
+          onAutoSettleThread={onAutoSettleThread}
           onSuspendThread={onSuspendThread}
           onSnoozeThread={onSnoozeThread}
           onCustomSnoozeThread={onCustomSnoozeThread}

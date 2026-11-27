@@ -5,6 +5,8 @@ import type { ThreadWorkItem } from './work-items'
 export type { ThreadWorkItem } from './work-items'
 
 export type ThreadMode = 'active-branch' | 'new-branch' | 'worktree'
+/** Checkout setup currently running for a thread. */
+export type ThreadSetupPhase = 'worktree' | 'branch'
 /** Where a thread on the primary branch moves: a branch in the same checkout, or a worktree. */
 export type ThreadCheckoutMoveKind = 'branch' | 'worktree'
 
@@ -242,6 +244,8 @@ export interface PersistedThread {
   workItems?: ThreadWorkItem[]
   /** Numbers of the project's tasks the agent linked through taskmaster_link_work_items. */
   taskNumbers?: number[]
+  /** When true, the thread settles automatically once all linked work items and tasks complete. */
+  autoSettle?: boolean
   /** Timeline item ids of Copilot messages the user pinned, oldest pin first. Absent when none. */
   pinnedMessageIds?: string[]
   /** Generated headings of pinned messages by message id. Absent until one is written. */
@@ -301,6 +305,8 @@ export interface ThreadSnapshot extends PersistedThread {
   isRunCommandRunning: boolean
   /** The phase of this thread's in-progress AI commit, or null when not committing. */
   commitPhase: ThreadCommitPhase | null
+  /** The checkout setup currently running for this thread, or null when not setting up. */
+  setupPhase?: ThreadSetupPhase | null
   /** The project's preview URL with this thread's branch tokens applied, or null when not opted in. */
   previewUrl: string | null
   /** Whether the AI commit action also pushes to the remote. */
@@ -1078,6 +1084,8 @@ export interface UpdateThreadInput {
   customTitle?: string | null
   settled?: boolean
   suspended?: boolean
+  /** Enables or disables settling the thread once all linked work items and tasks complete. */
+  autoSettle?: boolean
   /** Snoozes the thread until this ISO time; null wakes it without marking it awakened. */
   snoozedUntil?: string | null
   /** Clears the awakened state of a thread that returned from a snooze. */

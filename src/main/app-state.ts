@@ -30,6 +30,7 @@ import type {
   UpdateThreadInput,
   UpdateThreadLastUserMessageInput,
   ThreadModel,
+  ThreadSetupPhase,
   PersistedThread,
   PersistedThreadAside,
   UpdateThreadResumeSessionInput,
@@ -106,6 +107,8 @@ import { createThreadGitContextService } from './features/threads/thread-git-con
 import { getThreadExecutionCwd, getThreadUiCwd } from './features/threads/thread-paths'
 import { createThreadRunService } from './features/threads/thread-run-service'
 import { createThreadStateService } from './features/threads/thread-state-service'
+import { createThreadAutoSettleService } from './features/threads/thread-auto-settle-service'
+import { createWorkItemStatusChecker } from './features/threads/work-item-status'
 import {
   normalizeCustomTitle,
   normalizeTrackedText,
@@ -149,6 +152,10 @@ const nowIso = (): string => new Date().toISOString()
 
 let threadRunServiceRef: ReturnType<typeof createThreadRunService> | null = null
 let threadCommitServiceRef: ReturnType<typeof createThreadCommitService> | null = null
+let threadCreateServiceRef: ReturnType<typeof createThreadCreateService> | null = null
+let threadConvertServiceRef: ReturnType<typeof createThreadConvertService> | null = null
+let threadCheckoutMoveServiceRef: ReturnType<typeof createThreadCheckoutMoveService> | null = null
+let threadAutoSettleServiceRef: ReturnType<typeof createThreadAutoSettleService> | null = null
 let stopCopilotThread: (threadId: string) => Promise<void> = async () => undefined
 let hasCopilotSession: (threadId: string) => boolean = () => false
 let isCopilotThreadWorking: (threadId: string) => boolean = () => false
@@ -161,6 +168,14 @@ const snapshotService = createSnapshotService({
   ensureState,
   getRunningRunThreadIds: () => threadRunServiceRef?.getRunningThreadIds() ?? new Set(),
   getCommitPhases: () => threadCommitServiceRef?.getCommitPhases() ?? new Map(),
+  getSetupPhases: () => {
+    const phases = new Map<string, ThreadSetupPhase>()
+    for (const [id, phase] of threadCreateServiceRef?.getSetupPhases() ?? []) phases.set(id, phase)
+    for (const [id, phase] of threadCheckoutMoveServiceRef?.getSetupPhases() ?? [])
+      phases.set(id, phase)
+    for (const [id, phase] of threadConvertServiceRef?.getSetupPhases() ?? []) phases.set(id, phase)
+    return phases
+  },
   getRepositoryGitState: repositoryGitStateService.getRepositoryGitState,
   refreshRepositoryGitState: repositoryGitStateService.refreshRepositoryGitState,
   getThreadUiCwd,
@@ -201,7 +216,10 @@ const projectTaskService = createProjectTaskService({
   failureResult,
   nowIso,
   createId: randomUUID,
-  attachments: taskAttachmentStore
+  attachments: taskAttachmentStore,
+  onTaskCompleted: () => {
+    void threadAutoSettleServiceRef?.checkNow()
+  }
 })
 const settingsService = createSettingsService({
   ensureState,
@@ -309,8 +327,10 @@ const threadCreateService = createThreadCreateService({
     const repository = thread ? findRepository(thread.repositoryId) : undefined
     if (repository) repositoryGitStateService.getRepositoryGitState(repository, true)
     electronUi.broadcastThreadRunState(threadId)
-  }
+  },
+  onSetupPhaseChanged: (threadId) => electronUi.broadcastThreadRunState(threadId)
 })
+threadCreateServiceRef = threadCreateService
 const threadConvertService = createThreadConvertService({
   ensureState,
   saveState,
@@ -322,8 +342,10 @@ const threadConvertService = createThreadConvertService({
     threadRunService.getRunningThreadIds().has(threadId),
   refreshRepositoryGitState: (repository) => {
     repositoryGitStateService.getRepositoryGitState(repository, true)
-  }
+  },
+  onSetupPhaseChanged: (threadId) => electronUi.broadcastThreadRunState(threadId)
 })
+threadConvertServiceRef = threadConvertService
 const threadCloseService = createThreadCloseService({
   ensureState,
   saveState,
@@ -414,8 +436,10 @@ const threadCheckoutMoveService = createThreadCheckoutMoveService({
   isCommitting: (threadId) => threadCommitService.getCommitPhases().has(threadId),
   isWorking: (threadId) => isCopilotThreadWorking(threadId),
   isRunCommandRunning: (threadId) => threadRunService.getRunningThreadIds().has(threadId),
-  generateBranchName: generateThreadBranchName
+  generateBranchName: generateThreadBranchName,
+  onSetupPhaseChanged: (threadId) => electronUi.broadcastThreadRunState(threadId)
 })
+threadCheckoutMoveServiceRef = threadCheckoutMoveService
 
 /** Moves a thread off the primary branch, then moves its Copilot sessions along. */
 export async function moveThreadCheckout(
@@ -491,11 +515,26 @@ function scheduleSnoozeWake(): void {
   }, delay)
 }
 
+const workItemStatusChecker = createWorkItemStatusChecker()
+const threadAutoSettleService = createThreadAutoSettleService({
+  ensureState,
+  findThread,
+  findRepository,
+  isWorkItemCompleted: workItemStatusChecker.isCompleted,
+  autoSettleThread: threadStateService.autoSettleThread,
+  onThreadSettled: (threadId) => {
+    scheduleSnoozeWake()
+    electronUi.broadcastThreadRunState(threadId)
+  }
+})
+threadAutoSettleServiceRef = threadAutoSettleService
+
 export function initializeAppState(): void {
   ensureState()
   threadStateService.wakeSnoozedThreads()
   saveState()
   scheduleSnoozeWake()
+  void threadAutoSettleService.checkNow()
 }
 
 export function registerAppStateIpc(): void {
@@ -503,6 +542,7 @@ export function registerAppStateIpc(): void {
     beforeQuit: () => {
       if (snoozeTimer) clearTimeout(snoozeTimer)
       snoozeTimer = null
+      threadAutoSettleService.stop()
       return threadRunService.shutdown()
     },
     getSnapshot: () => buildSelectionSnapshot(),
@@ -549,7 +589,18 @@ export function registerAppStateIpc(): void {
     stopThreadRun: (threadId: string) => threadRunService.stopThreadRun(threadId),
     updateThread: (input: UpdateThreadInput) => {
       const result = threadStateService.updateThread(input)
-      if (input.snoozedUntil !== undefined || input.settled !== undefined) scheduleSnoozeWake()
+      if (
+        input.snoozedUntil !== undefined ||
+        input.settled !== undefined ||
+        input.autoSettle !== undefined
+      ) {
+        scheduleSnoozeWake()
+      }
+      if (input.autoSettle === true && result.ok) {
+        void threadAutoSettleService.checkNow()
+      } else if (input.autoSettle === false || input.settled !== undefined) {
+        threadAutoSettleService.syncSchedule()
+      }
       return result
     },
     pickRepositoryFavicon: (repositoryId: string): Promise<PickRepositoryFaviconResult> =>
@@ -695,7 +746,11 @@ function createAllCopilotSessionTools(threadId: string): Tool[] {
       setTaskNumbers: (taskNumbers) =>
         threadStateService.setThreadTaskNumbers(threadId, taskNumbers),
       moveCheckout: (kind, branchName) => moveThreadCheckout({ threadId, kind, branchName }),
-      onThreadChanged: refresh
+      onThreadChanged: () => {
+        refresh()
+        if (findThread(threadId)?.autoSettle) void threadAutoSettleService.checkNow()
+        else threadAutoSettleService.syncSchedule()
+      }
     })
   ]
 }

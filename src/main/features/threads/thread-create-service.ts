@@ -5,7 +5,8 @@ import type {
   PersistedRepository,
   PersistedThread,
   ThreadMode,
-  ThreadSetup
+  ThreadSetup,
+  ThreadSetupPhase
 } from '../../../shared/app-types'
 import { isGeneralProject } from '../../../shared/general-project'
 import { resolveThreadSetupMode } from '../../../shared/thread-setup'
@@ -25,8 +26,10 @@ import { normalizeCustomTitle } from './thread-values'
 import {
   cleanupFailedWorktree,
   createWorktree,
+  createWorktreeAsync,
   resolveBaseRef,
   runNewWorktreeSetupCommand,
+  runNewWorktreeSetupCommandAsync,
   WorktreeCreationError
 } from './thread-worktree-utils'
 
@@ -265,6 +268,117 @@ function setUpCheckout(repository: PersistedRepository, input: CheckoutRequest):
   }
 }
 
+/** Async version of setUpCheckout for worktrees so git and setup scripts don't block the main process. */
+async function setUpCheckoutAsync(
+  repository: PersistedRepository,
+  input: CheckoutRequest
+): Promise<CheckoutResult> {
+  if (input.mode !== 'worktree') {
+    return setUpCheckout(repository, input)
+  }
+
+  const repositoryPath = getRepositoryExecutionPath(repository)
+  const branchName = input.branchName?.trim()
+  if (!branchName) {
+    return failed('Branch name is required for worktree threads.')
+  }
+
+  const existingWorktree = listRepositoryWorktrees(repositoryPath, repository.backend).find(
+    (item) => item.branchName === branchName
+  )
+  if (existingWorktree) {
+    return {
+      ok: true,
+      checkout: {
+        mode: 'worktree',
+        branchName: existingWorktree.branchName,
+        worktreePath: existingWorktree.path,
+        ownsBranch: false,
+        ownsWorktree: false
+      }
+    }
+  }
+
+  const branchResolution = resolveExistingBranchTarget(
+    repositoryPath,
+    branchName,
+    repository.backend
+  )
+  if (!branchResolution.ok) {
+    return failed(branchResolution.error)
+  }
+  if (branchResolution.target) {
+    return failed(
+      `Cannot create a worktree thread for existing branch "${branchName}" because it is not an existing worktree.`
+    )
+  }
+
+  const baseResolution = resolveBaseRef(repositoryPath, input.useCurrentBranch, repository.backend)
+  if (!baseResolution.ok) {
+    return failed(baseResolution.error)
+  }
+
+  let worktreePath: string
+  try {
+    worktreePath = await createWorktreeAsync(
+      repositoryPath,
+      branchName,
+      baseResolution.ref,
+      repository.backend
+    )
+  } catch (error) {
+    const creationError = message(error)
+    if (!(error instanceof WorktreeCreationError)) {
+      return failed(creationError)
+    }
+
+    try {
+      cleanupFailedWorktree(
+        { branchName, worktreePath: error.worktreePath },
+        repositoryPath,
+        repository.backend,
+        {
+          deleteBranch: error.ownsBranch,
+          ownsWorktreePath: true
+        }
+      )
+    } catch (cleanupError) {
+      return failed(
+        `Worktree creation failed: ${creationError} Cleanup also failed: ${message(cleanupError)}`
+      )
+    }
+
+    return failed(`Worktree creation failed: ${creationError}`)
+  }
+
+  try {
+    await runNewWorktreeSetupCommandAsync(repository, { branchName, worktreePath })
+  } catch (error) {
+    const setupError = message(error)
+    let cleanupError: string | null = null
+
+    try {
+      cleanupFailedWorktree({ branchName, worktreePath }, repositoryPath, repository.backend, {
+        deleteBranch: true,
+        ownsWorktreePath: true
+      })
+    } catch (cleanupFailure) {
+      cleanupError = message(cleanupFailure)
+    }
+
+    return failed(
+      cleanupError
+        ? `New worktree setup script failed: ${setupError} Cleanup also failed: ${cleanupError}`
+        : `New worktree setup script failed: ${setupError}`
+    )
+  }
+
+  return {
+    ok: true,
+    checkout: { mode: 'worktree', branchName, worktreePath, ownsBranch: true, ownsWorktree: true }
+  }
+}
+
 /** Whether a new branch by this name would clash with a branch or worktree. */
 export function isBranchNameTaken(repository: PersistedRepository, name: string): boolean {
   const repositoryPath = getRepositoryExecutionPath(repository)
@@ -294,13 +408,17 @@ export function createThreadCreateService(dependencies: {
   }) => Promise<string | null>
   /** Called after a thread's checkout is made. */
   onThreadSetUp?: (threadId: string) => void
+  /** Called when a thread starts or stops setting up its checkout. */
+  onSetupPhaseChanged?: (threadId: string) => void
 }): {
   createThread: (input: CreateThreadInput) => MutationResult
   /** Makes the checkout a new thread's options ask for; a no-op once it is set up. */
   finishThreadSetup: (threadId: string, prompt: string) => Promise<ThreadSetupResult>
   isThreadSettingUp: (threadId: string) => boolean
+  getSetupPhases: () => ReadonlyMap<string, ThreadSetupPhase>
 } {
   const settingUp = new Map<string, Promise<ThreadSetupResult>>()
+  const setupPhases = new Map<string, ThreadSetupPhase>()
 
   const addThread = (thread: PersistedThread): MutationResult => {
     const state = dependencies.ensureState()
@@ -355,7 +473,7 @@ export function createThreadCreateService(dependencies: {
     // The thread may have been closed while its branch was named.
     const thread = dependencies.ensureState().threads.find((item) => item.id === threadId)
     if (!thread?.pendingSetup) return { ok: false, error: 'Thread not found.' }
-    const result = setUpCheckout(repository, request)
+    const result = await setUpCheckoutAsync(repository, request)
     if (!result.ok) return result
 
     const cwdChanged = result.checkout.worktreePath !== thread.worktreePath
@@ -366,6 +484,7 @@ export function createThreadCreateService(dependencies: {
       thread.resumeSessionId = null
       delete thread.aside
     }
+    setupPhases.delete(threadId)
     dependencies.saveState()
     dependencies.onThreadSetUp?.(threadId)
     return { ok: true, cwdChanged }
@@ -426,13 +545,26 @@ export function createThreadCreateService(dependencies: {
     finishThreadSetup: (threadId, prompt) => {
       const running = settingUp.get(threadId)
       if (running) return running
+      const pending = dependencies
+        .ensureState()
+        .threads.find((item) => item.id === threadId)?.pendingSetup
+      if (pending) {
+        setupPhases.set(threadId, pending.mode === 'worktree' ? 'worktree' : 'branch')
+        dependencies.onSetupPhaseChanged?.(threadId)
+      }
       const operation = setUp(threadId, prompt)
         .catch((error): ThreadSetupResult => ({ ok: false, error: message(error) }))
-        .finally(() => settingUp.delete(threadId))
+        .finally(() => {
+          settingUp.delete(threadId)
+          if (setupPhases.delete(threadId)) {
+            dependencies.onSetupPhaseChanged?.(threadId)
+          }
+        })
       settingUp.set(threadId, operation)
       return operation
     },
 
-    isThreadSettingUp: (threadId) => settingUp.has(threadId)
+    isThreadSettingUp: (threadId) => settingUp.has(threadId),
+    getSetupPhases: () => setupPhases
   }
 }

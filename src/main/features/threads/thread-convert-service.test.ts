@@ -8,8 +8,8 @@ import {
 } from '../repositories/repository-git'
 import {
   cleanupFailedWorktree,
-  createWorktreeForExistingBranch,
-  runNewWorktreeSetupCommand,
+  createWorktreeForExistingBranchAsync,
+  runNewWorktreeSetupCommandAsync,
   WorktreeCreationError
 } from './thread-worktree-utils'
 import { createThreadConvertService } from './thread-convert-service'
@@ -22,8 +22,8 @@ vi.mock('../repositories/repository-git', () => ({
 
 vi.mock('./thread-worktree-utils', () => ({
   cleanupFailedWorktree: vi.fn(),
-  createWorktreeForExistingBranch: vi.fn(),
-  runNewWorktreeSetupCommand: vi.fn(),
+  createWorktreeForExistingBranchAsync: vi.fn(),
+  runNewWorktreeSetupCommandAsync: vi.fn(),
   WorktreeCreationError: class WorktreeCreationError extends Error {
     readonly worktreePath: string
     readonly ownsBranch: boolean
@@ -87,7 +87,7 @@ function createState(thread: PersistedThread = createThread()): PersistedAppStat
 }
 
 function createHarness(state: PersistedAppState = createState()): {
-  convertThreadToWorktree: (threadId: string) => MutationResult
+  convertThreadToWorktree: (threadId: string) => Promise<MutationResult>
   saveState: ReturnType<typeof vi.fn>
   hasRunningProcesses: ReturnType<typeof vi.fn>
   refreshRepositoryGitState: ReturnType<typeof vi.fn>
@@ -118,28 +118,31 @@ describe('createThreadConvertService', () => {
     vi.mocked(getCurrentBranchName).mockReset()
     vi.mocked(listRepositoryWorktrees).mockReset()
     vi.mocked(cleanupFailedWorktree).mockReset()
-    vi.mocked(createWorktreeForExistingBranch).mockReset()
-    vi.mocked(runNewWorktreeSetupCommand).mockReset()
+    vi.mocked(createWorktreeForExistingBranchAsync).mockReset()
+    vi.mocked(runNewWorktreeSetupCommandAsync).mockReset()
 
     vi.mocked(branchExists).mockReturnValue(true)
     vi.mocked(getCurrentBranchName).mockReturnValue('main')
     vi.mocked(listRepositoryWorktrees).mockReturnValue([])
-    vi.mocked(createWorktreeForExistingBranch).mockReturnValue('/repo.worktrees/feature-thread')
+    vi.mocked(createWorktreeForExistingBranchAsync).mockResolvedValue(
+      '/repo.worktrees/feature-thread'
+    )
+    vi.mocked(runNewWorktreeSetupCommandAsync).mockResolvedValue(undefined)
   })
 
-  it('converts an existing branch into an owned worktree', () => {
+  it('converts an existing branch into an owned worktree', async () => {
     const state = createState()
     const harness = createHarness(state)
 
-    const result = harness.convertThreadToWorktree('thread-1')
+    const result = await harness.convertThreadToWorktree('thread-1')
 
     expect(result).toEqual({ ok: true })
-    expect(createWorktreeForExistingBranch).toHaveBeenCalledWith(
+    expect(createWorktreeForExistingBranchAsync).toHaveBeenCalledWith(
       '/repo',
       'feature/thread',
       createNativeBackend()
     )
-    expect(runNewWorktreeSetupCommand).toHaveBeenCalledWith(
+    expect(runNewWorktreeSetupCommandAsync).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'repo-1' }),
       {
         branchName: 'feature/thread',
@@ -159,12 +162,12 @@ describe('createThreadConvertService', () => {
     )
   })
 
-  it('rejects the currently checked-out branch', () => {
+  it('rejects the currently checked-out branch', async () => {
     vi.mocked(getCurrentBranchName).mockReturnValue('feature/thread')
     const state = createState()
     const harness = createHarness(state)
 
-    const result = harness.convertThreadToWorktree('thread-1')
+    const result = await harness.convertThreadToWorktree('thread-1')
 
     expect(result).toEqual({
       ok: false,
@@ -172,16 +175,16 @@ describe('createThreadConvertService', () => {
         'Convert to work tree only works for threads whose branch is not currently checked out.',
       cancelled: false
     })
-    expect(createWorktreeForExistingBranch).not.toHaveBeenCalled()
+    expect(createWorktreeForExistingBranchAsync).not.toHaveBeenCalled()
     expect(state.threads[0].mode).toBe('new-branch')
   })
 
-  it('reports the current-branch restriction before the running-process restriction', () => {
+  it('reports the current-branch restriction before the running-process restriction', async () => {
     vi.mocked(getCurrentBranchName).mockReturnValue('feature/thread')
     const harness = createHarness()
     harness.hasRunningProcesses.mockReturnValue(true)
 
-    const result = harness.convertThreadToWorktree('thread-1')
+    const result = await harness.convertThreadToWorktree('thread-1')
 
     expect(result).toEqual({
       ok: false,
@@ -191,14 +194,12 @@ describe('createThreadConvertService', () => {
     })
   })
 
-  it('rolls back the worktree when setup fails', () => {
-    vi.mocked(runNewWorktreeSetupCommand).mockImplementation(() => {
-      throw new Error('setup failed')
-    })
+  it('rolls back the worktree when setup fails', async () => {
+    vi.mocked(runNewWorktreeSetupCommandAsync).mockRejectedValue(new Error('setup failed'))
     const state = createState()
     const harness = createHarness(state)
 
-    const result = harness.convertThreadToWorktree('thread-1')
+    const result = await harness.convertThreadToWorktree('thread-1')
 
     expect(result).toEqual({
       ok: false,
@@ -221,11 +222,11 @@ describe('createThreadConvertService', () => {
     expect(harness.saveState).not.toHaveBeenCalled()
   })
 
-  it('rejects conversion while the thread has running processes', () => {
+  it('rejects conversion while the thread has running processes', async () => {
     const harness = createHarness()
     harness.hasRunningProcesses.mockReturnValue(true)
 
-    const result = harness.convertThreadToWorktree('thread-1')
+    const result = await harness.convertThreadToWorktree('thread-1')
 
     expect(result).toEqual({
       ok: false,
@@ -236,13 +237,13 @@ describe('createThreadConvertService', () => {
     expect(branchExists).not.toHaveBeenCalled()
   })
 
-  it('cleans the attempted path when worktree creation fails', () => {
-    vi.mocked(createWorktreeForExistingBranch).mockImplementation(() => {
-      throw new WorktreeCreationError('Filename too long', '/repo.worktrees/feature-thread', false)
-    })
+  it('cleans the attempted path when worktree creation fails', async () => {
+    vi.mocked(createWorktreeForExistingBranchAsync).mockRejectedValue(
+      new WorktreeCreationError('Filename too long', '/repo.worktrees/feature-thread', false)
+    )
     const harness = createHarness()
 
-    const result = harness.convertThreadToWorktree('thread-1')
+    const result = await harness.convertThreadToWorktree('thread-1')
 
     expect(result).toEqual({
       ok: false,

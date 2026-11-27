@@ -92,4 +92,44 @@ describe('thread menu actions', () => {
     expect(actions).toContainEqual(['snooze', 'Snooze again'])
     expect(actions).toContainEqual(['unsnooze', 'Unsnooze'])
   })
+
+  it('offers Auto settle only when linked to work items, and Disable auto settle when enabled', () => {
+    const base = { mode: 'worktree', projectKind: 'repository', settledAt: null }
+    const noItems = threadMenuActions(
+      threadMenuOptions(base as unknown as ThreadSnapshot, false, false)
+    ).map((entry) => entry.action)
+    expect(noItems).not.toContain('auto-settle')
+    expect(noItems).not.toContain('disable-auto-settle')
+
+    const withTask = threadMenuActions(
+      threadMenuOptions({ ...base, taskNumbers: [12] } as unknown as ThreadSnapshot, false, false)
+    ).map(({ action, label }) => [action, label])
+    expect(withTask).toContainEqual(['auto-settle', 'Auto settle'])
+    expect(withTask).not.toContainEqual(['disable-auto-settle', 'Disable auto settle'])
+
+    const enabledUnsettled = threadMenuActions(
+      threadMenuOptions(
+        { ...base, taskNumbers: [12], autoSettle: true } as unknown as ThreadSnapshot,
+        false,
+        false
+      )
+    ).map(({ action, label }) => [action, label])
+    expect(enabledUnsettled).toContainEqual(['disable-auto-settle', 'Disable auto settle'])
+    expect(enabledUnsettled).not.toContainEqual(['auto-settle', 'Auto settle'])
+
+    const enabledSettled = threadMenuActions(
+      threadMenuOptions(
+        {
+          ...base,
+          settledAt: '2026-01-02T00:00:00.000Z',
+          taskNumbers: [12],
+          autoSettle: true
+        } as unknown as ThreadSnapshot,
+        false,
+        false
+      )
+    ).map(({ action, label }) => [action, label])
+    expect(enabledSettled).toContainEqual(['disable-auto-settle', 'Disable auto settle'])
+    expect(enabledSettled).not.toContainEqual(['auto-settle', 'Auto settle'])
+  })
 })
