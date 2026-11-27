@@ -704,6 +704,7 @@ export default function Workspace({
               <div className="absolute inset-0">
                 <Suspense fallback={<ViewLoading label="Opening thread…" />}>
                   <LazyCopilotThreadView
+                    autoCompactThresholdTokens={settings.autoCompactThresholdTokens}
                     legacyModels={settings.legacyCopilotModels}
                     onSessionChange={handleCustomCopilotSessionChange}
                     onSetMessagePinned={handleSetMessagePinned}

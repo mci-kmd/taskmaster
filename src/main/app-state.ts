@@ -742,6 +742,10 @@ export function getAutoUpdateCopilotSetting(): boolean {
   return ensureState().settings.autoUpdateCopilot !== false
 }
 
+export function getAutoCompactThresholdTokens(): number | null | undefined {
+  return ensureState().settings.autoCompactThresholdTokens
+}
+
 export function getFavoriteCopilotModels(): string[] {
   return ensureState().settings.favoriteCopilotModels ?? []
 }

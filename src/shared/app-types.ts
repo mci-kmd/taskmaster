@@ -167,6 +167,11 @@ export interface PersistedSettings {
   threadSetupMode?: ThreadSetupMode
   /** Installs a pending Copilot SDK update at startup. Absent means on; only false is stored. */
   autoUpdateCopilot?: false
+  /**
+   * Context-size threshold (in tokens) above which stale-cache threads auto-compact before the
+   * next prompt. Absent means the default threshold; `null` disables auto-compaction.
+   */
+  autoCompactThresholdTokens?: number | null
 }
 
 export type CopilotModelSelection = {
@@ -729,6 +734,14 @@ export interface CopilotSessionSnapshot {
    * finish, so after its turn it is watching them rather than done.
    */
   backgroundShells?: number
+  /** Latest known token count in the session's context window, or null when unknown. */
+  contextTokens?: number | null
+  /** Latest known context window token limit for the active model, or null when unknown. */
+  contextTokenLimit?: number | null
+  /** Latest known prompt-cache expiration timestamp (ISO) for the active model, or null. */
+  cacheExpiresAt?: string | null
+  /** True while conversation history compaction is in progress. */
+  compacting?: boolean
   error: string | null
 }
 
@@ -803,6 +816,8 @@ export interface CopilotSendInput {
   replyToInteractionId?: string
   /** Long pasted text included in `prompt`, in the order it appears. */
   pastedTexts?: CopilotPastedText[]
+  /** Opts out of stale-cache auto-compaction for this message only. */
+  skipAutoCompact?: boolean
 }
 
 /** Long text pasted into a message; the message content includes it in full. */
@@ -941,6 +956,8 @@ export interface UpdateSettingsInput {
   threadSetupMode?: ThreadSetupMode
   /** Left unchanged when omitted. */
   autoUpdateCopilot?: boolean
+  /** Left unchanged when omitted. Pass `null` to disable auto-compaction. */
+  autoCompactThresholdTokens?: number | null
 }
 
 export interface UpdateRepositoryInput {

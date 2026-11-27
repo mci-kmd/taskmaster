@@ -61,6 +61,12 @@ import {
 } from './copilot/attachment-markers'
 import { stepReasoningEffort } from '../../../shared/reasoning-effort'
 import { asideSessionKey } from '../../../shared/aside'
+import {
+  formatContextUsage,
+  isCacheStale,
+  resolveAutoCompactThresholdTokens,
+  shouldAutoCompact
+} from '../../../shared/auto-compact'
 
 const api = getRendererApi()
 type Props = {
@@ -72,6 +78,8 @@ type Props = {
   legacyModels?: string[]
   /** Shows the agent mode picker; otherwise every message is sent in interactive mode. */
   showModePicker?: boolean
+  /** App-level context threshold for stale-cache auto-compaction (`null` disables it). */
+  autoCompactThresholdTokens?: number | null
   /** Pins or unpins a Copilot message; without it messages can't be pinned. */
   onSetMessagePinned?: (messageId: string, pinned: boolean) => Promise<unknown> | void
   /** Opens a new thread from the end of a message's turn, or from the latest turn without one. */
@@ -146,6 +154,21 @@ async function fileToAttachment(file: File): Promise<CopilotAttachment> {
     displayName: file.name || (file.type.startsWith('image/') ? 'Pasted image' : 'Pasted file'),
     previewUrl
   }
+}
+
+/** Reactive check for whether a known prompt-cache expiration timestamp has passed. */
+function useCacheStale(cacheExpiresAt: string | null | undefined): boolean {
+  const [, setTick] = useState(0)
+  const stale = isCacheStale(cacheExpiresAt)
+  useEffect(() => {
+    if (stale || typeof cacheExpiresAt !== 'string' || !cacheExpiresAt) return
+    const expiresAtMs = Date.parse(cacheExpiresAt)
+    if (!Number.isFinite(expiresAtMs)) return
+    const delay = Math.min(2_147_483_647, Math.max(0, expiresAtMs - Date.now() + 25))
+    const timer = window.setTimeout(() => setTick((count) => count + 1), delay)
+    return () => window.clearTimeout(timer)
+  }, [cacheExpiresAt, stale])
+  return stale
 }
 
 // Which threads have their aside panel open, so it stays open when switching threads and back.
@@ -240,6 +263,7 @@ export default function CopilotThreadView(props: Props): React.JSX.Element {
         thread={props.thread}
         open={asideOpen}
         legacyModels={props.legacyModels}
+        autoCompactThresholdTokens={props.autoCompactThresholdTokens}
         onClose={() => setAsideOpen(false)}
       />
     </div>
@@ -253,11 +277,13 @@ function AsidePanel({
   thread,
   open,
   legacyModels,
+  autoCompactThresholdTokens,
   onClose
 }: {
   thread: ThreadSnapshot
   open: boolean
   legacyModels?: string[]
+  autoCompactThresholdTokens?: number | null
   onClose: () => void
 }): React.JSX.Element | null {
   const presence = usePresence(open)
@@ -348,6 +374,7 @@ function AsidePanel({
             sessionKey={asideSessionKey(thread.id)}
             variant="aside"
             legacyModels={legacyModels}
+            autoCompactThresholdTokens={autoCompactThresholdTokens}
             onSessionChange={ignoreSessionChange}
           />
         )}
@@ -365,6 +392,7 @@ function SessionView({
   sharedCheckoutBusy = false,
   legacyModels,
   showModePicker = false,
+  autoCompactThresholdTokens,
   onSetMessagePinned,
   onForkThread,
   repository,
@@ -801,6 +829,36 @@ function SessionView({
   const watching =
     session?.phase === 'idle' && !backgroundAgents && (session.backgroundShells ?? 0) > 0
   const ready = session?.phase === 'idle' && !session.pendingInteraction && !stopping
+  const cacheStale = useCacheStale(session?.cacheExpiresAt)
+  const autoCompactThreshold = resolveAutoCompactThresholdTokens(autoCompactThresholdTokens)
+  const autoCompactDue =
+    ready &&
+    cacheStale &&
+    shouldAutoCompact({
+      contextTokens: session?.contextTokens,
+      cacheExpiresAt: session?.cacheExpiresAt,
+      thresholdTokens: autoCompactThreshold
+    })
+  const skipAutoCompact = Boolean(draft.skipAutoCompact)
+  // Clear a prior opt-out once the cache refreshes or drops out of auto-compact range.
+  useEffect(() => {
+    if (!cacheStale && draft.skipAutoCompact) {
+      updateDraft((current) =>
+        current.skipAutoCompact ? { ...current, skipAutoCompact: false } : current
+      )
+    }
+  }, [cacheStale, draft.skipAutoCompact, updateDraft])
+  const autoCompactContextLabel =
+    typeof session?.contextTokens === 'number'
+      ? formatContextUsage(session.contextTokens, session.contextTokenLimit)
+      : null
+  const shownAutoCompactContext = useRef<string | null>(null)
+  if (autoCompactDue && autoCompactContextLabel) {
+    shownAutoCompactContext.current = autoCompactContextLabel
+  }
+  const toggleSkipAutoCompact = (): void => {
+    updateDraft((current) => ({ ...current, skipAutoCompact: !current.skipAutoCompact }))
+  }
   // Messages sent while Copilot works steer the current turn or wait in the queue.
   const sendWhileRunning = running && !session?.pendingInteraction && !stopping
   // A pending request can be skipped by replying from the composer instead.
@@ -814,6 +872,7 @@ function SessionView({
     )
       return
     const sentDelivery = replying ? 'steer' : sendWhileRunning ? delivery : undefined
+    const sentSkipAutoCompact = !replying && !sentDelivery && autoCompactDue && skipAutoCompact
     void run('send', async () => {
       const revision = sessionRevision.current
       const message = expandPastedText(prompt, attachments)
@@ -823,6 +882,7 @@ function SessionView({
         attachments: message.attachments,
         ...(message.pastedTexts.length ? { pastedTexts: message.pastedTexts } : {}),
         agentMode,
+        ...(sentSkipAutoCompact ? { skipAutoCompact: true } : {}),
         ...(replying && replyTo
           ? { replyToInteractionId: replyTo.id }
           : sentDelivery
@@ -842,6 +902,7 @@ function SessionView({
               sentDelivery !== 'steer' && current.agentMode === draft.agentMode
                 ? null
                 : current.agentMode,
+            skipAutoCompact: sentDelivery === 'steer' ? current.skipAutoCompact : false,
             // An edited draft keeps the attachments its markers still refer to.
             attachments: current.attachments.filter(
               (item) =>
@@ -1225,6 +1286,7 @@ function SessionView({
             <Presence show={running} motion="collapse">
               <WorkingIndicator
                 waiting={Boolean(session?.pendingInteraction)}
+                compacting={Boolean(session?.compacting)}
                 since={session?.workingSince}
               />
             </Presence>
@@ -1379,6 +1441,28 @@ function SessionView({
           <div className="tm-session-slot">
             <div className="tm-session-notice tm-session-notice--warning" role="status">
               Copilot update: {sdk?.updateError}
+            </div>
+          </div>
+        </Presence>
+        <Presence show={autoCompactDue} motion="collapse">
+          <div className="tm-session-slot">
+            <div
+              className={`tm-session-notice${skipAutoCompact ? '' : ' tm-session-notice--info'}`}
+              role="status"
+            >
+              <span>
+                {skipAutoCompact
+                  ? `Skipping auto-compact for your next message (${shownAutoCompactContext.current ?? ''} will be recached).`
+                  : `Prompt cache expired (${shownAutoCompactContext.current ?? ''}). Your next message will compact the conversation first.`}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={Boolean(busy)}
+                onClick={toggleSkipAutoCompact}
+              >
+                {skipAutoCompact ? 'Compact instead' : 'Skip compaction'}
+              </Button>
             </div>
           </div>
         </Presence>

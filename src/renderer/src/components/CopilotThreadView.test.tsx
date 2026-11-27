@@ -1982,3 +1982,111 @@ describe('AI commit button after reconnecting', () => {
     await waitFor(() => expect(document.querySelector('.tm-commit')).not.toBeNull())
   })
 })
+
+describe('stale-cache auto-compact notice', () => {
+  it('shows context size before submit when cache is stale and exceeds threshold, and lets user opt out once', async () => {
+    const t = thread()
+    const stale = new Date(Date.now() - 60_000).toISOString()
+    mock.getSession.mockResolvedValue(
+      snapshot(t.id, {
+        contextTokens: 85_200,
+        contextTokenLimit: 200_000,
+        cacheExpiresAt: stale
+      })
+    )
+    render(
+      <CopilotThreadView thread={t} onSessionChange={vi.fn()} autoCompactThresholdTokens={50_000} />
+    )
+    await ready()
+
+    expect(
+      screen.getByText(
+        'Prompt cache expired (85.2k / 200k tokens). Your next message will compact the conversation first.'
+      )
+    ).toBeTruthy()
+
+    // Opt out for this message
+    fireEvent.click(screen.getByRole('button', { name: 'Skip compaction' }))
+    expect(
+      screen.getByText(
+        'Skipping auto-compact for your next message (85.2k / 200k tokens will be recached).'
+      )
+    ).toBeTruthy()
+
+    // Can flip back before sending
+    fireEvent.click(screen.getByRole('button', { name: 'Compact instead' }))
+    expect(screen.getByRole('button', { name: 'Skip compaction' })).toBeTruthy()
+
+    // Opt out again and send
+    fireEvent.click(screen.getByRole('button', { name: 'Skip compaction' }))
+    fireEvent.change(input(), { target: { value: 'Keep full context' } })
+    fireEvent.click(send())
+
+    await waitFor(() =>
+      expect(mock.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: t.id,
+          prompt: 'Keep full context',
+          skipAutoCompact: true
+        })
+      )
+    )
+    // Opt-out resets after sending
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Skip compaction' })).toBeTruthy()
+    )
+  })
+
+  it('stays hidden while warm or below threshold, and appears automatically once cache expires', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const t = thread()
+      const expiresSoon = new Date(Date.now() + 2_000).toISOString()
+      mock.getSession.mockResolvedValue(
+        snapshot(t.id, {
+          contextTokens: 70_000,
+          contextTokenLimit: 200_000,
+          cacheExpiresAt: expiresSoon
+        })
+      )
+      render(
+        <CopilotThreadView
+          thread={t}
+          onSessionChange={vi.fn()}
+          autoCompactThresholdTokens={50_000}
+        />
+      )
+      await ready()
+
+      expect(screen.queryByText(/Prompt cache expired/)).toBeNull()
+
+      await act(() => vi.advanceTimersByTimeAsync(2_100))
+      expect(
+        screen.getByText(
+          'Prompt cache expired (70k / 200k tokens). Your next message will compact the conversation first.'
+        )
+      ).toBeTruthy()
+
+      // Below threshold hides it
+      act(() =>
+        listener({
+          snapshot: snapshot(t.id, {
+            contextTokens: 40_000,
+            contextTokenLimit: 200_000,
+            cacheExpiresAt: expiresSoon
+          })
+        })
+      )
+      await waitFor(() => expect(screen.queryByText(/Prompt cache expired/)).toBeNull())
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows Compacting conversation while compaction is running', async () => {
+    const t = thread()
+    mock.getSession.mockResolvedValue(snapshot(t.id, { phase: 'running', compacting: true }))
+    render(<CopilotThreadView thread={t} onSessionChange={vi.fn()} />)
+    expect(await screen.findByText('Compacting conversation…')).toBeTruthy()
+  })
+})

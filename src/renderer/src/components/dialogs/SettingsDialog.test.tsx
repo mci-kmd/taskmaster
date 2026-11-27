@@ -73,6 +73,7 @@ it('shows automatic approval enabled by default and saves a toggle immediately',
     threadSetupMode: 'trunk',
     showAgentModePicker: false,
     autoUpdateCopilot: true,
+    autoCompactThresholdTokens: 50_000,
     disabledTaskmasterTools: []
   })
   expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Saved')
@@ -153,6 +154,7 @@ it('shows a rejected value inline and keeps saving other settings from the last 
     threadSetupMode: 'trunk',
     showAgentModePicker: false,
     autoUpdateCopilot: true,
+    autoCompactThresholdTokens: 50_000,
     disabledTaskmasterTools: []
   })
 })
@@ -175,6 +177,39 @@ it('saves turning off automatic Copilot updates', async () => {
   expect(updates).toHaveProperty('checked', true)
   await user.click(updates)
   expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({ autoUpdateCopilot: false }))
+})
+
+it('saves auto-compact toggle and custom threshold, rejecting out-of-range values', async () => {
+  const user = userEvent.setup()
+  const props = renderDialog()
+  await user.click(screen.getByRole('tab', { name: 'Copilot' }))
+
+  const enabled = screen.getByRole('checkbox', {
+    name: 'Compact before sending when prompt cache is stale'
+  })
+  expect(enabled).toHaveProperty('checked', true)
+
+  const threshold = screen.getByRole('textbox', { name: 'Auto-compact threshold (k tokens)' })
+  expect(threshold).toHaveProperty('value', '50')
+
+  await user.clear(threshold)
+  await user.type(threshold, '0')
+  await user.tab()
+  expect(await screen.findByText(/Enter a number between 1 and 1000/)).toBeTruthy()
+  expect(props.onSave).not.toHaveBeenCalled()
+
+  await user.clear(threshold)
+  await user.type(threshold, '75')
+  await user.tab()
+  expect(props.onSave).toHaveBeenLastCalledWith(
+    expect.objectContaining({ autoCompactThresholdTokens: 75_000 })
+  )
+
+  await user.click(enabled)
+  expect(props.onSave).toHaveBeenLastCalledWith(
+    expect.objectContaining({ autoCompactThresholdTokens: null })
+  )
+  expect(screen.queryByRole('textbox', { name: 'Auto-compact threshold (k tokens)' })).toBeNull()
 })
 
 it('saves Taskmaster tools turned off, one tool at a time', async () => {

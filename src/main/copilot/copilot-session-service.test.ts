@@ -43,6 +43,11 @@ const harness = vi.hoisted(() => ({
   forceStop: vi.fn(),
   fork: vi.fn(),
   truncate: vi.fn(),
+  compact: vi.fn(),
+  abortManualCompaction: vi.fn(),
+  getUsageMetrics: vi.fn(),
+  contextInfo: vi.fn(),
+  recomputeContextTokens: vi.fn(),
   listTasks: vi.fn(),
   broadcast: vi.fn(),
   startUpdateChecks: vi.fn(),
@@ -169,6 +174,28 @@ beforeEach(() => {
   harness.forceStop.mockResolvedValue(undefined)
   harness.fork.mockResolvedValue({ sessionId: 'forked-session' })
   harness.truncate.mockResolvedValue({ eventsRemoved: 0 })
+  harness.compact.mockResolvedValue({
+    success: true,
+    tokensRemoved: 60_000,
+    messagesRemoved: 10,
+    contextWindow: { tokenLimit: 200_000, currentTokens: 15_000, messagesLength: 4 }
+  })
+  harness.abortManualCompaction.mockResolvedValue({ cancelled: true })
+  harness.getUsageMetrics.mockResolvedValue({
+    totalPremiumRequests: 0,
+    totalApiDurationMs: 0,
+    sessionStartTime: 0,
+    codeChanges: { linesAdded: 0, linesRemoved: 0, filesModified: [] },
+    modelMetrics: {},
+    lastCallInputTokens: 0,
+    lastCallOutputTokens: 0
+  })
+  harness.contextInfo.mockResolvedValue({ contextInfo: null })
+  harness.recomputeContextTokens.mockResolvedValue({
+    totalTokens: 0,
+    messagesTokenCount: 0,
+    systemTokenCount: 0
+  })
   harness.listTasks.mockResolvedValue({ tasks: [] })
   harness.setModel.mockResolvedValue(undefined)
   harness.setAllowedModels.mockResolvedValue({})
@@ -191,7 +218,16 @@ beforeEach(() => {
         commands: { invoke: harness.invokeCommand },
         mcp: { list: harness.listMcpServers, oauth: { login: harness.mcpLogin } },
         queue: { pendingItems: harness.pendingItems, removeAt: harness.removeAt },
-        history: { truncate: harness.truncate },
+        history: {
+          truncate: harness.truncate,
+          compact: harness.compact,
+          abortManualCompaction: harness.abortManualCompaction
+        },
+        usage: { getMetrics: harness.getUsageMetrics },
+        metadata: {
+          contextInfo: harness.contextInfo,
+          recomputeContextTokens: harness.recomputeContextTokens
+        },
         tasks: { list: harness.listTasks }
       },
       on: (listener: (event: SessionEvent) => void) => {
@@ -2372,5 +2408,244 @@ describe('incremental streaming broadcasts', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('stale-cache auto-compaction', () => {
+  const pastIso = (): string => new Date(Date.now() - 60_000).toISOString()
+  const futureIso = (): string => new Date(Date.now() + 300_000).toISOString()
+
+  it('tracks context size and cache expiration from live events, ignoring sub-agent and compaction usage', async () => {
+    const saveSessionCache = vi.fn()
+    const service = setup(true, { saveSessionCache })
+    await service.start('thread')
+
+    const expires = futureIso()
+    emit('session.usage_info', { currentTokens: 72_000, tokenLimit: 200_000, messagesLength: 12 })
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: expires, inputTokens: 72_000 })
+    expect(service.getSession('thread')).toMatchObject({
+      contextTokens: 72_000,
+      contextTokenLimit: 200_000,
+      cacheExpiresAt: expires
+    })
+    expect(saveSessionCache).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-id',
+        cacheByModel: { model: expires },
+        contextTokens: 72_000,
+        tokenLimit: 200_000
+      })
+    )
+
+    // Sub-agent and compaction usage calls must not overwrite the main thread's cache timestamp.
+    const otherExpires = new Date(Date.now() + 999_000).toISOString()
+    harness.listener!(
+      event(
+        'assistant.usage',
+        { model: 'model', cacheExpiresAt: otherExpires, interactionType: 'conversation-subagent' },
+        { agentId: 'sub-1' }
+      )
+    )
+    emit('assistant.usage', {
+      model: 'model',
+      cacheExpiresAt: otherExpires,
+      interactionType: 'conversation-compaction'
+    })
+    expect(service.getSession('thread')?.cacheExpiresAt).toBe(expires)
+  })
+
+  it('hydrates cache state from persisted store and runtime metrics on resume', async () => {
+    const stale = pastIso()
+    harness.getEvents.mockResolvedValue([
+      event('user.message', { content: 'Earlier' }),
+      event('assistant.message', { messageId: 'a1', content: 'Answer' })
+    ])
+    harness.recomputeContextTokens.mockResolvedValue({
+      totalTokens: 84_000,
+      messagesTokenCount: 70_000,
+      systemTokenCount: 14_000
+    })
+    const service = setup(true, {
+      getSessionCache: () => ({
+        sessionId: 'session-id',
+        id: 'session-id',
+        cacheByModel: { model: stale },
+        contextTokens: 80_000,
+        tokenLimit: 200_000,
+        updatedAt: stale
+      })
+    })
+    const started = await service.start('thread')
+    expect(started.snapshot).toMatchObject({
+      contextTokens: 84_000,
+      contextTokenLimit: 200_000,
+      cacheExpiresAt: stale
+    })
+  })
+
+  it('compacts before sending when cache is stale and context exceeds threshold', async () => {
+    const order: string[] = []
+    harness.compact.mockImplementation(async () => {
+      order.push('compact')
+      return {
+        success: true,
+        tokensRemoved: 65_000,
+        messagesRemoved: 12,
+        contextWindow: { tokenLimit: 200_000, currentTokens: 15_000, messagesLength: 3 }
+      }
+    })
+    harness.send.mockImplementation(async () => {
+      order.push('send')
+      return 'msg-1'
+    })
+    const service = setup(true, { getAutoCompactThresholdTokens: () => 50_000 })
+    await service.start('thread')
+    emit('session.usage_info', { currentTokens: 80_000, tokenLimit: 200_000, messagesLength: 15 })
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: pastIso() })
+
+    const result = await service.send({
+      threadId: 'thread',
+      prompt: 'Continue',
+      attachments: [],
+      agentMode: 'interactive'
+    })
+    expect(result.ok).toBe(true)
+    expect(order).toEqual(['compact', 'send'])
+    expect(harness.compact).toHaveBeenCalledWith({ trigger: 'manual' })
+    expect(service.getSession('thread')).toMatchObject({
+      contextTokens: 15_000,
+      cacheExpiresAt: null,
+      compacting: false
+    })
+  })
+
+  it('skips auto-compaction when opted out, cache is warm, below threshold, or disabled', async () => {
+    let threshold: number | null = 50_000
+    const service = setup(true, { getAutoCompactThresholdTokens: () => threshold })
+    await service.start('thread')
+
+    // Warm cache -> no compact
+    emit('session.usage_info', { currentTokens: 80_000, tokenLimit: 200_000, messagesLength: 10 })
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: futureIso() })
+    await service.send({
+      threadId: 'thread',
+      prompt: 'Warm',
+      attachments: [],
+      agentMode: 'interactive'
+    })
+    emit('session.idle', {})
+
+    // Stale cache but at/below threshold -> no compact
+    emit('session.usage_info', { currentTokens: 50_000, tokenLimit: 200_000, messagesLength: 10 })
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: pastIso() })
+    await service.send({
+      threadId: 'thread',
+      prompt: 'At threshold',
+      attachments: [],
+      agentMode: 'interactive'
+    })
+    emit('session.idle', {})
+
+    // Stale cache and above threshold, but user opted out -> no compact
+    emit('session.usage_info', { currentTokens: 90_000, tokenLimit: 200_000, messagesLength: 10 })
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: pastIso() })
+    await service.send({
+      threadId: 'thread',
+      prompt: 'Opt out',
+      attachments: [],
+      agentMode: 'interactive',
+      skipAutoCompact: true
+    })
+    emit('session.idle', {})
+
+    // Disabled threshold -> no compact
+    threshold = null
+    await service.send({
+      threadId: 'thread',
+      prompt: 'Disabled',
+      attachments: [],
+      agentMode: 'interactive'
+    })
+
+    expect(harness.compact).not.toHaveBeenCalled()
+    expect(harness.send).toHaveBeenCalledTimes(4)
+  })
+
+  it('does not silently send and recache when compaction fails', async () => {
+    harness.compact.mockResolvedValueOnce({
+      success: false,
+      tokensRemoved: 0,
+      messagesRemoved: 0
+    })
+    const service = setup(true, { getAutoCompactThresholdTokens: () => 50_000 })
+    await service.start('thread')
+    emit('session.usage_info', { currentTokens: 85_000, tokenLimit: 200_000, messagesLength: 10 })
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: pastIso() })
+
+    const result = await service.send({
+      threadId: 'thread',
+      prompt: 'Next step',
+      attachments: [],
+      agentMode: 'interactive'
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('Could not compact')
+    expect(harness.send).not.toHaveBeenCalled()
+    expect(service.getSession('thread')).toMatchObject({ phase: 'idle', compacting: false })
+  })
+
+  it('aborts compaction without sending when stopped in flight', async () => {
+    const pendingCompact = deferred<{
+      success: boolean
+      tokensRemoved: number
+      messagesRemoved: number
+    }>()
+    harness.compact.mockReturnValueOnce(pendingCompact.promise)
+    const service = setup(true, { getAutoCompactThresholdTokens: () => 50_000 })
+    await service.start('thread')
+    emit('session.usage_info', { currentTokens: 90_000, tokenLimit: 200_000, messagesLength: 10 })
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: pastIso() })
+
+    const sending = service.send({
+      threadId: 'thread',
+      prompt: 'Cancel me',
+      attachments: [],
+      agentMode: 'interactive'
+    })
+    await vi.waitFor(() => expect(service.getSession('thread')?.compacting).toBe(true))
+
+    await service.abort('thread')
+    expect(harness.abortManualCompaction).toHaveBeenCalledTimes(1)
+    pendingCompact.resolve({ success: true, tokensRemoved: 10_000, messagesRemoved: 2 })
+
+    expect((await sending).ok).toBe(false)
+    expect(harness.send).not.toHaveBeenCalled()
+    expect(service.getSession('thread')).toMatchObject({ phase: 'idle', compacting: false })
+  })
+
+  it('records a timeline notice and clears stale cache on session.compaction_complete', async () => {
+    const service = setup()
+    await service.start('thread')
+    emit('assistant.usage', { model: 'model', cacheExpiresAt: pastIso() })
+    emit('session.compaction_complete', {
+      success: true,
+      preCompactionTokens: 92_000,
+      postCompactionTokens: 14_000,
+      tokensRemoved: 78_000,
+      tokenLimit: 200_000
+    })
+
+    const snap = service.getSession('thread')
+    expect(snap).toMatchObject({
+      contextTokens: 14_000,
+      contextTokenLimit: 200_000,
+      cacheExpiresAt: null,
+      compacting: false
+    })
+    expect(snap?.timeline.at(-1)).toMatchObject({
+      type: 'notice',
+      tone: 'info',
+      content: 'Compacted conversation (92k → 14k tokens).'
+    })
   })
 })

@@ -10,6 +10,8 @@ type Draft = {
   prompt: string
   attachments: DraftAttachment[]
   agentMode: CopilotAgentMode | null
+  /** One-shot opt-out from stale-cache auto-compaction for the next message. */
+  skipAutoCompact?: boolean
 }
 const emptyDraft: Draft = { prompt: '', attachments: [], agentMode: null }
 // In-memory only: survive thread/view changes without persisting file contents to disk.

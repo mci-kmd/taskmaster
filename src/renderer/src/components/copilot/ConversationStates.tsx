@@ -60,20 +60,28 @@ function useElapsed(since: string | null | undefined): number | null {
 /** The live row at the end of the transcript while Copilot works. */
 export function WorkingIndicator({
   waiting,
+  compacting,
   since,
   ...motion
 }: {
   /** Copilot is blocked on a request in the composer. */
   waiting: boolean
+  /** Copilot is compacting conversation history before sending the prompt. */
+  compacting?: boolean
   /** When Copilot started working on the current prompt. */
   since?: string | null
 } & MotionProps): React.JSX.Element {
   const elapsed = useElapsed(since)
+  const statusText = waiting
+    ? 'Waiting for your response'
+    : compacting
+      ? 'Compacting conversation…'
+      : 'Copilot is working…'
   return (
     <div className="tm-session-working" data-waiting={waiting || undefined} {...motion}>
       <SparkIcon className="tm-session-working-spark" aria-hidden="true" />
-      <span key={String(waiting)} className="tm-fade-in">
-        {waiting ? 'Waiting for your response' : 'Copilot is working…'}
+      <span key={statusText} className="tm-fade-in">
+        {statusText}
       </span>
       {elapsed !== null && !waiting ? (
         <span className="tm-session-working-time" title="Time spent on this prompt">

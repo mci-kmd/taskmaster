@@ -4,6 +4,7 @@ import type {
   UpdateSettingsInput,
   UpdateUiInput
 } from '../../../shared/app-types'
+import { normalizeAutoCompactThresholdTokens } from '../../../shared/auto-compact'
 import { normalizeDisabledTaskmasterTools } from '../../../shared/copilot-tools'
 import { normalizeTaskTagsInput } from '../../../shared/task-tags'
 import { isThreadSetupMode } from '../../../shared/thread-setup'
@@ -47,6 +48,11 @@ export function createSettingsService(dependencies: SettingsServiceDependencies)
       if (input.autoUpdateCopilot !== undefined) {
         if (input.autoUpdateCopilot === false) state.settings.autoUpdateCopilot = false
         else delete state.settings.autoUpdateCopilot
+      }
+      if (input.autoCompactThresholdTokens !== undefined) {
+        const threshold = normalizeAutoCompactThresholdTokens(input.autoCompactThresholdTokens)
+        if (threshold === undefined) delete state.settings.autoCompactThresholdTokens
+        else state.settings.autoCompactThresholdTokens = threshold
       }
       if (input.disabledTaskmasterTools !== undefined) {
         const disabled = normalizeDisabledTaskmasterTools(input.disabledTaskmasterTools)

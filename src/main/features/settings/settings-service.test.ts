@@ -190,6 +190,32 @@ describe('settings service', () => {
     expect(state.settings).not.toHaveProperty('autoUpdateCopilot')
   })
 
+  it('stores auto-compact threshold when customized or disabled, omitting the default', () => {
+    const settings: PersistedSettings = {
+      yoloEnabled: true,
+      terminalFontFamilyInput: '',
+      taskTagsInput: ''
+    }
+    const state = { settings, ui: { selectedRepositoryId: null, selectedThreadId: null } }
+    const service = createSettingsService({
+      ensureState: () => state,
+      saveState: vi.fn(),
+      successResult: () => ({ ok: true }),
+      normalizeTerminalFontFamilyInput: (value) => value,
+      clampSidebarWidth: (value) => value
+    })
+    const base = { yoloEnabled: true, terminalFontFamilyInput: '', taskTagsInput: '' }
+
+    service.updateSettings({ ...base, autoCompactThresholdTokens: 80_000 })
+    expect(state.settings.autoCompactThresholdTokens).toBe(80_000)
+    service.updateSettings(base)
+    expect(state.settings.autoCompactThresholdTokens).toBe(80_000)
+    service.updateSettings({ ...base, autoCompactThresholdTokens: null })
+    expect(state.settings.autoCompactThresholdTokens).toBeNull()
+    service.updateSettings({ ...base, autoCompactThresholdTokens: 50_000 })
+    expect(state.settings).not.toHaveProperty('autoCompactThresholdTokens')
+  })
+
   it('stores a valid new thread checkout only when given', () => {
     const settings: PersistedSettings = {
       yoloEnabled: true,

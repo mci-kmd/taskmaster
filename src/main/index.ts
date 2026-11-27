@@ -5,6 +5,7 @@ import { createModelPerformanceStore } from './copilot/model-performance-store'
 import { createPromptSummaryStore } from './copilot/prompt-summary-store'
 import { createInteractionRecordStore } from './copilot/interaction-record-store'
 import { createPastedTextStore } from './copilot/pasted-text-store'
+import { createSessionCacheStore } from './copilot/session-cache-store'
 import { IPC_CHANNELS } from '../shared/contracts/ipc'
 import { sendIpc } from './ipc/typed-ipc'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -32,6 +33,7 @@ import {
   getFavoriteCopilotModels,
   getLegacyCopilotModels,
   getAutoUpdateCopilotSetting,
+  getAutoCompactThresholdTokens,
   setFavoriteCopilotModels,
   markCopilotSessionStarted,
   updateCopilotActivity,
@@ -164,6 +166,9 @@ app.whenReady().then(() => {
     join(app.getPath('userData'), 'interactions.jsonl')
   )
   const pastedTextStore = createPastedTextStore(join(app.getPath('userData'), 'pasted-texts.jsonl'))
+  const sessionCacheStore = createSessionCacheStore(
+    join(app.getPath('userData'), 'session-cache.jsonl')
+  )
   const copilotService = createCopilotSessionService({
     getPromptSummaries: promptSummaryStore.getSummaries,
     savePromptSummary: promptSummaryStore.saveSummary,
@@ -171,6 +176,8 @@ app.whenReady().then(() => {
     saveInteraction: interactionStore.saveInteraction,
     getPastedTexts: pastedTextStore.getPastedTexts,
     savePastedTexts: pastedTextStore.savePastedTexts,
+    getSessionCache: sessionCacheStore.getCacheState,
+    saveSessionCache: sessionCacheStore.saveCacheState,
     getPerformanceSamples: performanceStore.getSamples,
     recordPerformanceSample: (sample) => {
       try {
@@ -187,6 +194,7 @@ app.whenReady().then(() => {
     setFavoriteModels: setFavoriteCopilotModels,
     getLegacyModels: getLegacyCopilotModels,
     autoUpdateSdkOnStartup: getAutoUpdateCopilotSetting,
+    getAutoCompactThresholdTokens,
     resolveThread: resolveCopilotThread,
     onSessionStarted: markCopilotSessionStarted,
     onTitleChanged: updateCopilotThreadTitle,

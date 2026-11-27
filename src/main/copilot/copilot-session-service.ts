@@ -41,6 +41,11 @@ import type {
   ThreadModel
 } from '../../shared/app-types'
 import { asideParentThreadId, asideSessionKey, isAsideSessionKey } from '../../shared/aside'
+import {
+  formatTokenCount,
+  resolveAutoCompactThresholdTokens,
+  shouldAutoCompact
+} from '../../shared/auto-compact'
 import { IPC_CHANNELS } from '../../shared/contracts/ipc'
 import { resolveThreadTitle, threadDisplayName } from '../../shared/thread-title'
 import { sendIpc } from '../ipc/typed-ipc'
@@ -66,6 +71,7 @@ import { CopilotSdkManager } from './copilot-sdk-manager'
 import { collectCopilotSdkUpdateBlockers } from './copilot-update-guard'
 import type { PromptSummaryRecord } from './prompt-summary-store'
 import type { InteractionRecord } from './interaction-record-store'
+import type { SessionCacheRecord } from './session-cache-store'
 
 type ThreadContext = {
   thread: PersistedThread
@@ -139,6 +145,12 @@ type ActiveSession = {
   lastItemBroadcastAt: number
   /** True while replaying buffered events before the initial hydrated snapshot broadcast. */
   hydrating: boolean
+  /** Latest known prompt-cache expiration timestamp (ISO) per model id. */
+  cacheByModel: Map<string, string>
+  /** Discards stale async context token recomputations when newer events arrive. */
+  contextRevision: number
+  /** Timestamp of the latest successful compaction, to ignore older cache timestamps. */
+  lastCompactionAt: string | null
   unsubscribe: () => void
 }
 
@@ -365,6 +377,28 @@ function timelineItemFromEvent(event: SessionEvent): CopilotTimelineItem | null 
         timestamp: event.timestamp,
         tone: 'warning'
       }
+    case 'session.compaction_complete': {
+      if (!event.data.success) return null
+      const pre = event.data.preCompactionTokens
+      const post = event.data.postCompactionTokens
+      const removed = event.data.tokensRemoved
+      const detail =
+        typeof pre === 'number' &&
+        Number.isFinite(pre) &&
+        typeof post === 'number' &&
+        Number.isFinite(post)
+          ? `Compacted conversation (${formatTokenCount(pre)} → ${formatTokenCount(post)} tokens).`
+          : typeof removed === 'number' && Number.isFinite(removed) && removed > 0
+            ? `Compacted conversation (freed ${formatTokenCount(removed)} tokens).`
+            : 'Compacted conversation.'
+      return {
+        id: `compaction:${event.id}`,
+        type: 'notice',
+        content: detail,
+        timestamp: event.timestamp,
+        tone: 'info'
+      }
+    }
     default:
       return null
   }
@@ -515,6 +549,8 @@ export function createCopilotSessionService(dependencies: {
   getLegacyModels?: () => string[]
   /** Whether a pending SDK update is installed at startup, before Copilot connects. */
   autoUpdateSdkOnStartup?: () => boolean
+  /** App-level context threshold for stale-cache auto-compaction (`null` disables it). */
+  getAutoCompactThresholdTokens?: () => number | null | undefined
   resolveThread: (threadId: string) => ThreadContext | null
   onSessionStarted: (threadId: string, sessionId: string) => void
   onTitleChanged: (threadId: string, title: string) => void
@@ -530,6 +566,8 @@ export function createCopilotSessionService(dependencies: {
   /** Long text pasted into the user message with this content, or null. */
   getPastedTexts?: (content: string) => CopilotPastedText[] | null
   savePastedTexts?: (sessionId: string, content: string, pastedTexts: CopilotPastedText[]) => void
+  getSessionCache?: (sessionId: string) => SessionCacheRecord | null
+  saveSessionCache?: (record: SessionCacheRecord) => void
   /** Custom tools registered on every session started for the thread. */
   getSessionTools?: (threadId: string) => Tool[]
   /** The thread's aside, or null when it has none. */
@@ -603,6 +641,7 @@ export function createCopilotSessionService(dependencies: {
   let clientVersion: string | null = null
   let clientPromise: Promise<CopilotClient> | null = null
   let models: CopilotModelOption[] = []
+  const modelTokenLimits = new Map<string, number>()
   let modelCatalogClient: CopilotClient | null = null
   let sdkUpdateInProgress = false
   let modelSelectionRevision = 0
@@ -613,6 +652,7 @@ export function createCopilotSessionService(dependencies: {
     client = null
     clientVersion = null
     models = []
+    modelTokenLimits.clear()
     modelCatalogClient = null
     if (stoppingClient) await stoppingClient.stop()
   }
@@ -629,6 +669,7 @@ export function createCopilotSessionService(dependencies: {
     client = null
     clientVersion = null
     models = []
+    modelTokenLimits.clear()
     modelCatalogClient = null
     if (staleClient) await staleClient.forceStop().catch(() => undefined)
   }
@@ -738,6 +779,163 @@ export function createCopilotSessionService(dependencies: {
     if (active.hydrating) return
     clearPendingItemBroadcasts(active)
     broadcastSession(active.snapshot)
+  }
+
+  const effectiveCacheExpiresAt = (
+    active: ActiveSession,
+    modelId: string | null = active.snapshot.nextModelSelection?.model ?? active.snapshot.model
+  ): string | null => (modelId ? (active.cacheByModel.get(modelId) ?? null) : null)
+
+  const persistSessionCache = (active: ActiveSession): void => {
+    const sessionId = active.snapshot.sessionId
+    if (!sessionId || !dependencies.saveSessionCache) return
+    const contextTokens = active.snapshot.contextTokens ?? null
+    const tokenLimit = active.snapshot.contextTokenLimit ?? null
+    if (active.cacheByModel.size === 0 && contextTokens === null && tokenLimit === null) return
+    try {
+      dependencies.saveSessionCache({
+        sessionId,
+        id: sessionId,
+        cacheByModel: Object.fromEntries(active.cacheByModel),
+        contextTokens,
+        tokenLimit,
+        updatedAt: new Date().toISOString()
+      })
+    } catch (error) {
+      console.error('Could not save session cache state:', error)
+    }
+  }
+
+  const parseValidIso = (value: unknown): string | null =>
+    typeof value === 'string' && value && Number.isFinite(Date.parse(value)) ? value : null
+
+  const parseNonNegativeNumber = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+
+  const isMainConversationUsage = (
+    event: Extract<SessionEvent, { type: 'assistant.usage' }>
+  ): boolean => {
+    if (event.agentId !== undefined) return false
+    if (event.data.parentToolCallId) return false
+    if (event.data.initiator === 'sub-agent' || event.data.initiator === 'mcp-sampling') {
+      return false
+    }
+    const interactionType = event.data.interactionType
+    if (
+      interactionType === 'conversation-subagent' ||
+      interactionType === 'conversation-sampling' ||
+      interactionType === 'conversation-background' ||
+      interactionType === 'conversation-compaction'
+    ) {
+      return false
+    }
+    return true
+  }
+
+  const refreshContextMetrics = async (
+    active: ActiveSession,
+    options: {
+      modelId?: string | null
+      history?: SessionEvent[]
+      includeUsageMetrics?: boolean
+      emit?: boolean
+    } = {}
+  ): Promise<void> => {
+    const revision = ++active.contextRevision
+    const targetModel = options.modelId ?? active.snapshot.model
+    const hasConversation =
+      (options.history
+        ? options.history.some((e) => e.type === 'user.message' || e.type === 'assistant.message')
+        : active.snapshot.timeline.some(
+            (item) => item.type === 'user' || item.type === 'assistant'
+          )) || false
+
+    const rpc = active.session.rpc as Partial<CopilotSession['rpc']> | undefined
+    const [usageMetrics, contextInfoResult] = await Promise.all([
+      options.includeUsageMetrics && typeof rpc?.usage?.getMetrics === 'function'
+        ? rpc.usage.getMetrics().catch(() => null)
+        : Promise.resolve(null),
+      typeof rpc?.metadata?.contextInfo === 'function'
+        ? rpc.metadata
+            .contextInfo({
+              promptTokenLimit: 0,
+              outputTokenLimit: 0,
+              ...(targetModel ? { selectedModel: targetModel } : {})
+            })
+            .catch(() => null)
+        : Promise.resolve(null)
+    ])
+
+    let recomputedTokens: number | null = null
+    const infoTokens = parseNonNegativeNumber(contextInfoResult?.contextInfo?.totalTokens)
+    const infoLimit =
+      parseNonNegativeNumber(contextInfoResult?.contextInfo?.limit) ??
+      parseNonNegativeNumber(contextInfoResult?.contextInfo?.promptTokenLimit)
+    if (
+      infoTokens === null &&
+      hasConversation &&
+      targetModel &&
+      typeof rpc?.metadata?.recomputeContextTokens === 'function'
+    ) {
+      const recomputed = await rpc.metadata
+        .recomputeContextTokens({ modelId: targetModel })
+        .catch(() => null)
+      recomputedTokens = parseNonNegativeNumber(recomputed?.totalTokens)
+    }
+
+    if (revision !== active.contextRevision || sessions.get(active.snapshot.threadId) !== active) {
+      return
+    }
+
+    const lastCompactionMs = active.lastCompactionAt ? Date.parse(active.lastCompactionAt) : NaN
+    if (usageMetrics?.modelMetrics) {
+      for (const [modelId, metric] of Object.entries(usageMetrics.modelMetrics)) {
+        const expiresAt = parseValidIso(metric?.cacheExpiresAt)
+        if (!expiresAt) continue
+        if (Number.isFinite(lastCompactionMs) && Date.parse(expiresAt) <= lastCompactionMs) {
+          continue
+        }
+        const existing = active.cacheByModel.get(modelId)
+        if (!existing || Date.parse(expiresAt) > Date.parse(existing)) {
+          active.cacheByModel.set(modelId, expiresAt)
+        }
+      }
+    }
+
+    let nextContextTokens =
+      infoTokens ??
+      recomputedTokens ??
+      active.snapshot.contextTokens ??
+      (hasConversation ? parseNonNegativeNumber(usageMetrics?.lastCallInputTokens) : null)
+    if (!hasConversation && nextContextTokens === null) nextContextTokens = 0
+
+    const modelLimit = targetModel ? (modelTokenLimits.get(targetModel) ?? null) : null
+    const nextTokenLimit =
+      infoLimit ?? (modelLimit !== null ? modelLimit : (active.snapshot.contextTokenLimit ?? null))
+    const nextCacheExpiresAt = effectiveCacheExpiresAt(active, targetModel)
+
+    const changed =
+      nextContextTokens !== (active.snapshot.contextTokens ?? null) ||
+      nextTokenLimit !== (active.snapshot.contextTokenLimit ?? null) ||
+      nextCacheExpiresAt !== (active.snapshot.cacheExpiresAt ?? null)
+
+    if (changed) {
+      if (options.emit === false) {
+        active.snapshot = {
+          ...active.snapshot,
+          contextTokens: nextContextTokens,
+          contextTokenLimit: nextTokenLimit,
+          cacheExpiresAt: nextCacheExpiresAt
+        }
+      } else {
+        updateSnapshot(active, {
+          contextTokens: nextContextTokens,
+          contextTokenLimit: nextTokenLimit,
+          cacheExpiresAt: nextCacheExpiresAt
+        })
+      }
+      persistSessionCache(active)
+    }
   }
 
   /**
@@ -1413,6 +1611,44 @@ export function createCopilotSessionService(dependencies: {
         if (!counted) addUsage(active, nanoAiu)
       }
       const { model, outputTokens, duration, timeToFirstTokenMs } = event.data
+      if (isMainConversationUsage(event)) {
+        const expiresAt = parseValidIso(event.data.cacheExpiresAt)
+        const usageModel = model || active.snapshot.model
+        let cacheUpdated = false
+        if (expiresAt && usageModel) {
+          active.cacheByModel.set(usageModel, expiresAt)
+          cacheUpdated = true
+        }
+        const activeModel = active.snapshot.nextModelSelection?.model ?? active.snapshot.model
+        const nextCacheExpiresAt =
+          expiresAt && usageModel === activeModel
+            ? expiresAt
+            : (active.snapshot.cacheExpiresAt ?? null)
+        const fallbackInputTokens =
+          active.snapshot.contextTokens == null
+            ? parseNonNegativeNumber(event.data.inputTokens)
+            : null
+        const fallbackMaxPrompt =
+          active.snapshot.contextTokenLimit == null
+            ? parseNonNegativeNumber(event.data.maxPromptTokens)
+            : null
+        const patch: Partial<CopilotSessionSnapshot> = {}
+        if (nextCacheExpiresAt !== (active.snapshot.cacheExpiresAt ?? null)) {
+          patch.cacheExpiresAt = nextCacheExpiresAt
+        }
+        if (fallbackInputTokens !== null && fallbackInputTokens > 0) {
+          patch.contextTokens = fallbackInputTokens
+        }
+        if (fallbackMaxPrompt !== null && fallbackMaxPrompt > 0) {
+          patch.contextTokenLimit = fallbackMaxPrompt
+        }
+        if (Object.keys(patch).length > 0) {
+          updateSnapshot(active, patch)
+          persistSessionCache(active)
+        } else if (cacheUpdated) {
+          persistSessionCache(active)
+        }
+      }
       const measured =
         outputTokens !== undefined &&
         Number.isFinite(outputTokens) &&
@@ -1535,13 +1771,71 @@ export function createCopilotSessionService(dependencies: {
           dependencies.onTitleChanged(active.snapshot.threadId, event.data.title)
         updateSnapshot(active, { title: event.data.title })
         break
-      case 'session.model_change':
+      case 'session.model_change': {
+        const nextLimit =
+          modelTokenLimits.get(event.data.newModel) ?? active.snapshot.contextTokenLimit ?? null
         updateSnapshot(active, {
           model: event.data.newModel,
-          reasoningEffort: (event.data.reasoningEffort as CopilotReasoningEffort | null) ?? null
+          reasoningEffort: (event.data.reasoningEffort as CopilotReasoningEffort | null) ?? null,
+          cacheExpiresAt: effectiveCacheExpiresAt(active, event.data.newModel),
+          contextTokenLimit: nextLimit
         })
         void syncAllowedModels(active)
+        if (!active.hydrating) {
+          void refreshContextMetrics(active, { modelId: event.data.newModel })
+        }
         break
+      }
+      case 'session.usage_info': {
+        const currentTokens = parseNonNegativeNumber(event.data.currentTokens)
+        const tokenLimit = parseNonNegativeNumber(event.data.tokenLimit)
+        if (currentTokens !== null || tokenLimit !== null) {
+          active.contextRevision++
+          updateSnapshot(active, {
+            ...(currentTokens !== null ? { contextTokens: currentTokens } : {}),
+            ...(tokenLimit !== null ? { contextTokenLimit: tokenLimit } : {})
+          })
+          persistSessionCache(active)
+        }
+        break
+      }
+      case 'session.compaction_start': {
+        const currentTokens = parseNonNegativeNumber(event.data.currentTokens)
+        updateSnapshot(active, {
+          compacting: true,
+          ...(currentTokens !== null ? { contextTokens: currentTokens } : {})
+        })
+        break
+      }
+      case 'session.compaction_complete': {
+        active.contextRevision++
+        if (event.data.success) {
+          active.cacheByModel.clear()
+          active.lastCompactionAt = event.timestamp
+          const sumTokens =
+            typeof event.data.conversationTokens === 'number' ||
+            typeof event.data.systemTokens === 'number' ||
+            typeof event.data.toolDefinitionsTokens === 'number'
+              ? (event.data.conversationTokens ?? 0) +
+                (event.data.systemTokens ?? 0) +
+                (event.data.toolDefinitionsTokens ?? 0)
+              : null
+          const postTokens =
+            parseNonNegativeNumber(event.data.postCompactionTokens) ??
+            parseNonNegativeNumber(sumTokens)
+          const tokenLimit = parseNonNegativeNumber(event.data.tokenLimit)
+          updateSnapshot(active, {
+            compacting: false,
+            cacheExpiresAt: null,
+            ...(postTokens !== null ? { contextTokens: postTokens } : {}),
+            ...(tokenLimit !== null ? { contextTokenLimit: tokenLimit } : {})
+          })
+          persistSessionCache(active)
+        } else {
+          updateSnapshot(active, { compacting: false })
+        }
+        break
+      }
       case 'assistant.turn_start':
         active.prompt ??= { startedAt: event.timestamp, nanoAiu: null, subagents: [] }
         updateSnapshot(active, {
@@ -1627,8 +1921,24 @@ export function createCopilotSessionService(dependencies: {
       .then((catalog) => {
         if (client !== sdkClient) return
         models = mapCatalog(catalog)
+        modelTokenLimits.clear()
+        for (const item of catalog) {
+          const limit =
+            item.capabilities?.limits?.max_prompt_tokens ??
+            item.capabilities?.limits?.max_context_window_tokens
+          if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+            modelTokenLimits.set(item.id, limit)
+          }
+        }
         for (const active of sessions.values()) {
-          updateSnapshot(active, { models })
+          const fallbackLimit =
+            active.snapshot.contextTokenLimit == null && active.snapshot.model
+              ? (modelTokenLimits.get(active.snapshot.model) ?? null)
+              : undefined
+          updateSnapshot(active, {
+            models,
+            ...(fallbackLimit !== undefined ? { contextTokenLimit: fallbackLimit } : {})
+          })
           void syncAllowedModels(active)
         }
       })
@@ -1843,6 +2153,9 @@ export function createCopilotSessionService(dependencies: {
         itemBroadcastTimer: null,
         lastItemBroadcastAt: 0,
         hydrating: false,
+        cacheByModel: new Map(),
+        contextRevision: 0,
+        lastCompactionAt: null,
         unsubscribe: () => undefined
       }
       config.onPermissionRequest = permissionHandler(placeholder, context.yoloEnabled)
@@ -1915,17 +2228,53 @@ export function createCopilotSessionService(dependencies: {
       }
       const timeline = buildTimeline(history, session.sessionId, aside?.baseEventId ?? null)
       placeholder.timelineIndex = rebuildTimelineIndex(timeline)
+      const latestCompaction = history.findLast(
+        (event): event is Extract<SessionEvent, { type: 'session.compaction_complete' }> =>
+          event.type === 'session.compaction_complete' && event.data.success === true
+      )
+      placeholder.lastCompactionAt = latestCompaction?.timestamp ?? null
+      const persistedCache = dependencies.getSessionCache?.(session.sessionId) ?? null
+      const persistedBeforeCompaction =
+        persistedCache !== null &&
+        latestCompaction !== undefined &&
+        Date.parse(latestCompaction.timestamp) >= Date.parse(persistedCache.updatedAt)
+      if (persistedCache && !persistedBeforeCompaction) {
+        for (const [modelId, expiresAt] of Object.entries(persistedCache.cacheByModel)) {
+          placeholder.cacheByModel.set(modelId, expiresAt)
+        }
+      }
+      const hydratedModel = currentModel.modelId ?? null
+      const initialContextTokens = persistedBeforeCompaction
+        ? parseNonNegativeNumber(latestCompaction?.data.postCompactionTokens)
+        : (persistedCache?.contextTokens ??
+          parseNonNegativeNumber(latestCompaction?.data.postCompactionTokens))
+      const initialTokenLimit = persistedBeforeCompaction
+        ? (parseNonNegativeNumber(latestCompaction?.data.tokenLimit) ??
+          (hydratedModel ? (modelTokenLimits.get(hydratedModel) ?? null) : null))
+        : (persistedCache?.tokenLimit ??
+          parseNonNegativeNumber(latestCompaction?.data.tokenLimit) ??
+          (hydratedModel ? (modelTokenLimits.get(hydratedModel) ?? null) : null))
       placeholder.snapshot = {
         ...placeholder.snapshot,
         phase: 'idle',
         agentMode: ['interactive', 'plan', 'autopilot'].includes(currentMode)
           ? (currentMode as CopilotSessionSnapshot['agentMode'])
           : 'interactive',
-        model: currentModel.modelId ?? null,
+        model: hydratedModel,
         reasoningEffort:
           (currentModel.reasoningEffort as CopilotReasoningEffort | undefined) ?? null,
+        contextTokens: initialContextTokens,
+        contextTokenLimit: initialTokenLimit,
+        cacheExpiresAt: effectiveCacheExpiresAt(placeholder, hydratedModel),
+        compacting: false,
         timeline
       }
+      await refreshContextMetrics(placeholder, {
+        modelId: hydratedModel,
+        history,
+        includeUsageMetrics: true,
+        emit: false
+      }).catch(() => undefined)
       if (operation.cancelled) {
         clearPendingItemBroadcasts(placeholder)
         cancelInteractions(placeholder)
@@ -2045,11 +2394,18 @@ export function createCopilotSessionService(dependencies: {
       const current = await active.session.rpc.model.getCurrent()
       if (sessions.get(active.snapshot.threadId) !== active)
         return { ok: false, error: 'Session closed before model settings were applied.' }
+      const appliedModel = current.modelId ?? null
       updateSnapshot(active, {
-        model: current.modelId ?? null,
+        model: appliedModel,
         reasoningEffort: (current.reasoningEffort as CopilotReasoningEffort | undefined) ?? null,
-        nextModelSelection: null
+        nextModelSelection: null,
+        cacheExpiresAt: effectiveCacheExpiresAt(active, appliedModel),
+        contextTokenLimit:
+          (appliedModel ? modelTokenLimits.get(appliedModel) : undefined) ??
+          active.snapshot.contextTokenLimit ??
+          null
       })
+      void refreshContextMetrics(active, { modelId: appliedModel })
       if (current.modelId !== selection.model || (effort && current.reasoningEffort !== effort)) {
         return {
           ok: false,
@@ -2284,6 +2640,56 @@ export function createCopilotSessionService(dependencies: {
         if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active) {
           return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
         }
+        const thresholdTokens = resolveAutoCompactThresholdTokens(
+          dependencies.getAutoCompactThresholdTokens?.()
+        )
+        const historyRpc = (active.session.rpc as Partial<CopilotSession['rpc']> | undefined)
+          ?.history
+        if (
+          !input.skipAutoCompact &&
+          typeof historyRpc?.compact === 'function' &&
+          shouldAutoCompact({
+            contextTokens: active.snapshot.contextTokens,
+            cacheExpiresAt: active.snapshot.cacheExpiresAt,
+            thresholdTokens
+          })
+        ) {
+          updateSnapshot(active, { compacting: true })
+          const compactResult = await historyRpc.compact({ trigger: 'manual' })
+          if (active.sendRevision !== sendRevision || sessions.get(input.threadId) !== active) {
+            return { ok: false, error: 'Message cancelled.', snapshot: active.snapshot }
+          }
+          if (!compactResult.success) {
+            finishActivity(active)
+            const failureMessage =
+              'Could not compact the conversation before sending. Try again or skip compaction for this message.'
+            updateSnapshot(active, {
+              phase: 'idle',
+              compacting: false,
+              error: failureMessage,
+              workingSince: null
+            })
+            return { ok: false, error: failureMessage, snapshot: active.snapshot }
+          }
+          active.contextRevision++
+          active.cacheByModel.clear()
+          active.lastCompactionAt = new Date().toISOString()
+          const nextContextTokens =
+            parseNonNegativeNumber(compactResult.contextWindow?.currentTokens) ??
+            active.snapshot.contextTokens ??
+            null
+          const nextTokenLimit =
+            parseNonNegativeNumber(compactResult.contextWindow?.tokenLimit) ??
+            active.snapshot.contextTokenLimit ??
+            null
+          updateSnapshot(active, {
+            compacting: false,
+            cacheExpiresAt: null,
+            contextTokens: nextContextTokens,
+            contextTokenLimit: nextTokenLimit
+          })
+          persistSessionCache(active)
+        }
         rememberPastedTexts(active, input)
         await active.session.send({
           ...expanded,
@@ -2298,7 +2704,12 @@ export function createCopilotSessionService(dependencies: {
         }
         finishActivity(active)
         cancelInteractions(active)
-        updateSnapshot(active, { phase: 'error', error: message, workingSince: null })
+        updateSnapshot(active, {
+          phase: 'error',
+          compacting: false,
+          error: message,
+          workingSince: null
+        })
         return { ok: false, error: message, snapshot: active.snapshot }
       }
     },
@@ -2307,10 +2718,14 @@ export function createCopilotSessionService(dependencies: {
       if (!active) return false
       active.sendRevision++
       cancelInteractions(active)
+      const historyRpc = (active.session.rpc as Partial<CopilotSession['rpc']> | undefined)?.history
+      if (active.snapshot.compacting && typeof historyRpc?.abortManualCompaction === 'function') {
+        await historyRpc.abortManualCompaction().catch(() => undefined)
+      }
       await active.session.abort()
       finishActivity(active)
       completePrompt(active, new Date().toISOString())
-      updateSnapshot(active, { phase: 'idle', error: null })
+      updateSnapshot(active, { phase: 'idle', compacting: false, error: null })
       refreshQueue(active)
       return true
     },
@@ -2533,10 +2948,14 @@ export function createCopilotSessionService(dependencies: {
       const history = await active.session.getEvents()
       active.prompt = null
       active.lastSummary = null
+      active.cacheByModel.clear()
       updateSnapshot(active, {
         timeline: buildTimeline(history, active.session.sessionId, null),
+        cacheExpiresAt: null,
+        contextTokens: null,
         error: null
       })
+      void refreshContextMetrics(active, { modelId: active.snapshot.model, history })
       dependencies.onHistoryTruncated?.(input.threadId, describeHistory(history))
       return { ok: true, snapshot: active.snapshot }
     } catch (error) {

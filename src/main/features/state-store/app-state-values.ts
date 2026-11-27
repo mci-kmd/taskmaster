@@ -7,6 +7,7 @@ import type {
   PersistedThreadAside,
   RepositoryBackend
 } from '../../../shared/app-types'
+import { normalizeAutoCompactThresholdTokens } from '../../../shared/auto-compact'
 import { isSameModelSelection, normalizeCommitMessageModel } from '../../../shared/commit'
 import {
   normalizeDisabledTaskmasterTools,
@@ -399,6 +400,9 @@ export function normalizePersistedSettings(
   const theme = isThemeId(settings.theme) ? settings.theme : undefined
   const showAgentModePicker = settings.showAgentModePicker === true ? true : undefined
   const autoUpdateCopilot = settings.autoUpdateCopilot === false ? false : undefined
+  const autoCompactThresholdTokens = normalizeAutoCompactThresholdTokens(
+    settings.autoCompactThresholdTokens
+  )
   const threadSetupMode = isThreadSetupMode(settings.threadSetupMode)
     ? settings.threadSetupMode
     : undefined
@@ -419,6 +423,7 @@ export function normalizePersistedSettings(
     theme === settings.theme &&
     showAgentModePicker === settings.showAgentModePicker &&
     autoUpdateCopilot === settings.autoUpdateCopilot &&
+    autoCompactThresholdTokens === settings.autoCompactThresholdTokens &&
     threadSetupMode === settings.threadSetupMode &&
     disabledTaskmasterTools === settings.disabledTaskmasterTools
   ) {
@@ -439,6 +444,9 @@ export function normalizePersistedSettings(
   else delete normalized.showAgentModePicker
   if (autoUpdateCopilot === false) normalized.autoUpdateCopilot = false
   else delete normalized.autoUpdateCopilot
+  if (autoCompactThresholdTokens !== undefined)
+    normalized.autoCompactThresholdTokens = autoCompactThresholdTokens
+  else delete normalized.autoCompactThresholdTokens
   if (threadSetupMode) normalized.threadSetupMode = threadSetupMode
   else delete normalized.threadSetupMode
   if (disabledTaskmasterTools) normalized.disabledTaskmasterTools = disabledTaskmasterTools
